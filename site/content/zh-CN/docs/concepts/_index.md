@@ -3,87 +3,68 @@ title: "核心概念"
 linkTitle: "核心概念"
 weight: 4
 description: >
-  Core Kueue Concepts
+  Kueue 核心概念
 no_list: true
 ---
 
-This section of the documentation helps you learn about the components, APIs and
-abstractions that Kueue uses to represent your cluster and workloads.
+本节文档将帮助您了解 Kueue 用于表示集群和工作负载的组件、API 及抽象的相关核心概念。
 
-## APIs
+## APIs {#apis}
 
-### [Resource Flavor](/docs/concepts/resource_flavor)
+### [资源规格](/docs/concepts/resource_flavor) {#resource-flavor}
 
-An object that you can define to describe what resources are available
-in a cluster. Typically, a `ResourceFlavor` is associated with the characteristics
-of a group of Nodes. It could distinguish among different characteristics of
-resources such as availability, pricing, architecture, models, etc.
+您可以定义该对象来描述集群中可用的资源。通常，`ResourceFlavor` 与一组节点的特性相关联。它可以区分资源的不同特性，如可用性、价格、架构、型号等。
 
-### [Cluster Queue](/docs/concepts/cluster_queue)
+### [集群队列](/docs/concepts/cluster_queue) {#cluster-queue}
 
-A cluster-scoped resource that governs a pool of resources, defining usage
-limits and Fair Sharing rules.
+一个集群范围的资源，用于管理一组资源池，定义使用限制和公平共享规则。
 
-### [Local Queue](/docs/concepts/local_queue)
+### [本地队列](/docs/concepts/local_queue) {#local-queue}
 
-A namespaced resource that groups closely related workloads belonging to a
-single tenant.
+一个命名空间级别的资源，用于将属于同一租户的相关工作负载分组。
 
-### [Workload](/docs/concepts/workload)
+### [工作负载](/docs/concepts/workload) {#workload}
 
-An application that will run to completion. It is the unit of _admission_ in
-Kueue. Sometimes referred to as _job_.
+将要运行至完成的应用程序。它是 Kueue 中"准入"的单位，有时也称为"作业（job）"。
 
-### [Workload Priority Class](/docs/concepts/workload_priority_class)
+### [工作负载优先级类](/docs/concepts/workload_priority_class) {#workload-priority-class}
 
-`WorkloadPriorityClass` defines a priority class for a workload,
-independently from [pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/).
-This priority value from a `WorkloadPriorityClass` is only used for managing the queueing and preemption of [Workloads](#workload).
+`WorkloadPriorityClass` 定义了工作负载的优先级类，与 [Pod 优先级](https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/pod-priority-preemption/) 无关。该优先级值仅用于管理 [工作负载](#workload) 的排队和抢占。
 
-### [Admission Check](/docs/concepts/admission_check)
+### [准入检查](/docs/concepts/admission_check) {#admission-check}
 
-A mechanism allowing internal or external components to influence the timing of workloads admission.
+一种允许内部或外部组件影响工作负载进入时间的机制。
 
-![Components](/images/queueing-components.svg)
+![组件](/images/queueing-components.svg)
 
-### [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)
+### [拓扑感知调度](/docs/concepts/topology_aware_scheduling) {#topology-aware-scheduling}
 
-A mechanism allowing to schedule Workloads optimizing Pod placement for
-network throughput between the Pods.
+一种机制，允许调度工作负载时优化 Pod 之间的网络吞吐量。
 
+## 术语表 {#glossary}
 
-## Glossary
+### 配额预留 {#quota-reservation}
 
-### Quota Reservation
+_配额预留_ 是 kueue 调度器在目标 [集群队列资源组](/docs/concepts/cluster_queue/#resource-groups) 内锁定工作负载所需资源的过程。
 
-_Quota reservation_ is the process during through which the kueue scheduler locks the resources needed by a workload within the targeted
-[ClusterQueues ResourceGroups](/docs/concepts/cluster_queue/#resource-groups)
+配额预留有时也称为 _工作负载调度_ 或 _作业调度_，但不应与 [Pod 调度](https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/assign-pod-node/) 混淆。
 
-Quota reservation is sometimes referred to as _workload scheduling_ or _job scheduling_,
-but it should not to be confused with [pod scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+### 准入 {#admission}
 
-### Admission
+_准入_ 是允许工作负载启动（Pod 被创建）的过程。当工作负载拥有配额预留且所有 [准入检查状态](/docs/concepts/admission_check) 都为 `Ready` 时，该工作负载即被准入。
 
-_Admission_ is the process of allowing a Workload to start (Pods to be created). A Workload
-is admitted when it has a Quota Reservation and all its [AdmissionCheckStates](/docs/concepts/admission_check)
-are `Ready`.
+### [队列组](/docs/concepts/cluster_queue#cohort)
 
-### [Cohort](/docs/concepts/cluster_queue#cohort)
+_队列组_ 是一组可以相互借用未使用配额的集群队列。
 
-A _cohort_ is a group of ClusterQueues that can borrow unused quota from each other.
+### 排队 {#queueing}
 
-### Queueing
+_排队_ 是指工作负载自创建起到被 Kueue 在集群队列中准入前的状态。通常，工作负载会根据集群队列的公平共享规则，与其他工作负载竞争可用配额。
 
-_Queueing_ is the state of a Workload since the time it is created until Kueue admits it on a ClusterQueue.
-Typically, the Workload will compete with other Workloads for available
-quota based on the Fair Sharing rules of the ClusterQueue.
+### [抢占](/docs/concepts/preemption) {#preemption}
 
-### [Preemption](/docs/concepts/preemption)
+_抢占_ 是为了容纳另一个工作负载而驱逐一个或多个已准入工作负载的过程。被驱逐的工作负载可能优先级较低，或正在借用现在被所属集群队列需要的资源。
 
-_Preemption_ is the process of evicting one or more admitted Workloads to accommodate another Workload.
-The Workload being evicted might be of a lower priority or might be borrowing
-resources that are now required by the owning ClusterQueue.
+### [公平共享](/docs/concepts/fair_sharing) {#fair-sharing}
 
-### [Fair Sharing](/docs/concepts/fair_sharing)
-
-Mechanisms in Kueue to share quota between tenants fairly.
+Kueue 中用于在租户之间公平分配配额的机制。
