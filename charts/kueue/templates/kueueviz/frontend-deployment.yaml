@@ -29,7 +29,7 @@ spec:
             - containerPort: 8080
           env:
             - name: REACT_APP_WEBSOCKET_URL
-              value: wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
+              value: 'wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
           resources:
             limits:
               cpu: 500m
