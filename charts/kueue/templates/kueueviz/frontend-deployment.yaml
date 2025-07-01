@@ -27,6 +27,9 @@ spec:
           imagePullPolicy: '{{ .Values.kueueViz.frontend.image.pullPolicy }}'
           ports:
             - containerPort: 8080
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
           resources:
             limits:
               cpu: 500m
@@ -34,7 +37,4 @@ spec:
             requests:
               cpu: 500m
               memory: 512Mi
-          env:
-            - name: REACT_APP_WEBSOCKET_URL
-              value: wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
 {{- end }}

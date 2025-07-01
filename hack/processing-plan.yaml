@@ -580,8 +580,6 @@ files:
       - kustomization.yaml
     continueOnError: true
     operations:
-      - type: DELETE
-        key: .spec.template.spec.containers[0].env
       - type: UPDATE
         key: .spec.tls.[].secretName
         value: '"{{ .Values.kueueViz.backend.ingress.tlsSecretName | default \"kueueviz-backend-tls\" }}"'
@@ -643,13 +641,11 @@ files:
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
-      - type: INSERT_OBJECT
-        addKeyIfMissing: true
-        key: .spec.template.spec.containers[0].env
+      - type: UPDATE
+        key: .spec.template.spec.containers.[].env.[].value
+        value: '"wss://{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
-        value: |
-          - name: REACT_APP_WEBSOCKET_URL
-            value: wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}
+        onItemCondition: '.spec.template.spec.containers.[].env.[].name == "REACT_APP_WEBSOCKET_URL"'
     postOperations:
       - type: INSERT_TEXT
         key: .spec
