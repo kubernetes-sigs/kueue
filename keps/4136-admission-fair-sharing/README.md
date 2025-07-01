@@ -192,8 +192,8 @@ workloads based on the LocalQueue resource usage when considering workloads with
 Workloads from different ClusterQueues are not compared against each other using the resource usage dimension.
 
 ### Entry penalty
-Because of the interval between updating FairSharingStatus the mechanism can be exploited. We may end up in a situation where one tenant
-can submit thousands of jobs which will be prioritized because they had slightly lower FairSharingStatus. 
+The mechanism as implemented in Kueue 0.12 can be exploited, because a tenant
+can submit thousands of jobs which get scheduled in a short period of time. 
 
 E.g. Let's assume:
 ```
