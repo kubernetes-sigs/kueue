@@ -186,11 +186,9 @@ workloads are sorted based on their Preemption-based fair share value. If some o
 fair sharing preemption may be executed. So admission-based fair sharing only reshuffles workloads
 within AdmissionScope and then other mechanisms are applied as usual.
 
-* When picking the candidates for preemption, within an AdmissionScope Kueue will not
-only order the workloads based on the priority and timestamp but also Workload's AdmissionScope resource usage. It only impacts
-the decision within the AdmissionScope itself, meaning for Preemption-based fair sharing/Hierarchical Cohorts picking the CQ/Cohort
-will remain the first step and won't be change in any way. Then instead of relying on priority, AdmissionScope's resource usage will be more important.
-Workloads from different AdmissionScopes won't be compared against each other in this dimension.
+* When picking the candidates for preemption, with AdmissionScope equal ClusterQueue, Kueue orders
+workloads based on the LocalQueue resource usage when considering workloads within the same ClusterQueue. 
+Workloads from different ClusterQueues are not compared against each other using the resource usage dimension.
 
 ### User Stories (Optional)
 #### Story 1
