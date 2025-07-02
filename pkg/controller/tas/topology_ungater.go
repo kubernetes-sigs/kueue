@@ -100,7 +100,6 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
 			r,
 		)).
-		For(&kueue.Workload{}).
 		Watches(&corev1.Pod{}, &podHandler).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
