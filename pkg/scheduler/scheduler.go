@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -535,29 +536,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
-			waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
-			if !workload.HasQuotaReservation(e.Obj) {
-				// Skip sending the event and bumping metrics related to quota
-				// reservation if quota was already reserved
-				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
-				metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
-				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
-				}
-			}
-			if workload.IsAdmitted(newWorkload) && !workload.HasNodeToReplace(e.Obj) {
-				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
-				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
-				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
-				}
-				if len(newWorkload.Status.AdmissionChecks) > 0 {
-					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
-					if features.Enabled(features.LocalQueueMetrics) {
-						metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
-					}
-				}
-			}
+			// Record metrics and events for quota reservation and admission
+			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
+
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
@@ -697,5 +678,48 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 			}
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+	}
+}
+
+// recordWorkloadAdmissionMetrics records metrics and events for workload admission process
+func (s *Scheduler) recordWorkloadAdmissionMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission) {
+	waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
+
+	s.recordQuotaReservationMetrics(newWorkload, originalWorkload, admission, waitTime)
+	s.recordWorkloadAdmissionEvents(newWorkload, originalWorkload, admission, waitTime)
+}
+
+// recordQuotaReservationMetrics records metrics and events for quota reservation
+func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
+	if workload.HasQuotaReservation(originalWorkload) {
+		return
+	}
+
+	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+
+	metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
+	}
+}
+
+// recordWorkloadAdmissionEvents records metrics and events for workload admission
+func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
+	if !workload.IsAdmitted(newWorkload) || workload.HasNodeToReplace(originalWorkload) {
+		return
+	}
+
+	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+	metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
+
+	if features.Enabled(features.LocalQueueMetrics) {
+		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
+	}
+
+	if len(newWorkload.Status.AdmissionChecks) > 0 {
+		metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
+		if features.Enabled(features.LocalQueueMetrics) {
+			metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
+		}
 	}
 }
