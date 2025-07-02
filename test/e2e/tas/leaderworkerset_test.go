@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*testing.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Obj()).
+			ResourceGroup(*testing.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
@@ -169,10 +169,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		)
 	})
 
-	ginkgo.When("creating a LeaderWorkerSet with leader grouped with workers", func() {
+	ginkgo.When("creating a LeaderWorkerSet co-locating leader and workers in a single topology domain", func() {
 		ginkgo.It("should place pods based on the ranks-ordering", func() {
 			const (
-				replicas = int32(1)
+				replicas = int32(2)
 				size     = int32(4)
 			)
 
@@ -182,11 +182,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				Replicas(replicas).
 				Size(size).
 				Queue(localQueue.Name).
-				WorkerTemplate(corev1.PodTemplateSpec{
+				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "same-group",
+							kueuealpha.PodSetGroupName:                  "any-group-name",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -197,42 +197,43 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Args:  util.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
-										extraResource: resource.MustParse("1"),
+										corev1.ResourceCPU: resource.MustParse("100m"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
-										extraResource: resource.MustParse("1"),
+										corev1.ResourceCPU: resource.MustParse("100m"),
 									},
 								},
 							},
 						},
 					},
 				}).
-				LeaderTemplate(
-					corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-								kueuealpha.PodSetGroupName:                  "same-group",
-							},
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetGroupName:                  "any-group-name",
 						},
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "c",
-									Image: util.GetAgnHostImage(),
-									Args:  util.BehaviorWaitForDeletion,
-									Resources: corev1.ResourceRequirements{
-										Limits: map[corev1.ResourceName]resource.Quantity{
-											extraResource: resource.MustParse("1"),
-										},
-										Requests: map[corev1.ResourceName]resource.Quantity{
-											extraResource: resource.MustParse("1"),
-										},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Image: util.GetAgnHostImage(),
+								Args:  util.BehaviorWaitForDeletion,
+								Resources: corev1.ResourceRequirements{
+									Limits: map[corev1.ResourceName]resource.Quantity{
+										corev1.ResourceCPU: resource.MustParse("100m"),
+										extraResource:      resource.MustParse("1"),
+									},
+									Requests: map[corev1.ResourceName]resource.Quantity{
+										corev1.ResourceCPU: resource.MustParse("100m"),
+										extraResource:      resource.MustParse("1"),
 									},
 								},
 							},
 						},
-					}).
+					},
+				}).
 				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Creating a LeaderWorkerSet", func() {
@@ -266,14 +267,28 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					index := fmt.Sprintf("%s/%s", pod.Labels[leaderworkersetv1.GroupIndexLabelKey], pod.Labels[leaderworkersetv1.WorkerIndexLabelKey])
 					gotAssignment[index] = pod.Spec.NodeName
 				}
-				gomega.Expect(gotAssignment).Should(
+				gomega.Expect(gotAssignment).Should(gomega.Or(
 					gomega.BeComparableTo(map[string]string{
 						"0/0": "kind-worker",
-						"0/1": "kind-worker2",
-						"0/2": "kind-worker3",
-						"0/3": "kind-worker4",
+						"0/1": "kind-worker",
+						"0/2": "kind-worker2",
+						"0/3": "kind-worker3",
+						"1/0": "kind-worker5",
+						"1/1": "kind-worker5",
+						"1/2": "kind-worker6",
+						"1/3": "kind-worker7",
 					}),
-				)
+					gomega.BeComparableTo(map[string]string{
+						"1/0": "kind-worker",
+						"1/1": "kind-worker",
+						"1/2": "kind-worker2",
+						"1/3": "kind-worker3",
+						"0/0": "kind-worker5",
+						"0/1": "kind-worker5",
+						"0/2": "kind-worker6",
+						"0/3": "kind-worker7",
+					}),
+				))
 			})
 		},
 		)
