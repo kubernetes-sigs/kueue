@@ -7285,6 +7285,74 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		// eventCmpOpts are the comparison options for the events
 		eventCmpOpts cmp.Options
 	}{
+		"workload preempted due to quota is using deleted Node": {
+			// In this scenario the preemption target, based on quota, is a
+			// using an already deleted node (z).
+			nodes:           defaultTwoNodes,
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("tas-main").
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "10Gi").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					Priority(3).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("low-priority-admitted", "default").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "5").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"z1",
+										},
+									},
+								},
+							}).Obj(),
+					).
+					Admitted(true).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			wantPreempted: sets.New("default/low-priority-admitted"),
+			wantLeft: map[kueue.ClusterQueueReference][]string{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
+					EventType: "Normal",
+					Reason:    "Preempted",
+					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   `couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 5 more needed. Pending the preemption of 1 workload(s)`,
+				},
+			},
+		},
 		"only low priority workload is preempted": {
 			// This test case demonstrates the baseline scenario where there
 			// is only one low-priority workload and it gets preempted.
