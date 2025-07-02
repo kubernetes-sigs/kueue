@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/version"
 )
 
 type AdmissionResult string
@@ -96,6 +97,15 @@ The label 'result' can have the following values:
 	)
 
 	// Metrics tied to the queue system.
+
+	GitVersion = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "version",
+			Help:      "Which version is running. 1 for 'controller_version' label with current version.",
+		},
+		[]string{"controller_version"},
+	)
 
 	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -687,7 +697,9 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 }
 
 func Register() {
+	GitVersion.WithLabelValues(version.GitVersion).Set(1)
 	metrics.Registry.MustRegister(
+		GitVersion,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,

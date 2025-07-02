@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
+	"sigs.k8s.io/kueue/pkg/version"
 )
 
 func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count int, kvs ...string) {
@@ -172,4 +173,11 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
+func TestGitVersionMetric(t *testing.T) {
+	// Set the GitVersion metric by calling Register()
+	Register()
+
+	expectFilteredMetricsCount(t, GitVersion, 1, "controller_version", version.GitVersion)
 }
