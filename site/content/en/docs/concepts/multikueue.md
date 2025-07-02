@@ -3,7 +3,7 @@ title: "MultiKueue"
 date: 2024-11-11
 weight: 8
 description: >
-  Kueue multi cluster job dispatching.
+  Multi-cluster job dispatching with Kueue.
 ---
 
 {{< feature-state state="beta" for_version="v0.9" >}}
@@ -11,47 +11,60 @@ description: >
 {{% alert title="Note" color="primary" %}}
 `MultiKueue` is currently a beta feature and is enabled by default.
 
-You can disable it by editing the `MultiKueue` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+You can disable it by editing the `MultiKueue` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
 {{% /alert %}}
-
 
 A MultiKueue setup is composed of a manager cluster and at least one worker cluster.
 
 ## Cluster Roles
+
 ### Manager Cluster
 
-The manager's main responsibilities are:
-- Establish and maintain the connection with the worker clusters.
-- Create and monitor remote objects (workloads or jobs) while keeping the local ones in sync.
+The manager cluster is responsible for:
 
-The MultiKueue Admission Check Controller runs in the manager cluster and will also maintain the `Active` status of the Admission Checks controlled by `multikueue`.
+- Establishing and maintaining connections with worker clusters.
+- Creating and monitoring remote objects (Workloads or Jobs) while keeping the local ones in sync.
 
-The quota set for the flavors of a ClusterQueue using MultiKueue controls how many jobs are subject for dispatching at a given point in time.
-Ideally, the quota in the manager cluster should be equal to the total quotas in the worker clusters.
-If significantly lower, the worker clusters will be under utilized.
-If significantly higher, the manager will dispatch and monitor workloads in the worker clusters that don't have a chance to be admitted.
+The **MultiKueue Admission Check Controller** runs in the manager cluster.
+It maintains the `Active` status of AdmissionChecks managed by MultiKueue.
+
+The quota set for the flavors of a ClusterQueue determines how many jobs are eligible for dispatching
+at a given time. Ideally, the quota in the manager cluster should equal the total quota available in all worker clusters:
+
+- If the manager’s quota is **significantly lower**, worker clusters may remain underutilized.
+- If the manager’s quota is **significantly higher**, it may dispatch and monitor workloads
+  that are unlikely to be admitted in the worker clusters.
 
 ### Worker Cluster
 
 The worker cluster acts like a standalone Kueue cluster.
-The workloads and jobs are created and deleted by the MultiKueue Admission Check Controller running in the manager cluster.
+The **MultiKueue Admission Check Controller**, running in the manager cluster,
+creates and deletes Workloads and Jobs in the worker clusters as needed.
 
 ## Job Flow
 
-For a job to be subject to multi cluster dispatching, you need to assign it to a ClusterQueue that uses a MultiKueue AdmissionCheck. The Multikueue system works as follows:
-- When the job's Workload gets a QuotaReservation in the manager cluster, a copy of that Workload will be created in all the configured worker clusters.
-- When one of the worker clusters admits the remote workload sent to it:
-  - The manager removes all the other remote Workloads.
-  - The manager creates a copy of the job in the selected worker cluster, configured to use the quota reserved by the admitted Workload by setting the job's `kueue.x-k8s.io/prebuilt-workload-name` label.
-- The manager monitors the remote objects, workload and job, and syncs any changes in their status into the local objects.
-- When the remote workload is marked as `Finished`:
-  - The manager does a last sync for the objects status.
-  - The manager removes the objects from the worker cluster.
+To enable multi-cluster dispatching, you need to assign a Job to a ClusterQueue configured with a MultiKueue `AdmissionCheck`.
 
-## Supported jobs
+The dispatching flow works as follows:
 
-MultiKueue supports a variety of workloads.
-You can learn how to:
+1. When the Job's Workload obtains a `QuotaReservation` in the manager cluster,
+   a copy of that Workload is created in all configured worker clusters.
+2. When a worker cluster admits one of these remote Workloads:
+   - The manager deletes the Workloads from the other clusters.
+   - The manager creates a copy of the Job in the selected worker cluster and labels it
+     with `kueue.x-k8s.io/prebuilt-workload-name` to link it to the admitted Workload.
+3. The manager monitors the remote Workload and Job, and synchronizes their status with
+   the corresponding local objects.
+4. Once the remote Workload is marked `Finished`:
+   - The manager performs a final status sync.
+   - It then deletes the corresponding objects from the worker cluster.
+
+## Supported Job Types
+
+MultiKueue supports a wide variety of workloads. You can learn how to:
+
 - [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
 - [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
 - [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobset).
@@ -62,9 +75,13 @@ You can learn how to:
 - [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
 
 ## Submitting Jobs
-In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.
-Kueue delegates the job to the configured worker clusters without any additional configuration changes.
 
-## What’s next? 
-- Learn how to [setup a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
-- Learn how to [run jobs](/docs/tasks/run/multikueue) in MultiKueue environment.
+In a [properly configured MultiKueue environment](/docs/tasks/manage/setup_multikueue),
+you can submit any supported Job to the **manager cluster**, targeting a ClusterQueue configured for MultiKueue.
+
+Kueue handles delegation to the appropriate worker cluster without requiring any additional changes to your job specification.
+
+## What’s Next?
+
+- [Set up a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
+- [Run Jobs in a MultiKueue environment](/docs/tasks/run/multikueue)
