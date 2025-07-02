@@ -18,34 +18,10 @@ package maps
 
 import (
 	"fmt"
-	"maps"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 )
-
-// Merge merges a and b while resolving the conflicts by calling commonKeyValue
-func Merge[K comparable, V any, S ~map[K]V](a, b S, commonKeyValue func(a, b V) V) S {
-	if a == nil {
-		return maps.Clone(b)
-	}
-
-	ret := maps.Clone(a)
-
-	for k, v := range b {
-		if _, found := a[k]; found {
-			ret[k] = commonKeyValue(a[k], v)
-		} else {
-			ret[k] = v
-		}
-	}
-	return ret
-}
-
-// MergeKeepFirst merges a and b keeping the values in a in case of conflict
-func MergeKeepFirst[K comparable, V any, S ~map[K]V](a, b S) S {
-	return Merge(a, b, func(v, _ V) V { return v })
-}
 
 // HaveConflict checks if a and b have the same key, but different value
 func HaveConflict[K comparable, V comparable, S ~map[K]V](a, b S) error {

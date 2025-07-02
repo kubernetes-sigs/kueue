@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -53,7 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -977,7 +978,7 @@ func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, er
 		return nil, nil
 	}
 	if !p.isGroup {
-		return maps.FilterKeys(p.Object().GetLabels(), labelKeysToCopy), nil
+		return utilmaps.FilterKeys(p.Object().GetLabels(), labelKeysToCopy), nil
 	}
 	workloadLabels := make(map[string]string, len(labelKeysToCopy))
 	for _, pod := range p.list.Items {
@@ -1048,7 +1049,10 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	if err != nil {
 		return nil, err
 	}
-	wl.Labels = maps.MergeKeepFirst(wl.Labels, labelsToCopy)
+	if wl.Labels == nil && labelsToCopy != nil {
+		wl.Labels = make(map[string]string, len(labelsToCopy))
+	}
+	maps.Copy(wl.Labels, labelsToCopy)
 	return wl, nil
 }
 
