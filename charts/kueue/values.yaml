@@ -213,6 +213,10 @@ mutatingWebhook:
   reinvocationPolicy: Never
 kueueViz:
   backend:
+    # -- KueueViz backend nodeSelector
+    nodeSelector: {}
+    # -- KueueViz backend tolerations
+    tolerations: []
     image:
       # -- KueueViz dashboard backend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
@@ -221,11 +225,11 @@ kueueViz:
       # -- KueueViz dashboard backend image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
-    # -- KueueViz backend nodeSelector
-    nodeSelector: {}
-    # -- KueueViz backend tolerations
-    tolerations: []
   frontend:
+    # -- KueueViz frontend nodeSelector
+    nodeSelector: {}
+    # -- KueueViz frontend tolerations
+    tolerations: []
     image:
       # -- KueueViz dashboard frontend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
@@ -234,10 +238,6 @@ kueueViz:
       # -- KueueViz dashboard frontend image pullPolicy.
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
-    # -- KueueViz frontend nodeSelector
-    nodeSelector: {}
-    # -- KueueViz frontend tolerations
-    tolerations: []
 metrics:
   # -- Prometheus namespace
   prometheusNamespace: monitoring
