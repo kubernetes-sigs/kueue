@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -239,8 +240,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if updated {
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
 		}
 	} else {
 		var updated, evicted bool
@@ -266,8 +266,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
 		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
 		if updated {
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			if client.IgnoreNotFound(err) != nil {
+			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+				if apierrors.IsNotFound(err) {
+					return ctrl.Result{}, nil
+				}
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
@@ -290,23 +292,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	lqActive := ptr.Deref(lq.Spec.StopPolicy, kueue.None) == kueue.None
 	if lqExists && lqActive && isDisabledRequeuedByLocalQueueStopped(&wl) {
 		workload.SetRequeuedCondition(&wl, kueue.WorkloadLocalQueueRestarted, "The LocalQueue was restarted after being stopped", true)
-		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if cqOk {
 		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
 		cq := kueue.ClusterQueue{}
-		err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq)
-		if client.IgnoreNotFound(err) != nil {
-			return ctrl.Result{}, err
+		if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
 		if isDisabledRequeuedByClusterQueueStopped(&wl) && ptr.Deref(cq.Spec.StopPolicy, kueue.None) == kueue.None {
 			workload.SetRequeuedCondition(&wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
 		}
 		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, &cq); updated || err != nil {
 			return ctrl.Result{}, err
@@ -316,9 +315,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// If the workload is admitted, updating the status here would set the Admitted condition to
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) && workload.SyncAdmittedCondition(&wl, r.clock.Now()) {
-		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-		if client.IgnoreNotFound(err) != nil {
-			return ctrl.Result{}, err
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if workload.IsAdmitted(&wl) {
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
