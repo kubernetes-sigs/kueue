@@ -58,7 +58,7 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if currentCondition.Status != newCondition.Status {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
-		return reconcile.Result{}, a.client.Status().Update(ctx, ac)
+		return reconcile.Result{}, client.IgnoreNotFound(a.client.Status().Update(ctx, ac))
 	}
 	return reconcile.Result{}, nil
 }

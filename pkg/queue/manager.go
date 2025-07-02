@@ -646,8 +646,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 }
 
 func (m *Manager) heads() []workload.Info {
-	var workloads []workload.Info
-	workloads = append(workloads, m.secondPassQueue.takeAllReady()...)
+	workloads := m.secondPassQueue.takeAllReady()
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {

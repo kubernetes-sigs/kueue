@@ -93,7 +93,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if ac.DeletionTimestamp.IsZero() {
 		if controllerutil.AddFinalizer(ac, kueue.ResourceInUseFinalizerName) {
 			if err := r.client.Update(ctx, ac); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(5).Info("Added finalizer")
 		}
@@ -108,7 +108,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			controllerutil.RemoveFinalizer(ac, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, ac); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			log.V(5).Info("Removed finalizer")
 		}
@@ -221,7 +221,10 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 			&handler.TypedEnqueueRequestForObject[*kueue.AdmissionCheck]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("AdmissionCheck").GroupKind().String()],
+		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).
 		Complete(WithLeadingManager(mgr, r, &kueue.AdmissionCheck{}, cfg))
 }

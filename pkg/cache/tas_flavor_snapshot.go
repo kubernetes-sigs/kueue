@@ -257,7 +257,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
 		// function was not called).
-		s.log.Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
+		s.log.V(3).Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
@@ -267,6 +267,13 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 }
 
 func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+	if s.leaves[domainID] == nil {
+		// this can happen if there is an admitted workload for which the
+		// backing node was deleted or is no longer Ready (so the addCapacity
+		// function was not called).
+		s.log.V(3).Info("skip removing TAS usage in domain", "domain", domainID, "usage", usage)
+		return
+	}
 	if s.leaves[domainID].tasUsage == nil {
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
@@ -826,6 +833,17 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		// optimize the potentially last domain
 		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount)
 	}
+	if useLeastFreeCapacityAlgorithm(unconstrained) {
+		for _, candidateDomain := range sortedDomain {
+			if candidateDomain.sliceState >= sliceCount {
+				return levelIdx, []*domain{candidateDomain}, ""
+			}
+		}
+		if required {
+			maxCapacityFound := sortedDomain[len(sortedDomain)-1].state
+			return 0, nil, s.notFitMessage(maxCapacityFound, sliceCount, sliceSize)
+		}
+	}
 	if topDomain.sliceState < sliceCount {
 		if required {
 			return 0, nil, s.notFitMessage(topDomain.sliceState, sliceCount, sliceSize)
@@ -999,7 +1017,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			s.log.V(2).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+			s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 			continue
 		}
 		// 2. Check Node Labels against Compiled Selector
@@ -1017,7 +1035,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		// isLowestLevelNode() is necessary because we gather node level information only when
 		// node is the lowest level of the topology
 		if s.isLowestLevelNode() && !selector.Matches(nodeLabelSet) {
-			s.log.V(2).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
+			s.log.V(3).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 			continue
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()

@@ -208,10 +208,7 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
         
-        local build_output
-        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager")
-        build_output="${build_output//kueue-system/$KUEUE_NAMESPACE}"
-        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
     )
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
@@ -227,11 +224,18 @@ function cluster_kueue_deploy {
         
         deploy_with_certmanager "$1"
     else
-        local build_output
-        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
-        build_output="${build_output//kueue-system/$KUEUE_NAMESPACE}"
-        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
+}
+
+# $1 kubeconfig 
+# $2 kustomization config
+function build_and_apply_kueue_manifests {
+    local build_output
+    build_output=$($KUSTOMIZE build "$2")
+    # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
+    build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
+    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
 }
 
 # $1 cluster name

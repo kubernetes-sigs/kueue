@@ -422,7 +422,8 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
 		}
 	}
-	return reconcile.Result{}, c.updateStatus(ctx, cluster, true, "Active", "Connected")
+
+	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
 }
 
 func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, bool, error) {

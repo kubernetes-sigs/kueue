@@ -13,17 +13,19 @@
     "check-unused": "depcheck"
   },
   "dependencies": {
-    "@mui/icons-material": "^7.1.2",
-    "@mui/material": "^7.1.2",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.2.0",
+    "@mui/material": "^7.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.3.0",
+    "react-router-dom": "^7.6.3",
     "react-toastify": "^11.0.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.6.0",
     "depcheck": "^1.4.7",
-    "vite": "^6.2.1"
+    "vite": "^7.0.0"
   },
   "browserslist": {
     "production": [

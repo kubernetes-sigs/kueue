@@ -9,12 +9,12 @@ enableRobotsTXT = true
 enableGitInfo = true
 
 # language settings
-contentDir = "content/en"
 defaultContentLanguage = "en"
-# tell Hugo not to include the /en/ element in the URL path for English docs
 defaultContentLanguageInSubdir = false
 # useful when translating
 enableMissingTranslationPlaceholders = true
+# Enable automatic translation links discovery
+disableLanguages = []
 # disable taxonomies
 disableKinds = ["taxonomy"]
 # deprecated directories
@@ -62,10 +62,19 @@ ignoreFiles = []
 ###############################################################################
 [languages]
   [languages.en]
-    languageName ="English"
+    languageName = "English"
     # weight used for sorting in the language menu
     weight = 1
-
+    contentDir = "content/en"
+    [languages.en.params]
+    language_code = "en-US"
+  [languages.zh-CN]
+    title = "Kueue"
+    languageName = "简体中文"
+    weight = 2
+    contentDir = "content/zh-CN"
+    [languages.zh-CN.params]
+    language_code = "zh-CN"
 ###############################################################################
 # Docsy - Site Parameters
 ###############################################################################
@@ -157,7 +166,7 @@ ignoreFiles = []
     desc = "Practical questions and curated answers"
   [[params.links.user]]
     name = "Slack"
-    url = "https://kubernetes.slack.com/"
+    url = "https://kubernetes.slack.com/messages/wg-batch"
     icon = "fab fa-slack"
     desc = "Chat with other project developers"
 

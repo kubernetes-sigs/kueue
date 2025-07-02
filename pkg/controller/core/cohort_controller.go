@@ -98,7 +98,10 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 			&handler.TypedEnqueueRequestForObject[*kueue.Cohort]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
@@ -149,7 +152,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
-	return ctrl.Result{}, err
+	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
 func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
