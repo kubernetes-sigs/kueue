@@ -257,7 +257,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
 		// function was not called).
-		s.log.Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
+		s.log.V(3).Info("skip accounting for TAS usage in domain", "domain", domainID, "usage", usage)
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
@@ -271,7 +271,7 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
 		// function was not called).
-		s.log.Info("skip removing TAS usage in domain", "domain", domainID, "usage", usage)
+		s.log.V(3).Info("skip removing TAS usage in domain", "domain", domainID, "usage", usage)
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
@@ -1017,7 +1017,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			s.log.V(2).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+			s.log.V(3).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 			continue
 		}
 		// 2. Check Node Labels against Compiled Selector
@@ -1035,7 +1035,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		// isLowestLevelNode() is necessary because we gather node level information only when
 		// node is the lowest level of the topology
 		if s.isLowestLevelNode() && !selector.Matches(nodeLabelSet) {
-			s.log.V(2).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
+			s.log.V(3).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 			continue
 		}
 		remainingCapacity := leaf.freeCapacity.Clone()
