@@ -1,14 +1,14 @@
 ---
-title: "Fair Sharing"
+title: "公平共享（Fair Sharing）"
 date: 2025-05-28
 weight: 6
 description: >
-  Mechanisms in Kueue to share quota between tenants fairly.
+  Kueue 中的机制，可在租户之间公平地分配配额。
 ---
 
+### [准入公平共享](/zh-CN/docs/concepts/admission_fair_sharing)
 
-### [Admission Fair Sharing](/docs/concepts/admission_fair_sharing)
+一种根据源 LocalQueue 的历史资源使用情况对工作负载进行排序的机制，
+优先考虑那些随着时间的推移消耗较少资源的工作负载。
 
-A mechanism for ordering workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed fewer resources over time.
-
-### [Preemption based Fair Sharing](/docs/concepts/preemption/#fair-sharing)
+### [基于抢占的公平共享](/zh-CN/docs/concepts/preemption/#fair-sharing)
