@@ -1,25 +1,24 @@
 # KEP-4136: Admission Fair Sharing
 
 <!-- toc -->
-- [KEP-4136: Admission Fair Sharing](#kep-4136-admission-fair-sharing)
-  - [Summary](#summary)
-  - [Motivation](#motivation)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
-  - [Proposal](#proposal)
-    - [Entry penalty](#entry-penalty)
-    - [User Stories (Optional)](#user-stories-optional)
-      - [Story 1](#story-1)
-      - [Story 2](#story-2)
-    - [Risks and Mitigations](#risks-and-mitigations)
-  - [Design Details](#design-details)
-    - [Test Plan](#test-plan)
-        - [Prerequisite testing updates](#prerequisite-testing-updates)
-      - [Unit Tests](#unit-tests)
-      - [Integration tests](#integration-tests)
-    - [Graduation Criteria](#graduation-criteria)
-  - [Drawbacks](#drawbacks)
-  - [Alternatives](#alternatives)
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [Entry penalty](#entry-penalty)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+    - [Story 2](#story-2)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -196,7 +195,7 @@ Workloads from different ClusterQueues are not compared against each other using
 The mechanism as implemented in Kueue 0.12 can be exploited, because a tenant
 can submit thousands of jobs which get scheduled in a short period of time.
 
-E.g. Let's assume:
+E.g. Let's consider:
 ```
 Tenant's A FairSharingStatus: 0.1 CPU
 Tenant's B FairSharingStatus: 0.05 CPU
@@ -206,7 +205,12 @@ usageSamplingInterval: 5mins
 Here, all Jobs submitted by Tenant B  within the next 5min get scheduled.
 Even if Tenant B submitted a job that consumed 1000 CPUs, consecutive jobs would still be prioritized because of the delay in updating the status.
 
-Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time it admits a Workload. The penalty should be calculated with similar formula: `penalty = A * requested_resource`. We assume the amount of time had passed since the last update is equal to the `usageSamplingInterval`.
+Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time it admits a Workload. The penalty should be calculated with the formula: `penalty = A * requested_resource`, where `A` is as above:
+
+`A = 1 - 0.5 ^ (sampling/half_life_decay)`. 
+
+This an equivalent of a job's usage that has been admitted `samplingInterval` ago. The value of penalty is an arbitrary decision for now.
+After we collect customers' feedback, we'll consider introducing an API that allows to configure it.
 
 ### User Stories (Optional)
 #### Story 1
