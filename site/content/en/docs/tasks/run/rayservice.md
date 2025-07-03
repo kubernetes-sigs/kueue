@@ -9,7 +9,7 @@ description: >
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html).
 
-Kueue manages the RayService through the RayCluster created for it, therefore, RayService needs the label of kueue.x-k8s.io/queue-name: user-queue and this label is propagated to the relevant RayCluster to trigger Kueue's management.
+Kueue manages the RayService through the RayCluster created for it. Therefore, RayService needs the label of kueue.x-k8s.io/queue-name: user-queue and this label is propagated to the relevant RayCluster to trigger Kueue's management.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
