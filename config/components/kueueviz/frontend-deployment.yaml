@@ -22,7 +22,7 @@ spec:
             - containerPort: 8080
           env:
             - name: REACT_APP_WEBSOCKET_URL
-              value: "wss://backend.kueueviz.local"
+              value: 'wss://backend.kueueviz.local'
           resources:
             limits:
               cpu: 500m
