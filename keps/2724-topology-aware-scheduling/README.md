@@ -854,8 +854,7 @@ Initially we plan to support node becoming not ready (as indicated in Node
 monitor nodes and will update each affected TAS workload with the information 
 about the failed nodes. This information will then be consumed by a new mechanism
 in scheduler where we will try to find a new topology assignment and replace the
-failed node(s) (by changing the assignment only on the affected pods). 
-If no replacement is possible, the workload will be evicted. Initially we plan
+failed node(s) (by changing the assignment only on the affected pods). Initially we plan
 to only replace in the case of a single node failure and if no preemption/reclamation
 is neccessary to fit the workload. Since this mechanism is dedicated
 to only replace nodes, it will only work for Topologies which specify
@@ -871,6 +870,9 @@ const (
 )
 ```
 
+Kueue tries to find a replacement for a failed node until success (or until it gets
+evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
+to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
 ### Implicit defaulting of TAS annotations
 
@@ -964,10 +966,10 @@ As an example let's analyze the assignment based on the size of a podset and sel
 mode. See the table below where the numbers are pods assigned to a particular node.
 The header for columns dedicated to nodes correspond node's initial capacity.
 
-| mode                   | Pods count | 6 | 5 | 4 | 3 | 2 |
-| -----------------------| ---------- | - | - | - | - | - |
-| BestFit                | 12         | 6 | . | 4 | . | 2 |
-| LeastFreeCapacity      | 10         | . | 2 | 4 | 2 | 2 |
+| mode              | Pods count | 6   | 5   | 4   | 3   | 2   |
+| ----------------- | ---------- | --- | --- | --- | --- | --- |
+| BestFit           | 12         | 6   | .   | 4   | .   | 2   |
+| LeastFreeCapacity | 10         | .   | 2   | 4   | 2   | 2   |
 
 Explanation:
 - `BestFit` - We prioritized 3rd node over 2nd node because 3rd node was a tight fit among all domains that could fit 2 slices. The last domain has been "optimized" to find the tight fit. 
@@ -1338,9 +1340,9 @@ the last domain.
 This algorithm was enabled by the `TASProfileMostFreeCapacity` feature flag and it
 was independent of PodSet's annotations:
 
-| featuregate/annotation     | preferred         | required          | unconstrained     |
-| -------------------------- | ----------------- | ----------------- | ----------------- |
-| TASProfileMostFreeCapacity | MostFreeCapacity  | MostFreeCapacity  | MostFreeCapacity  |
+| featuregate/annotation     | preferred        | required         | unconstrained    |
+| -------------------------- | ---------------- | ---------------- | ---------------- |
+| TASProfileMostFreeCapacity | MostFreeCapacity | MostFreeCapacity | MostFreeCapacity |
 
 #### Example
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively.
