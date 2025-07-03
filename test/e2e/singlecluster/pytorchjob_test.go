@@ -84,10 +84,10 @@ var _ = ginkgo.Describe("PyTorch integration", func() {
 				SetTypeMeta().
 				PyTorchReplicaSpecsDefault().
 				Parallelism(2).
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200Mi").
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "1").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
