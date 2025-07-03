@@ -67,7 +67,8 @@ ResourceFlavor 上的污点与 [节点污点](https://kubernetes.io/zh-cn/docs/c
 Kueue 要[接纳](/docs/concepts#admission) Workload 使用 ResourceFlavor，Workload 的 PodSpec 必须包含相应的容忍度。
 另一方面，如果 ResourceFlavor 的 `.spec.tolerations` 字段也设置了匹配的容忍度，
 则在[接纳](/docs/concepts#admission)期间不会考虑污点。
-与[ResourceFlavor 容忍度实现自动调度](#ResourceFlavor-容忍度实现自动调度)不同，Kueue 不会为 flavor 污点自动添加容忍度。
+与 [ResourceFlavor 容忍度实现自动调度](#ResourceFlavor-容忍度实现自动调度)不同，
+Kueue 不会为 flavor 污点自动添加容忍度。
 
 此类型的 ResourceFlavor 示例如下：
 
@@ -88,5 +89,5 @@ Kueue 要[接纳](/docs/concepts#admission) Workload 使用 ResourceFlavor，Wor
 
 ## 下一步？
 
-- 了解 [集群队列（cluster queues）](/docs/concepts/cluster_queue)。
+- 了解[集群队列（cluster queues）](/docs/concepts/cluster_queue)。
 - 阅读 `ResourceFlavor` 的 [API 参考](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceFlavor)。
