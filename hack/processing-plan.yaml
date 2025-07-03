@@ -626,3 +626,29 @@ files:
         position: END
         value: |
           {{- end }}
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.backend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        onFileCondition: '.kind == "Deployment" and (.metadata.name | contains("kueueviz-backend"))'
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.frontend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        onFileCondition: '.kind == "Deployment" and (.metadata.name | contains("kueueviz-frontend"))'
+        indentation: 2

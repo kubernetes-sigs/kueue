@@ -52,6 +52,11 @@ controllerManager:
     timeoutSeconds: 1
     failureThreshold: 3
     successThreshold: 1
+  # -- ControllerManager's nodeSelector
+  nodeSelector: {}
+  # -- ControllerManager's tolerations
+  tolerations: []
+  # -- ControllerManager's topologySpreadConstraints
   topologySpreadConstraints: []
   podDisruptionBudget:
     enabled: false
@@ -170,11 +175,19 @@ mutatingWebhook:
 enableKueueViz: false
 kueueViz:
   backend:
+    # -- KueueViz backend nodeSelector
+    nodeSelector: {}
+    # -- KueueViz backend tolerations
+    tolerations: []
     image:
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
   frontend:
+    # -- KueueViz frontend nodeSelector
+    nodeSelector: {}
+    # -- KueueViz frontend tolerations
+    tolerations: []
     image:
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"
       # This should be set to 'IfNotPresent' for released version
