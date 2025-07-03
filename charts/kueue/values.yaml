@@ -209,10 +209,10 @@ mutatingWebhook:
   reinvocationPolicy: Never
 kueueViz:
   backend:
-    # -- Sets ImagePullSecrets for KueueViz dashboard backend and frontend deployments
+    # -- Sets ImagePullSecrets for KueueViz dashboard backend deployments
     # This is useful when the images are in a private registry.
     imagePullSecrets: []
-    # -- Enable PriorityClass for KueueViz dashboard backend and frontend deployments
+    # -- Enable PriorityClass for KueueViz dashboard backend deployments
     priorityClassName:
     ingress:
       # -- KueueViz dashboard backend ingress class name
@@ -230,10 +230,10 @@ kueueViz:
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: Always
   frontend:
-    # -- Sets ImagePullSecrets for KueueViz dashboard backend and frontend deployments
+    # -- Sets ImagePullSecrets for KueueViz dashboard frontend deployments
     # This is useful when the images are in a private registry.
     imagePullSecrets: []
-    # -- Enable PriorityClass for KueueViz dashboard backend and frontend deployments
+    # -- Enable PriorityClass for KueueViz dashboard frontend deployments
     priorityClassName:
     ingress:
       # -- KueueViz dashboard frontend ingress class name
