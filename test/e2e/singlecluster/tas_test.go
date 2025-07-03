@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -191,7 +191,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj1",
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
@@ -202,7 +202,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 					},
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "rj2",
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
@@ -323,7 +323,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a single Pod via TAS", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				RequestAndLimit("cpu", "200m").
 				RequestAndLimit("memory", "200Mi").
@@ -381,7 +381,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a Pod group via TAS", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				RequestAndLimit("cpu", "200m").
 				RequestAndLimit("memory", "200Mi").

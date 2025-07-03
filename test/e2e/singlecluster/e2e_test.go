@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 									Containers: []corev1.Container{
 										{
 											Name:    "c",
-											Image:   util.E2eTestAgnHostImage,
+											Image:   util.GetAgnHostImage(),
 											Command: util.BehaviorExitFast,
 											Resources: corev1.ResourceRequirements{
 												Requests: corev1.ResourceList{
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.GetAgnHostImage(), util.BehaviorExitFast).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
 					BackoffLimit(0).
-					Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletionFailOnExit).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletionFailOnExit).
 					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
@@ -364,7 +364,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			// Use a binary that ends.
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit("cpu", "500m").
 				Parallelism(3).
 				Completions(4).
@@ -439,7 +439,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(util.GetAgnHostImage(), util.BehaviorExitFast).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}

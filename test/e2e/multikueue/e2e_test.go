@@ -191,7 +191,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	ginkgo.When("Creating a multikueue admission check", func() {
 		ginkgo.It("Should create a pod on worker if admitted", func() {
 			pod := testingpod.MakePod("pod", managerNs.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit("cpu", "1").
 				RequestAndLimit("memory", "2G").
 				Queue(managerLq.Name).
@@ -269,7 +269,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			}
 
 			deployment := testingdeployment.MakeDeployment("deployment", managerNs.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Replicas(3).
 				Queue(managerLq.Name).
 				Obj()
@@ -377,7 +377,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			groupName := "test-group"
 			group := testingpod.MakePod(groupName, managerNs.Name).
 				Queue(managerLq.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "1G").
 				MakeGroup(numPods)
@@ -444,7 +444,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit("memory", "2G").
 				TerminationGracePeriod(1).
 				// Give it the time to be observed Active in the live status update step.
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
@@ -533,7 +533,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						// Give it the time to be observed Active in the live status update step.
 						Args: util.BehaviorWaitForDeletion,
 					},
@@ -633,7 +633,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Template: testingjob.MakeJob(jobName, managerNs.Name).
 						SetTypeMeta().
 						Suspend(false).
-						Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
+						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
 						Parallelism(2).
 						RequestAndLimit(corev1.ResourceCPU, "1").
 						TerminationGracePeriod(1).
@@ -715,8 +715,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestAgnHostImage, util.BehaviorExitFast).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
@@ -778,8 +778,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestAgnHostImage, util.BehaviorExitFast).
-				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(kfmpi.MPIReplicaTypeLauncher, util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(kfmpi.MPIReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
