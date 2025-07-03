@@ -6,7 +6,7 @@ description: >
   允许内部或外部组件影响工作负载准入的机制。
 ---
 
-AdmissionChecks（准入检查）是一种机制，允许 Kueue 在准入 Workload（工作负载）之前考虑额外的标准。
+AdmissionCheck（准入检查）是一种机制，允许 Kueue 在准入 Workload（工作负载）之前考虑额外的标准。
 在 Kueue 为 Workload 预留配额后，会并发运行在 ClusterQueue 中配置的所有准入检查。
 只有当所有 AdmissionChecks 都为 Workload 提供了正面信号时，Kueue 才能准入该 Workload。
 
