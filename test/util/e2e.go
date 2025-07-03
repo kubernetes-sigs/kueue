@@ -54,13 +54,27 @@ import (
 )
 
 const (
-	// E2eTestAgnHostImageOld is the image used for testing rolling update.
-	E2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
-	// E2eTestAgnHostImage is the image used for testing.
-	E2eTestAgnHostImage = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
+	defaultE2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
+	defaultE2eTestAgnHostImage    = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 
 	defaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
+
+func GetAgnHostImageOld() string {
+	if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE_OLD"); image != "" {
+		return image
+	}
+
+	return defaultE2eTestAgnHostImageOld
+}
+
+func GetAgnHostImage() string {
+	if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE"); image != "" {
+		return image
+	}
+
+	return defaultE2eTestAgnHostImage
+}
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
 	cfg, err := config.GetConfigWithContext(kContext)

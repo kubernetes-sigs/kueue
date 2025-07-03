@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    2,
 						Parallelism: 2,
@@ -152,7 +152,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,

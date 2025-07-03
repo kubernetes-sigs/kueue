@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("JAX integration", func() {
 				SetTypeMeta().
 				JAXReplicaSpecsDefault().
 				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
-				Image(kftraining.JAXJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(kftraining.JAXJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
