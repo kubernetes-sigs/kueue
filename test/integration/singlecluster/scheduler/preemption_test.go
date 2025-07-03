@@ -953,7 +953,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(features.SetEnable(features.PrioritySortingWithinCohort, true)).To(gomega.Succeed())
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bestEffortCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, guaranteedCQ, true)
