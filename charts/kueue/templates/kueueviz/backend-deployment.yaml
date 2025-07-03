@@ -14,6 +14,14 @@ spec:
       labels:
         app: kueueviz-backend
     spec:
+      {{- with .Values.kueueViz.backend.nodeSelector }}
+      nodeSelector:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kueueViz.backend.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backend
           image: '{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}'

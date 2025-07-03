@@ -108,6 +108,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | ControllerManager's pod securityContext |
 | controllerManager.manager.priorityClassName | string | `nil` | ControllerManager's pod priorityClassName |
 | controllerManager.manager.resources | object | `{"limits":{"cpu":"2","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | ControllerManager's pod resources |
+| controllerManager.nodeSelector | object | `{}` | ControllerManager's nodeSelector |
 | controllerManager.podDisruptionBudget.enabled | bool | `false` | Enable PodDisruptionBudget |
 | controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's topologySpreadConstraints |
 | controllerManager.readinessProbe.failureThreshold | int | `3` | ControllerManager's readinessProbe failureThreshold |
@@ -116,6 +117,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.readinessProbe.successThreshold | int | `1` | ControllerManager's readinessProbe successThreshold |
 | controllerManager.readinessProbe.timeoutSeconds | int | `1` | ControllerManager's readinessProbe timeoutSeconds |
 | controllerManager.replicas | int | `1` | ControllerManager's replicas count |
+| controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
 | controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
@@ -126,9 +128,13 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.backend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"` | KueueViz dashboard backend image repository |
 | kueueViz.backend.image.tag | string | `"main"` | KueueViz dashboard backend image tag |
+| kueueViz.backend.nodeSelector | object | `{}` | KueueViz backend nodeSelector |
+| kueueViz.backend.tolerations | list | `[]` | KueueViz backend tolerations |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
 | kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
+| kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
+| kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
