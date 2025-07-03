@@ -15,7 +15,7 @@ Kueue implements this through a two-phase admission cycle:
 - Admission Checks: After the quota reservation, Kueue executes all [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue, concurrently. These are the pluggable controllers that can perform validations such as policy checks, compliance, etc.
 These checks can be external or internal and determine if additional criteria are met before the Workload is admitted. The Workload is admitted once all its [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are marked `Ready`.
 
-#### Example: Provisioning AdmissionCheck 
+## Example: Provisioning AdmissionCheck 
 
 When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it did't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cluster-autoscaler environments.
 
@@ -47,7 +47,7 @@ Scenario: *AI training job requiring 16 GPUs :*
 Outcome:
 *Job starts immediately with all 16 GPUs available.*
 
-<h4> Failure Handling: </h4> 
+## Failure Handling:
 
 - If the admission check fails due to temporary issues (e.g., cloud capacity shortages), the system releases the reserved quota immediately, requeues the workload, and triggers exponential backoff retries via [retryStrategy](docs/admission-check-controllers/provisioning/#retry-strategy) in ProvisioningRequestConfig.
 Kueue creates new ProvisioningRequest with `-attempt<N>` suffix each retry.
