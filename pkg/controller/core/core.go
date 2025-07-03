@@ -82,6 +82,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "ClusterQueue", err
 	}
 
+	if features.Enabled(features.DynamicResourceAllocation) {
+		draRec := NewDRAConfigReconciler(mgr.GetClient(), cc)
+		if err := draRec.SetupWithManager(mgr); err != nil {
+			return "DynamicResourceAllocationConfig", err
+		}
+	}
+
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),

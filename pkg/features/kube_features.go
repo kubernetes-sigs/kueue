@@ -169,6 +169,12 @@ const (
 	//
 	// Enable replacement of failed node in TAS.
 	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
+
+	// owner: @alaypatel07
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devies in workloads
+	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
 )
 
 func init() {
@@ -262,6 +268,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacement: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	DynamicResourceAllocation: {
+		// TODO: the version needs to change to 0.13 before final merge
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
