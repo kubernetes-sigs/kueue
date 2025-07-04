@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
@@ -2816,8 +2817,9 @@ func TestCandidatesOrdering(t *testing.T) {
 	wlHighUsageLqDifCQ.LocalQueueFSUsage = ptr.To(1.0)
 
 	cases := map[string]struct {
-		candidates     []workload.Info
-		wantCandidates []workload.Reference
+		candidates         []workload.Info
+		wantCandidates     []workload.Reference
+		enableFeatureGates []featuregate.Feature
 	}{
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
@@ -2880,17 +2882,22 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlLowUsageLq,
 				*wlMidUsageLq,
 			},
-			wantCandidates: []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			wantCandidates:     []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {
 			candidates: []workload.Info{
 				*wlMidUsageLq,
 				*wlHighUsageLqDifCQ,
 			},
-			wantCandidates: []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
+			wantCandidates:     []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
+			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
 		}}
 
 	for _, tc := range cases {
+		for _, gate := range tc.enableFeatureGates {
+			features.SetFeatureGateDuringTest(t, gate, true)
+		}
 		sort.Slice(tc.candidates, func(i int, j int) bool {
 			return CandidatesOrdering(&tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
 		})
