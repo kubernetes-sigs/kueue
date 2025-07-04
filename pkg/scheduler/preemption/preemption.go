@@ -39,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -540,7 +541,7 @@ func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now
 		return !aInCQ
 	}
 
-	if resourceUsagePreemptionEnabled(a, b) {
+	if features.Enabled(features.AdmissionFairSharing) && resourceUsagePreemptionEnabled(a, b) {
 		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
 			return *a.LocalQueueFSUsage > *b.LocalQueueFSUsage
 		}
