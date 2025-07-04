@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	defaultGCInterval        = time.Minute
-	defaultOrigin            = "multikueue"
-	defaultWorkerLostTimeout = 5 * time.Minute
+	defaultGCInterval                 = time.Minute
+	defaultOrigin                     = "multikueue"
+	defaultWorkerLostTimeout          = 5 * time.Minute
+	defaultDispatherName              = "kueue.x-k8s.io/multikueue-dispatcher-all-at-once"
+	incrementalDispatcherRoundTimeout = 5 * time.Minute
 )
 
 type SetupOptions struct {
@@ -37,6 +39,7 @@ type SetupOptions struct {
 	workerLostTimeout time.Duration
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
+	dispatcherName    string
 }
 
 type SetupOption func(o *SetupOptions)
@@ -80,6 +83,13 @@ func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOptio
 	}
 }
 
+// WithDispatcherName sets or updates the dispatcher of the MultiKueue workload.
+func WithDispatcherName(dispatcherName string) SetupOption {
+	return func(o *SetupOptions) {
+		o.dispatcherName = dispatcherName
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -87,6 +97,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
 		adapters:          make(map[string]jobframework.MultiKueueAdapter),
+		dispatcherName:    defaultDispatherName,
 	}
 
 	for _, o := range opts {
@@ -116,6 +127,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName), options.workerLostTimeout, options.eventsBatchPeriod, options.adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName)
 	return wlRec.setupWithManager(mgr)
 }

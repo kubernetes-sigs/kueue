@@ -84,6 +84,14 @@ type WorkloadSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+
+	// MultiKueueNominatedClusters specifies the list of cluster names that have been nominated for scheduling by MultiKueue.
+	// This field is optional.
+	//
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="!(self.status.conditions.exists(c, c.type == 'Admitted')) || oldObject.spec.multiKueueNominatedClusters == self.spec.multiKueueNominatedClusters",message="multiKueueNominatedClusters is immutable when the workload is in the 'Admitted' state"
+	// This field is immutable while the workload is admitted. Any attempt to modify it during the admitted state will be rejected by the controller.
+	MultiKueueNominatedClusters []string `json:"multiKueueNominatedClusters,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
