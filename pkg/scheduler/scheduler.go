@@ -509,7 +509,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 		return err
 	}
 	if err := workload.RemoveAnnotation(ctx, s.client, wl, kueuealpha.NodeToReplaceAnnotation); err != nil {
-		return fmt.Errorf("Failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation)
+		return fmt.Errorf("failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation)
 	}
 	return nil
 }
