@@ -125,6 +125,8 @@ type PodSetTopologyRequest struct {
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
+	PodSetGroup *string `json:"podSetGroup,omitempty"`
+
 	// PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
 	// indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
 	//
