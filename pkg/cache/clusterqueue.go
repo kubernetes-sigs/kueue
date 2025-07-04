@@ -89,6 +89,7 @@ type clusterQueue struct {
 	tasCache *tasCache
 
 	workloadsNotAccountedForTAS sets.Set[workload.Reference]
+	AdmissionScope              *kueue.AdmissionScope
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -166,7 +167,7 @@ func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueu
 	}
 
 	c.FairWeight = parseFairWeight(in.Spec.FairSharing)
-
+	c.AdmissionScope = in.Spec.AdmissionScope
 	return nil
 }
 

@@ -33,8 +33,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -82,6 +82,8 @@ type ClusterQueue struct {
 	rwm sync.RWMutex
 
 	clock clock.Clock
+
+	AdmissionScope *kueue.AdmissionScope
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -93,22 +95,13 @@ func workloadKey(i *workload.Info) workload.Reference {
 }
 
 func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing) (*ClusterQueue, error) {
-	enableAdmissionFs, fsResWeights := afsResourceWeights(cq, afsConfig)
+	enableAdmissionFs, fsResWeights := afs.ResourceWeights(cq.Spec.AdmissionScope, afsConfig)
 	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs)
 	err := cqImpl.Update(cq)
 	if err != nil {
 		return nil, err
 	}
 	return cqImpl, nil
-}
-
-func afsResourceWeights(cq *kueue.ClusterQueue, afsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
-	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
-	if afsConfig != nil && cq.Spec.AdmissionScope != nil && cq.Spec.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing && features.Enabled(features.AdmissionFairSharing) {
-		enableAdmissionFs = true
-		fsResWeights = afsConfig.ResourceWeights
-	}
-	return enableAdmissionFs, fsResWeights
 }
 
 func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool) *ClusterQueue {
@@ -437,8 +430,8 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 	log := ctrl.LoggerFrom(ctx)
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
-			lqAUsage, errA := a.LocalQueueUsage(ctx, c, fsResWeights)
-			lqBUsage, errB := b.LocalQueueUsage(ctx, c, fsResWeights)
+			lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, c, fsResWeights)
+			lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, c, fsResWeights)
 			switch {
 			case errA != nil:
 				log.V(2).Error(errA, "Error determining LocalQueue usage")

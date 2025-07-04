@@ -513,12 +513,21 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
+func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
+	// If both workloads are in the same ClusterQueue, but different LocalQueues,
+	// we can compare their LocalQueue usage.
+	// If the LocalQueueUsage is not nil for both Workloads, it means the feature gate has been enabled, and the
+	// AdmissionScope of the ClusterQueue is set to UsageBasedFairSharing. We inherit this information from the snapshot initialization.
+	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
+}
+
 // candidatesOrdering criteria:
 // 0. Workloads already marked for preemption first.
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
-// 2. Workloads with lower priority first.
-// 3. Workloads admitted more recently first.
+// 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
+// 3. Workloads with lower priority first.
+// 4. Workloads admitted more recently first.
 func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
 	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
@@ -531,6 +540,11 @@ func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now
 		return !aInCQ
 	}
 
+	if resourceUsagePreemptionEnabled(a, b) {
+		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
+			return *a.LocalQueueFSUsage > *b.LocalQueueFSUsage
+		}
+	}
 	pa := priority.Priority(a.Obj)
 	pb := priority.Priority(b.Obj)
 	if pa != pb {
