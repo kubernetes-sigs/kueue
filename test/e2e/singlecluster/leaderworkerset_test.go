@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -681,6 +683,67 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 			ginkgo.By("Check workload is deleted", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.LongTimeout)
+			})
+		})
+
+		ginkgo.It("should allow to change queue-name if ReadyReplicas=0", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Size(1).
+				Replicas(1).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Queue(fmt.Sprintf("%s-invalid", lq.Name)).
+				Obj()
+
+			ginkgo.By("Create a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Checking the replicas is not ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{
+				Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+				Namespace: ns.Name,
+			}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By("Checking the workload is created and not admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+
+			ginkgo.By("Update queue-name label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					createdLeaderWorkerSet.Labels[ctrlconstants.QueueLabel] = lq.Name
+					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the workload is created and admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

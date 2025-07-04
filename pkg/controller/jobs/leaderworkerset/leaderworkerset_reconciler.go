@@ -106,13 +106,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	toCreate, toFinalize := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toUpdate, toFinalize := r.filterWorkloads(lws, wlList.Items)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
 			return r.createPrebuiltWorkload(ctx, lws, toCreate[i])
+		})
+	})
+
+	eg.Go(func() error {
+		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+			return r.updatePrebuiltWorkload(ctx, lws, toUpdate[i])
 		})
 	})
 
@@ -131,14 +137,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 // filterWorkloads compares the desired state in a LeaderWorkerSet with existing workloads,
-// identifying workloads to create and those to finalize.
+// identifying workloads to create, to update and those to finalize.
 //
 // It takes a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
 // 1. A slice of workload names that need to be created
-// 2. A slice of Workload pointers that need to be finalized
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload) {
+// 2. A slice of workload names that need to be updated
+// 3. A slice of Workload pointers that need to be finalized
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
 	var (
 		toCreate   []string
+		toUpdate   []*kueue.Workload
 		toFinalize = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
@@ -147,14 +155,15 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	for i := int32(0); i < replicas; i++ {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
-		if _, ok := toFinalize[workloadName]; ok {
+		if workload, ok := toFinalize[workloadName]; ok {
+			toUpdate = append(toUpdate, workload)
 			delete(toFinalize, workloadName)
 		} else {
 			toCreate = append(toCreate, workloadName)
 		}
 	}
 
-	return toCreate, slices.Collect(maps.Values(toFinalize))
+	return toCreate, toUpdate, slices.Collect(maps.Values(toFinalize))
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
@@ -248,6 +257,20 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.Po
 	podSets = append(podSets, podSet)
 
 	return podSets, nil
+}
+
+func (r *Reconciler) updatePrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	queueName := jobframework.QueueNameForObject(lws)
+	if wl.Spec.QueueName != queueName {
+		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
+		wl.Spec.QueueName = queueName
+		if err := r.client.Update(ctx, wl); err != nil {
+			log.Error(err, "Updating workload queue")
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Reconciler) removeOwnerReference(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) error {
