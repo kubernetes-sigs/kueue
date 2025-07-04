@@ -169,6 +169,12 @@ const (
 	//
 	// Enable replacement of failed node in TAS.
 	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Evict Workload if Kueue couldn't find replacement for a failed node in TAS in the first attempt.
+	TASFailedNodeReplacementFailFast featuregate.Feature = "TASFailedNodeReplacementFailFast"
 )
 
 func init() {
@@ -263,6 +269,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASFailedNodeReplacementFailFast: {
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

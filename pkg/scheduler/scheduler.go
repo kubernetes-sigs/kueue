@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -220,6 +221,17 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		ctx := ctrl.LoggerInto(ctx, log)
 
 		mode := e.assignment.RepresentativeMode()
+
+		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithNodeToReplace(e.Obj) && mode != flavorassigner.Fit {
+			// evict workload we couldn't find the replacement for
+			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj); err != nil {
+				log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
+				continue
+			}
+			e.status = evicted
+			continue
+		}
+
 		if mode == flavorassigner.NoFit {
 			log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 			continue
@@ -296,7 +308,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	result := metrics.AdmissionResultInadmissible
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
-		if e.status != assumed {
+		// When the workload is evicted by scheduler we skip requeueAndUpdate.
+		// The eviction process will be finalized by the workload controller.
+		if e.status != assumed && e.status != evicted {
 			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
@@ -322,6 +336,8 @@ const (
 	nominated entryStatus = "nominated"
 	// indicates if the workload was skipped in this cycle.
 	skipped entryStatus = "skipped"
+	// indicates if the workload was evicted in this cycle.
+	evicted entryStatus = "evicted"
 	// indicates if the workload was assumed to have been admitted.
 	assumed entryStatus = "assumed"
 	// indicates that the workload was never nominated for admission.
@@ -484,6 +500,18 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 		}
 	}
 	return fullAssignment, nil
+}
+
+func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
+	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
+	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.NodeToReplace(wl))
+	if err := workload.EvictWorkload(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, s.clock); err != nil {
+		return err
+	}
+	if err := workload.RemoveAnnotation(ctx, s.client, wl, kueuealpha.NodeToReplaceAnnotation); err != nil {
+		return fmt.Errorf("failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation)
+	}
+	return nil
 }
 
 func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {

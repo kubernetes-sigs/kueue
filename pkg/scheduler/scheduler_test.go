@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -4818,6 +4819,8 @@ func TestScheduleForTAS(t *testing.T) {
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the comparison options for the events
 		eventCmpOpts cmp.Options
+
+		featureGates []featuregate.Feature
 	}{
 		"workload in CQ with ProvisioningRequest; second pass; baseline scenario": {
 			nodes:           defaultSingleNode,
@@ -5119,6 +5122,66 @@ func TestScheduleForTAS(t *testing.T) {
 					Message:   "couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)",
 				},
 			},
+		},
+		"workload with nodeToReplace annotation; second pass; preferred; no fit; FailFast": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						PreferredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main", "one").
+							Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: utiltas.Levels(&defaultSingleLevelTopology),
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"x0",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: utiltas.Levels(&defaultSingleLevelTopology),
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x0",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToNodeFailures",
+					Message:   "Workload was evicted as there was no replacement for a failed node: x0",
+				},
+			},
+			featureGates: []featuregate.Feature{features.TASFailedNodeReplacementFailFast},
 		},
 		"workload with nodeToReplace annotation; second pass; required rack; fit": {
 			nodes:           defaultNodes,
@@ -7083,6 +7146,9 @@ func TestScheduleForTAS(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			for _, fg := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, true)
+			}
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().
@@ -7093,9 +7159,10 @@ func TestScheduleForTAS(t *testing.T) {
 					&corev1.PodList{Items: tc.pods},
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
-				WithObjects(
-					utiltesting.MakeNamespace("default"),
-				)
+				WithObjects(utiltesting.MakeNamespace("default")).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithStatusSubresource(&kueue.Workload{}, &kueue.ClusterQueue{}, &kueue.LocalQueue{})
+
 			for _, ac := range tc.admissionChecks {
 				clientBuilder = clientBuilder.WithStatusSubresource(ac.DeepCopy())
 			}

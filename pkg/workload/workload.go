@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
@@ -47,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -920,6 +922,14 @@ func HasNodeToReplace(w *kueue.Workload) bool {
 	return found
 }
 
+func NodeToReplace(w *kueue.Workload) string {
+	if !HasNodeToReplace(w) {
+		return ""
+	}
+	annotations := w.GetAnnotations()
+	return annotations[kueuealpha.NodeToReplaceAnnotation]
+}
+
 func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
 	if !HasNodeToReplace(w) || !IsAdmitted(w) {
 		return false
@@ -955,6 +965,20 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 		return c.Update(ctx, wl)
 	}
 	return nil
+}
+
+func RemoveAnnotation(ctx context.Context, cl client.Client, wl *kueue.Workload, annotation string) error {
+	wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
+	var wlToPatch kueue.Workload
+	if err := cl.Get(ctx, wlKey, &wlToPatch); err != nil {
+		return err
+	}
+	return clientutil.Patch(ctx, cl, &wlToPatch, false, func() (bool, error) {
+		annotations := wlToPatch.GetAnnotations()
+		delete(annotations, annotation)
+		wlToPatch.SetAnnotations(annotations)
+		return true, nil
+	})
 }
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
@@ -1001,6 +1025,20 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 		}
 	}
 	return acNames
+}
+
+func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+	SetEvictedCondition(wl, reason, msg)
+	ResetChecksOnEviction(wl, clock.Now())
+	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+		return err
+	}
+	reportWorkloadEvictedOnce := WorkloadEvictionStateInc(wl, reason, "")
+	ReportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg)
+	if reportWorkloadEvictedOnce {
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, "")
+	}
+	return nil
 }
 
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
