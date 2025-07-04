@@ -226,12 +226,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// evict workload we couldn't find the replacement for
 			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj); err != nil {
 				log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
-				continue
 			}
-			// remove the wl from entries so it's not requeued after we evicted it
-			entries = slices.DeleteFunc(entries, func(en entry) bool {
-				return en.Obj.Name == e.Obj.Name && en.Obj.Namespace == e.Obj.Namespace
-			})
 			continue
 		}
 
@@ -505,7 +500,6 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	log.V(2).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.NodeToReplace(wl))
 	if err := workload.EvictWorkload(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, s.clock); err != nil {
-		log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
 		return err
 	}
 	if err := workload.RemoveAnnotation(ctx, s.client, wl, kueuealpha.NodeToReplaceAnnotation); err != nil {
@@ -698,7 +692,12 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		patch := workload.PrepareWorkloadPatch(e.Obj, true, s.clock)
+		// need to re-fetch the Workload in case it was updated in scheduler above
+		var currentWl kueue.Workload
+		if err := s.client.Get(ctx, client.ObjectKeyFromObject(e.Obj), &currentWl); err != nil {
+			log.V(2).Error(err, "Failed to re-fetch workload for updating status")
+		}
+		patch := workload.PrepareWorkloadPatch(&currentWl, true, s.clock)
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {

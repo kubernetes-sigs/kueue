@@ -973,8 +973,10 @@ func RemoveAnnotation(ctx context.Context, cl client.Client, wl *kueue.Workload,
 	if err := cl.Get(ctx, wlKey, &wlToPatch); err != nil {
 		return err
 	}
-	return clientutil.Patch(ctx, cl, &wlToPatch, true, func() (bool, error) {
-		delete(wl.Annotations, annotation)
+	return clientutil.Patch(ctx, cl, &wlToPatch, false, func() (bool, error) {
+		annotations := wlToPatch.GetAnnotations()
+		delete(annotations, annotation)
+		wlToPatch.SetAnnotations(annotations)
 		return true, nil
 	})
 }
