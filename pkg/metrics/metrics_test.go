@@ -176,8 +176,11 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 }
 
 func TestGitVersionMetric(t *testing.T) {
-	// Set the GitVersion metric by calling Register()
-	Register()
-
-	expectFilteredMetricsCount(t, GitVersion, 1, "controller_version", version.GitVersion)
+	versionInfo := version.Get()
+	expectFilteredMetricsCount(t, gitVersion, 1, "git_version", versionInfo.GitVersion)
+	expectFilteredMetricsCount(t, gitVersion, 1, "git_commit", versionInfo.GitCommit)
+	expectFilteredMetricsCount(t, gitVersion, 1, "build_date", versionInfo.BuildDate)
+	expectFilteredMetricsCount(t, gitVersion, 1, "go_version", versionInfo.GoVersion)
+	expectFilteredMetricsCount(t, gitVersion, 1, "compiler", versionInfo.Compiler)
+	expectFilteredMetricsCount(t, gitVersion, 1, "platform", versionInfo.Platform)
 }
