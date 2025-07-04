@@ -26,7 +26,7 @@ import (
 
 func ResourceWeights(cqAdmissionScope *kueue.AdmissionScope, afsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
 	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
-	if afsConfig != nil && cqAdmissionScope != nil && cqAdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing && features.Enabled(features.AdmissionFairSharing) {
+	if features.Enabled(features.AdmissionFairSharing) && afsConfig != nil && cqAdmissionScope != nil && cqAdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing {
 		enableAdmissionFs = true
 		fsResWeights = afsConfig.ResourceWeights
 	}

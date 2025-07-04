@@ -182,19 +182,21 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue) (*Cl
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
-	if cq.AdmissionScope != nil {
-		cc.AdmissionScope = *cq.AdmissionScope.DeepCopy()
-	}
-	afsEnabled, resourceWeights := afs.ResourceWeights(&cc.AdmissionScope, c.admissionFairSharing)
-	if !afsEnabled {
-		return cc, nil
-	}
-	for _, wl := range cc.Workloads {
-		usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
+	if features.Enabled(features.AdmissionFairSharing) {
+		if cq.AdmissionScope != nil {
+			cc.AdmissionScope = *cq.AdmissionScope.DeepCopy()
 		}
-		wl.LocalQueueFSUsage = &usage
+		afsEnabled, resourceWeights := afs.ResourceWeights(&cc.AdmissionScope, c.admissionFairSharing)
+		if !afsEnabled {
+			return cc, nil
+		}
+		for _, wl := range cc.Workloads {
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights)
+			if err != nil {
+				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
+			}
+			wl.LocalQueueFSUsage = &usage
+		}
 	}
 	return cc, nil
 }
