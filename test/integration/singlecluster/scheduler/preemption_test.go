@@ -871,6 +871,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		})
 
 		ginkgo.It("should allow preempting workloads while borrowing", func() {
@@ -950,6 +951,15 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, guaranteedCQ)).To(gomega.Succeed())
 		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bestEffortCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, guaranteedCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rootCohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		})
+
 		ginkgo.It("workloads in guaranteed cq should have preferential access to the resources", func() {
 			var bestEffortLQ *kueue.LocalQueue
 			var guaranteedLQ *kueue.LocalQueue
