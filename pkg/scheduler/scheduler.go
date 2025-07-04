@@ -222,16 +222,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		mode := e.assignment.RepresentativeMode()
 
-		if workload.HasTopologyAssignmentWithNodeToReplace(e.Obj) && mode != flavorassigner.Fit && features.Enabled(features.TASFailedNodeReplacementFailFast) {
+		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithNodeToReplace(e.Obj) && mode != flavorassigner.Fit {
 			// evict workload we couldn't find the replacement for
-			log.V(2).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
-			msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.NodeToReplace(e.Obj))
-			if err := workload.EvictWorkload(ctx, s.client, s.recorder, e.Obj, kueue.WorkloadEvictedDueToNodeFailures, msg, s.clock); err != nil {
+			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj); err != nil {
 				log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
-				continue
-			}
-			if err := workload.RemoveAnnotation(ctx, s.client, e.Obj, kueuealpha.NodeToReplaceAnnotation); err != nil {
-				log.V(2).Error(err, fmt.Sprintf("Failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation))
 				continue
 			}
 			// remove the wl from entries so it's not requeued after we evicted it
@@ -505,6 +499,20 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 		}
 	}
 	return fullAssignment, nil
+}
+
+func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
+	log.V(2).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
+	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.NodeToReplace(wl))
+	if err := workload.EvictWorkload(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, s.clock); err != nil {
+		log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
+		return err
+	}
+	if err := workload.RemoveAnnotation(ctx, s.client, wl, kueuealpha.NodeToReplaceAnnotation); err != nil {
+		log.V(2).Error(err, fmt.Sprintf("Failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation))
+		return err
+	}
+	return nil
 }
 
 func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {

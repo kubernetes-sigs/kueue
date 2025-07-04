@@ -974,7 +974,7 @@ func RemoveAnnotation(ctx context.Context, cl client.Client, wl *kueue.Workload,
 		return err
 	}
 	return clientutil.Patch(ctx, cl, &wlToPatch, true, func() (bool, error) {
-		delete(wl.Annotations, kueuealpha.NodeToReplaceAnnotation)
+		delete(wl.Annotations, annotation)
 		return true, nil
 	})
 }
