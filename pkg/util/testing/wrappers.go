@@ -446,6 +446,14 @@ func (p *PodSetWrapper) RequiredTopologyRequest(level string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) PodSetGroup(podSetGroup string) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.PodSetGroup = &podSetGroup
+	return p
+}
+
 func (p *PodSetWrapper) PreferredTopologyRequest(level string) *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}

@@ -48,8 +48,9 @@ import (
 )
 
 const (
-	leaderPodSetName = "leader"
-	workerPodSetName = "worker"
+	leaderPodSetName         = "leader"
+	workerPodSetName         = "worker"
+	leaderWorkerSetGroupName = "leader-worker-set-group"
 )
 
 type Reconciler struct {
