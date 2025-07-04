@@ -78,6 +78,9 @@ type domain struct {
 	// domains.
 	sliceState int32
 
+	stateWithLeader      int32
+	sliceStateWithLeader int32
+
 	// levelValues stores the mapping from domain ID back to the
 	// ordered list of values
 	levelValues []string
@@ -627,6 +630,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	s.fillInCounts(
 		requests,
+		requests, // TODO pass leader requests
 		assumedUsage,
 		sliceSize,
 		sliceLevelIdx,
@@ -825,11 +829,11 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := s.sortedDomains(levelDomains, unconstrained)
+	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
 
 	sliceCount := podSetSize / sliceSize
-	if useBestFitAlgorithm(unconstrained) && topDomain.sliceState >= sliceCount {
+	if useBestFitAlgorithm(unconstrained) && topDomain.sliceStateWithLeader >= sliceCount {
 		// optimize the potentially last domain
 		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount)
 	}
@@ -968,6 +972,28 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
+func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
+	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
+	result := slices.Clone(domains)
+	slices.SortFunc(result, func(a, b *domain) int {
+		if a.sliceStateWithLeader != b.sliceStateWithLeader {
+			if isLeastFreeCapacity {
+				// Start from the domain with the least amount of free resources.
+				// Ascending order.
+				return cmp.Compare(a.sliceStateWithLeader, b.sliceStateWithLeader)
+			}
+			return cmp.Compare(b.sliceStateWithLeader, a.sliceStateWithLeader)
+		}
+
+		if a.stateWithLeader != b.stateWithLeader {
+			return cmp.Compare(a.stateWithLeader, b.stateWithLeader)
+		}
+
+		return slices.Compare(a.levelValues, b.levelValues)
+	})
+	return result
+}
+
 // This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
 //
 // The sorting criteria are:
@@ -997,7 +1023,9 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	return result
 }
 
-func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
+func (s *TASFlavorSnapshot) fillInCounts(
+	requests resources.Requests,
+	leaderRequests resources.Requests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	sliceSize int32,
 	sliceLevelIdx int,
@@ -1009,7 +1037,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
 		domain.state = 0
+		domain.sliceStateWithLeader = 0
 		domain.sliceState = 0
+		domain.sliceStateWithLeader = 0
 	}
 	for _, leaf := range s.leaves {
 		// 1. Check Tolerations against Node Taints
@@ -1046,9 +1076,11 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests,
 			remainingCapacity.Sub(leafAssumedUsage)
 		}
 		leaf.state = requests.CountIn(remainingCapacity)
+		remainingCapacity.Sub(leaderRequests)
+		leaf.sliceStateWithLeader = requests.CountIn(remainingCapacity)
 	}
 	for _, root := range s.roots {
-		root.state, root.sliceState = s.fillInCountsHelper(root, sliceSize, sliceLevelIdx, 0)
+		root.state, root.sliceState, root.stateWithLeader, root.sliceStateWithLeader = s.fillInCountsHelper(root, sliceSize, sliceLevelIdx, 0)
 	}
 }
 
@@ -1061,31 +1093,48 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
 }
 
-func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int) (int32, int32) {
+func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int) (int32, int32, int32, int32) {
 	// logic for a leaf
 	if len(domain.children) == 0 {
 		if level == sliceLevelIdx {
 			// initialize the sliceState if leaf is the request slice level
 			domain.sliceState = domain.state / sliceSize
+			domain.sliceStateWithLeader = domain.sliceStateWithLeader / sliceSize
 		}
-		return domain.state, domain.sliceState
+		return domain.state, domain.sliceState, domain.stateWithLeader, domain.sliceStateWithLeader
 	}
 	// logic for a parent
 	childrenCapacity := int32(0)
 	sliceCapacity := int32(0)
 
+	minStateWithLeaderDifference := int32(1000)
+	minSliceStateWithLeaderDifference := int32(1000)
+
 	for _, child := range domain.children {
-		addChildrenCapacity, addChildrenSliceCapacity := s.fillInCountsHelper(child, sliceSize, sliceLevelIdx, level+1)
+		addChildrenCapacity, addChildrenSliceCapacity, addChildrenCapacityWithLeader, addChildrenSliceCapacityWithLeader := s.fillInCountsHelper(child, sliceSize, sliceLevelIdx, level+1)
 		childrenCapacity += addChildrenCapacity
 		sliceCapacity += addChildrenSliceCapacity
+		if addChildrenCapacity-addChildrenCapacityWithLeader < minStateWithLeaderDifference {
+			minStateWithLeaderDifference = addChildrenCapacity - addChildrenCapacityWithLeader
+		}
+		if addChildrenSliceCapacityWithLeader-addChildrenSliceCapacity < minSliceStateWithLeaderDifference {
+			minSliceStateWithLeaderDifference = addChildrenSliceCapacityWithLeader - addChildrenSliceCapacity
+		}
 	}
 	domain.state = childrenCapacity
+	domain.stateWithLeader = childrenCapacity - minStateWithLeaderDifference
+
+	sliceStateWithLeader := sliceCapacity - minSliceStateWithLeaderDifference
+
 	if level == sliceLevelIdx {
 		// initialize the sliceState for the requested slice level.
 		sliceCapacity = domain.state / sliceSize
+		sliceStateWithLeader = domain.stateWithLeader / sliceSize
 	}
 	domain.sliceState = sliceCapacity
-	return childrenCapacity, sliceCapacity
+	domain.sliceStateWithLeader = sliceStateWithLeader
+
+	return domain.state, domain.sliceState, domain.stateWithLeader, domain.sliceStateWithLeader
 }
 
 func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32) string {
