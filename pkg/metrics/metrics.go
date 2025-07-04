@@ -98,11 +98,11 @@ The label 'result' can have the following values:
 
 	// Metrics tied to the queue system.
 
-	gitVersion = prometheus.NewGaugeVec(
+	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
-			Name:      "version",
-			Help:      "Which version is running. 1 labeled by git version, git commit, build date, go version, compiler, platform",
+			Name:      "build_info",
+			Help:      "Kueue build information. 1 labeled by git version, git commit, build date, go version, compiler, platform",
 		},
 		[]string{"git_version", "git_commit", "build_date", "go_version", "compiler", "platform"},
 	)
@@ -445,7 +445,7 @@ the maximum possible share value.`,
 
 func init() {
 	versionInfo := version.Get()
-	gitVersion.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
+	buildInfo.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
 }
 
 func generateExponentialBuckets(count int) []float64 {
@@ -703,7 +703,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 
 func Register() {
 	metrics.Registry.MustRegister(
-		gitVersion,
+		buildInfo,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
