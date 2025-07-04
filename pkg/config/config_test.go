@@ -412,7 +412,7 @@ objectRetentionPolicies:
 		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
 		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    ptr.To(string(configapi.MultiKueueDispatcherModeAllAtOnce)),
+		DispatcherName:    ptr.To[string](configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	testcases := []struct {
@@ -895,7 +895,7 @@ objectRetentionPolicies:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To(string(configapi.MultiKueueDispatcherModeIncremental)),
+					DispatcherName:    ptr.To[string](configapi.MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},

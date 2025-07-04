@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
@@ -490,10 +491,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 
 	var errs []error
 	// Create or keep only nominated workers, remove others.
-	nominatedSet := make(map[string]struct{}, len(nominatedWorkers))
-	for _, rem := range nominatedWorkers {
-		nominatedSet[rem] = struct{}{}
-	}
+	nominatedSet := sets.New[string](nominatedWorkers...)
 
 	for rem, remoteWl := range group.remotes {
 		if _, isNominated := nominatedSet[rem]; isNominated {
