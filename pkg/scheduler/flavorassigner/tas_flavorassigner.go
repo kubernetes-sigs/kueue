@@ -84,7 +84,11 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if err != nil {
 		return nil, err
 	}
-	if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr) {
+
+	// Manager -> MultiKueueAdmisionCheck && !ProvRequestAdmissionCheck
+	// Worker -> !MultiKueueAdmisionCheck && ProvRequestAdmissionCheck
+
+	if !workload.HasQuotaReservation(wl.Obj) && (cq.HasMultiKueueAdmissionCheck(*tasFlvr) && !cq.HasProvRequestAdmissionCheck(*tasFlvr) || !cq.HasMultiKueueAdmissionCheck(*tasFlvr) && cq.HasProvRequestAdmissionCheck(*tasFlvr)) {
 		// We delay TAS as this is the first scheduling pass, and there is a
 		// ProvisioningRequest admission check used for the flavor.
 		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
