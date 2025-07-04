@@ -223,23 +223,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		mode := e.assignment.RepresentativeMode()
 
 		if workload.HasTopologyAssignmentWithNodeToReplace(e.Obj) && mode != flavorassigner.Fit && features.Enabled(features.TASFailedNodeReplacementFailFast) {
-			// evict the workload that couldn't find the replacement for a failed node
-			log.V(2).Info("Evicting workload with node replacement in TAS, as TASFailedNodeReplacementFailFast is enabled")
+			// evict workload we couldn't find the replacement for
+			log.V(2).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
 			msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.NodeToReplace(e.Obj))
-			workload.SetEvictedCondition(e.Obj, kueue.WorkloadEvictedDueToNodeFailures, msg)
-			workload.ResetChecksOnEviction(e.Obj, s.clock.Now())
-			reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(e.Obj, kueue.WorkloadEvictedDueToNodeFailures, "")
-			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true, s.clock); err != nil {
-				log.V(2).Error(err, "Failed to evict workload")
+			if err := workload.EvictWorkload(ctx, s.client, s.recorder, e.Obj, kueue.WorkloadEvictedDueToNodeFailures, msg, s.clock); err != nil {
+				log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
 				continue
 			}
-			workload.ReportEvictedWorkload(s.recorder, e.Obj, e.Obj.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, msg)
 			if err := workload.RemoveAnnotation(ctx, s.client, e.Obj, kueuealpha.NodeToReplaceAnnotation); err != nil {
 				log.V(2).Error(err, fmt.Sprintf("Failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation))
 				continue
-			}
-			if reportWorkloadEvictedOnce {
-				metrics.ReportEvictedWorkloadsOnce(e.Obj.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, "")
 			}
 			// remove the wl from entries so it's not requeued after we evicted it
 			entries = slices.DeleteFunc(entries, func(en entry) bool {
