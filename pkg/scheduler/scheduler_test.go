@@ -5180,12 +5180,6 @@ func TestScheduleForTAS(t *testing.T) {
 					Reason:    "EvictedDueToNodeFailures",
 					Message:   "Workload was evicted as there was no replacement for a failed node: x0",
 				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    "Pending",
-					Message:   "couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)",
-				},
 			},
 			featureGates: []featuregate.Feature{features.TASFailedNodeReplacementFailFast},
 		},

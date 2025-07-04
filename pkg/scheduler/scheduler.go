@@ -308,7 +308,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	result := metrics.AdmissionResultInadmissible
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
-		if e.status != assumed {
+		// When the workload is evicted by scheduler we skip requeueAndUpdate.
+		// The eviction process will be finalized by the workload controller.
+		if e.status != assumed && e.status != evicted {
 			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
