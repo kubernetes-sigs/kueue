@@ -170,6 +170,10 @@ type Info struct {
 	// already admitted.
 	ClusterQueue   kueue.ClusterQueueReference
 	LastAssignment *AssignmentClusterQueueState
+
+	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
+	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
+	LocalQueueFSUsage *float64
 }
 
 type PodSetResources struct {
@@ -296,7 +300,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) LocalQueueUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64) (float64, error) {
+func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64) (float64, error) {
 	var lq kueue.LocalQueue
 	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqKey, &lq); err != nil {

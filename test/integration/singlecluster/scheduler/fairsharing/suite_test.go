@@ -87,7 +87,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	_ = features.SetEnable(features.AdmissionFairSharing, true)
-	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable))
+	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable), cache.WithAdmissionFairSharing(admissionFairSharing))
 	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithAdmissionFairSharing(admissionFairSharing))
 
 	configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
