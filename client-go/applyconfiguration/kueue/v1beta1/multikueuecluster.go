@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // MultiKueueClusterApplyConfiguration represents a declarative configuration of the MultiKueueCluster type for use
@@ -40,6 +43,41 @@ func MultiKueueCluster(name string) *MultiKueueClusterApplyConfiguration {
 	b.WithKind("MultiKueueCluster")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractMultiKueueCluster extracts the applied configuration owned by fieldManager from
+// multiKueueCluster. If no managedFields are found in multiKueueCluster for fieldManager, a
+// MultiKueueClusterApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// multiKueueCluster must be a unmodified MultiKueueCluster API object that was retrieved from the Kubernetes API.
+// ExtractMultiKueueCluster provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractMultiKueueCluster(multiKueueCluster *kueuev1beta1.MultiKueueCluster, fieldManager string) (*MultiKueueClusterApplyConfiguration, error) {
+	return extractMultiKueueCluster(multiKueueCluster, fieldManager, "")
+}
+
+// ExtractMultiKueueClusterStatus is the same as ExtractMultiKueueCluster except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractMultiKueueClusterStatus(multiKueueCluster *kueuev1beta1.MultiKueueCluster, fieldManager string) (*MultiKueueClusterApplyConfiguration, error) {
+	return extractMultiKueueCluster(multiKueueCluster, fieldManager, "status")
+}
+
+func extractMultiKueueCluster(multiKueueCluster *kueuev1beta1.MultiKueueCluster, fieldManager string, subresource string) (*MultiKueueClusterApplyConfiguration, error) {
+	b := &MultiKueueClusterApplyConfiguration{}
+	err := managedfields.ExtractInto(multiKueueCluster, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.MultiKueueCluster"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(multiKueueCluster.Name)
+
+	b.WithKind("MultiKueueCluster")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value

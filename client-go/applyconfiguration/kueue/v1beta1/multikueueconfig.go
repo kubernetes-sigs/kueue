@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // MultiKueueConfigApplyConfiguration represents a declarative configuration of the MultiKueueConfig type for use
@@ -39,6 +42,41 @@ func MultiKueueConfig(name string) *MultiKueueConfigApplyConfiguration {
 	b.WithKind("MultiKueueConfig")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractMultiKueueConfig extracts the applied configuration owned by fieldManager from
+// multiKueueConfig. If no managedFields are found in multiKueueConfig for fieldManager, a
+// MultiKueueConfigApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// multiKueueConfig must be a unmodified MultiKueueConfig API object that was retrieved from the Kubernetes API.
+// ExtractMultiKueueConfig provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractMultiKueueConfig(multiKueueConfig *kueuev1beta1.MultiKueueConfig, fieldManager string) (*MultiKueueConfigApplyConfiguration, error) {
+	return extractMultiKueueConfig(multiKueueConfig, fieldManager, "")
+}
+
+// ExtractMultiKueueConfigStatus is the same as ExtractMultiKueueConfig except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractMultiKueueConfigStatus(multiKueueConfig *kueuev1beta1.MultiKueueConfig, fieldManager string) (*MultiKueueConfigApplyConfiguration, error) {
+	return extractMultiKueueConfig(multiKueueConfig, fieldManager, "status")
+}
+
+func extractMultiKueueConfig(multiKueueConfig *kueuev1beta1.MultiKueueConfig, fieldManager string, subresource string) (*MultiKueueConfigApplyConfiguration, error) {
+	b := &MultiKueueConfigApplyConfiguration{}
+	err := managedfields.ExtractInto(multiKueueConfig, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.MultiKueueConfig"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(multiKueueConfig.Name)
+
+	b.WithKind("MultiKueueConfig")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value
