@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // ClusterQueueApplyConfiguration represents a declarative configuration of the ClusterQueue type for use
@@ -40,6 +43,41 @@ func ClusterQueue(name string) *ClusterQueueApplyConfiguration {
 	b.WithKind("ClusterQueue")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractClusterQueue extracts the applied configuration owned by fieldManager from
+// clusterQueue. If no managedFields are found in clusterQueue for fieldManager, a
+// ClusterQueueApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// clusterQueue must be a unmodified ClusterQueue API object that was retrieved from the Kubernetes API.
+// ExtractClusterQueue provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractClusterQueue(clusterQueue *kueuev1beta1.ClusterQueue, fieldManager string) (*ClusterQueueApplyConfiguration, error) {
+	return extractClusterQueue(clusterQueue, fieldManager, "")
+}
+
+// ExtractClusterQueueStatus is the same as ExtractClusterQueue except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractClusterQueueStatus(clusterQueue *kueuev1beta1.ClusterQueue, fieldManager string) (*ClusterQueueApplyConfiguration, error) {
+	return extractClusterQueue(clusterQueue, fieldManager, "status")
+}
+
+func extractClusterQueue(clusterQueue *kueuev1beta1.ClusterQueue, fieldManager string, subresource string) (*ClusterQueueApplyConfiguration, error) {
+	b := &ClusterQueueApplyConfiguration{}
+	err := managedfields.ExtractInto(clusterQueue, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.ClusterQueue"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(clusterQueue.Name)
+
+	b.WithKind("ClusterQueue")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value

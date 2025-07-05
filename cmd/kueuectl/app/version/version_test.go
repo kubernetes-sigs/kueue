@@ -74,7 +74,7 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 
 			tcg := cmdtesting.NewTestClientGetter()
 			if tc.deployment != nil {
-				tcg.WithK8sClientset(k8sfake.NewSimpleClientset(tc.deployment))
+				tcg.WithK8sClientset(k8sfake.NewClientset(tc.deployment))
 			}
 
 			cmd := NewVersionCmd(tcg, streams)

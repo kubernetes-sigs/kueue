@@ -79,7 +79,7 @@ func TestWorkloadNameCompletionFunc(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewClientset(tc.objs...))
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}
@@ -148,7 +148,7 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewClientset(tc.objs...))
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}
@@ -216,7 +216,7 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewClientset(tc.objs...))
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}

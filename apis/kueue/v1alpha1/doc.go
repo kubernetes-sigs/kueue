@@ -16,5 +16,6 @@ limitations under the License.
 
 // +kubebuilder:object:generate=true
 // +groupName=kueue.x-k8s.io
+// +k8s:openapi-gen=true
 
 package v1alpha1

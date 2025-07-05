@@ -20,7 +20,10 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // TopologyApplyConfiguration represents a declarative configuration of the Topology type for use
@@ -39,6 +42,41 @@ func Topology(name string) *TopologyApplyConfiguration {
 	b.WithKind("Topology")
 	b.WithAPIVersion("kueue.x-k8s.io/v1alpha1")
 	return b
+}
+
+// ExtractTopology extracts the applied configuration owned by fieldManager from
+// topology. If no managedFields are found in topology for fieldManager, a
+// TopologyApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// topology must be a unmodified Topology API object that was retrieved from the Kubernetes API.
+// ExtractTopology provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractTopology(topology *kueuev1alpha1.Topology, fieldManager string) (*TopologyApplyConfiguration, error) {
+	return extractTopology(topology, fieldManager, "")
+}
+
+// ExtractTopologyStatus is the same as ExtractTopology except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractTopologyStatus(topology *kueuev1alpha1.Topology, fieldManager string) (*TopologyApplyConfiguration, error) {
+	return extractTopology(topology, fieldManager, "status")
+}
+
+func extractTopology(topology *kueuev1alpha1.Topology, fieldManager string, subresource string) (*TopologyApplyConfiguration, error) {
+	b := &TopologyApplyConfiguration{}
+	err := managedfields.ExtractInto(topology, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1alpha1.Topology"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(topology.Name)
+
+	b.WithKind("Topology")
+	b.WithAPIVersion("kueue.x-k8s.io/v1alpha1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value

@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // CohortApplyConfiguration represents a declarative configuration of the Cohort type for use
@@ -41,6 +44,42 @@ func Cohort(name, namespace string) *CohortApplyConfiguration {
 	b.WithKind("Cohort")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractCohort extracts the applied configuration owned by fieldManager from
+// cohort. If no managedFields are found in cohort for fieldManager, a
+// CohortApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// cohort must be a unmodified Cohort API object that was retrieved from the Kubernetes API.
+// ExtractCohort provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractCohort(cohort *kueuev1beta1.Cohort, fieldManager string) (*CohortApplyConfiguration, error) {
+	return extractCohort(cohort, fieldManager, "")
+}
+
+// ExtractCohortStatus is the same as ExtractCohort except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractCohortStatus(cohort *kueuev1beta1.Cohort, fieldManager string) (*CohortApplyConfiguration, error) {
+	return extractCohort(cohort, fieldManager, "status")
+}
+
+func extractCohort(cohort *kueuev1beta1.Cohort, fieldManager string, subresource string) (*CohortApplyConfiguration, error) {
+	b := &CohortApplyConfiguration{}
+	err := managedfields.ExtractInto(cohort, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.Cohort"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(cohort.Name)
+	b.WithNamespace(cohort.Namespace)
+
+	b.WithKind("Cohort")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value

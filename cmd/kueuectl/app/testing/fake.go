@@ -53,8 +53,8 @@ func NewTestClientGetter() *TestClientGetter {
 		WithNamespace(metav1.NamespaceDefault)
 	return &TestClientGetter{
 		ClientGetter:   util.NewClientGetter(configFlags),
-		kueueClientset: kueuefake.NewSimpleClientset(),
-		k8sClientset:   k8sfake.NewSimpleClientset(),
+		kueueClientset: kueuefake.NewClientset(),
+		k8sClientset:   k8sfake.NewClientset(),
 		configFlags:    configFlags,
 	}
 }

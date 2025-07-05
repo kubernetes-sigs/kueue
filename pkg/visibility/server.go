@@ -34,8 +34,8 @@ import (
 	"k8s.io/component-base/version"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	generatedopenapi "sigs.k8s.io/kueue/pkg/generated/openapi"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 

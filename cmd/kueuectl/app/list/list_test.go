@@ -158,7 +158,7 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewClientset(tc.objs...))
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}

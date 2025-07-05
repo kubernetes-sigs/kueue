@@ -37,8 +37,8 @@ kube::codegen::gen_helpers \
 # Generating OpenAPI for Kueue API extensions
 kube::codegen::gen_openapi \
   --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt" \
-  --output-dir "${KUEUE_ROOT}/apis/visibility/openapi" \
-  --output-pkg "${KUEUE_PKG}/apis/visibility/openapi" \
+  --output-dir "${KUEUE_ROOT}/pkg/generated/openapi" \
+  --output-pkg "${KUEUE_PKG}/pkg/generated/openapi" \
   --update-report \
   "${KUEUE_ROOT}/apis/visibility"
 
@@ -53,11 +53,15 @@ for external in "${externals[@]:1}"; do
   apply_config_externals="${apply_config_externals},${external}"
 done
 
+GOPROXY=off go install \
+        sigs.k8s.io/kueue/pkg/generated/openapi/cmd/models-schema
+
 kube::codegen::gen_client \
   --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt" \
   --output-dir "${KUEUE_ROOT}/client-go" \
   --output-pkg "${KUEUE_PKG}/client-go" \
   --with-watch \
   --with-applyconfig \
+  --applyconfig-openapi-schema <(models-schema) \
   --applyconfig-externals "${apply_config_externals}" \
   "${KUEUE_ROOT}/apis"
