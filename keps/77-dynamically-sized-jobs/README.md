@@ -58,7 +58,6 @@ To support such scenarios, Kueue must gracefully handle horizontal scale-up and 
 ### Goals
 
 - Gracefully handle resize operations for Kueue-managed jobs by updating quota usage without suspending the job or terminating running pods.
-  - Support dynamic updates to `batch/v1.Job` parallelism, allowing changes to pod count without deleting existing pods.
   
 ### Non-Goals
 
@@ -207,11 +206,7 @@ A Workload that is preempted by a WorkloadSlice will be correctly marked with a 
 ```golang
 // WorkloadSlicePreemptionReason indicates the Workload was preempted due to
 // the workload slice succession (roll-up/aggregation).
-WorkloadSlicePreemptionReason string = "WorkloadSlicePreemption"
-...
-// WorkloadEvictedByWorkloadSliceAggregation indicates that the workload was
-// deactivated as a result of workload slice aggregation.
-WorkloadEvictedByWorkloadSliceAggregation = "WorkloadSliceAggregation"	
+WorkloadSlicePreemptionReason string = "WorkloadSliceReplacement"
 ```
 
 ##### Resource Flavors
@@ -230,8 +225,8 @@ Future enhancements may introduce support for controlled flavor reassignment or 
 Currently, a Workload can become outdated, marked by Kueue as "out-of-sync", and subsequently transitioned to the "Finished" state.
 This also applies to outdated Workload slices: when multiple successive updates are issued for a given Job, any superseded slices are marked as "Finished" to reflect their obsolescence.
 
-Preempted (i.e., aggregated) Workload slices are first marked for Deactivation and then transitioned to the Finished state.
-Under the current design proposal, all deactivated slices are retained indefinitely and are not garbage collected.
+Preempted (i.e., aggregated) Workload slices are first marked as Finished.
+Under the current design proposal, all finished workload slices are retained indefinitely and are not garbage collected.
 To address potential resource buildup, a `PreemptedWorkloadSliceHistory` mechanism whether as a configuration option or an API field on the Workload—could be introduced to limit the number of retained inactive slices, 
 similar to how `revisionHistoryLimit` is used in Kubernetes Deployments to manage ReplicaSet history.
 
@@ -432,6 +427,8 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Slice lifecycle events (e.g., admitted, preempted, finished) are observable via `kubectl describe workload` or equivalent API tools.
 * [ ] Slice preemption is consistently handled and visible in workload status conditions.
 * [ ] All Kueue core controllers (scheduler, preemptor, queue manager) are validated under slice-enabled workloads.
+* [ ] Dynamic resizing is enabled for all Kueue-managed workloads that support the dynamic-resize feature (including JobSet, RayJob, Kubeflow jobs, etc.)
+* [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with dynamically resizable workloads, considering all current and emerging alternatives within Kueue.
 
 #### GA (Stable)
 
@@ -495,3 +492,4 @@ As a result, when `PodSchedulingGates` are used in a namespace with quota enforc
 
 - Require users to manage resizing manually by recreating jobs.
 - Defer support for elastic workloads to higher-level controllers (e.g., RayOperator), leaving Kueue unaware of scale operations.
+- [WorkloadResize Request](https://github.com/kubernetes-sigs/kueue/issues/5897) an exploration of an alternative approach to dynamically sized jobs.  
