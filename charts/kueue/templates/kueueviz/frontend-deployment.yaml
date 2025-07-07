@@ -14,6 +14,13 @@ spec:
       labels:
         app: kueueviz-frontend
     spec:
+      {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
+      imagePullSecrets:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with  .Values.kueueViz.frontend.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       {{- with .Values.kueueViz.frontend.nodeSelector }}
       nodeSelector:
       {{- toYaml . | nindent 8 }}
@@ -22,13 +29,6 @@ spec:
       tolerations:
       {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
-      imagePullSecrets:
-      {{- toYaml . | nindent 8 }}
-    {{- end }}
-    {{- with  .Values.kueueViz.frontend.priorityClassName }}
-      priorityClassName: {{ . }}
-    {{- end }}
       containers:
         - name: frontend
           image: '{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}'

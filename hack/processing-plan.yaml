@@ -667,23 +667,41 @@ files:
         key: .spec.template.spec
         value: |
           {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
-            imagePullSecrets:
-            {{- toYaml . | nindent 8 }}
+          imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
           {{- end }}
           {{- with  .Values.kueueViz.frontend.priorityClassName }}
-            priorityClassName: {{ . }}
+          priorityClassName: {{ . }}
           {{- end }}
+          {{- with .Values.kueueViz.frontend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
         key: .spec.template.spec
         value: |
           {{- with .Values.kueueViz.backend.imagePullSecrets  }}
-            imagePullSecrets:
-            {{- toYaml . | nindent 8 }}
+          imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
           {{- end }}
           {{- with  .Values.kueueViz.backend.priorityClassName }}
-            priorityClassName: {{ . }}
+          priorityClassName: {{ . }}
           {{- end }}
+          {{- with .Values.kueueViz.backend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")' 
       - type: INSERT_TEXT
         position: START
@@ -693,32 +711,6 @@ files:
         position: END
         value: |
           {{- end }}
-      - type: INSERT_TEXT
-        key: .spec.template.spec
-        value: |
-          {{- with .Values.kueueViz.backend.nodeSelector }}
-          nodeSelector:
-          {{- toYaml . | nindent 8 }}
-          {{- end }}
-          {{- with .Values.kueueViz.backend.tolerations }}
-          tolerations:
-          {{- toYaml . | nindent 8 }}
-          {{- end }}
-        onFileCondition: '.kind == "Deployment" and (.metadata.name | contains("kueueviz-backend"))'
-        indentation: 2
-      - type: INSERT_TEXT
-        key: .spec.template.spec
-        value: |
-          {{- with .Values.kueueViz.frontend.nodeSelector }}
-          nodeSelector:
-          {{- toYaml . | nindent 8 }}
-          {{- end }}
-          {{- with .Values.kueueViz.frontend.tolerations }}
-          tolerations:
-          {{- toYaml . | nindent 8 }}
-          {{- end }}
-        onFileCondition: '.kind == "Deployment" and (.metadata.name | contains("kueueviz-frontend"))'
-        indentation: 2
   - path: ./config/components/internalcert/*.yaml
     outputDir: ./charts/kueue/templates/internalcert
     excludes:
