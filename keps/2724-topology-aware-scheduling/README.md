@@ -12,10 +12,12 @@
     - [Story 3](#story-3)
     - [Story 4](#story-4)
     - [Story 5](#story-5)
+    - [Story 6](#story-6)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
       - [JobSet](#jobset)
+      - [LeaderWorkerSet](#leaderworkerset)
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
     - [Provisioning request and required mode](#provisioning-request-and-required-mode)
@@ -29,6 +31,7 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
     - [PodSet Slice size validation](#podset-slice-size-validation)
+    - [LeaderWorkerSet validation](#leaderworkerset-validation)
   - [Internal APIs](#internal-apis)
     - [Node failures](#node-failures)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
@@ -36,6 +39,8 @@
     - [Example](#example)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
+  - [Cross-PodSet scheduling](#cross-podset-scheduling)
+    - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
@@ -172,11 +177,16 @@ Extension: support for indicating the order of pods for external Jobs.
 Similar to [Story 2](#story-2), but I want all the Jobs in ReplicatedJob to run 
 within a "block", but each Job should also run within a "host" within that "block".
 
+#### Story 6
+
+Similar to [Story 1](#story-1), but I want Leader and its Workers within a single replica
+in LeaderWorkerSet to run within a "rack".
+
 ### Notes/Constraints/Caveats (Optional)
 
 #### Integration support
 
-In the alpha iteration we aim to support Job & JobSet. If other integrations
+In the alpha iteration we aim to support Job, JobSet, and LeaderWorkerSet. If other integrations
 follow naturally we may as well support them in alpha.
 
 ##### Job
@@ -398,6 +408,46 @@ Since slice size is equal to `parallelism` for the Job, the end result
 is that each Job will be placed within a "host". It is also possible
 to omit the annotation `kueue.x-k8s.io/podset-slice-size`, as the default
 value for it in case of JobSet is `parallelism`.
+
+##### LeaderWorkerSet
+
+According to [Story 6](#story-6) we noticed that some users would like to
+co-locate Leader with Workers within the same replica in LeaderWorkerSet.
+
+To allow user to specify the requested topology for leader and workers we 
+are adding an annotation `kueue.x-k8s.io/leaderworkerset-group-required-topology`.
+
+**Example**:
+
+```yaml
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: tas-example-lws
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    kueue.x-k8s.io/leaderworkerset-group-required-topology: "cloud.provider.com/topology-rack"
+spec:
+  replicas: 2
+  leaderWorkerTemplate:
+    leaderTemplate:
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+    size: 3
+    workerTemplate:
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+```
+
+In this example there are 2 replicas with 2 workers and 1 leader each.
+Each group of leader and 2 workers should be placed in a rack.
 
 #### Support for the "auto" mode
 
@@ -663,6 +713,13 @@ However, in case of the JobSet we expect that the most frequent use-case will be
 define PodSet Slice as a single Job, thus if `kueue.x-k8s.io/podset-slice-size`
 is not defined for JobSet it defaults to `parallelism`.
 
+#### LeaderWorkerSet validation
+
+If user requests leader-worker group topology via `kueue.x-k8s.io/leaderworkerset-group-required-topology`
+other topology annotations (`kueue.x-k8s.io/podset-required-topology`, `kueue.x-k8s.io/podset-preferred-topology`,
+`kueue.x-k8s.io/podset-slice-size`, `kueue.x-k8s.io/podset-slice-required-topology`) are not allowed
+and will return an error.
+
 ### Internal APIs
 
 We extend the `Workload` structure to reflect the topology request at the
@@ -715,6 +772,12 @@ type PodSetTopologyRequest struct {
   // For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
   SubGroupCount *int32
 
+	// PodSetGroup indicates the name of the group of PodSets to which this PodSet belongs to.
+	// PodSets with the same `PodSetGroup` should be assigned the same ResourceFlavor
+	//
+	// +optional
+	PodSetGroup *string `json:"podSetGroup,omitempty"`
+  
   // PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
   // indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
@@ -976,6 +1039,45 @@ Explanation:
 - `LeastFreeCapacity` - We prioritized 3rd node, because it is a tight fit among all domains that could fit 2 slices.
 
 It is worth noting that the tight fit mentioned above does not guarantee that no free capacity will be left within the assigned domains.
+
+### Cross-PodSet scheduling
+
+In consideration of a [Story 6](#story-6) a cross-podset scheduling is required,
+due to the fact that leader and workers are separate PodSets. To be able to co-locate
+leaders with its workers, two mechanisms have to be introduced:
+
+- Ensure leader and workers end up on the same flavor
+- Find topology domain to co-locate leader and workers
+
+#### Ensure leader and workers end up on the same flavor
+
+To ensure leader and workers are assigned the same flavor a notion of PodSetGroup is introduced:
+
+```golang
+type PodSetTopologyRequest struct {
+  // ...
+
+	// PodSetGroup indicates the name of the group of PodSets to which this PodSet belongs to.
+	// PodSets with the same `PodSetGroup` should be assigned the same ResourceFlavor
+	//
+	// +optional
+	PodSetGroup *string `json:"podSetGroup,omitempty"`
+  
+  // ...
+}
+```
+
+This field specifies the name of a group of PodSets that should be placed on the same flavor.
+This field is optionl and if a PodSet does not define it, it will be placed on a flavor 
+independently of any other PodSets.
+
+If two or more PodSets use the same value in `PodSetGroup`, they will be grouped together.
+Their resource requests will be summed together and the result will be used to find a flavor
+with proper resources and enough quota to fit the whole group.
+
+This is currently used by LeaderWorkerSet integration which sets `PodSetGroup` for 
+leader and worker PodSets if `kueue.x-k8s.io/leaderworkerset-group-required-topology`
+is defined, so they are grouped together.
 
 ### Enforcing the assignment
 
