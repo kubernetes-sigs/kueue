@@ -88,6 +88,11 @@ const (
 	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
 	// name of a failed node running at least one pod of this workload.
 	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
+
+	// LeaderWorkerSetGroupRequiredTopologyAnnotation is an annotation set on LeaderWorkerSet
+	// to indicate that leader should be co-located with its workers within a single
+	// replica.
+	LeaderWorkerSetGroupRequiredTopologyAnnotation = "kueue.x-k8s.io/leaderworkerset-group-required-topology"
 )
 
 // TopologySpec defines the desired state of Topology

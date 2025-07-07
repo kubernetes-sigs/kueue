@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -48,8 +49,9 @@ import (
 )
 
 const (
-	leaderPodSetName = "leader"
-	workerPodSetName = "worker"
+	leaderPodSetName         = "leader"
+	workerPodSetName         = "worker"
+	leaderWorkerSetGroupName = "leader-worker-set-group"
 )
 
 type Reconciler struct {
@@ -198,6 +200,12 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0, 2)
 
+	_, lwsGroupTopologyFound := lws.ObjectMeta.Annotations[kueuealpha.LeaderWorkerSetGroupRequiredTopologyAnnotation]
+	var lwsGroupName *string
+	if lwsGroupTopologyFound {
+		lwsGroupName = ptr.To(leaderWorkerSetGroupName)
+	}
+
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		podSet := kueue.PodSet{
 			Name:  leaderPodSetName,
@@ -208,7 +216,7 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.Po
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).PodSetGroup(ptr.To("lws-group")).Build()
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).PodSetGroup(lwsGroupName).Build()
 			if err != nil {
 				return nil, err
 			}
@@ -238,7 +246,7 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.Po
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(
-			ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).PodSetGroup(ptr.To("lws-group")).Build()
+			ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).PodSetGroup(lwsGroupName).Build()
 		if err != nil {
 			return nil, err
 		}
