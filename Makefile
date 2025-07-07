@@ -214,9 +214,14 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
+
+.PHONY: npm-depcheck
+npm-depcheck:
+	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
+	$(PROJECT_DIR)/hack/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
 
 ##@ Build
 
