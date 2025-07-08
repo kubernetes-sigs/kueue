@@ -1044,7 +1044,7 @@ It is worth noting that the tight fit mentioned above does not guarantee that no
 
 In consideration of a [Story 6](#story-6) a cross-podset scheduling is required,
 due to the fact that leader and workers are separate PodSets. To be able to co-locate
-leaders with its workers, two mechanisms have to be introduced:
+leaders with its workers, we divide the problem into subproblems:
 
 - Ensure leader and workers end up on the same flavor
 - Find topology domain to co-locate leader and workers
@@ -1068,7 +1068,7 @@ type PodSetTopologyRequest struct {
 ```
 
 This field specifies the name of a group of PodSets that should be placed on the same flavor.
-This field is optionl and if a PodSet does not define it, it will be placed on a flavor 
+This field is optional and if a PodSet does not define it, it will be placed on a flavor 
 independently of any other PodSets.
 
 If two or more PodSets use the same value in `PodSetGroup`, they will be grouped together.
