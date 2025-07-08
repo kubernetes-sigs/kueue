@@ -249,7 +249,7 @@ const (
   // This gate ensures that Pods do not begin scheduling prematurely, maintaining
   // proper sequencing in workload processing.
   // This scheduling gate is alpha-level.
-  WorkloadSliceSchedulingGate = "kueue.x-k8s.io/workload-slice"
+  ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
 )
 ```
 
