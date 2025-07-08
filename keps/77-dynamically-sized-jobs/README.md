@@ -226,7 +226,7 @@ Future enhancements may introduce support for controlled flavor reassignment or 
 Currently, a Workload can become outdated, marked by Kueue as "out-of-sync", and subsequently transitioned to the "Finished" state.
 This also applies to outdated Workload slices: when multiple successive updates are issued for a given Job, any superseded slices are marked as "Finished" to reflect their obsolescence.
 
-Preempted (i.e., aggregated) Workload slices are first marked as Finished.
+Preempted (i.e., aggregated) Workload slices are marked as Finished.
 Under the current design proposal, all finished workload slices are retained indefinitely and are not garbage collected.
 To address potential resource buildup, a `PreemptedWorkloadSliceHistory` mechanism whether as a configuration option or an API field on the Workload—could be introduced to limit the number of retained inactive slices, 
 similar to how `revisionHistoryLimit` is used in Kubernetes Deployments to manage ReplicaSet history.
