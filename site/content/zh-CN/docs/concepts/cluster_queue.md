@@ -47,10 +47,10 @@ spec:
 
 ## 资源规格与资源 {#resource-flavors-and-resources}
 
-在 ClusterQueue 中，你可以为多种 **规格** 定义配额，这些规格提供特定的[计算资源](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
+在 ClusterQueue 中，你可以为多种**规格**定义配额，这些规格提供特定的[计算资源](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
 （如 CPU、内存、GPU、Pods 等）。
 
-规格代表某种资源的不同变体（例如，不同型号的 GPU）。您可以通过 [ResourceFlavor 对象](/docs/concepts/resource_flavor) 定义规格与节点组的映射关系。
+规格代表某种资源的不同变体（例如，不同型号的 GPU）。您可以通过 [ResourceFlavor 对象](/docs/concepts/resource_flavor)定义规格与节点组的映射关系。
 在 ClusterQueue 中，您可以为每个规格所提供的资源分别设置配额。
 
 在为 ClusterQueue 定义配额时，您可以设置以下值：
@@ -138,7 +138,9 @@ namespaceSelector:
 
 这里 `kubernetes.io/metadata.name: team-a` 指的是 Kubernetes 控制平面在所有命名空间上设置的不可变标签 `kubernetes.io/metadata.name`。标签的值是命名空间名称，在这种情况下是 `team-a`。
 
-然而，`matchLabels` 可以采用任何与命名空间对象中存在的标签匹配的键。例如，假设 `team-a` 和 `team-b` 在 cohort `team-a-b` 中，并且两个命名空间上都存在用户定义的标签 `research-cohort: team-a-b`，如下所示：
+然而，`matchLabels` 可以采用任何与命名空间对象中存在的标签匹配的键。
+例如，假设 `team-a` 和 `team-b` 在 cohort `team-a-b` 中，
+并且两个命名空间上都存在用户定义的标签 `research-cohort: team-a-b`，如下所示：
 
 ```yaml
 apiVersion: v1
@@ -158,7 +160,7 @@ metadata:
     research-cohort: team-a-b
 ```
 
-允许两个命名空间向此 ClusterQueue 提交 Jobs 的 namespaceSelector 配置如下：
+允许两个命名空间向此 ClusterQueue 提交 Job 的 namespaceSelector 配置如下：
 
 ```yaml
 namespaceSelector:
@@ -166,7 +168,9 @@ namespaceSelector:
     research-cohort: team-a-b
 ```
 
-另一种配置 `namespaceSelector` 的方法是使用 `matchExpressions`。请参阅 [Kubernetes 文档](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#resources-that-support-set-based-requirements) 了解更多详细信息。
+另一种配置 `namespaceSelector` 的方法是使用 `matchExpressions`。请参阅
+[Kubernetes 文档](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#resources-that-support-set-based-requirements) 
+了解更多详细信息。
 
 ## 排队策略
 
