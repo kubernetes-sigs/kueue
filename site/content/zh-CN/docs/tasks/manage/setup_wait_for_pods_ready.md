@@ -149,7 +149,7 @@ our cluster, in order to simulate issues with provisioning.
 
 Save the following cluster queues configuration as `cluster-queues.yaml`:
 
-``` yaml
+```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
