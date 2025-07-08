@@ -1,21 +1,19 @@
 ---
-title: "Cluster Queue"
+title: "集群队列（ClusterQueue）"
 date: 2023-03-14
 weight: 3
 description: >
-  A cluster-scoped resource that governs a pool of resources, defining usage limits and Fair Sharing rules.
+  一个集群范围的资源对象，用于管理一组资源池，定义使用上限和公平共享规则。
 ---
 
-A ClusterQueue is a cluster-scoped object that governs a pool of resources
-such as pods, CPU, memory, and hardware accelerators. A ClusterQueue defines:
+ClusterQueue 是一个集群范围的对象，用于管理一组资源池，如 Pod、CPU、内存和硬件加速器。ClusterQueue 定义了：
 
-- The quotas for the [resource _flavors_](/docs/concepts/resource_flavor) that the ClusterQueue manages,
-  with usage limits and order of consumption.
-- Fair Sharing rules across the multiple ClusterQueues in the cluster.
+- ClusterQueue 管理的[资源规格](/docs/concepts/resource_flavor)的配额，包括使用上限和消耗顺序。
+- 集群中多个 ClusterQueue 之间的公平共享规则。
 
-Only [batch administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
+只有[批处理管理员](/docs/tasks#batch-administrator)才应创建 `ClusterQueue` 对象。
 
-A sample ClusterQueue looks like the following:
+一个示例 ClusterQueue 如下所示：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -23,7 +21,7 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   resourceGroups:
   - coveredResources: ["cpu", "memory", "pods"]
     flavors:
@@ -37,59 +35,48 @@ spec:
         nominalQuota: 5
 ```
 
-This ClusterQueue admits [Workloads](/docs/concepts/workload) if and only if:
+只有在以下条件全部满足时，该 ClusterQueue 才会接纳[工作负载](/docs/concepts/workload)：
 
-- The sum of the CPU requests is less than or equal to 9.
-- The sum of the memory requests is less than or equal to 36Gi.
-- The total number of pods is less than or equal to 5.
+- CPU 请求总和小于等于 9。
+- 内存请求总和小于等于 36Gi。
+- Pod 总数小于等于 5。
 
-You can specify the quota as a [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/).
+您可以将配额指定为[数量](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/)。
 
 ![Cohort](/images/cluster-queue.svg)
 
-## Flavors and Resources
+## 资源规格与资源 {#resource-flavors-and-resources}
 
-In a ClusterQueue, you can define quotas for multiple _flavors_ that provide certain [compute _resources_](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
-(CPU, memory, GPUs, pods, etc.).
+在 ClusterQueue 中，你可以为多种**规格**定义配额，这些规格提供特定的[计算资源](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
+（如 CPU、内存、GPU、Pods 等）。
 
-Flavors represent different variations of a resource (for example, different GPU
-models). You can define how a flavor maps to a group of nodes using a [ResourceFlavor object](/docs/concepts/resource_flavor).
-In a ClusterQueue, you can define the quota for each of the resources that a flavor offers.
+规格代表某种资源的不同变体（例如，不同型号的 GPU）。您可以通过 [ResourceFlavor 对象](/docs/concepts/resource_flavor)定义规格与节点组的映射关系。
+在 ClusterQueue 中，您可以为每个规格所提供的资源分别设置配额。
 
-When defining quotas for a ClusterQueue, you can set the following values:
-- `nominalQuota` is the quantity of this resource that is available for a ClusterQueue at a specific time.
-- `borrowingLimit` is the maximum amount of quota that this ClusterQueue is allowed to borrow from the unused
-  nominal quota of other ClusterQueues in the same [cohort](#cohort).
-- `lendingLimit` is the maximum amount of quota that this ClusterQueue allows other
-  ClusterQueues in the cohort to borrow when this ClusterQueue is not using its nominal quota.
+在为 ClusterQueue 定义配额时，您可以设置以下值：
+- `nominalQuota`：该资源在某一时刻可供 ClusterQueue 使用的数量。
+- `borrowingLimit`：该 ClusterQueue 允许从同一[队列组](#cohort)中其他 ClusterQueue 未用名义配额中借用的最大配额数量。
+- `lendingLimit`：当本 ClusterQueue 未使用其名义配额时，允许队列组内其他 ClusterQueue 借用的最大配额数量。
 
-In a process called [admission](/docs/concepts#admission), Kueue assigns to the
-[Workload pod sets](/docs/concepts/workload#pod-sets) a flavor for each resource the pod set
-requests.
-Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].flavors`
-list that has enough unused `nominalQuota` quota in the ClusterQueue or the
-ClusterQueue's [cohort](#cohort).
+在称为[准入](/docs/concepts#admission)的流程中，Kueue 会为[工作负载 Pod 集合](/docs/concepts/workload#pod-sets)分配每个所需资源的规格。
+Kueue 会优先分配 ClusterQueue `.spec.resourceGroups[*].flavors` 列表中第一个拥有足够未用 `nominalQuota` 的规格，无论是在本 ClusterQueue 还是其[队列组](#cohort)中。
 
-{{% alert title="Note" color="primary" %}}
-Use the `pods` resource name in the ClusterQueue quotas to limit the number of pods that can be admitted.
+{{% alert title="注意" color="primary" %}}
+在 ClusterQueue 配额中使用 `pods` 资源名来限制可接纳的 Pod 数量。
 
-The resource name `pods` is [reserved](/docs/concepts/workload/#reserved-resource-names) and cannot be specified in
-the requests of a Pod.
-Kueue automatically computes the number of Pods that a Workload requires.
+资源名 `pods` 是[保留名](/docs/concepts/workload/#reserved-resource-names)，不能在 Pod 的 requests 字段中指定。
+Kueue 会自动计算一个 Workload 需要的 Pod 数量。
 {{% /alert %}}
 
-### Resource Groups
+### 资源组
 
-When a ResourceFlavor is tied to a node group, machine family or VM availability policy,
-it is a common requirement that all the resources associated to the nodes (such as `cpu`, `memory` and GPUs)
-should be assigned to the same flavor during admission.
-To tie two or more resources to the same set of flavors, list them in the same resource group.
+当一个 ResourceFlavor 绑定到节点组、机器系列或虚拟机可用性策略时，通常要求所有与这些节点相关的资源（如 `cpu`、`memory` 和 GPU）在准入时分配到同一个规格。
+要将两个或多个资源绑定到同一组规格，请将它们列在同一个资源组中。
 
-To assign different flavors to different resources, list them in different resource groups.
-This could be useful when some resources are not directly associated to the nodes, can be dynamically attached
-through the network or simply you wish to track their quota independently of other resources.
+如果希望为不同资源分配不同的规格，请将它们分别列在不同的资源组中。
+这在某些资源不是直接与节点关联、可以通过网络动态挂载，或你希望独立追踪其配额时非常有用。
 
-An example of a ClusterQueue with multiple resource groups looks like the following:
+一个包含多个资源组的 ClusterQueue 示例如下：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -97,7 +84,7 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   resourceGroups:
   - coveredResources: ["cpu", "memory", "foo.com/gpu"]
     flavors:
@@ -129,21 +116,19 @@ spec:
         nominalQuota: 10
 ```
 
-In the example above, `cpu`, `memory`, and `foo.com/gpu` belong to one resourceGroup, while `bar.com/license`
-belongs to another.
+在上述示例中，`cpu`、`memory` 和 `foo.com/gpu` 属于同一个 resourceGroup，而 `bar.com/license` 属于另一个。
 
-A resource flavor must belong to at most one resource group.
+一个资源规格最多只能属于一个资源组。
 
-## Namespace selector
+## 命名空间选择器 {#namespace-selector}
 
-You can limit which namespaces can have workloads admitted in the ClusterQueue
-by setting a [label selector](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/label-selector/#LabelSelector).
-in the `.spec.namespaceSelector` field.
+您可以在 ClusterQueue 中限制哪些命名空间可以有工作负载被接纳，通过设置 [label selector](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/label-selector/#LabelSelector)
+在 `.spec.namespaceSelector` 字段中。
 
-To allow workloads from all namespaces, set the empty selector `{}` to the
-`spec.namespaceSelector` field.
+要允许所有命名空间的工作负载，请将空选择器 `{}` 设置为
+`spec.namespaceSelector` 字段。
 
-There are multiple ways to allow specific namespaces access to a Cluster Queue. A sample `namespaceSelector` using `matchLabels` to match the workload to a namespace `team-a` looks like the following:
+有多种方法可以允许特定命名空间访问 Cluster Queue。使用 `matchLabels` 匹配工作负载到命名空间 `team-a` 的示例 `namespaceSelector` 如下：
 
 ```yaml
 namespaceSelector:
@@ -151,9 +136,11 @@ namespaceSelector:
     kubernetes.io/metadata.name: team-a
 ```
 
-Here `kubernetes.io/metadata.name: team-a` refers to an immutable label `kubernetes.io/metadata.name` that the Kubernetes control plane sets on all namespaces. The value of the label is the namespace name, in this case `team-a`.
+这里 `kubernetes.io/metadata.name: team-a` 指的是 Kubernetes 控制平面在所有命名空间上设置的不可变标签 `kubernetes.io/metadata.name`。标签的值是命名空间名称，在这种情况下是 `team-a`。
 
-However, `matchLabels` can take any key that matches a label present in the Namespace objects. For example, let's assume `team-a` and `team-b` are in a cohort `team-a-b` and the user defined label `research-cohort: team-a-b` is present on both namespaces like so:
+然而，`matchLabels` 可以采用任何与命名空间对象中存在的标签匹配的键。
+例如，假设 `team-a` 和 `team-b` 在 cohort `team-a-b` 中，
+并且两个命名空间上都存在用户定义的标签 `research-cohort: team-a-b`，如下所示：
 
 ```yaml
 apiVersion: v1
@@ -173,7 +160,7 @@ metadata:
     research-cohort: team-a-b
 ```
 
-A namespaceSelector configuration allowing both namespaces to submit Jobs to this ClusterQueue would look something like this:
+允许两个命名空间向此 ClusterQueue 提交 Job 的 namespaceSelector 配置如下：
 
 ```yaml
 namespaceSelector:
@@ -181,75 +168,67 @@ namespaceSelector:
     research-cohort: team-a-b
 ```
 
-Another way to configure `namespaceSelector` is using `matchExpressions`. See [Kubernetes documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#resources-that-support-set-based-requirements) for more details.
+另一种配置 `namespaceSelector` 的方法是使用 `matchExpressions`。请参阅
+[Kubernetes 文档](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#resources-that-support-set-based-requirements) 
+了解更多详细信息。
 
-## Queueing strategy
+## 排队策略
 
-You can set different queueing strategies in a ClusterQueue using the
-`.spec.queueingStrategy` field. The queueing strategy determines how workloads
-are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
-[admission](/docs/concepts#admission) attempt.
+您可以在 ClusterQueue 中使用
+`.spec.queueingStrategy` 字段设置不同的排队策略。排队策略决定了工作负载在 ClusterQueue 中的顺序以及在失败的
+[admission](/docs/concepts#admission) 尝试后如何重新排队。
 
-The following are the supported queueing strategies:
+以下是支持的排队策略：
 
-- `StrictFIFO`: Workloads are ordered first by [priority](/docs/concepts/workload#priority)
-  and then by `.metadata.creationTimestamp`. Older workloads that can't be
-  admitted will block newer workloads, even if the newer workloads fit in the
-  available quota.
-- `BestEffortFIFO`: Workloads are ordered the same way as `StrictFIFO`. However,
-  older Workloads that can't be admitted will not block newer Workloads that
-  fit in the available quota.
+- `StrictFIFO`：工作负载首先按 [优先级](/docs/concepts/workload#priority)排序，
+  然后按创建时间 `.metadata.creationTimestamp` 排序。无法被接纳的旧工作负载会阻止新工作负载，即使新工作负载适合可用配额。
+- `BestEffortFIFO`：工作负载按与 `StrictFIFO` 相同的方式排序。然而，
+  无法被接纳的旧工作负载不会阻止新工作负载，只要新工作负载适合可用配额。
 
-The default queueing strategy is `BestEffortFIFO`.
+默认排队策略是 `BestEffortFIFO`。
 
-## Cohort
+## 队列组（Cohort） {#cohort}
 
-ClusterQueues can be grouped in _cohorts_. ClusterQueues that belong to the
-same cohort can borrow unused quota from each other.
+ClusterQueues 可以分组为 **队列组**。属于
+同一队列组的 ClusterQueues 可以从每个其他 ClusterQueue 借用未使用的配额。
 
-To add a ClusterQueue to a cohort, specify the name of the cohort in the
-`.spec.cohort` field. All ClusterQueues that have a matching `spec.cohort` are
-part of the same cohort. If the `spec.cohort` field is empty, the ClusterQueue
-doesn't belong to any cohort, and thus it cannot borrow quota from any other
-ClusterQueue.
+要向队列组添加 ClusterQueue，请在
+`.spec.cohort` 字段中指定 cohort 的名称。所有具有匹配 `spec.cohort` 的 ClusterQueues
+都是 cohort 的一部分。如果 `spec.cohort` 字段为空，则 ClusterQueue
+不属于任何 cohort，因此它不能从任何其他
+ClusterQueue 借用配额。
 
-### Flavors and borrowing semantics
+### 规格与借用语义 {#flavor-and-borrowing-semantics}
 
-When a ClusterQueue is part of a cohort, Kueue satisfies the following admission
-semantics:
+当 ClusterQueue 是 cohort 的一部分时，Kueue 满足以下准入语义：
 
-- When assigning flavors, Kueue goes through the list of flavors in the
-  relevant ResourceGroup inside ClusterQueue's
-  (`.spec.resourceGroups[*].flavors`). For each flavor, Kueue attempts
-  to fit a Workload's pod set according to the quota defined in the
-  ClusterQueue for the flavor and the unused quota in the cohort.
-  If the Workload doesn't fit, Kueue evaluates the next flavor in the list.
-- A Workload's pod set resource fits in a flavor defined for a ClusterQueue
-  resource if the sum of requests for the resource:
-  1. Is less than or equal to the unused `nominalQuota` for the flavor in the
-     ClusterQueue; or
-  2. Is less than or equal to the sum of unused `nominalQuota` for the flavor in
-     the ClusterQueues in the cohort, and
-  3. Is less than or equal to the unused `nominalQuota + borrowingLimit` for
-     the flavor in the ClusterQueue.
-  In Kueue, when (2) and (3) are satisfied, but not (1), this is called
-  _borrowing quota_.
-- A ClusterQueue can only borrow quota for flavors that the ClusterQueue defines.
-- For each pod set resource in a Workload, a ClusterQueue can only borrow quota
-  for one flavor.
+- 当分配规格时，Kueue 通过 ClusterQueue 的
+  (`.spec.resourceGroups[*].flavors`). 对于每个规格，Kueue 尝试
+  根据 ClusterQueue 为规格定义的配额和 cohort 中的未用配额来适应 Workload 的 pod set。
+  如果 Workload 不适合，Kueue 评估列表中的下一个规格。
+- Workload 的 pod set 资源适合在 ClusterQueue 中定义的规格，如果 Workload 的请求资源总和：
+  1. 小于或等于规格在
+     ClusterQueue 中的未用 `nominalQuota`；或
+  2. 小于或等于规格在
+     cohort 中的所有 ClusterQueues 的未用 `nominalQuota` 之和，并且
+  3. 小于或等于规格在 ClusterQueue 中的未用 `nominalQuota + borrowingLimit`。
+  在 Kueue 中，当 (2) 和 (3) 满足但未满足 (1) 时，这称为
+  **borrowing quota**。
+- ClusterQueue 只能借用其定义的规格配额。
+- 对于 Workload 中的每个 pod set 资源，ClusterQueue 只能借用一个规格配额。
 
-{{% alert title="Note" color="primary" %}}
-Within a Cohort, Kueue prioritizes scheduling workloads that will fit under `nominalQuota`.
-By default, if multiple workloads require `borrowing`, Kueue will try to schedule workloads with higher [priority](/docs/concepts/workload#priority) first.
-If the feature gate `PrioritySortingWithinCohort=false` is set, Kueue will try to schedule workloads with the earliest `.metadata.creationTimestamp`.
+{{% alert title="注意" color="primary" %}}
+在 cohort 中，Kueue 优先安排将适合 under `nominalQuota` 的工作负载。
+默认情况下，如果多个工作负载需要 `borrowing`，Kueue 将尝试安排优先级更高的工作负载
+[priority](/docs/concepts/workload#priority) 首先。
+如果 feature gate `PrioritySortingWithinCohort=false` 设置，Kueue 将尝试安排最早的 `.metadata.creationTimestamp` 的工作负载。
 {{% /alert %}}
 
-You can influence some semantics of flavor selection and borrowing
-by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibility) in ClusterQueue.
+你可以设置一个 [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibility) 来影响一些规格选择和借用的语义。
 
-### Borrowing example
+### 借用示例 {#borrowing-example}
 
-Assume you created the following two ClusterQueues:
+假设你创建了以下两个 ClusterQueues：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -257,7 +236,7 @@ kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   cohort: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
@@ -276,7 +255,7 @@ kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   cohort: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
@@ -289,24 +268,24 @@ spec:
         nominalQuota: 48Gi
 ```
 
-ClusterQueue `team-a-cq` can admit Workloads depending on the following
-scenarios:
+ClusterQueue `team-a-cq` 可以根据以下情况接纳工作负载：
 
-- If ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue
-  `team-a-cq` can admit Workloads with resources adding up to `12+9=21` CPUs and
-  `48+36=84Gi` of memory.
-- If ClusterQueue `team-b-cq` has pending Workloads and the ClusterQueue
-  `team-a-cq` has all its `nominalQuota` quota used, Kueue will admit Workloads in
-  ClusterQueue `team-b-cq` before admitting any new Workloads in `team-a-cq`.
-  Therefore, Kueue ensures the `nominalQuota` quota for `team-b-cq` is met.
+- 如果 ClusterQueue `team-b-cq` 没有被接纳的工作负载，那么 ClusterQueue
+  `team-a-cq` 可以接纳资源总和为 `12+9=21` CPUs 和
+  `48+36=84Gi` 内存的工作负载。
+- 如果 ClusterQueue `team-b-cq` 有待处理的工作负载，并且 ClusterQueue
+  `team-a-cq` 的所有 `nominalQuota` 配额已用完，Kueue 将首先在
+  ClusterQueue `team-b-cq` 中接纳工作负载，然后再接纳任何新工作负载
+  `team-a-cq`。
+  因此，Kueue 确保 `nominalQuota` 配额用于 `team-b-cq`。
 
-### BorrowingLimit
+### 借用限制 {#borrowinglimit}
 
-To limit the amount of resources that a ClusterQueue can borrow from others,
-you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].borrowingLimit`
-[quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
+要限制 ClusterQueue 可以从其他地方借用的资源量，你可以设置
+`.spec.resourcesGroup[*].flavors[*].resource[*].borrowingLimit`
+[quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) 字段。
 
-As an example, assume you created the following two ClusterQueues:
+例如，假设你创建了以下两个 ClusterQueues：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -314,7 +293,7 @@ kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   cohort: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
@@ -332,7 +311,7 @@ kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   cohort: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
@@ -343,30 +322,29 @@ spec:
         nominalQuota: 12
 ```
 
-In this case, because we set borrowingLimit in ClusterQueue `team-a-cq`, if
-ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue `team-a-cq`
-can admit Workloads with resources adding up to `9+1=10` CPUs.
+在这种情况下，因为我们在 ClusterQueue `team-a-cq` 中设置了 borrowingLimit，如果
+ClusterQueue `team-b-cq` 没有被接纳的工作负载，那么 ClusterQueue `team-a-cq`
+可以接纳资源总和为 `9+1=10` CPUs 的工作负载。
 
-If, for a given flavor/resource, the `borrowingLimit` field is empty or null,
-a ClusterQueue can borrow up to the sum of nominal quotas from all the
-ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can
-use up to `12+9` CPUs.
+如果，对于给定的规格/资源，`borrowingLimit` 字段为空或 null，
+ClusterQueue 可以借用所有名义配额从 cohort 中的所有 ClusterQueues。因此，对于上面列出的 yamls，`team-b-cq` 可以使用
+最多 `12+9` CPUs。
 
-### LendingLimit
+### LendingLimit {#lendinglimit}
 
-To limit the amount of resources that a ClusterQueue can lend in the cohort,
-you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
-[quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
+要限制 ClusterQueue 可以在 cohort 中借出的资源量，你可以设置
+`.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
+[quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) 字段。
 
 {{< feature-state state="beta" for_version="v0.9" >}}
-{{% alert title="Note" color="primary" %}}
+{{% alert title="注意" color="primary" %}}
 
-`LendingLimit` is a Beta feature enabled by default.
+`LendingLimit` 是一个 Beta 功能，默认启用。
 
-You can disable it by setting the `LendingLimit` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+你可以通过设置 `LendingLimit` feature gate 来禁用它。请参阅 [Installation](/docs/installation/#change-the-feature-gates-configuration) 指南，了解 feature gate 配置的详细信息。
 {{% /alert %}}
 
-As an example, assume you created the following two ClusterQueues:
+例如，假设你创建了以下两个 ClusterQueues：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -374,7 +352,7 @@ kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   cohort: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
@@ -391,7 +369,7 @@ kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
-  namespaceSelector: {} # match all.
+  namespaceSelector: {} # 匹配所有命名空间。
   cohort: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
@@ -403,23 +381,21 @@ spec:
         lendingLimit: 1
 ```
 
-Here, you set lendingLimit=1 in ClusterQueue `team-b-cq`. It means that
-if all admitted workloads in the ClusterQueue `team-b-cq` have their total
-quota usage below the `nominalQuota` (less or equal `12-1=11` CPUs),
-then ClusterQueue `team-a-cq` can admit Workloads with resources
-adding up to `9+1=10` CPUs.
+在这里，你在 ClusterQueue `team-b-cq` 中设置了 lendingLimit=1。这意味着
+如果 ClusterQueue `team-b-cq` 中所有被接纳的工作负载的总
+配额使用量低于 `nominalQuota`（小于或等于 `12-1=11` CPUs），
+然后 ClusterQueue `team-a-cq` 可以接纳资源
+总和为 `9+1=10` CPUs 的工作负载。
 
-If the `lendingLimit` field is not specified, a ClusterQueue can lend out
-all of its resources. In this case, `team-b-cq` can use up to `9+12` CPUs.
+如果 `lendingLimit` 字段未指定，ClusterQueue 可以借出
+所有资源。在这种情况下，`team-b-cq` 可以使用最多 `9+12` CPUs。
 
-## Preemption
+## 抢占 {#preemption}
 
-When there is not enough quota left in a ClusterQueue or its cohort, an incoming
-Workload can trigger preemption of previously admitted Workloads, based on
-policies for the ClusterQueue.
+当 ClusterQueue 或其 cohort 中没有足够的配额时，新进入的工作负载可以触发以前被接纳的工作负载的预留，基于
+ClusterQueue 的策略。
 
-A configuration for a ClusterQueue that enables preemption looks like the
-following:
+一个配置 ClusterQueue 以启用预留的示例如下：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -435,54 +411,44 @@ spec:
     withinClusterQueue: LowerPriority
 ```
 
-The fields above do the following:
+上述字段如下：
 
-- `reclaimWithinCohort` determines whether a pending Workload can preempt
-  Workloads from other ClusterQueues in the cohort that are using more than
-  their nominal quota. The possible values are:
-  - `Never` (default): do not preempt Workloads in the cohort.
-  - `LowerPriority`: if the pending Workload fits within the nominal
-    quota of its ClusterQueue, only preempt Workloads in the cohort that have
-    lower priority than the pending Workload.
-  - `Any`: if the pending Workload fits within the nominal quota of its
-    ClusterQueue, preempt any Workload in the cohort, irrespective of
-    priority.
+- `reclaimWithinCohort` 确定是否可以预留
+  cohort 中使用更多配额的 Workloads。可能的值是：
+  - `Never`（默认）：不要预留 cohort 中的 Workloads。
+  - `LowerPriority`：如果待处理的工作负载适合其 ClusterQueue 的配额，则仅预留 cohort 中优先级较低的 Workloads。
+  - `Any`：如果待处理的工作负载适合其 ClusterQueue 的配额，则预留 cohort 中的任何 Workloads，无论优先级如何。
 
-- `borrowWithinCohort` determines whether a pending Workload can preempt
-  Workloads from other ClusterQueues if the workload requires borrowing.
-  May only be configured with Classical Preemption, and __not__ with Fair Sharing.
-  This field requires to specify `policy` sub-field with possible values:
-  - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.
-  - `LowerPriority`: if the pending Workload requires borrowing, only preempt
-    Workloads in the cohort that have lower priority than the pending Workload.
-  This preemption policy is only supported when `reclaimWithinCohort` is enabled (different than `Never`).
-  Additionally, only workloads up to the priority indicated by
-  `maxPriorityThreshold` can be preempted in that scenario.
+- `borrowWithinCohort` 确定是否可以预留
+  Workloads 从其他 ClusterQueues 如果工作负载需要借用。
+  只能配置 Classical Preemption，并且 __not__ with Fair Sharing。
+  此字段需要指定 `policy` 子字段，可能的值：
+  - `Never`（默认）：如果借用是必需的，不要预留 cohort 中的 Workloads。
+  - `LowerPriority`：如果待处理的工作负载需要借用，则仅预留
+    cohort 中优先级较低的 Workloads。
+  此预留策略仅在 `reclaimWithinCohort` 启用时支持（与 `Never` 不同）。
+  此外，仅在配置的优先级阈值内可以预留该场景中的工作负载。
 
-- `withinClusterQueue` determines whether a pending Workload that doesn't fit
-  within the nominal quota for its ClusterQueue, can preempt active Workloads in
-  the ClusterQueue. The possible values are:
-  - `Never` (default): do not preempt Workloads in the ClusterQueue.
-  - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
-    lower priority than the pending Workload.
-  - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that either have a lower priority than the pending workload or equal priority and are newer than the pending workload.
+- `withinClusterQueue` 确定是否可以预留
+  待处理的工作负载，如果它不适合其 ClusterQueue 的配额，则可以预留
+  ClusterQueue 中的活动 Workloads。可能的值是：
+  - `Never`（默认）：不要预留 ClusterQueue 中的 Workloads。
+  - `LowerPriority`：仅预留 ClusterQueue 中优先级较低的 Workloads。
+  - `LowerOrNewerEqualPriority`：仅预留 ClusterQueue 中优先级较低或等于待处理工作负载的 Workloads。
 
-Note that an incoming Workload can preempt Workloads both within the
-ClusterQueue and the cohort.
+请注意，新进入的工作负载可以预留 ClusterQueue 和 cohort 中的 Workloads。
 
-Read [Preemption](/docs/concepts/preemption) to learn more about
-the heuristics that Kueue implements to preempt as few Workloads as possible.
+阅读 [Preemption](/docs/concepts/preemption) 以了解 Kueue 实现以预留尽可能少的工作负载的启发式方法。
 
-## FlavorFungibility
+## FlavorFungibility {#flavorfungibility}
 
-When there is not enough nominal quota of resources in a ResourceFlavor, the incoming Workload can borrow
-quota or preempt running Workloads in the ClusterQueue or Cohort.
+当 ResourceFlavor 中没有足够的名义配额资源时，新进入的工作负载可以借用
+配额或预留 ClusterQueue 或 cohort 中的运行工作负载。
 
-Kueue evaluates the flavors in a ClusterQueue in order. You can influence whether to prioritize
-preemptions or borrowing in a flavor before trying to accommodate the Workload in the next flavor, by
-setting the `flavorFungibility` field.
+Kueue 按顺序评估 ClusterQueue 中的规格。你可以影响是否优先
+预留或借用规格，在尝试适应 Workload 到下一个规格之前，设置 `flavorFungibility` 字段。
 
-A configuration for a ClusterQueue that configures this behavior looks like the following:
+一个配置 ClusterQueue 以配置此行为的示例如下：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -495,23 +461,23 @@ spec:
     whenCanPreempt: Preempt
 ```
 
-The fields above do the following:
+上述字段如下：
 
-- `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
-  - `Borrow` (default): ClusterQueue stops finding a better assignment.
-  - `TryNextFlavor`: ClusterQueue tries the next ResourceFlavor to see if the workload can get a better assignment.
-- `whenCanPreempt` determines whether a workload should try preemption in current ResourceFlavor before try the next one. The possible values are:
-  - `Preempt`: ClusterQueue stops trying preemption in current ResourceFlavor and starts from the next one if preempting failed.
-  - `TryNextFlavor` (default): ClusterQueue tries the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
+- `whenCanBorrow` 确定是否应该停止寻找更好的分配，如果工作负载可以通过借用当前 ResourceFlavor 获得足够的资源。可能的值是：
+  - `Borrow`（默认）：ClusterQueue 停止寻找更好的分配。
+  - `TryNextFlavor`：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否可以获得更好的分配。
+- `whenCanPreempt` 确定是否应该尝试预留当前 ResourceFlavor 中的工作负载，然后再尝试下一个。可能的值是：
+  - `Preempt`：ClusterQueue 停止尝试预留当前 ResourceFlavor 并从下一个开始，如果预留失败。
+  - `TryNextFlavor`（默认）：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否适合 ResourceFlavor。
 
-By default, the incoming workload stops trying the next flavor if the workload can get enough borrowed resources.
-And Kueue triggers preemption only after Kueue determines that the remaining ResourceFlavors can't fit the workload.
+默认情况下，新进入的工作负载停止尝试下一个风味，如果工作负载可以获得足够的借用资源。
+并且 Kueue 仅在 Kueue 确定剩余 ResourceFlavors 无法适应工作负载时触发预留。
 
-Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
+请注意，每当时机允许且配置策略允许时，Kueue 避免预留，如果它可以借用 Workload 以适应。
 
-## StopPolicy
+## 停止策略 {#stoppolicy}
 
-StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:
+StopPolicy 允许集群管理员通过在 [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) 中设置其值来临时停止 ClusterQueue 中工作负载的接纳，如下所示：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -522,20 +488,20 @@ spec:
   stopPolicy: Hold
 ```
 
-The example above will stop the admission of new workloads in the ClusterQueue while allowing the already admitted workloads to finish.
-The `HoldAndDrain` will have a similar effect but, in addition, it will trigger the eviction of the admitted workloads.
+上述示例将停止 ClusterQueue 中新的工作负载接纳，同时允许已经接纳的工作负载完成。
+`HoldAndDrain` 将具有类似的效果，但除此之外，它还会触发已接纳工作负载的驱逐。
 
-If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal admission behavior.
+如果设置为 `None` 或 `spec.stopPolicy` 被删除，ClusterQueue 将恢复正常接纳行为。
 
-## AdmissionChecks
+## AdmissionChecks {#admissionchecks}
 
-AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
+AdmissionChecks 是一个机制，允许 Kueue 在接纳工作负载之前考虑其他标准。
 
-For an example ClusterQueue configuration using admission checks, see [Admission Checks](/docs/concepts/admission_check#usage).
+例如，使用 admission checks 的 ClusterQueue 配置，请参阅 [Admission Checks](/docs/concepts/admission_check#usage)。
 
-## What's next?
+## 下一步是什么？ {#what-next}
 
-- Create [local queues](/docs/concepts/local_queue)
-- Create [resource flavors](/docs/concepts/resource_flavor) if you haven't already done so.
-- Learn how to [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas).
-- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueue) for `ClusterQueue`
+- 创建 [local queues](/docs/concepts/local_queue)
+- 如果你还没有，请创建 [resource flavors](/docs/concepts/resource_flavor)
+- 学习如何 [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas)
+- 阅读 [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueue) for `ClusterQueue`
