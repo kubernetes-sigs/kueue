@@ -9,15 +9,18 @@ description: >
 {{< feature-state state="alpha" for_version="v0.12" >}}
 
 {{% alert title="注意" color="primary" %}}
-`AdmissionFairSharing` 目前是一个 alpha 特性，默认未启用。
+`AdmissionFairSharing` 目前是一个 Alpha 特性，默认未启用。
 
-您可以通过编辑 `AdmissionFairSharing` 特性门控来启用它。有关特性门控配置的详细信息，请查阅 [安装指南](/docs/installation/#change-the-feature-gates-configuration)。
+您可以通过编辑 `AdmissionFairSharing` 特性门控来启用它。有关特性门控配置的详细信息，
+请查阅 [安装指南](/docs/installation/#change-the-feature-gates-configuration)。
 {{% /alert %}}
 
 
 # 准入公平共享（Admission Fair Sharing）{#admission-fair-sharing}
 
-准入公平共享有助于在多个指向同一 ClusterQueue 的 LocalQueue 之间公平分配资源。它会根据各自 LocalQueue 的历史资源使用情况对工作负载进行排序，优先考虑那些随着时间推移消耗资源较少的工作负载。
+准入公平共享有助于在多个指向同一 ClusterQueue 的 LocalQueue 之间公平分配资源。
+它会根据各自 LocalQueue 的历史资源使用情况对工作负载进行排序，
+优先考虑那些随着时间推移消耗资源较少的工作负载。
 
 ## 工作原理
 
