@@ -42,7 +42,7 @@
 
 ## Summary
 
-Enable dynamic resizing of Kueue-managed batch/v1.Job workloads by supporting in-place horizontal scaling of job parallelism.
+Enable dynamic resizing of Kueue-managed workloads by supporting in-place horizontal scaling of job parallelism.
 The primary goal is to allow dynamic adjustment of job parallelism without requiring suspension and requeueing, thereby improving scheduling efficiency and minimizing disruption during resource fluctuations.
 
 In addition, we aim to extend dynamic resizing support to RayCluster workloads. 
