@@ -181,7 +181,7 @@ kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster
 
 You should get results similar to 
 
-``` json
+```json
 {
   "kind": "PendingWorkloadsSummary",
   "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
@@ -303,7 +303,7 @@ kubectl get --raw /apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/loc
 
 You should get results similar to:
 
-``` json
+```json
 {
   "kind": "PendingWorkloadsSummary",
   "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
@@ -384,7 +384,7 @@ kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/lo
 ```
 You should get results similar to 
 
-``` json
+```json
 {
   "kind": "PendingWorkloadsSummary",
   "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
