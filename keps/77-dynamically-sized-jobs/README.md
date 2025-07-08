@@ -169,6 +169,7 @@ Furthermore, each individual workload slice will record the identity of any pree
 const (
 	// WorkloadPreemptibleSliceNameKey is the annotation key used to capture an "old" workload slice
 	// that will be preempted by the "new" workload slice, i.e., this annotates a "new" workload slice.
+	// This annotation is alpha-level.
 	WorkloadPreemptibleSliceNameKey = "kueue.x-k8s.io/workload-preemptible-slice"
 )
 ```
