@@ -61,9 +61,8 @@ To support such scenarios, Kueue must gracefully handle horizontal scale-up and 
   
 ### Non-Goals
 
-- Vertical scaling of workloads – Kueue will only handle resize operations that scale Pods horizontally. 
-- Support resize for other Kueue jobs such as Job, JobSet, etc (future).
-- Resizing of the Workload parent objects (`batchv1/Job`, RayJobs, etc.)
+- Vertical scaling of workloads – Kueue will only handle resize operations that scale Pods horizontally.
+- Orchestration or initiation of resizing for the parent workload objects (e.g., `batch/v1.Job`, `RayJob`, etc.)
 - Partial Preemption.
 
 ## Proposal
@@ -123,7 +122,7 @@ The latter will be deactivated and marked as finished.
 WorkloadSlices in Kueue are enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. 
 At the cluster level, the WorkloadSlices feature must be enabled via the corresponding Kubernetes feature gate, which controls whether the controller logic for slicing is active. 
 
-Once the feature gate is enabled, individual Workload objects can opt into slicing by including the `kueue.x-k8s.io/dynamically-sized-job: "true"` annotation. 
+Once the feature gate is enabled, individual Workload objects can opt into slicing by including the `kueue.x-k8s.io/elastic-job: "true"` annotation. 
 When both conditions are met, Kueue treats the Workload as eligible for partitioning into one or more WorkloadSlice objects, enabling fine-grained scheduling and 
 execution across multiple clusters or within a single cluster. If the feature gate is disabled or the annotation is omitted (or set to "false"), 
 the system defaults to the traditional single-Workload scheduling path for full backward compatibility.
@@ -133,8 +132,8 @@ the system defaults to the traditional single-Workload scheduling path for full 
 // owner: @ichekrygin
 // kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
 //
-// WorkloadSlices enables workload-slices support.
-WorkloadSlices featuregate.Feature = "DynamicallySizedJob"
+// ElasticJobsViaWorkloadSlices enables support for horizontal-scale in jobs.
+ElasticJobsViaWorkloadSlices featuregate.Feature = "ElasticJobsViaWorkloadSlices"
 ```
 
 #### WorkloadSliceAnnotation
@@ -144,7 +143,7 @@ WorkloadSlices featuregate.Feature = "DynamicallySizedJob"
 const (
   // EnabledAnnotationKey refers to the annotation key present on Job's that support
   // workload slicing.
-  EnabledAnnotationKey = "kueue.x-k8s.io/dynamically-sized-job"
+  EnabledAnnotationKey = "kueue.x-k8s.io/elastic-job"
   // EnabledAnnotationValue refers to the annotation value. To enable
   // workload slicing for a given job, we match both annotation key and value.
   EnabledAnnotationValue = "true"
@@ -181,7 +180,7 @@ To address this, a new naming strategy will be introduced specifically for Workl
 For example, `bachv1/Job`: 
 ```yaml
 annotations:
-  kueue.x-k8s.io/dynamically-sized-job: "true"
+  kueue.x-k8s.io/elastic-job: "true"
 creationTimestamp: "2025-06-12T21:32:41Z"
 generation: 1
 labels:
@@ -401,7 +400,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 
 #### Alpha
 
-* [x] Feature is gated by the `DynamicallySizedJob` feature gate.
+* [x] Feature is gated by the `ElasticJobsViaWorkloadSlices` feature gate.
 * [x] WorkloadSlice is implemented as an internal Kueue construct (no new CRDs).
 * [x] Scale-up events result in the creation of new `WorkloadSlice`s; scale-downs result in updates to the original `Workload`.
 * [x] Pod-level gating using `PodSchedulingGates` is integrated with slice admission.
@@ -409,7 +408,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [x] Superseded slices are deactivated and marked as `Finished` once the new slice is admitted.
 * [x] Support for `batch/v1.Job` in both single-cluster and multi-cluster (multiKueue) configurations.
 * [x] Integration tests cover basic scale-up, scale-down, and resource flavor constraints.
-* [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/dynamically-sized-job: "true"`).
+* [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/elastic-job: "true"`).
 * [x] Documented enablement steps, slice behavior, and known limitations.
 
 #### Beta
@@ -427,8 +426,8 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Slice lifecycle events (e.g., admitted, preempted, finished) are observable via `kubectl describe workload` or equivalent API tools.
 * [ ] Slice preemption is consistently handled and visible in workload status conditions.
 * [ ] All Kueue core controllers (scheduler, preemptor, queue manager) are validated under slice-enabled workloads.
-* [ ] Dynamic resizing is enabled for all Kueue-managed workloads that support the dynamic-resize feature (including JobSet, RayJob, Kubeflow jobs, etc.)
-* [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with dynamically resizable workloads, considering all current and emerging alternatives within Kueue.
+* [ ] Dynamic resizing is enabled for all Kueue-managed workloads that support the elastic-job feature (including JobSet, RayJob, Kubeflow jobs, etc.)
+* [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with elastic workloads, considering all current and emerging alternatives within Kueue.
 
 #### GA (Stable)
 
@@ -492,4 +491,4 @@ As a result, when `PodSchedulingGates` are used in a namespace with quota enforc
 
 - Require users to manage resizing manually by recreating jobs.
 - Defer support for elastic workloads to higher-level controllers (e.g., RayOperator), leaving Kueue unaware of scale operations.
-- [WorkloadResize Request](https://github.com/kubernetes-sigs/kueue/issues/5897) an exploration of an alternative approach to dynamically sized jobs.  
+- [WorkloadResize Request](https://github.com/kubernetes-sigs/kueue/issues/5897) an exploration of an alternative approach to elastic jobs.  
