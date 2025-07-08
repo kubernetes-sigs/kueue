@@ -248,6 +248,7 @@ const (
   // to delay their scheduling until the associated workload slice has been admitted.
   // This gate ensures that Pods do not begin scheduling prematurely, maintaining
   // proper sequencing in workload processing.
+  // This scheduling gate is alpha-level.
   WorkloadSliceSchedulingGate = "kueue.x-k8s.io/workload-slice"
 )
 ```
