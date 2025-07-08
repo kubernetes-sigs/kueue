@@ -203,11 +203,18 @@ Scheduling assignment is based on pod count capacity, accounting for the existin
 For example, scaling a job up from `3` pods to `10` pods results in the creation of a new Workload representing all `10` pods; 
 however, the scheduling assignment will reflect only the `7` additional pods needed to admit the new slice, since `3` pods are already accounted for by the existing slice.
 
+While preemption and admission are not strictly atomic operations, they occur within the same scheduling cycle, specifically within the same closure of workload processing (scheduler.go#L213). Barring transient errors, for every candidate workload, preemption is immediately followed by admission. We could think of this as quasi-atomic behavior from a scheduling perspective.
+
+What’s important to emphasize is that while the workload object is preempted, the pods associated with the old workload are not. More importantly, those existing pods are effectively absorbed into the new workload.
+
+In the example at hand, preempting an old workload with 3 running pods and admitting a new workload requesting 10 pods (7 of which are pending and schedule-gated), the new workload will effectively consist of 3 running pods and 7 un-gated pods. This transition avoids disruption while maintaining quota integrity.
+
 A Workload that is preempted by a WorkloadSlice will be correctly marked with a Preempted status condition, including an appropriate reason and message.
 ```golang
-// WorkloadSlicePreemptionReason indicates the Workload was preempted due to
+// WorkloadSliceReplacementReason indicates the Workload was preempted due to
 // the workload slice succession (roll-up/aggregation).
-WorkloadSlicePreemptionReason string = "WorkloadSliceReplacement"
+// This reason is alpha-level.
+WorkloadSliceReplacementReason string = "WorkloadSliceReplacement"
 ```
 
 ##### Resource Flavors
