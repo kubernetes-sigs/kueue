@@ -127,9 +127,11 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
-
+	fmt.Println(("in pod webhook default"))
 	_, suspend := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
+	fmt.Println("suspend is: ", suspend)
 	if !suspend {
+		fmt.Println("in first if")
 		// Namespace filtering
 		ns := corev1.Namespace{}
 		err := w.client.Get(ctx, client.ObjectKey{Name: pod.pod.GetNamespace()}, &ns)
@@ -200,11 +202,11 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			}
 			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
 		}
-
-		if podGroupName(pod.pod) != "" {
-			if err := pod.addRoleHash(); err != nil {
-				return err
-			}
+		fmt.Println("pod group name is: ", podGroupName(pod.pod), " pod name is: ", pod.pod.Name, " pod labels  : ", pod.pod.Labels)
+		fmt.Println("adding role hash to pod")
+		if err := pod.addRoleHash(); err != nil {
+			fmt.Println("adding role hash returned error")
+			return err
 		}
 		// copy back changes to the object
 		pod.pod.DeepCopyInto(obj.(*corev1.Pod))
