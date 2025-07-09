@@ -1,3 +1,25 @@
+## v0.12.4
+
+Changes since `v0.12.3`:
+
+## Changes by Kind
+
+### Feature
+
+- Helm: support for specifying nodeSelector and tolerations for all Kueue components (#5869, @zmalik)
+
+### Bug or Regression
+
+- Fix a bug where the GroupKindConcurrency in Kueue Config is not propagated to the controllers (#5826, @tenzen-y)
+- TAS: Fix a bug for the incompatible NodeFailureController name with Prometheus (#5824, @tenzen-y)
+- TAS: Fix a bug that Kueue unintentionally gives up a workload scheduling in LeastFreeCapacity if there is at least one unmatched domain. (#5804, @PBundyra)
+- TAS: Fix a bug that the tas-node-failure-controller unexpectedly is started under the HA mode even though the replica is not the leader. (#5851, @tenzen-y)
+- TAS: Fix the bug when Kueue crashes if the preemption target, due to quota, is using a node which is already deleted. (#5843, @mimowo)
+
+### Other (Cleanup or Flake)
+
+- KueueViz: reduce the image size from 1.14 GB to 267MB, resulting in faster pull and shorter startup time. (#5875, @mbobrovskyi)
+
 ## v0.12.3
 
 Changes since `v0.12.2`:
