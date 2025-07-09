@@ -968,8 +968,8 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should allow workload podSets count update when DynamicallySizedJob feature gate is enabled", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicallySizedJob, true)
+		ginkgo.It("Should allow workload podSets count update when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
