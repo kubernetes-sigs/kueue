@@ -592,7 +592,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// The job must be suspended if the workload is not yet admitted,
 		// unless this job is workload-slicing enabled. In workload-slicing we rely
 		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
-		if workloadslicing.Enabled(object) {
+		if WorkloadSliceEnabled(job) {
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
@@ -1173,7 +1173,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	var wl *kueue.Workload
-	if workloadslicing.Enabled(job.Object()) {
+	if WorkloadSliceEnabled(job) {
 		wl = NewWorkload(GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration()), object, podSets, labelKeysToCopy)
 	} else {
 		wl = NewWorkload(GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()), object, podSets, labelKeysToCopy)
@@ -1251,7 +1251,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	wl.Spec.PriorityClassSource = source
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
-	if workloadslicing.Enabled(job.Object()) {
+	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
 	return nil
@@ -1332,7 +1332,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled job we allow for job to be "Active".
-	if job.IsActive() && !workloadslicing.Enabled(object) {
+	if job.IsActive() && !WorkloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}
