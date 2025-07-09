@@ -39,7 +39,7 @@
     - [Example](#example)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
-  - [Cross-PodSet scheduling](#cross-podset-scheduling)
+  - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
@@ -1040,11 +1040,12 @@ Explanation:
 
 It is worth noting that the tight fit mentioned above does not guarantee that no free capacity will be left within the assigned domains.
 
-### Cross-PodSet scheduling
+### Cross-PodSet Topology Aware scheduling
 
-In consideration of a [Story 6](#story-6) a cross-podset scheduling is required,
-due to the fact that leader and workers are separate PodSets. To be able to co-locate
-leaders with its workers, we divide the problem into subproblems:
+In consideration of a [Story 6](#story-6) a cross-podset topology aware scheduling
+is required, due to the fact that leader and workers are separate PodSets. To be able 
+to co-locate leaders with its workers in the same topology domain, we divide the
+problem into subproblems:
 
 - Ensure leader and workers end up on the same flavor
 - Find topology domain to co-locate leader and workers
