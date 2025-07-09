@@ -1,3 +1,56 @@
+## v0.12.3
+
+Changes since `v0.12.2`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- Helm:
+
+  - Fixed KueueViz installation when enableKueueViz=true is used with default values for the image specifying parameters.
+  - Split the image specifying parameters into separate repository and tag, both for KueueViz backend and frontend.
+
+  If you are using Helm charts and installing KueueViz using custom images,
+  then you need to specify them by kueueViz.backend.image.repository, kueueViz.backend.image.tag,
+  kueueViz.fontend.image.repository and kueueViz.frontend.image.tag parameters. (#5514, @mbobrovskyi)
+
+## Changes by Kind
+
+### Feature
+
+- Allow setting the controller-manager's Pod `PriorityClassName` from the Helm chart (#5649, @kaisoz)
+
+### Bug or Regression
+
+- Add Cohort Go client library (#5603, @tenzen-y)
+- Fix the bug that Job deleted on the manager cluster didn't trigger deletion of pods on the worker cluster. (#5607, @ichekrygin)
+- Fix the bug that Kueue, upon startup, would incorrectly admit and then immediately deactivate
+  already deactivated Workloads.
+
+  This bug also prevented the ObjectRetentionPolicies feature from deleting Workloads
+  that were deactivated by Kueue before the feature was enabled. (#5629, @mbobrovskyi)
+- Fix the bug that the webhook certificate setting under `controllerManager.webhook.certDir` was ignored by the internal cert manager, effectively always defaulting to /tmp/k8s-webhook-server/serving-certs. (#5491, @ichekrygin)
+- Fixed bug that doesn't allow Kueue to admit Workload after queue-name label set. (#5714, @mbobrovskyi)
+- MultiKueue: Fix a bug that batch/v1 Job final state is not synced from Workload cluster to Management cluster when disabling the `MultiKueueBatchJobWithManagedBy` feature gate. (#5706, @ichekrygin)
+- TAS: fix the bug which would trigger unnecessary second pass scheduling for nodeToReplace
+  in the following scenarios:
+  1. Finished workload
+  2. Evicted workload
+  3. node to replace is not present in the workload's TopologyAssignment domains (#5591, @mimowo)
+- TAS: fix the scenario when deleted workload still lives in the cache. (#5605, @mimowo)
+- Use simulation of preemption for more accurate flavor assignment.
+  In particular, in certain scenarios when preemption while borrowing is enabled,
+  the previous heuristic would wrongly state that preemption was possible. (#5700, @gabesaba)
+- Use simulation of preemption for more accurate flavor assignment.
+  In particular, the previous heuristic would wrongly state that preemption
+  in a flavor was possible even if no preemption candidates could be found.
+
+  Additionally, in scenarios when preemption while borrowing is enabled,
+  the flavor in which reclaim is possible is preferred over flavor where
+  priority-based preemption is required. This is consistent with prioritizing
+  flavors when preemption without borrowing is used. (#5740, @gabesaba)
+
 ## v0.12.2
 
 Changes since `v0.12.1`:
