@@ -34,19 +34,19 @@ const (
 )
 
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
-	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
-	if len(prefixedName) > maxPrefixLength {
-		prefixedName = prefixedName[:maxPrefixLength]
-	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, nil)[:hashLength]
+	return generateWorkloadName(ownerName, ownerUID, ownerGVK, nil)
 }
 
 func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
+	return generateWorkloadName(ownerName, ownerUID, ownerGVK, &generation)
+}
+
+func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
 	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, &generation)[:hashLength]
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength]
 }
 
 func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {

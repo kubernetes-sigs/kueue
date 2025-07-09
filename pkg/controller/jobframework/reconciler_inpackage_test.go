@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var testJobGVK = batchv1.SchemeGroupVersion.WithKind("Job")

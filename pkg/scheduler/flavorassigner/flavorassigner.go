@@ -615,7 +615,6 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			status.appendf("flavor %s not found", fName)
 			continue
 		}
-
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
 				log.Error(nil, *message)
@@ -644,7 +643,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		representativeMode := fit
 		for rName, val := range requests {
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
-			if a.preemptWorkloadSlice != nil {
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.preemptWorkloadSlice != nil {
 				preemptWorkloadRequests := a.preemptWorkloadSlice.TotalRequests[psID]
 
 				// Enforce consistent resource flavor assignment between slices.

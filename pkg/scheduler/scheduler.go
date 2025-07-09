@@ -276,7 +276,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		// When placing a workload slice it is possible for a new workload to "Fit" and
 		// still have a preempted workload (old slice).
 		if mode := e.assignment.RepresentativeMode(); mode == flavorassigner.Preempt ||
-			(mode == flavorassigner.Fit && len(preemptedWorkloads) > 0) {
+			(mode == flavorassigner.Fit && len(e.preemptionTargets) > 0) {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
 			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)

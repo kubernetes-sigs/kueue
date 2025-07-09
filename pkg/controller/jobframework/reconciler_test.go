@@ -45,7 +45,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 
