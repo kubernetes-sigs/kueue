@@ -61,7 +61,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (

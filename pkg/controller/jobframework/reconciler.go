@@ -61,7 +61,7 @@ import (
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workload/workloadslicing"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
