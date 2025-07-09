@@ -1,3 +1,19 @@
+## v0.11.8
+
+Changes since `v0.11.7`:
+
+## Changes by Kind
+
+### Feature
+
+- Helm: Add an option to configure Kueue's mutation webhook with "reinvocationPolicy" (#5785, @mbobrovskyi)
+
+### Bug or Regression
+
+- Fix a bug where the GroupKindConcurrency in Kueue Config is not propagated to the controllers (#5830, @tenzen-y)
+- TAS: Fix a bug that Kueue unintentionally gives up a workload scheduling in LeastFreeCapacity if there is at least one unmatched domain. (#5805, @PBundyra)
+- TAS: Fix the bug when Kueue crashes if the preemption target, due to quota, is using a node which is already deleted. (#5844, @mimowo)
+
 ## v0.11.7
 
 Changes since `v0.11.6`:
