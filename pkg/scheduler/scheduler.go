@@ -465,6 +465,25 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	return assignment, targets
 }
 
+// preemptableWorkloadSlice determines whether the given workload is eligible for
+// slice-based preemption under the DynamicallySizedJob feature.
+//
+// If the feature gate `DynamicallySizedJob` is not enabled, it returns nil.
+// Otherwise, it attempts to identify a preemptible workload slice target from the
+// provided snapshot that can be reclaimed to admit the given workload.
+//
+// Returns a list containing a single preemption target and the associated workload info
+// if a suitable preemptible slice is found, or nil if no such target exists.
+func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
+	if !features.Enabled(features.DynamicallySizedJob) || wl == nil || snap == nil {
+		return nil, nil
+	}
+	if workloadSlicePreemptionTarget := preemption.PreemptibleWorkloadSliceTarget(snap, wl); workloadSlicePreemptionTarget != nil {
+		return []*preemption.Target{workloadSlicePreemptionTarget}, workloadSlicePreemptionTarget.WorkloadInfo
+	}
+	return nil, nil
+}
+
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
 // for a workload slice.
 //
@@ -490,14 +509,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
-	var preemptionTargets []*preemption.Target
-	var preemptableWorkloadSlice *workload.Info
-
-	workloadSlicePreemptionTarget := preemption.PreemptibleWorkloadSliceTarget(snap, wl)
-	if workloadSlicePreemptionTarget != nil {
-		preemptionTargets = []*preemption.Target{workloadSlicePreemptionTarget}
-		preemptableWorkloadSlice = workloadSlicePreemptionTarget.WorkloadInfo
-	}
+	preemptionTargets, preemptableWorkloadSlice := preemptableWorkloadSlice(wl, snap)
 
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), preemptableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
