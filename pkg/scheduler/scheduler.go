@@ -466,16 +466,16 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 }
 
 // preemptableWorkloadSlice determines whether the given workload is eligible for
-// slice-based preemption under the DynamicallySizedJob feature.
+// slice-based preemption under the ElasticJobsViaWorkloadSlices feature.
 //
-// If the feature gate `DynamicallySizedJob` is not enabled, it returns nil.
+// If the feature gate `ElasticJobsViaWorkloadSlices` is not enabled, it returns nil.
 // Otherwise, it attempts to identify a preemptible workload slice target from the
 // provided snapshot that can be reclaimed to admit the given workload.
 //
 // Returns a list containing a single preemption target and the associated workload info
 // if a suitable preemptible slice is found, or nil if no such target exists.
 func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
-	if !features.Enabled(features.DynamicallySizedJob) || wl == nil || snap == nil {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || snap == nil {
 		return nil, nil
 	}
 	if workloadSlicePreemptionTarget := preemption.PreemptibleWorkloadSliceTarget(snap, wl); workloadSlicePreemptionTarget != nil {

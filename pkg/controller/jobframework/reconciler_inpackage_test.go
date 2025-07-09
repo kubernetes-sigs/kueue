@@ -247,7 +247,7 @@ func TestJobReconciler_ensureWorkload(t *testing.T) {
 				clock:                        tt.fields.clock,
 				workloadRetentionPolicy:      tt.fields.workloadRetentionPolicy,
 			}
-			if err := features.SetEnable(features.DynamicallySizedJob, tt.workloadSliceEnabled); err != nil {
+			if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, tt.workloadSliceEnabled); err != nil {
 				t.Errorf("ensureWorkload() unexpected error enabling feature: %v", err)
 			}
 

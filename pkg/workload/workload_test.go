@@ -1356,7 +1356,7 @@ func TestValidateImmutablePodSet(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.DynamicallySizedJob, tt.fields.dynamicallySizedJobsFeatureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tt.fields.dynamicallySizedJobsFeatureGateEnabled)
 			err := ValidateImmutablePodSet(tt.args.new, tt.args.old, tt.args.path)
 			if len(err) > 0 != tt.wantError {
 				t.Errorf("ValidateImmutablePodSet() wantError: %v, got: %v", tt.wantError, err)
@@ -1427,7 +1427,7 @@ func TestValidateImmutablePodSets(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.DynamicallySizedJob, tt.fields.dynamicallySizedJobsFeatureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tt.fields.dynamicallySizedJobsFeatureGateEnabled)
 			err := ValidateImmutablePodSets(tt.args.new, tt.args.old, tt.args.path)
 			if len(err) > 0 != tt.wantError {
 				t.Errorf("ValidateImmutablePodSets() wantError: %v, got: %v", tt.wantError, err)

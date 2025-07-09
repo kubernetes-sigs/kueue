@@ -159,8 +159,8 @@ const (
 	// owner: @ichekrygin
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
 	//
-	// DynamicallySizedJob enables workload-slices support.
-	DynamicallySizedJob featuregate.Feature = "DynamicallySizedJob"
+	// ElasticJobsViaWorkloadSlices enables workload-slices support.
+	ElasticJobsViaWorkloadSlices featuregate.Feature = "ElasticJobsViaWorkloadSlices"
 
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -259,7 +259,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	DynamicallySizedJob: {
+	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {

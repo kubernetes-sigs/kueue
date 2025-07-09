@@ -1141,7 +1141,7 @@ func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 
 // ValidateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
 func ValidateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
-	if features.Enabled(features.DynamicallySizedJob) {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		new.Count = old.Count
 	}
 	return validation.ValidateImmutableField(new, old, path)
