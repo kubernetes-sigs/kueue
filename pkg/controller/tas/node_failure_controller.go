@@ -44,7 +44,10 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -64,6 +67,7 @@ type nodeFailureReconciler struct {
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.log.V(3).Info("Getting node", "nodeName", req.NamespacedName)
 	var node corev1.Node
+	var workloadsToProcess sets.Set[types.NamespacedName]
 	err := r.client.Get(ctx, req.NamespacedName, &node)
 	nodeExists := !apierrors.IsNotFound(err)
 	if err != nil && nodeExists {
@@ -77,19 +81,37 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if readyCondition.Status == corev1.ConditionTrue {
 				return ctrl.Result{}, nil
 			}
-			timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
-			if NodeFailureDelay > timeSinceNotReady {
-				return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
+			if features.Enabled(features.TASReplaceNodeOnPodTermination) {
+				workloads, err := r.getWorkloadsForImmediateReplacement(ctx, req.Name)
+				if err != nil {
+					r.log.Error(err, "Could not get workloads for immediate replacement", "node", klog.KRef("", req.Name))
+					return ctrl.Result{}, err
+				} else if len(workloads) == 0 {
+					return ctrl.Result{RequeueAfter: PodTerminationCheckPeriod}, nil
+				} else {
+					r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", req.NamespacedName)
+					workloadsToProcess = workloads
+				}
+			} else {
+				timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
+				if NodeFailureDelay > timeSinceNotReady {
+					return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
+				}
+				r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
+				workloadsToProcess, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 			}
-			r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
 		} else {
 			r.log.V(3).Info("Node is not ready and NodeReady condition is missing, marking as failed immediately", "nodeName", req.NamespacedName)
+			workloadsToProcess, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 		}
 	} else {
 		r.log.V(3).Info("Node not found, assuming deleted")
+		workloadsToProcess, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 	}
-
-	patchErr := r.patchWorkloadsForNodeToReplace(ctx, req.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	patchErr := r.patchWorkloadsForNodeToReplace(ctx, req.Name, workloadsToProcess)
 	return ctrl.Result{}, patchErr
 }
 
@@ -154,7 +176,7 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 }
 
 // getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
-func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
+func (r *nodeFailureReconciler) getAllWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	var allWorkloads kueue.WorkloadList
 	if err := r.client.List(ctx, &allWorkloads); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
@@ -182,6 +204,39 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 	return workloadsToProcess, nil
 }
 
+func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
+	tasWorkloadsOnNode, err := r.getAllWorkloadsOnNode(ctx, nodeName)
+	if err != nil {
+		return nil, err
+	}
+	if tasWorkloadsOnNode.Len() == 0 {
+		return nil, nil
+	}
+
+	workloadsToProcess := sets.New[types.NamespacedName]()
+	for wlKey := range tasWorkloadsOnNode {
+		r.log.V(3).Info("Looking at workload", "workload", wlKey)
+		var podsForWl corev1.PodList
+		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name}); err != nil {
+			return nil, fmt.Errorf("listing pods for workload %s: %w", wlKey, err)
+		}
+		r.log.V(3).Info("found pods", "pods", len(podsForWl.Items))
+		allPodsTerminate := true
+		for i := range podsForWl.Items {
+			pod := &podsForWl.Items[i]
+			r.log.V(3).Info("looking at pod", "pod", klog.KObj(pod), "nodeName", pod.Spec.NodeName, "deletionTimestamp", pod.DeletionTimestamp, "phase", pod.Status.Phase)
+			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
+				allPodsTerminate = false
+				break
+			}
+		}
+		if allPodsTerminate {
+			workloadsToProcess.Insert(wlKey)
+		}
+	}
+	return workloadsToProcess, nil
+}
+
 // evictWorkload idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
 func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logger, wl *kueue.Workload, wlKey types.NamespacedName, nodeName string) (bool, error) {
@@ -201,11 +256,7 @@ func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logg
 
 // patchWorkloadsForNodeToReplace finds workloads with pods on the specified node
 // and patches their status to indicate the node is to replace.
-func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Context, nodeName string) error {
-	workloadsToProcess, err := r.getWorkloadsOnNode(ctx, nodeName)
-	if err != nil {
-		return err
-	}
+func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Context, nodeName string, workloadsToProcess sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
 	for wlKey := range workloadsToProcess {
 		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
