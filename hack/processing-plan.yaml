@@ -805,3 +805,65 @@ files:
         position: END
         value: |
           {{- end }}
+  - path: ./config/components/certmanager/*.yaml
+    outputDir: ./charts/kueue/templates/certmanager
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+      - kustomizeconfig.yaml
+      - common_name_transformer.yaml
+      - secret_name_transformer.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .spec.commonName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Certificate"'
+      - type: APPEND
+        key: .spec.secretName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Certificate"'
+      - type: APPEND
+        key: .spec.issuerRef.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Certificate"'
+      - type: DELETE
+        key: .spec.dnsNames
+        onFileCondition: '.kind == "Certificate"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("serving-cert")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableCertManager }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
