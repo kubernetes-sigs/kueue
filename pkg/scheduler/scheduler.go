@@ -72,19 +72,28 @@ type Scheduler struct {
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
+	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
-	schedulingCycle int64
+	schedulingCycle  int64
+	lastQueueUpdated *queueUpdatedInfo
 
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
+type queueUpdatedInfo struct {
+	cq          *kueue.ClusterQueue
+	lqName      string
+	isHeapified bool
+}
+
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 config.FairSharing
+	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
 }
 
@@ -112,6 +121,12 @@ func WithFairSharing(fs *config.FairSharing) Option {
 	}
 }
 
+func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		o.admissionFairSharing = afs
+	}
+}
+
 func WithClock(_ testing.TB, c clock.Clock) Option {
 	return func(o *options) {
 		o.clock = c
@@ -128,6 +143,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 	}
 	s := &Scheduler{
 		fairSharing:             options.fairSharing,
+		admissionFairSharing:    options.admissionFairSharing,
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
@@ -179,6 +195,15 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
+
+	// when AFS enabled, ensure the entrance penalty from the previous cycle is respected
+	if s.lastQueueUpdated != nil && !s.lastQueueUpdated.isHeapified {
+		err := s.queues.HeapifyClusterQueue(s.lastQueueUpdated.cq, s.lastQueueUpdated.lqName)
+		if err != nil {
+			log.Error(err, "failed to heapify cluster queue")
+		}
+		s.lastQueueUpdated.isHeapified = true
+	}
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
@@ -299,8 +324,23 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
+
+		isAdmitted := true
 		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
+			isAdmitted = false
+		}
+
+		if isAdmitted && features.Enabled(features.AdmissionFairSharing) {
+			if err := s.addFairSharingEntryPenalty(ctx, e); err != nil {
+				log.Error(err, "failed to add fair sharing entry penalty")
+			}
+
+			info, err := s.getQueueUpdatedInfo(ctx, e)
+			if err != nil {
+				log.Error(err, "failed to retrieve cluster queue info")
+			}
+			s.lastQueueUpdated = info
 		}
 	}
 
@@ -327,6 +367,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+func (s *Scheduler) addFairSharingEntryPenalty(ctx context.Context, e *entry) error {
+	var lq kueue.LocalQueue
+	lqKey := client.ObjectKey{Namespace: e.Obj.Namespace, Name: string(e.Obj.Spec.QueueName)}
+	if err := s.client.Get(ctx, lqKey, &lq); err != nil {
+		return err
+	}
+
+	return s.cache.SyncConsumedUsage(ctx, &lq, s.admissionFairSharing.UsageSamplingInterval.Duration)
 }
 
 type entryStatus string
@@ -583,6 +633,18 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	})
 
 	return nil
+}
+
+func (s *Scheduler) getQueueUpdatedInfo(ctx context.Context, e *entry) (*queueUpdatedInfo, error) {
+	var cq kueue.ClusterQueue
+	if err := s.client.Get(ctx, client.ObjectKey{Name: string(e.ClusterQueue)}, &cq); err != nil {
+		return nil, err
+	}
+
+	return &queueUpdatedInfo{
+		cq:     &cq,
+		lqName: string(e.Obj.Spec.QueueName),
+	}, nil
 }
 
 func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
