@@ -68,6 +68,15 @@ updates:
       - "ok-to-test"
       - "release-note-none"
 
+  # Maintain Dockerfile for depcheck
+  - package-ecosystem: "docker"
+    directory: "/hack/depcheck"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+
   # Maintain go dependencies for KueueViz backend
   - package-ecosystem: "gomod"
     directories:

@@ -1,38 +1,41 @@
 ---
-title: "Setup manageJobsWithoutQueueName"
+title: "设置 manageJobsWithoutQueueName"
 date: 2024-06-28
 weight: 10
 description: >
-  Using manageJobsWithoutQueueName and mangedJobsNamespaceSelector to prevent admission of Workloads without assigned LocalQueues.
+  manageJobsWithoutQueueName 和 mangedJobsNamespaceSelector 可用于控制是否允许没有分配 LocalQueues 的工作负载进入。
 ---
 
-This page describes how to configure Kueue to ensure that all Workloads submitted in namespaces
-intended for use by _batch users_ will be managed by Kueue even if they lack a `kueue.x-k8s.io/queue-name` label.
+本页面描述了如何配置 Kueue，以确保所有在命名空间中提交的、旨在供**批处理用户**使用的
+Workload 都将由 Kueue 管理，即使它们缺少 `kueue.x-k8s.io/queue-name` 标签。
 
-## Before you begin
+## 在你开始之前
 
-Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
+学习如何[安装带有自定义管理器配置的 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
 
-## Configuration
+## 配置
 
-You will need to modify the manage configuration to set `manageJobsWithoutQueueName` to true.
+你需要修改管理配置，将 `manageJobsWithoutQueueName` 设置为 true。
 
-If you also modify the default configuration to enable the `Pod`, `Deployment` or `StatefulSet` integrations,
-you may also need to override the default value of `managedJobsNamespaceSelector` to limit the scope of
-`manageJobsWithoutQueueName` to only apply to _batch user_ namespaces.
+如果你还修改默认配置以启用 `Pod`、`Deployment` 或 `StatefulSet` 集成，
+你可能还需要覆盖 `managedJobsNamespaceSelector` 的默认值，以限制 `manageJobsWithoutQueueName` 的作用范围，
+仅应用于**批处理用户**命名空间。
 
-The default value for `managedJobsNamespaceSelector` is
+`managedJobsNamespaceSelector` 的默认值是：
+
 ```yaml
 matchExpressions:
 - key: kubernetes.io/metadata.name
   operator: NotIn
   values: [ kube-system, kueue-system ]
 ```
-This dafault value exempts the `kube-system` and `kueue-system` namespaces from management; all other
-namespaces will be managed by Kueue when `manageJobsWithoutQueueName` is true.
 
-Alternatively, the _batch administrator_ can label namespaces that are intended for _batch users_
-and define a selector that matches only those namespaces.  For example,
+这个默认值将 `kube-system` 和 `kueue-system` 命名空间排除在管理之外；
+当 `manageJobsWithoutQueueName` 为 true 时，所有其他命名空间都将由 Kueue 管理。
+
+或者，**批处理管理员**可以标记用于**批处理用户**的命名空间，
+并定义仅匹配那些命名空间的选择器。例如：
+
 ```yaml
 managedJobsNamespaceSelector:
   matchLabels:
@@ -42,13 +45,14 @@ managedJobsNamespaceSelector:
 {{< feature-state state="beta" for_version="v0.10" >}}
 {{% alert title="Note" color="primary" %}}
 
-`managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
+`managedJobsNamespaceSelector` 是一个默认启用的 Beta 特性。
 
-You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+你可以通过设置 `ManagedJobsNamespaceSelector` 特性门控来禁用它。
+查看[安装](/zh-CN/docs/installation/#change-the-feature-gates-configuration)指南以获取关于特性门控配置的详细信息。
 {{% /alert %}}
 
-## Expected Behavior
+## 预期行为
 
-In all namespaces that match the namespace selector, any Workloads submitted without a `kueue.x-k8s.io/queue-name`
-label will be suspended.  These Workloads will not be considered for admission by Kueue until
-they are edited to have a `kueue.x-k8s.io/queue-name` label.
+在所有匹配命名空间选择器的命名空间中，任何未带有 `kueue.x-k8s.io/queue-name`
+标签的 Workload 将被挂起。这些 Workload 在被编辑以添加
+`kueue.x-k8s.io/queue-name` 标签之前，不会被 Kueue 考虑准入。

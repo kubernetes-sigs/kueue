@@ -594,7 +594,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	required := isRequired(tasPodSetRequests.PodSet.TopologyRequest)
 	topologyKey := s.levelKeyWithImpliedFallback(&tasPodSetRequests)
-	sliceTopologyKey := s.sliceLevelKeyWithDefault(&tasPodSetRequests, s.lowestLevel())
+	sliceTopologyKey := s.sliceLevelKeyWithDefault(tasPodSetRequests.PodSet.TopologyRequest, s.lowestLevel())
 
 	unconstrained := isUnconstrained(tasPodSetRequests.PodSet.TopologyRequest, &tasPodSetRequests)
 	if topologyKey == nil {
@@ -716,12 +716,17 @@ func canMerge(mergedDomains []kueue.TopologyDomainAssignment, domain kueue.Topol
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
-	key := s.levelKey(r)
-	if key == nil {
+	mainKey := s.levelKey(r)
+	if mainKey == nil {
 		return false
 	}
-	_, found := s.resolveLevelIdx(*key)
-	return found
+
+	sliceKey := s.sliceLevelKeyWithDefault(r, s.lowestLevel())
+
+	_, mainTopologyFound := s.resolveLevelIdx(*mainKey)
+	_, sliceTopologyFound := s.resolveLevelIdx(sliceKey)
+
+	return mainTopologyFound && sliceTopologyFound
 }
 
 func (s *TASFlavorSnapshot) resolveLevelIdx(levelKey string) (int, bool) {
@@ -737,9 +742,6 @@ func isRequired(tr *kueue.PodSetTopologyRequest) bool {
 }
 
 func (s *TASFlavorSnapshot) levelKeyWithImpliedFallback(tasRequests *TASPodSetRequests) *string {
-	if isSliceTopologyOnlyRequest(tasRequests.PodSet.TopologyRequest) {
-		return ptr.To(s.highestLevel())
-	}
 	if key := s.levelKey(tasRequests.PodSet.TopologyRequest); key != nil {
 		return key
 	}
@@ -758,6 +760,8 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 		return topologyRequest.Required
 	case topologyRequest.Preferred != nil:
 		return topologyRequest.Preferred
+	case isSliceTopologyOnlyRequest(topologyRequest):
+		return ptr.To(s.highestLevel())
 	case ptr.Deref(topologyRequest.Unconstrained, false):
 		return ptr.To(s.lowestLevel())
 	default:
@@ -765,9 +769,9 @@ func (s *TASFlavorSnapshot) levelKey(topologyRequest *kueue.PodSetTopologyReques
 	}
 }
 
-func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(tasRequests *TASPodSetRequests, defaultSliceLevelKey string) string {
-	if tasRequests.PodSet.TopologyRequest != nil && tasRequests.PodSet.TopologyRequest.PodSetSliceRequiredTopology != nil {
-		return *tasRequests.PodSet.TopologyRequest.PodSetSliceRequiredTopology
+func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(topologyRequest *kueue.PodSetTopologyRequest, defaultSliceLevelKey string) string {
+	if topologyRequest != nil && topologyRequest.PodSetSliceRequiredTopology != nil {
+		return *topologyRequest.PodSetSliceRequiredTopology
 	}
 	return defaultSliceLevelKey
 }
