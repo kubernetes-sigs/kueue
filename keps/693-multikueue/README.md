@@ -334,26 +334,26 @@ if the connection with its reserving worker cluster is lost.
 Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
 When a custom Dispatcher API is used, instead of creating the copy of the Workload on all clusters the
 the MultiKueue Workload Controller only creates the copy of the Workload on the subset of worker clusters
-specified in the Workload's .spec.multiKueueNominatedClusters field.
+specified in the Workload's .spec.nominatedClusterNames field.
 
-Additionally, we implement a built-in incremental dispatcher as a reference implementation. 
-Including the pre-existing dispatching algorithm we distinguish the following dispatchers:
+Additionally, we implement a built-in incremental dispatcher as a reference implementation.
+Including the pre-existing dispatching algorithm until 0.12, we distinguish the following dispatchers:
 
 * **AllAtOnce**:  
 The workload is copied to all available worker clusters at once. This is the default dispatching algorithm.
 
 * **Incremental**:  
 Clusters are nominated incrementally in rounds of fixed duration (5 minutes per round). 
-The process begins by nominating an initial set of 3 clusters, which are set in the `.spec.multiKueueNominatedClusters` field in the Workload.
+The process begins by nominating an initial set of 3 clusters, which are set in the `.spec.nominatedClusterNames` field in the Workload.
 If none of the clusters admit the workload within the current round's duration, the next round begins, 
 and 3 additional clusters are nominated, until the workload is admitted or all eligible clusters have been considered.
 This strategy allows for a controlled and gradual expansion of candidate clusters, rather than dispatching the workload to all clusters at once.
 
 * **External**:  
 The selection of worker clusters is delegated to an external controller. 
-The external controller is responsible for setting the `.spec.multiKueueNominatedClusters` field to the names of the selected clusters.
+The external controller is responsible for setting the `.spec.nominatedClusterNames` field to the names of the selected clusters.
 If the nominated clusters field is changed by the external controller, workloads are removed from any clusters that are no longer nominated.
-While the workload is in the admitted state, the `MultiKueueNominatedClusters` field is immutable. 
+While the workload `.status.clusterName` is assigned, the `nominatedClusterNames` field is immutable.
 
 #### Workload Synchronization
 
@@ -363,38 +363,44 @@ Controller synchronizes the value of the field with the subset of worker cluster
 Changes to Workload type:
 ```go
 type WorkloadSpec struct {
-  // MultiKueueNominatedClusters specifies the list of cluster names that have been nominated for scheduling by MultiKueue.
+  // nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
   // This field is optional.
   // 
   // +listType=set
   // +kubebuilder:validation:MaxItems=10
-  // +kubebuilder:validation:XValidation:rule="!(self.status.conditions.exists(c, c.type == 'Admitted' && c.status == "True")) || oldObject.spec.multiKueueNominatedClusters == self.spec.multiKueueNominatedClusters",message="multiKueueNominatedClusters is immutable when the workload is in the 'Admitted' state"
+  // +kubebuilder:validation:XValidation:rule="self.status.clusterName == null || oldObject.spec.nominatedClusterNames == self.spec.nominatedClusterNames",message="nominatedClusterNames is immutable when the workload is assigned to a cluster"
   // +optional
-  // This field is immutable while the workload is admitted. 
-  MultiKueueNominatedClusters []string `json:"multiKueueNominatedClusters,omitempty"`
+  nominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
+}
+
+type WorkloadStatus struct {
+  // clusterName is the name of the cluster where the workload is actually assigned.
+  // This field is reset after the Workload is evicted / preempted.
+  // +optional
+  clusterName *string `json:"clusterName,omitempty"`
 }
 ```
 
 Extension of MultiKueue configuration:
 ```go
- type MultiKueue struct {
+type MultiKueue struct {
   ...
-   // dispatcherName specifies the name of the dispatcher responsible for selecting worker clusters
-   // to handle the workload. 
-   //
-   // The value must be a valid domain-prefixed path (e.g. acme.io/foo) -
-   // all characters before the first "/" must be a valid subdomain as defined
-   // by RFC 1123. All characters trailing the first "/" must be valid HTTP Path
-   // characters as defined by RFC 3986. The value cannot exceed 63 characters.
-   // 
-   // There are two built-in values supported:
-   // - kueue.x-k8s.io/multikueue-dispatcher-all-at-once (AllAtOnce)
-   // - kueue.x-k8s.io/multikueue-dispatcher-incremental (Incremental)
-   // If not set, the default dispatcher (AllAtOnce) is used.
-   //
-   // +optional
-   DispatcherName *string `json:"dispatcherName,omitempty"`
- }
+  // dispatcherName specifies the name of the dispatcher responsible for selecting worker clusters
+  // to handle the workload. 
+  //
+  // The value must be a valid domain-prefixed path (e.g. acme.io/foo) -
+  // all characters before the first "/" must be a valid subdomain as defined
+  // by RFC 1123. All characters trailing the first "/" must be valid HTTP Path
+  // characters as defined by RFC 3986. The value cannot exceed 63 characters.
+  // 
+  // There are two built-in values supported:
+  // - kueue.x-k8s.io/multikueue-dispatcher-all-at-once (AllAtOnce)
+  // - kueue.x-k8s.io/multikueue-dispatcher-incremental (Incremental)
+  // If not set, the default dispatcher (AllAtOnce) is used.
+  //
+  // +optional
+  DispatcherName *string `json:"dispatcherName,omitempty"`
+}
 ```
 
 
