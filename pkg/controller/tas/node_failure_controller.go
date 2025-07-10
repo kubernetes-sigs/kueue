@@ -83,12 +83,13 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			if features.Enabled(features.TASReplaceNodeOnPodTermination) {
 				workloads, err := r.getWorkloadsForImmediateReplacement(ctx, req.Name)
-				if err != nil {
+				switch {
+				case err != nil:
 					r.log.Error(err, "Could not get workloads for immediate replacement", "node", klog.KRef("", req.Name))
 					return ctrl.Result{}, err
-				} else if len(workloads) == 0 {
+				case len(workloads) == 0:
 					return ctrl.Result{RequeueAfter: PodTerminationCheckPeriod}, nil
-				} else {
+				default:
 					r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", req.NamespacedName)
 					workloadsToProcess = workloads
 				}
