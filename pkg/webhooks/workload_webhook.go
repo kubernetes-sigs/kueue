@@ -346,7 +346,8 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 
 // validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
 func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
+		// Allow scale-down for elastic jobs.
 		new.Count = old.Count
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
