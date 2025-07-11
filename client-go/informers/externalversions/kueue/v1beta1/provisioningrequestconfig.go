@@ -60,13 +60,25 @@ func NewFilteredProvisioningRequestConfigInformer(client versioned.Interface, re
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().ProvisioningRequestConfigs().List(context.TODO(), options)
+				return client.KueueV1beta1().ProvisioningRequestConfigs().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().ProvisioningRequestConfigs().Watch(context.TODO(), options)
+				return client.KueueV1beta1().ProvisioningRequestConfigs().Watch(context.Background(), options)
+			},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.KueueV1beta1().ProvisioningRequestConfigs().List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.KueueV1beta1().ProvisioningRequestConfigs().Watch(ctx, options)
 			},
 		},
 		&apiskueuev1beta1.ProvisioningRequestConfig{},
