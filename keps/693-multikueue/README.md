@@ -334,7 +334,7 @@ if the connection with its reserving worker cluster is lost.
 Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
 When a custom Dispatcher API is used, instead of creating the copy of the Workload on all clusters the
 the MultiKueue Workload Controller only creates the copy of the Workload on the subset of worker clusters
-specified in the Workload's .spec.nominatedClusterNames field.
+specified in the Workload's .status.nominatedClusterNames field.
 
 Additionally, we implement a built-in incremental dispatcher as a reference implementation.
 Including the pre-existing dispatching algorithm until 0.12, we distinguish the following dispatchers:
@@ -344,14 +344,14 @@ The workload is copied to all available worker clusters at once. This is the def
 
 * **Incremental**:  
 Clusters are nominated incrementally in rounds of fixed duration (5 minutes per round). 
-The process begins by nominating an initial set of 3 clusters, which are set in the `.spec.nominatedClusterNames` field in the Workload.
+The process begins by nominating an initial set of 3 clusters, which are set in the `.status.nominatedClusterNames` field in the Workload.
 If none of the clusters admit the workload within the current round's duration, the next round begins, 
 and 3 additional clusters are nominated, until the workload is admitted or all eligible clusters have been considered.
 This strategy allows for a controlled and gradual expansion of candidate clusters, rather than dispatching the workload to all clusters at once.
 
 * **External**:  
 The selection of worker clusters is delegated to an external controller. 
-The external controller is responsible for setting the `.spec.nominatedClusterNames` field to the names of the selected clusters.
+The external controller is responsible for setting the `.status.nominatedClusterNames` field to the names of the selected clusters.
 If the nominated clusters field is changed by the external controller, workloads are removed from any clusters that are no longer nominated.
 While the workload `.status.clusterName` is assigned, the `nominatedClusterNames` field is immutable.
 
@@ -362,26 +362,25 @@ Controller synchronizes the value of the field with the subset of worker cluster
 
 Changes to Workload type:
 ```go
-type WorkloadSpec struct {
+type WorkloadStatus struct {
   // nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+  // This field is mutually exclusive with the `.status.clusterName` field, and is reset when 
+  // `status.clusterName` is set.
   // This field is optional.
   // 
   // +listType=set
   // +kubebuilder:validation:MaxItems=10
-  // +kubebuilder:validation:XValidation:rule="self.status.clusterName == null || oldObject.spec.nominatedClusterNames == self.spec.nominatedClusterNames",message="nominatedClusterNames is immutable when the workload is assigned to a cluster"
   // +optional
-  nominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
-}
+  NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
-type WorkloadStatus struct {
   // clusterName is the name of the cluster where the workload is actually assigned.
-  // This field is reset after the Workload is evicted / preempted.
+  // This field is reset after the Workload is evicted.
   // +optional
-  clusterName *string `json:"clusterName,omitempty"`
+  ClusterName *string `json:"clusterName,omitempty"`
 }
 ```
 
-Extension of MultiKueue configuration:
+Extension of MultiKueue AdmissionCheck Controller configuration:
 ```go
 type MultiKueue struct {
   ...
