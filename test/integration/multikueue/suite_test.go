@@ -18,7 +18,6 @@ package multikueue
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -294,11 +293,6 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 
 var _ = ginkgo.BeforeSuite(func() {
 	var managerFeatureGates []string
-	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
-	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
-		managerFeatureGates = []string{"JobManagedBy=true"}
-	}
-
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}
 		wg.Add(3)

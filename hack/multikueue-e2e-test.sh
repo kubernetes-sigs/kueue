@@ -57,10 +57,11 @@ function startup {
 
         cp "${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml" "$ARTIFACTS"
 
-        #Enable the JobManagedBy feature gates for k8s 1.30+ versions 
+        # Enable the JobManagedBy feature gate for Kubernetes 1.31.
+        # In newer versions, this feature is in Beta and enabled by default.
         IFS=. read -r -a varr <<< "$KIND_VERSION"
         minor=$(( varr[1] ))        
-        if [ "$minor" -ge 30 ]; then
+        if [ "$minor" -eq 31 ]; then
             echo "Enable JobManagedBy feature in manager's kind config"
             $YQ e -i '.featureGates.JobManagedBy = true' "${ARTIFACTS}/manager-cluster.kind.yaml"
         fi
