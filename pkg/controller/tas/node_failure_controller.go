@@ -67,7 +67,7 @@ type nodeFailureReconciler struct {
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.log.V(3).Info("Getting node", "nodeName", req.NamespacedName)
 	var node corev1.Node
-	var workloadsToProcess sets.Set[types.NamespacedName]
+	var affectedWorkloads sets.Set[types.NamespacedName]
 	err := r.client.Get(ctx, req.NamespacedName, &node)
 	nodeExists := !apierrors.IsNotFound(err)
 	if err != nil && nodeExists {
@@ -91,7 +91,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					return ctrl.Result{RequeueAfter: PodTerminationCheckPeriod}, nil
 				default:
 					r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", req.NamespacedName)
-					workloadsToProcess = workloads
+					affectedWorkloads = workloads
 				}
 			} else {
 				timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
@@ -99,20 +99,20 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
 				}
 				r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
-				workloadsToProcess, err = r.getAllWorkloadsOnNode(ctx, req.Name)
+				affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 			}
 		} else {
 			r.log.V(3).Info("Node is not ready and NodeReady condition is missing, marking as failed immediately", "nodeName", req.NamespacedName)
-			workloadsToProcess, err = r.getAllWorkloadsOnNode(ctx, req.Name)
+			affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 		}
 	} else {
 		r.log.V(3).Info("Node not found, assuming deleted")
-		workloadsToProcess, err = r.getAllWorkloadsOnNode(ctx, req.Name)
+		affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	patchErr := r.patchWorkloadsForNodeToReplace(ctx, req.Name, workloadsToProcess)
+	patchErr := r.patchWorkloadsForNodeToReplace(ctx, req.Name, affectedWorkloads)
 	return ctrl.Result{}, patchErr
 }
 
@@ -182,7 +182,7 @@ func (r *nodeFailureReconciler) getAllWorkloadsOnNode(ctx context.Context, nodeN
 	if err := r.client.List(ctx, &allWorkloads); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
 	}
-	workloadsToProcess := sets.New[types.NamespacedName]()
+	tasWorkloadsOnNode := sets.New[types.NamespacedName]()
 	for _, wl := range allWorkloads.Items {
 		if !isAdmittedByTAS(&wl) {
 			continue
@@ -197,12 +197,12 @@ func (r *nodeFailureReconciler) getAllWorkloadsOnNode(ctx context.Context, nodeN
 			}
 			for _, domain := range topologyAssignment.Domains {
 				if nodeName == domain.Values[len(domain.Values)-1] {
-					workloadsToProcess.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
+					tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
 				}
 			}
 		}
 	}
-	return workloadsToProcess, nil
+	return tasWorkloadsOnNode, nil
 }
 
 func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
@@ -214,7 +214,7 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 		return nil, nil
 	}
 
-	workloadsToProcess := sets.New[types.NamespacedName]()
+	affectedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range tasWorkloadsOnNode {
 		var podsForWl corev1.PodList
 		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name}); err != nil {
@@ -229,10 +229,10 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 			}
 		}
 		if allPodsTerminate {
-			workloadsToProcess.Insert(wlKey)
+			affectedWorkloads.Insert(wlKey)
 		}
 	}
-	return workloadsToProcess, nil
+	return affectedWorkloads, nil
 }
 
 // evictWorkload idempotently evicts the workload when the node has failed.
@@ -254,9 +254,9 @@ func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logg
 
 // patchWorkloadsForNodeToReplace finds workloads with pods on the specified node
 // and patches their status to indicate the node is to replace.
-func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Context, nodeName string, workloadsToProcess sets.Set[types.NamespacedName]) error {
+func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
-	for wlKey := range workloadsToProcess {
+	for wlKey := range affectedWorkloads {
 		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
 		// fetch workload.
 		var wl kueue.Workload
