@@ -240,8 +240,19 @@ function install_cert_manager {
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 export INITIAL_IMAGE
 
+function set_managers_image {
+    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+}
+
 function restore_managers_image {
     (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+}
+
+# $1 cluster
+function kueue_deploy {
+    set_managers_image
+    cluster_kueue_deploy "$1"
+    restore_managers_image
 }
 
 function determine_kuberay_ray_image {
