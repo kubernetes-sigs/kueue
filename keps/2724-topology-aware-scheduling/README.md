@@ -870,7 +870,15 @@ const (
 )
 ```
 
-Sometimes node failures are only transient and the node might recover. In order not
+Sometimes node failures are only transient and the node might recover, and so reacting
+immediately to NotReady condition could result in unnecessary node replacements.
+
+For that reason we introduce two heuristics for marking nodes to replace for a given workload:
+1. when the node is NotReady for over 30s (used by default)
+2. when the node is NotReady and all of the workload's Pods are terminated or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled)
+
+For the future releases we are going to consider API configuration for the approach, but first we 
+would like to collect more user feedback using the feature gates while in Alpha.
 to perfrom unneccessary replacements, the annotation is added to the workload only if
 the node is not ready for 30 seconds. Another indication that the node failure is
 non-recoverable is if the pods assigned to this node, start to terminate. If feature gate
