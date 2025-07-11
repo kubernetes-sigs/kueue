@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), createdTopology)).Should(gomega.Succeed())
 						g.Expect(createdTopology.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			})
 		})
@@ -1083,7 +1083,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							},
 						))
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Finishing second workload")

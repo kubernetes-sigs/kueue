@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(testing.BeNotFoundError())
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 })
 

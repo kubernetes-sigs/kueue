@@ -185,7 +185,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking no provision request is created", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(testing.BeNotFoundError())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 
@@ -255,7 +255,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking that the provision request is preserved", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 

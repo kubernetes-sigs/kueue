@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 					}
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 			ginkgo.By("Incomplete group can be deleted", func() {
 				for _, p := range group[:2] {

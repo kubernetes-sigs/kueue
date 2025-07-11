@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
