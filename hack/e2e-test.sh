@@ -32,8 +32,6 @@ function cleanup {
         fi
         cluster_cleanup "$KIND_CLUSTER_NAME"
     fi
-    #do the image restore here for the case when an error happened during deploy
-    restore_managers_image
 }
 
 function startup {
@@ -76,14 +74,9 @@ function kind_load {
     fi
 }
 
-function kueue_deploy {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-    cluster_kueue_deploy "$KIND_CLUSTER_NAME"
-}
-
 trap cleanup EXIT
 startup
 kind_load
-kueue_deploy
+kueue_deploy "$KIND_CLUSTER_NAME"
 # shellcheck disable=SC2086
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/$E2E_TARGET_FOLDER/...
