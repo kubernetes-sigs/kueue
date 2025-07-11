@@ -117,6 +117,7 @@ The latter will be deactivated and marked as finished.
 - Workload Slices will be created by Kueue and use identical PodTemplate.
 - Workload Slices will belong to the same resource flavor as the top-level Workload that was initially admitted (for more details see "Resource Flavors" subsection)
 
+
 ### Enablement
 
 WorkloadSlices in Kueue are enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. 
@@ -145,9 +146,6 @@ const (
   // workload slicing.
   // This annotation is alpha-level.
   EnabledAnnotationKey = "kueue.x-k8s.io/elastic-job"
-  // EnabledAnnotationValue refers to the annotation value. To enable
-  // workload slicing for a given job, we match both annotation key and value.
-  EnabledAnnotationValue = "true"
 )
 ```
 
@@ -210,11 +208,13 @@ What’s important to emphasize is that while the workload object is preempted, 
 In the example at hand, preempting an old workload with 3 running pods and admitting a new workload requesting 10 pods (7 of which are pending and schedule-gated), the new workload will effectively consist of 3 running pods and 7 un-gated pods. This transition avoids disruption while maintaining quota integrity.
 
 A Workload that is preempted by a WorkloadSlice will be correctly marked with a Preempted status condition, including an appropriate reason and message.
-```golang
-// WorkloadSliceReplacementReason indicates the Workload was preempted due to
-// the workload slice succession (roll-up/aggregation).
-// This reason is alpha-level.
-WorkloadSliceReplacementReason string = "WorkloadSliceReplacement"
+```yaml
+- type: Preempted
+  reason: WorkloadSliceReplacement
+- type: Evicted
+  reason: DeactivatedDueToWorkloadSliceReplacement
+- type: Finished  # added later
+  reason: WorkloadSliceReplacement
 ```
 
 ##### Resource Flavors
@@ -235,7 +235,7 @@ This also applies to outdated Workload slices: when multiple successive updates 
 
 Preempted (i.e., aggregated) Workload slices are marked as Finished.
 Under the current design proposal, all finished workload slices are retained indefinitely and are not garbage collected.
-To address potential resource buildup, a `PreemptedWorkloadSliceHistory` mechanism whether as a configuration option or an API field on the Workload—could be introduced to limit the number of retained inactive slices, 
+To address potential resource buildup, a `PreemptedWorkloadSliceHistory` mechanism whether as a configuration option or an API field on the Workload, could be introduced to limit the number of retained inactive slices, 
 similar to how `revisionHistoryLimit` is used in Kubernetes Deployments to manage ReplicaSet history.
 
 Preempted Workload slices that fail admission requirements are not marked as Finished, as they were never actually started (i.e., never admitted or executed). 
@@ -245,7 +245,7 @@ Similar to current functionality, all Workloads associated with a Job (including
 ### Pod Scheduling Gates
 
 Workload slices operate independently of the `spec.suspend` mechanism where applicable, relying instead on pod scheduling gates for admission control. 
-This approach is automatically enabled for supported Job types through defaulting. When a Workload (either initial or a slice) is created, all associated pods are initialized with scheduling gates—effectively "gated" from scheduling. 
+This approach is automatically enabled for supported Job types through defaulting. When a Workload (either initial or a slice) is created, all associated pods are initialized with scheduling gates, effectively "gated" from scheduling. 
 These gates are removed only upon the admission of the corresponding Workload, ensuring controlled and deliberate execution.
 
 ```golang
@@ -258,6 +258,34 @@ const (
   // This scheduling gate is alpha-level.
   ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
 )
+```
+
+### Limitations and Incompatibilities
+
+This section captures all known limitations and incompatibilities introduced by, or resulting from, enabling the ElasticJobs feature.
+
+#### PartialAdmission
+
+A given Job instance cannot have both `PartialAdmission` and `ElasticJob` enabled. This is a **per-Job limitation**, not a global feature-level conflict. It is entirely valid to have both features enabled in the system, just not simultaneously on the same Job.
+
+**Rationale**
+
+* `PartialAdmission` depends on the static nature of a workload. Specifically, it assumes, reasonably, given the current model, that workloads are immutable in terms of `podSets[].count`. Based on this assumption, it adjusts the Job’s spec to reflect the minimum allowed parallelism at scheduling time. This value is fixed and will not change, even if the ClusterQueue’s capacity increases later.
+
+* In practice, `PartialAdmission` takes ownership of `job.spec.parallelism`, and Kueue enforces this immutability through the admission webhook. For example:
+
+  ```text
+  admission webhook "vjob.kb.io" denied the request: spec.parallelism: Forbidden: cannot change when partial admission is enabled and the job is not suspended
+  ```
+
+**Validation**
+
+To avoid delayed or implicit validation errors, any Kueue-integrated Job that supports `ElasticJobs` should include admission validation logic to reject the following annotation combination:
+
+```yaml
+annotations:
+  kueue.x-k8s.io/dynamically-sized-job: "true"
+  kueue.x-k8s.io/job-min-parallelism: "1"
 ```
 
 ## Phases for MVP (alpha)
@@ -438,6 +466,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] All Kueue core controllers (scheduler, preemptor, queue manager) are validated under slice-enabled workloads.
 * [ ] Dynamic resizing is enabled for all Kueue-managed workloads that support the elastic-job feature (including JobSet, RayJob, Kubeflow jobs, etc.)
 * [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with elastic workloads, considering all current and emerging alternatives within Kueue.
+* [ ] Re-evaluate currently disallowed per-job-instance combination of enabled PartialAdmission and ElasticJobs.
 
 #### GA (Stable)
 
