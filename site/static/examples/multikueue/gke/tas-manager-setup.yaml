@@ -1,0 +1,79 @@
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: Topology
+metadata:
+  name: "gke-default"
+spec:
+  levels:
+  - nodeLabel: "kubernetes.io/hostname"
+---
+kind: ResourceFlavor
+apiVersion: kueue.x-k8s.io/v1beta1
+metadata:
+  name: "mgr-tas-flavor"
+spec:
+  nodeLabels:
+    cloud.google.com/gke-nodepool: "manager-nodepool"
+  topologyName: "gke-default"
+  tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+  - key: "cloud.google.com/gke-queued"
+    operator: "Exists"
+    effect: "NoSchedule"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: multikueue-ac
+spec:
+  controllerName: kueue.x-k8s.io/multikueue
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: multikueue-test
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: MultiKueueConfig
+metadata:
+  name: multikueue-test
+spec:
+  clusters:
+    - multikueue-test-worker-us
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: MultiKueueCluster
+metadata:
+  name: multikueue-test-worker-us
+spec:
+  kubeConfig:
+    locationType: Secret
+    location: worker-us-east4-a-secret
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "mgr-cluster-queue"
+spec:
+  namespaceSelector: {} 
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+    flavors:
+    - name: "mgr-tas-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 10000  # Infinite quota.
+      - name: "memory"
+        nominalQuota: 10000Gi # Infinite quota.
+      - name: "nvidia.com/gpu"
+        nominalQuota: 10000  # Infinite quota.
+  admissionChecks:
+    - multikueue-ac
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue"
+spec:
+  clusterQueue: "mgr-cluster-queue"

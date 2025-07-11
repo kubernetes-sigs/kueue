@@ -279,10 +279,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
-			if len(c.multiKueueAdmissionChecks) > 0 {
-				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
-				messages = append(messages, "TAS is not supported with MultiKueue admission check")
-			}
 			for tasFlavor, topology := range c.tasFlavors {
 				if c.tasCache.Get(tasFlavor) == nil {
 					reasons = append(reasons, kueue.ClusterQueueActiveReasonTopologyNotFound)
@@ -304,10 +300,8 @@ func (c *clusterQueue) isTASViolated() bool {
 	if !features.Enabled(features.TopologyAwareScheduling) || len(c.tasFlavors) == 0 {
 		return false
 	}
-	if !c.isTASSynced() {
-		return true
-	}
-	return len(c.multiKueueAdmissionChecks) > 0
+
+	return !c.isTASSynced()
 }
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
@@ -640,6 +634,14 @@ func (c *clusterQueue) isTASOnly() bool {
 func (c *clusterQueue) flavorsWithProvReqAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
 	flvs := sets.New[kueue.ResourceFlavorReference]()
 	for _, ac := range c.provisioningAdmissionChecks {
+		flvs.Insert(c.flavorsForAdmissionCheck(ac).UnsortedList()...)
+	}
+	return flvs
+}
+
+func (c *clusterQueue) flavorsWithMultikueueAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
+	flvs := sets.New[kueue.ResourceFlavorReference]()
+	for _, ac := range c.multiKueueAdmissionChecks {
 		flvs.Insert(c.flavorsForAdmissionCheck(ac).UnsortedList()...)
 	}
 	return flvs
