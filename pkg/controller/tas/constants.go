@@ -26,6 +26,5 @@ const (
 )
 
 const (
-	NodeFailureDelay          = 30 * time.Second
-	PodTerminationCheckPeriod = 1 * time.Second
+	NodeFailureDelay = 30 * time.Second
 )
