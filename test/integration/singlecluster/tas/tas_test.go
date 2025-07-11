@@ -59,11 +59,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 	ginkgo.When("Delete Topology", func() {
 		var (
-			tasFlavor *kueue.ResourceFlavor
-			topology  *kueuealpha.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			topology     *kueuealpha.Topology
+			clusterQueue *kueue.ClusterQueue
 		)
 
 		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		})
@@ -83,14 +85,28 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.BeforeEach(func() {
 				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
 					NodeLabel("node-group", "tas").
-					TopologyName(topology.Name).Obj()
+					TopologyName("topology").Obj()
 				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
 
 				topology = testing.MakeDefaultOneLevelTopology("topology")
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
+
+				clusterQueue = testing.MakeClusterQueue("cq").
+					ResourceGroup(
+						*testing.MakeFlavorQuotas(tasFlavor.Name).
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).Obj()
+				gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("should not allow to delete topology", func() {
+				// A ClusterQueue is considered active only if its ResourceFlavors are present in the cache.
+				// We need to wait for the ClusterQueue to ensure the ResourceFlavors are cached.
+				ginkgo.By("waiting for the ClusterQueue to become active", func() {
+					util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+				})
+
 				createdTopology := &kueuealpha.Topology{}
 
 				ginkgo.By("check topology has finalizer", func() {
