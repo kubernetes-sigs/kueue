@@ -16,6 +16,13 @@ limitations under the License.
 
 package version
 
+// Base version information.
+//
+// This is the fallback data used when version information from git is not
+// provided via go ldflags.
+//
+// If you are looking at these fields in the git tree, they look
+// strange. They are modified on the fly by the build process.
 import (
 	"fmt"
 	"runtime"
