@@ -55,7 +55,7 @@ import (
 
 const (
 	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s, %s"
-	PodTerminationCheckPeriod                 = 1 * time.Second
+	podTerminationCheckPeriod                 = 1 * time.Second
 )
 
 // nodeFailureReconciler reconciles Nodes to detect failures and update affected Workloads
@@ -90,7 +90,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					r.log.Error(err, "Could not get workloads for immediate replacement", "node", klog.KRef("", req.Name))
 					return ctrl.Result{}, err
 				case len(workloads) == 0:
-					return ctrl.Result{RequeueAfter: PodTerminationCheckPeriod}, nil
+					return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
 				default:
 					r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", req.NamespacedName)
 					affectedWorkloads = workloads
