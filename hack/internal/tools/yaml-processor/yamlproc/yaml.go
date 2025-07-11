@@ -25,6 +25,42 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func RemoveComments(data []byte) ([]byte, error) {
+	// Decode YAML.
+	var node yaml.Node
+	err := yaml.Unmarshal(data, &node)
+	if err != nil {
+		return nil, err
+	}
+
+	// Remove comments.
+	removeComments(&node)
+
+	// Encode back to YAML.
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2) // Optional: Set indentation
+	err = encoder.Encode(&node)
+	if err != nil {
+		return nil, err
+	}
+
+	return output.Bytes(), nil
+}
+
+// removeComments recursively clears comments from a YAML node and its children
+func removeComments(node *yaml.Node) {
+	if node == nil {
+		return
+	}
+	node.HeadComment = ""
+	node.LineComment = ""
+	node.FootComment = ""
+	for _, child := range node.Content {
+		removeComments(child)
+	}
+}
+
 func SplitYAMLDocuments(data []byte) ([][]byte, error) {
 	var result [][]byte
 
@@ -121,8 +157,4 @@ func isValidYAMLLine(line string) bool {
 	var parsed any
 	err := yaml.Unmarshal([]byte(line), &parsed)
 	return err == nil
-}
-
-func isMultiDocumentYAML(data []byte) bool {
-	return strings.Contains(string(data), "---\n")
 }

@@ -1,6 +1,7 @@
 files:
   - path: ./config/components/crd/bases/*.yaml
     outputDir: ./charts/kueue/templates/crd/
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -34,6 +35,7 @@ files:
         indentation: 2
   - path: ./config/components/rbac/*.yaml
     outputDir: ./charts/kueue/templates/rbac
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -68,6 +70,7 @@ files:
         onFileCondition: '.metadata.labels == null'
   - path: ./config/components/visibility/*.yaml
     outputDir: ./charts/kueue/templates/visibility
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -105,6 +108,7 @@ files:
         onFileCondition: '.kind == "Service"'
   - path: ./config/components/visibility-apf/*.yaml
     outputDir: ./charts/kueue/templates/visibility-apf
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -143,6 +147,7 @@ files:
           {{- end }}
   - path: ./config/components/webhook/service.yaml
     outputDir: ./charts/kueue/templates/webhook
+    removeComments: true
     continueOnError: true
     operations:
       - type: APPEND
@@ -177,6 +182,7 @@ files:
           {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
   - path: ./config/components/webhook/manifests.yaml
     outputDir: ./charts/kueue/templates/webhook/
+    removeComments: true
     continueOnError: true
     operations:
       - type: APPEND
@@ -576,6 +582,7 @@ files:
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-workload-codeflare-dev-v1beta2-appwrapper"'
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -654,6 +661,7 @@ files:
         indentation: 2
   - path: ./config/components/internalcert/*.yaml
     outputDir: ./charts/kueue/templates/internalcert
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -681,6 +689,7 @@ files:
           {{- end }}
   - path: ./config/components/prometheus/*.yaml
     outputDir: ./charts/kueue/templates/prometheus
+    removeComments: true
     excludes:
       - kustomization.yaml
       - monitor_tls_patch.yaml
