@@ -243,7 +243,6 @@ kueueViz:
     nodeSelector: {}
     # -- KueueViz frontend tolerations
     tolerations: []
-    # -- Sets ImagePullSecrets for KueueViz dashboard backend and frontend deployments
     # -- Sets ImagePullSecrets for KueueViz dashboard frontend deployments
     # This is useful when the images are in a private registry.
     imagePullSecrets: []
