@@ -23,7 +23,33 @@ package version
 //
 // If you are looking at these fields in the git tree, they look
 // strange. They are modified on the fly by the build process.
+import (
+	"fmt"
+	"runtime"
+)
+
 var (
 	GitVersion = "v0.0.0-main"
 	GitCommit  = "abcd01234" // sha1 from git, output of $(git rev-parse HEAD)
+	BuildDate  = "2025-01-01"
 )
+
+type Info struct {
+	GitVersion string
+	GitCommit  string
+	GoVersion  string
+	BuildDate  string
+	Compiler   string
+	Platform   string
+}
+
+func Get() Info {
+	return Info{
+		GitVersion: GitVersion,
+		GitCommit:  GitCommit,
+		GoVersion:  runtime.Version(),
+		BuildDate:  BuildDate,
+		Compiler:   runtime.Compiler,
+		Platform:   fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+	}
+}
