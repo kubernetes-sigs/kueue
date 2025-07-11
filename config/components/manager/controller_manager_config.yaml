@@ -22,6 +22,11 @@ controller:
 clientConnection:
   qps: 50
   burst: 100
+managedJobsNamespaceSelector:
+  matchExpressions:
+    - key: managed-by-kueue
+      operator: In
+      values: ["true"]
 #pprofBindAddress: :8083
 #waitForPodsReady:
 #  enable: false
