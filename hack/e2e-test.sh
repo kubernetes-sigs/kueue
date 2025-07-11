@@ -32,8 +32,6 @@ function cleanup {
         fi
         cluster_cleanup "$KIND_CLUSTER_NAME"
     fi
-    #do the image restore here for the case when an error happened during deploy
-    restore_managers_image
 }
 
 function startup {
@@ -76,15 +74,10 @@ function kind_load {
     fi
 }
 
-function kueue_deploy {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-    cluster_kueue_deploy "$KIND_CLUSTER_NAME"
-}
-
 trap cleanup EXIT
 startup
 kind_load
-kueue_deploy
+kueue_deploy "$KIND_CLUSTER_NAME"
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
   read -rp "Press Enter to cleanup."

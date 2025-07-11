@@ -38,8 +38,6 @@ function cleanup {
         cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME"
         cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME"
     fi
-    #do the image restore here for the case when an error happened during deploy
-    restore_managers_image
 }
 
 
@@ -105,18 +103,18 @@ function kind_load {
     install_kuberay "$WORKER2_KIND_CLUSTER_NAME"
 }
 
-function kueue_deploy {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-
+function multikueue_kueue_deploy {
+    set_managers_image
     cluster_kueue_deploy "$MANAGER_KIND_CLUSTER_NAME"
     cluster_kueue_deploy "$WORKER1_KIND_CLUSTER_NAME"
     cluster_kueue_deploy "$WORKER2_KIND_CLUSTER_NAME"
+    restore_managers_image
 }
 
 trap cleanup EXIT
 startup
 kind_load
-kueue_deploy
+multikueue_kueue_deploy
 
 if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
   read -rp "Press Enter to cleanup."
