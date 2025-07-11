@@ -1706,7 +1706,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				lookupKey := types.NamespacedName{Name: wl3.Name, Namespace: wl3.Namespace}
 				g.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(wl3)).Should(gomega.BeFalse())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
 			util.ExpectReservingActiveWorkloadsMetric(strictFIFOClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(strictFIFOClusterQ, 1)
@@ -1846,7 +1846,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				var newCQ kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
 				g.Expect(newCQ.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("New created workloads should be frozen")
 			wl2 := testing.MakeWorkload("workload2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).Obj()

@@ -610,7 +610,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the check as successful", func() {

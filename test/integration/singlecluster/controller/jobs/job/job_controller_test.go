@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Labels).Should(gomega.HaveKeyWithValue("toCopyKey", "toCopyValue"))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 		ginkgo.By("updated workload should have the same created timestamp", func() {
 			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		// check the original wl is still there
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).Should(gomega.HaveLen(2))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 		// We need to set startTime to the job since the kube-controller-manager doesn't exist in envtest.
 		ginkgo.By("setting startTime to the job")
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).Should(gomega.HaveLen(2))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is finished when job is completed")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -360,7 +360,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
 			g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(testing.BeNotFoundError())
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should manage a job without a queue-name submitted to managed namespace", func() {
@@ -419,7 +419,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			childWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(childJob.Name, childJob.UID), Namespace: ns.Name}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(testing.BeNotFoundError())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should not update the queue name of the workload with an empty value that the child job has", func() {
@@ -446,7 +446,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, parentWlLookupKey, parentWorkload)).Should(gomega.Succeed())
 				g.Expect(parentWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should change the suspension status of the child job when the parent's workload is not admitted", func() {
@@ -696,7 +696,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("mark the job as inactive", func() {
@@ -951,7 +951,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the job has the old label value", func() {
@@ -1396,7 +1396,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey2, createdProdJob2)).Should(gomega.Succeed())
 			g.Expect(createdProdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
 		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
@@ -1681,7 +1681,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey2, createdJob2)).Should(gomega.Succeed())
 				g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 		})
@@ -1820,7 +1820,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("enable partial admission", func() {
@@ -2033,7 +2033,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wll), wll)).Should(gomega.Succeed())
 				// Should have Evicted condition
 				g.Expect(wll.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the first job becomes unsuspended after we update the Active field back to true")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3078,7 +3078,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
 						g.Expect(createdJob.GetDeletionTimestamp()).Should(gomega.BeNil())
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			})
 		})

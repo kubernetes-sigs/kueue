@@ -542,7 +542,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 						g.Expect(wl.Status.Conditions).ToNot(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Checking the pod is unsuspended", func() {
@@ -927,7 +927,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).To(gomega.Succeed())
 					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				gomega.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodFailed))
 
 				ginkgo.By("Checking that WaitingForReplacementPods status is set to true", func() {
@@ -1097,12 +1097,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
 						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
 						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabelKey), "Pod should have finalizer")
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				// Create replacement pod with 'retriable-in-group' = false annotation
@@ -1522,7 +1522,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 						g.Expect(createdWorkload.Status.ReclaimablePods).Should(gomega.BeEmpty())
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("finalize pod2", func() {
@@ -1627,7 +1627,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 						g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 						g.Expect(wl.Status.Conditions).ToNot(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Checking the pod is unsuspended", func() {
