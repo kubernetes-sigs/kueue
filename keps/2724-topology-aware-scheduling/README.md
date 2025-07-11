@@ -879,12 +879,6 @@ For that reason we introduce two heuristics for marking nodes to replace for a g
 
 For the future releases we are going to consider API configuration for the approach, but first we 
 would like to collect more user feedback using the feature gates while in Alpha.
-to perfrom unneccessary replacements, the annotation is added to the workload only if
-the node is not ready for 30 seconds. Another indication that the node failure is
-non-recoverable is if the pods assigned to this node, start to terminate. If feature gate
-`TASReplaceNodeOnPodTermination` is set to `true`, then if a node is not ready and for
-some workload, all its pods bound to this node are terminated or terminating then
-this workload will get the annotation without waiting the 30 seconds.
 
 Kueue tries to find a replacement for a failed node until success (or until it gets
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
