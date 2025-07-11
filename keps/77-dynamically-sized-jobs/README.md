@@ -120,7 +120,7 @@ The latter will be deactivated and marked as finished.
 ### Enablement
 
 WorkloadSlices in Kueue are enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. 
-At the cluster level, the WorkloadSlices feature must be enabled via the corresponding Kubernetes feature gate, which controls whether the controller logic for slicing is active. 
+At the cluster level, the WorkloadSlices feature must be enabled via the corresponding Kueue feature gate, which controls whether the controller logic for slicing is active. 
 
 Once the feature gate is enabled, individual Workload objects can opt into slicing by including the `kueue.x-k8s.io/elastic-job: "true"` annotation. 
 When both conditions are met, Kueue treats the Workload as eligible for partitioning into one or more WorkloadSlice objects, enabling fine-grained scheduling and 
