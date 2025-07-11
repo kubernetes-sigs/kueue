@@ -1,7 +1,7 @@
 ---
-title: "Manage Kueue"
+title: "管理 Kueue"
 weight: 1
 date: 2024-03-22
 description: >
-  As a _batch administrator_, you can manage Kueue.
+  作为**批处理管理员**，你可以管理 Kueue.
 ---

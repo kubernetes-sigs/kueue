@@ -1,13 +1,13 @@
 ---
-title: "Productionization of Kueue"
+title: "Kueue 产品化"
 weight: 1
 date: 2025-06-17
 description: >
-  As a _batch administrator_, you may want to configure the installation of Kueue.
+  作为**批处理管理员**，你可能想要自定义配置 Kueue 的安装。
 ---
 
 {{% alert title="Note" color="primary" %}}
-For a streamlined installation and simplified upgrades, we recommend deploying Kueue using Helm.  
-You can customize the deployment with a local `values.yaml` file to fit your environment.  
-See the [Helm chart installation guide](/docs/installation/#install-by-helm) for full instructions.
+为了简化安装和升级流程，我们推荐使用 Helm 部署 Kueue。
+你可以通过本地的 `values.yaml` 文件自定义部署以适应你的环境。
+完整的说明请参见 [Helm chart 安装指南](/zh-cn/docs/installation/#install-by-helm)。
 {{% /alert %}}
