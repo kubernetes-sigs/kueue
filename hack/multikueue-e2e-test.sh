@@ -42,8 +42,6 @@ function cleanup {
         cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
         cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
     fi
-    #do the image restore here for the case when an error happened during deploy
-    restore_managers_image
     wait
 }
 
@@ -72,11 +70,11 @@ function startup {
 }
 
 function kueue_deploy {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-
+    set_managers_image
     cluster_kueue_deploy "$MANAGER_KUBECONFIG"
     cluster_kueue_deploy "$WORKER1_KUBECONFIG"
     cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+    restore_managers_image
 }
 
 trap cleanup EXIT
