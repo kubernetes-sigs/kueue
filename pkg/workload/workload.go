@@ -604,19 +604,19 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	return clock.Since(queuedTime)
 }
 
-// WorkloadsWithPodsReadyToEvictedTime is the amount of time it takes a workload's pods running to getting preempted.
-// This measures runtime of workloads that do not run to completion (ie are preempted).
+// WorkloadsWithPodsReadyToEvictedTime is the amount of time it takes a workload's pods running to getting evicted.
+// This measures runtime of workloads that do not run to completion (ie are evicted).
 func WorkloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
 	var podsReady *time.Time
-	var preempted *time.Time
+	var evicted *time.Time
 	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); c != nil && c.Status == metav1.ConditionTrue {
 		podsReady = &c.LastTransitionTime.Time
 	}
 	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); c != nil {
-		preempted = &c.LastTransitionTime.Time
+		evicted = &c.LastTransitionTime.Time
 	}
-	if podsReady != nil && preempted != nil {
-		return ptr.To(preempted.Sub(*podsReady))
+	if podsReady != nil && evicted != nil {
+		return ptr.To(evicted.Sub(*podsReady))
 	}
 
 	return nil
