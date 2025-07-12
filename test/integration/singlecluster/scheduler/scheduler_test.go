@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1977,6 +1978,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 
+			podsReadyCond := metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "test",
+				Message: "test",
+			}
+			apimeta.SetStatusCondition(&wl1.Status.Conditions, podsReadyCond)
+
 			ginkgo.By("Stopping the ClusterQueue")
 			var clusterQueue kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1988,6 +1997,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
 			util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByClusterQueueStopped, 1)
 			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", 1)
+			util.ExpectWorkloadsWithPodsReadyToEvictedTimeSeconds(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, 1)
 
 			ginkgo.By("Checking the condition of workload is evicted", func() {
 				createdWl := kueue.Workload{}
