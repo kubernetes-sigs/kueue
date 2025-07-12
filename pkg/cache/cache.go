@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -64,6 +68,7 @@ type options struct {
 	podsReadyTracking    bool
 	fairSharingEnabled   bool
 	admissionFairSharing *config.AdmissionFairSharing
+	clock                clock.Clock
 }
 
 // Option configures the reconciler.
@@ -103,7 +108,19 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
-var defaultOptions = options{}
+func WithClock(c clock.Clock) Option {
+	return func(o *options) {
+		o.clock = c
+	}
+}
+
+var (
+	realClock = clock.RealClock{}
+)
+
+var defaultOptions = options{
+	clock: realClock,
+}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
@@ -122,6 +139,7 @@ type Cache struct {
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
+	clock    clock.Clock
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -140,6 +158,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		admissionFairSharing: options.admissionFairSharing,
 		hm:                   hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
 		tasCache:             NewTASCache(client),
+		clock:                options.clock,
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c
@@ -985,4 +1004,38 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 // Key is the key used to index the queue.
 func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
+}
+
+func (c *Cache) SyncConsumedUsage(ctx context.Context, lq *kueue.LocalQueue, sampling time.Duration) error {
+	halfLifeTime := c.admissionFairSharing.UsageHalfLifeTime.Seconds()
+	// reset usage to 0 if halfLife is 0
+	if halfLifeTime == 0 {
+		return c.UpdateAdmissionFsStatus(ctx, lq, corev1.ResourceList{})
+	}
+	cacheLq, err := c.GetCacheLocalQueue(lq.Spec.ClusterQueue, lq)
+	if err != nil {
+		return err
+	}
+	if lq.Status.FairSharing == nil || lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
+		return errors.New("fair sharing is not enabled or initialized")
+	}
+	// calculate alpha rate
+	oldUsage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+	newUsage := cacheLq.GetAdmittedUsage()
+	alpha := 1.0 - math.Pow(0.5, sampling.Seconds()/halfLifeTime)
+	// calculate weighted average of old and new usage
+	scaledNewUsage := resource.MulByFloat(newUsage, alpha)
+	scaledOldUsage := resource.MulByFloat(oldUsage, 1-alpha)
+	sum := resource.MergeResourceListKeepSum(scaledOldUsage, scaledNewUsage)
+
+	return c.UpdateAdmissionFsStatus(ctx, lq, sum)
+}
+
+func (c *Cache) UpdateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList) error {
+	c.RLock()
+	defer c.RUnlock()
+
+	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
+	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(c.clock.Now())
+	return c.client.Status().Update(ctx, lq)
 }
