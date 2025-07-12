@@ -147,7 +147,7 @@ The label 'result' can have the following values:
 	WorkloadsWithPodsReadyToEvictedTimeSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
-			Name:      "evicted_workloads_time_seconds",
+			Name:      "pods_ready_to_evicted_time_seconds",
 			Help: `The number of seconds between a workload's pods being ready and eviction workloads per 'cluster_queue',
 The label 'reason' can have the following values:
 - "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
