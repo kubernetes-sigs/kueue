@@ -104,11 +104,14 @@ function kind_load {
 }
 
 function multikueue_kueue_deploy {
-    set_managers_image
-    cluster_kueue_deploy "$MANAGER_KIND_CLUSTER_NAME"
-    cluster_kueue_deploy "$WORKER1_KIND_CLUSTER_NAME"
-    cluster_kueue_deploy "$WORKER2_KIND_CLUSTER_NAME"
-    restore_managers_image
+    # We use a subshell to avoid overwriting the global cleanup trap, which also uses the EXIT signal.
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        cluster_kueue_deploy "$MANAGER_KIND_CLUSTER_NAME"
+        cluster_kueue_deploy "$WORKER1_KIND_CLUSTER_NAME"
+        cluster_kueue_deploy "$WORKER2_KIND_CLUSTER_NAME"
+    )
 }
 
 trap cleanup EXIT
