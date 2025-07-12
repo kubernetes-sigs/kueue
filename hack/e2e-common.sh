@@ -250,9 +250,12 @@ function restore_managers_image {
 
 # $1 cluster
 function kueue_deploy {
-    set_managers_image
-    cluster_kueue_deploy "$1"
-    restore_managers_image
+    # We use a subshell to avoid overwriting the global cleanup trap, which also uses the EXIT signal.
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        cluster_kueue_deploy "$1"
+    )
 }
 
 function determine_kuberay_ray_image {
