@@ -18,7 +18,6 @@ package scheduler
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -1985,14 +1984,40 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Reason:  "test",
 				Message: "test",
 			}
-			changed := apimeta.SetStatusCondition(&wl1.Status.Conditions, podsReadyCond)
-			if changed {
-				fmt.Fprintf(os.Stderr, "--- CHANGED ---\n")
-			}
-			for _, condition := range wl1.Status.Conditions {
-				fmt.Fprintf(os.Stderr, "--- BEFORE EVICTION CONDITION: %v---\n", condition.Type)
-			}
-			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKey{Namespace: wl1.Namespace, Name: wl1.Name})
+			apimeta.SetStatusCondition(&wl1.Status.Conditions, podsReadyCond)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Update(ctx, wl1)).Should(gomega.Succeed())
+			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKeyFromObject(wl1))
+			/*
+				[FAILED] Timed out after 45.001s.
+				  The function passed to Eventually failed at /Users/amychen/Gopath/src/github.com/kubernetes-sigs/kueue/test/util/util.go:371 with:
+				  pods are ready
+				  Expected
+				      <[]v1.Condition | len:2, cap:2>: [
+				          {
+				              Type: "QuotaReserved",
+				              Status: "True",
+				              ObservedGeneration: 1,
+				              LastTransitionTime: {
+				                  Time: 2025-07-11T21:42:54-07:00,
+				              },
+				              Reason: "QuotaReserved",
+				              Message: "Quota reserved in ClusterQueue cluster-queue",
+				          },
+				          {
+				              Type: "Admitted",
+				              Status: "True",
+				              ObservedGeneration: 1,
+				              LastTransitionTime: {
+				                  Time: 2025-07-11T21:42:54-07:00,
+				              },
+				              Reason: "Admitted",
+				              Message: "The workload is admitted",
+				          },
+				      ]
+				  to have condition type PodsReady and status True
+				  In [It] at: /Users/amychen/Gopath/src/github.com/kubernetes-sigs/kueue/test/integration/singlecluster/scheduler/scheduler_test.go:1990 @ 07/11/25 21:43:39.95
+			*/
 
 			ginkgo.By("Stopping the ClusterQueue")
 			var clusterQueue kueue.ClusterQueue
