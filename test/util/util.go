@@ -364,6 +364,14 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
 	if sleep > 0 {
 		time.Sleep(sleep)

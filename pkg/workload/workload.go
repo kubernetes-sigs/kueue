@@ -612,7 +612,7 @@ func WorkloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
 	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); c != nil && c.Status == metav1.ConditionTrue {
 		podsReady = &c.LastTransitionTime.Time
 	}
-	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPreempted); c != nil {
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); c != nil {
 		preempted = &c.LastTransitionTime.Time
 	}
 	if podsReady != nil && preempted != nil {

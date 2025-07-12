@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -1984,7 +1985,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Reason:  "test",
 				Message: "test",
 			}
-			apimeta.SetStatusCondition(&wl1.Status.Conditions, podsReadyCond)
+			changed := apimeta.SetStatusCondition(&wl1.Status.Conditions, podsReadyCond)
+			if changed {
+				fmt.Fprintf(os.Stderr, "--- CHANGED ---\n")
+			}
+			for _, condition := range wl1.Status.Conditions {
+				fmt.Fprintf(os.Stderr, "--- BEFORE EVICTION CONDITION: %v---\n", condition.Type)
+			}
+			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKey{Namespace: wl1.Namespace, Name: wl1.Name})
 
 			ginkgo.By("Stopping the ClusterQueue")
 			var clusterQueue kueue.ClusterQueue
