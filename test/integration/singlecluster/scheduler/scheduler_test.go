@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1977,6 +1978,47 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 
+			podsReadyCond := metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "test",
+				Message: "test",
+			}
+			apimeta.SetStatusCondition(&wl1.Status.Conditions, podsReadyCond)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Update(ctx, wl1)).Should(gomega.Succeed())
+			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKeyFromObject(wl1))
+			/*
+				[FAILED] Timed out after 45.001s.
+				  The function passed to Eventually failed at /Users/amychen/Gopath/src/github.com/kubernetes-sigs/kueue/test/util/util.go:371 with:
+				  pods are ready
+				  Expected
+				      <[]v1.Condition | len:2, cap:2>: [
+				          {
+				              Type: "QuotaReserved",
+				              Status: "True",
+				              ObservedGeneration: 1,
+				              LastTransitionTime: {
+				                  Time: 2025-07-11T21:42:54-07:00,
+				              },
+				              Reason: "QuotaReserved",
+				              Message: "Quota reserved in ClusterQueue cluster-queue",
+				          },
+				          {
+				              Type: "Admitted",
+				              Status: "True",
+				              ObservedGeneration: 1,
+				              LastTransitionTime: {
+				                  Time: 2025-07-11T21:42:54-07:00,
+				              },
+				              Reason: "Admitted",
+				              Message: "The workload is admitted",
+				          },
+				      ]
+				  to have condition type PodsReady and status True
+				  In [It] at: /Users/amychen/Gopath/src/github.com/kubernetes-sigs/kueue/test/integration/singlecluster/scheduler/scheduler_test.go:1990 @ 07/11/25 21:43:39.95
+			*/
+
 			ginkgo.By("Stopping the ClusterQueue")
 			var clusterQueue kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1988,6 +2030,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
 			util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByClusterQueueStopped, 1)
 			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", 1)
+			util.ExpectWorkloadsWithPodsReadyToEvictedTimeSeconds(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, 1)
 
 			ginkgo.By("Checking the condition of workload is evicted", func() {
 				createdWl := kueue.Workload{}
