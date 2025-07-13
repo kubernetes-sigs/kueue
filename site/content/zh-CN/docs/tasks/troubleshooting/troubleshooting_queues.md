@@ -1,23 +1,23 @@
 ---
-title: "Troubleshooting Queues"
+title: "队列故障排除"
 date: 2024-03-21
 weight: 2
 description: >
-  Troubleshooting the status of a LocalQueue or ClusterQueue
+  LocalQueue 或 ClusterQueue 状态的故障排除
 ---
 
-## Why no workloads are admitted in the LocalQueue?
+## 为什么 LocalQueue 中没有 workload 被准入？ {#why-no-workloads-are-admitted-in-the-localqueue}
 
-The status of the [LocalQueue](/docs/concepts/local_queue) includes details of any configuration problems
-on the LocalQueue, as part of the `Active` condition.
+[LocalQueue](/docs/concepts/local_queue) 的状态包含 LocalQueue 上任何配置问题的详细信息，
+作为 `Active` 条件的一部分。
 
-Run the following command to see the status of the LocalQueue:
+运行以下命令查看 LocalQueue 的状态：
 
 ```bash
 kubectl get localqueue -n my-namespace my-local-queue -o yaml
 ```
 
-The status of the LocalQueue will be similar to the following:
+LocalQueue 的状态将类似于以下内容：
 
 ```yaml
 status:
@@ -30,21 +30,20 @@ status:
     type: Active
 ```
 
-In the example above, the `Active` condition has status `False` because the ClusterQueue
-is not active.
+在上面的示例中，`Active` 条件的状态为 `False`，因为 ClusterQueue 不活跃。
 
-## Why no workloads are admitted in the ClusterQueue?
+## 为什么 ClusterQueue 中没有 workload 被准入？ {#why-no-workloads-are-admitted-in-the-clusterqueue}
 
-The status of the [ClusterQueue](/docs/concepts/cluster_queue) includes details of any configuration problems on
-the ClusterQueue, as part of the `Active` condition.
+[ClusterQueue](/docs/concepts/cluster_queue) 的状态包含 ClusterQueue 上任何配置问题的详细信息，
+作为 `Active` 条件的一部分。
 
-Run the following command to see the status of the ClusterQueue:
+运行以下命令查看 ClusterQueue 的状态：
 
 ```bash
 kubectl get clusterqueue my-clusterqueue -o yaml
 ```
 
-The status of the ClusterQueue will be similar to the following:
+ClusterQueue 的状态将类似于以下内容：
 
 ```yaml
 status:
@@ -57,12 +56,10 @@ status:
     type: Active
 ```
 
-In the example above, the `Active` condition has status `False` because the configured flavor
-does not exist.
-Read [Administer ClusterQueues](/docs/tasks/manage/administer_cluster_quotas) to learn how
-to configure a ClusterQueue.
+在上面的示例中，`Active` 条件的状态为 `False`，因为配置的 flavor 不存在。
+阅读[管理 ClusterQueue](/docs/tasks/manage/administer_cluster_quotas)了解如何配置 ClusterQueue。
 
-If the ClusterQueue is properly configured, the status will be similar to the following:
+如果 ClusterQueue 配置正确，状态将类似于以下内容：
 
 ```yaml
 status:
@@ -75,6 +72,6 @@ status:
     type: Active
 ```
 
-If the ClusterQueue has the `Active` condition with status `True`, and you still don't observe
-workloads being admitted, then the problem is more likely to be in the individual workloads.
-Read [Troubleshooting jobs](/docs/tasks/troubleshooting/troubleshooting_jobs) to learn why individual jobs cannot be admitted.
+如果 ClusterQueue 的 `Active` 条件状态为 `True`，但你仍然没有观察到 workload 被准入，
+那么问题更可能出现在单个 workload 上。
+阅读 [Job 故障排除](/docs/tasks/troubleshooting/troubleshooting_jobs)了解为什么单个作业无法被准入。
