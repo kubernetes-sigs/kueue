@@ -71,11 +71,14 @@ function startup {
 }
 
 function kueue_deploy {
-    set_managers_image
-    cluster_kueue_deploy "$MANAGER_KUBECONFIG"
-    cluster_kueue_deploy "$WORKER1_KUBECONFIG"
-    cluster_kueue_deploy "$WORKER2_KUBECONFIG"
-    restore_managers_image
+    # We use a subshell to avoid overwriting the global cleanup trap, which also uses the EXIT signal.
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        cluster_kueue_deploy "$MANAGER_KUBECONFIG"
+        cluster_kueue_deploy "$WORKER1_KUBECONFIG"
+        cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+    )
 }
 
 trap cleanup EXIT
