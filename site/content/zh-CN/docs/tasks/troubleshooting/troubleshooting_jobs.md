@@ -1,84 +1,86 @@
 ---
-title: "Troubleshooting Jobs"
+title: "Job 故障排除"
 date: 2024-03-21
 weight: 1
 description: >
-  Troubleshooting the status of a Job
+  Job 状态的故障排除
 ---
 
-This doc is about troubleshooting pending [Kubernetes Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
-however, most of the ideas can be extrapolated to other [supported job types](/docs/tasks/run).
+本文档介绍如何排除挂起的
+[Kubernetes Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
+的故障，
+但大多数想法可以推广到其他[支持的作业类型](/docs/tasks/run)。
 
-See the [Kueue overview](/docs/overview/#high-level-kueue-operation) to visualize the components that collaborate to run a Job.
+请参阅 [Kueue 概览](/docs/overview/#high-level-kueue-operation)
+以可视化协作运行 Job 的组件。
 
-In this document, assume that your Job is called `my-job` and it's in the `my-namespace` namespace.
+在本文档中，假设你的 Job 名为 `my-job`，位于 `my-namespace` 命名空间中。
 
-## Identifying the Workload for your Job
+## 识别你的 Job 对应的 Workload {#identifying-the-workload-for-your-job}
 
-For each Job, Kueue creates a [Workload](/docs/concepts/workload) object to hold the
-details about the admission of the Job, whether it was admitted or not.
+对于每个 Job，Kueue 创建一个 [Workload](/docs/concepts/workload) 对象来保存
+Job 准入的详细信息，无论它是否被准入。
 
-To find the Workload for a Job, you can use any of the following steps:
+要找到 Job 对应的 Workload，你可以使用以下任一步骤：
 
-* You can obtain the Workload name from the Job events by running the following command:
+* 你可以通过运行以下命令从 Job 事件中获取 Workload 名称：
 
   ```bash
   kubectl describe job -n my-namespace my-job
   ```
 
-  The relevant event will look like the following:
+  相关事件将如下所示：
 
-  ```
+  ```text
     Normal  CreatedWorkload   24s   batch/job-kueue-controller  Created Workload: my-namespace/job-my-job-19797
   ```
 
-* Kueue includes the UID of the source Job in the label `kueue.x-k8s.io/job-uid`.
-  You can obtain the workload name with the following commands:
+* Kueue 在标签 `kueue.x-k8s.io/job-uid` 中包含源 Job 的 UID。
+  你可以使用以下命令获取 workload 名称：
 
   ```bash
   JOB_UID=$(kubectl get job -n my-namespace my-job -o jsonpath='{.metadata.uid}')
   kubectl get workloads -n my-namespace -l "kueue.x-k8s.io/job-uid=$JOB_UID"
   ```
 
-  The output looks like the following:
+  输出如下所示：
 
-  ```
+  ```text
   NAME               QUEUE         RESERVED IN   ADMITTED   AGE
   job-my-job-19797   user-queue    cluster-queue True       9m45s
   ```
 
-* You can list all of the workloads in the same namespace of your job and identify the one
-  that matches the format `<api-name>-<job-name>-<hash>`.
-  You can run a command like the following:
+* 你可以列出与你的作业相同命名空间中的所有 workload，并识别
+  匹配格式 `<api-name>-<job-name>-<hash>` 的那个。
+  你可以运行如下命令：
 
   ```bash
   kubectl get workloads -n my-namespace | grep job-my-job
   ```
 
-  The output looks like the following:
+  输出如下所示：
 
-  ```
+  ```text
   NAME               QUEUE         RESERVED IN   ADMITTED   AGE
   job-my-job-19797   user-queue    cluster-queue True       9m45s
   ```
 
-Once you have identified the name of the Workload, you can obtain all details by
-running the following command:
+一旦你确定了 Workload 的名称，你可以通过运行以下命令获取所有详细信息：
 
 ```bash
 kubectl describe workload -n my-namespace job-my-job-19797
 ```
 
+## 我的 Job 使用什么 ResourceFlavors？ {#what-resourceflavors-is-my-job-using}
 
-## What ResourceFlavors does my Job use?
-
-Once you [identified the Workload for you Job](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job) run the following command to get all the details of your Workload:
+一旦你[识别了你的 Job 对应的 Workload](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job)，
+运行以下命令来获取你的 Workload 的所有详细信息：
 
 ```sh
 kubectl describe workload -n my-namespace job-my-job-19797
 ```
 
-The output should be similar to the following:
+输出应该类似于以下内容：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -99,40 +101,38 @@ status:
   ...
 ```
 
-Now you can clearly see what `ResourceFlavors` your Job uses.
+现在你可以清楚地看到你的 Job 使用什么 `ResourceFlavors`。
 
-## Is my Job suspended?
+## 我的 Job 是否被暂停？ {#is-my-job-suspended}
 
-To know whether your Job is suspended, look for the value of the `.spec.suspend` field, by
-running the following command:
+要知道你的 Job 是否被暂停，查看 `.spec.suspend` 字段的值，
+运行以下命令：
 
-```
+```bash
 kubectl get job -n my-namespace my-job -o jsonpath='{.spec.suspend}'
 ```
 
-When a job is suspended, Kubernetes does not create any [Pods](https://kubernetes.io/docs/concepts/workloads/pods/)
-for the Job. If the Job has Pods already running, Kubernetes terminates and deletes these Pods.
+当作业被暂停时，Kubernetes 不会为该 Job 创建任何 [Pods](https://kubernetes.io/docs/concepts/workloads/pods/)。
+如果 Job 已经有 Pod 在运行，Kubernetes 会终止并删除这些 Pod。
 
-A Job is suspended when Kueue hasn't admitted it yet or when it was preempted to
-accommodate another job. To understand why your Job is suspended,
-check the corresponding Workload object.
+Job 在 Kueue 尚未准入它或当它被抢占以容纳另一个作业时会被暂停。
+要了解为什么你的 Job 被暂停，请检查相应的 Workload 对象。
 
-## Is my Job admitted?
+## 我的 Job 是否被准入？ {#is-my-job-admitted}
 
-If your Job is not running, check whether Kueue has admitted the Workload.
+如果你的 Job 没有运行，请检查 Kueue 是否已准入该 Workload。
 
-The starting point to know whether a Job was admitted, it's pending or was not yet attempted
-for admission is to look at the Workload status.
+了解 Job 是否被准入、正在等待或尚未尝试准入的起点是查看 Workload 状态。
 
-Run the following command to obtain the full status of a Workload:
+运行以下命令获取 Workload 的完整状态：
 
-```
+```bash
 kubectl get workload -n my-namespace my-workload -o yaml
 ```
 
-### Admitted Workload
+### 已准入的 Workload {#admitted-workload}
 
-If your Job is admitted, the Workload should have a status similar to the following:
+如果你的 Job 被准入，Workload 应该有类似以下的状态：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -153,10 +153,10 @@ status:
     type: Admitted
 ```
 
-### Pending Workload
+### 等待中的 Workload {#pending-workload}
 
-If Kueue has attempted to admit the Workload, but failed to so due to lack of quota,
-the Workload should have a status similar to the following:
+如果 Kueue 尝试准入 Workload，但由于缺乏配额而失败，
+Workload 应该有类似以下的状态：
 
 ```yaml
 status:
@@ -174,14 +174,17 @@ status:
       Memory: 600Mi
 ```
 
-### Does my ClusterQueue have the resource requests that the job requires?
+### 我的 ClusterQueue 是否具有作业所需的资源请求？ {#does-my-clusterqueue-have-the-resource-requests-that-the-job-requires}
 
-When you submit a job that has a resource request, for example:
+当你提交具有资源请求的作业时，例如：
 
 ```bash
-$ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
+kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
 ```
-```console
+
+输出：
+
+```json
 {
   "limits": {
     "cpu": "2"
@@ -192,7 +195,9 @@ $ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers
 }
 ```
 
-If your ClusterQueue does not have a definition for the `requests`, Kueue cannot admit the job. For the job above, you should define `cpu` quotas under `resourceGroups`. A ClusterQueue defining `cpu` quota looks like the following:
+如果你的 ClusterQueue 没有对 `requests` 的定义，Kueue 无法准入该作业。
+对于上述作业，你应该在 `resourceGroups` 下定义 `cpu` 配额。
+定义 `cpu` 配额的 ClusterQueue 如下所示：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -210,13 +215,13 @@ spec:
         nominalQuota: 40
 ```
 
-See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups) for more information.
+有关更多信息，请参阅[资源组](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups)。
 
-### Pending Admission Checks
+### 等待准入检查 {#pending-admission-check}
 
-When the ClusterQueue has [admission checks](/docs/concepts/admission_check) configured, such as
-[ProvisioningRequest](/docs/admission-check-controllers/provisioning) or [MultiKueue](/docs/concepts/multikueue),
-a Workload might stay with a status similar to the following, until the admission checks pass:
+当 ClusterQueue 配置了[准入检查](/docs/concepts/admission_check)时，例如
+[ProvisioningRequest](/docs/admission-check-controllers/provisioning) 或 [MultiKueue](/docs/concepts/multikueue)，
+Workload 可能会保持类似以下的状态，直到准入检查通过：
 
 ```yaml
 status:
@@ -237,17 +242,17 @@ status:
     type: QuotaReserved
 ```
 
-### Unattempted Workload
+### 未尝试的 Workload {#unattempted-workload}
 
-When using a [ClusterQueue](/docs/concepts/cluster_queue) with the `StrictFIFO`
-[`queueingStrategy`](/docs/concepts/cluster_queue/#queueing-strategy), Kueue only attempts
-to admit the head of each ClusterQueue. As a result, if Kueue didn't attempt to admit
-a Workload, the Workload status might not contain any condition.
+当使用具有 `StrictFIFO`
+[`queueingStrategy`](/docs/concepts/cluster_queue/#queueing-strategy) 的
+[ClusterQueue](/docs/concepts/cluster_queue) 时，Kueue 只尝试准入每个 ClusterQueue 的头部。
+因此，如果 Kueue 没有尝试准入 Workload，Workload 状态可能不包含任何条件。
 
-### Misconfigured LocalQueues or ClusterQueues
+### 配置错误的 LocalQueue 或 ClusterQueue {#misconfigured-localqueue-or-clusterqueue}
 
-If your Job references a LocalQueue that doesn't exist or the LocalQueue or ClusterQueue
-that it references is misconfigured, the Workload status would look like the following:
+如果你的 Job 引用了不存在的 LocalQueue，或者它引用的 LocalQueue 或 ClusterQueue
+配置错误，Workload 状态将如下所示：
 
 ```yaml
 status:
@@ -259,14 +264,13 @@ status:
     type: QuotaReserved
 ```
 
-See [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues) to understand why a
-ClusterQueue or a LocalQueue is inactive.
+请参阅[队列故障排除](/docs/tasks/troubleshooting/troubleshooting_queues)了解为什么
+ClusterQueue 或 LocalQueue 不活跃。
 
-## Is my Job preempted?
+## 我的 Job 是否被抢占？ {#is-my-job-preempted}
 
-If your Job is not running, and your ClusterQueues have [preemption](/docs/concepts/cluster_queue/#preemption) enabled,
-you should check whether Kueue preempted the Workload.
-
+如果你的 Job 没有运行，并且你的 ClusterQueue 启用了[抢占](/docs/concepts/cluster_queue/#preemption)，
+你应该检查 Kueue 是否抢占了 Workload。
 
 ```yaml
 status:
@@ -289,21 +293,22 @@ status:
     type: Admitted
 ```
 
-The `Evicted` condition shows that the Workload was preempted and the `QuotaReserved` condition with `status: "True"`
-shows that Kueue already attempted to admit it again, unsuccessfully in this case.
+`Evicted` 条件显示 Workload 被抢占，状态为 `status: "True"` 的
+`QuotaReserved` 条件显示 Kueue 已经尝试再次准入它，在这种情况下不成功。
 
-## Are the Pods of my Job running?
+## 我的 Job 的 Pod 是否在运行？ {#are-the-pods-of-my-job-running}
 
-When a Job is not suspended, Kubernetes creates Pods for this Job.
-To check how many of these Pods are scheduled and running, check the Job status.
+当 Job 没有被暂停时，Kubernetes 为此 Job 创建 Pod。
+要检查有多少这些 Pod 被调度和运行，请检查 Job 状态。
 
-Run the following command to obtain the full status of a Job:
+运行以下命令获取 Job 的完整状态：
 
 ```bash
 kubectl get job -n my-namespace my-job -o yaml
 ```
 
-The output will be similar to the following:
+输出将类似于以下内容：
+
 ```yaml
 ...
 status:
@@ -313,17 +318,17 @@ status:
   ...
 ```
 
-The `active` field shows how many Pods for the Job exist, and the `ready` field shows how many of them are running.
+`active` 字段显示 Job 存在多少 Pod，`ready` 字段显示其中有多少正在运行。
 
-To list all the Pods of the Job, run the following command:
+要列出 Job 的所有 Pod，运行以下命令：
 
 ```bash
 kubectl get pods -n my-namespace -l batch.kubernetes.io/job-name=my-job
 ```
 
-The output will be similar to the following:
+输出将类似于以下内容：
 
-```
+```text
 NAME             READY   STATUS    RESTARTS   AGE
 my-job-0-nxmpx   1/1     Running   0          3m20s
 my-job-1-vgms2   1/1     Running   0          3m20s
@@ -332,16 +337,15 @@ my-job-3-d4559   1/1     Running   0          3m20s
 my-job-4-pg75n   0/1     Pending   0          3m20s
 ```
 
-If a Pod or Pods are stuck in `Pending` status, check the latest events issued for the Pod
-by running the following command:
+如果一个或多个 Pod 卡在 `Pending` 状态，通过运行以下命令检查为 Pod 发出的最新事件：
 
-```
+```bash
 kubectl describe pod -n my-namespace my-job-0-pg75n
 ```
 
-If the Pod is unschedulable, the output will be similar to the following:
+如果 Pod 无法调度，输出将类似于以下内容：
 
-```
+```text
 Events:
   Type     Reason             Age                From                Message
   ----     ------             ----               ----                -------
