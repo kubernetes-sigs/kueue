@@ -1,0 +1,51 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-flavor"
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: DynamicResourceAllocationConfig
+metadata:
+  name: default
+  namespace: kueue-system
+spec:
+  resources:
+  - name: gpu.example.com
+    deviceClassNames:
+    - gpu.example.com
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: gpu-cq
+spec:
+  namespaceSelector: {} # match all namespaces
+  resourceGroups:
+  - coveredResources: ["gpu.example.com"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: gpu.example.com
+        nominalQuota: 2 # two devices available in the cluster queue
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: gpu-queue
+  namespace: default
+spec:
+  clusterQueue: gpu-cq 
+---
+apiVersion: resource.k8s.io/v1beta1
+kind: ResourceClaimTemplate
+metadata:
+  name: gpu-claim
+  namespace: default
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        deviceClassName: gpu.example.com
+        allocationMode: ExactCount
+        count: 1
