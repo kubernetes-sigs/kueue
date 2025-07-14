@@ -134,10 +134,10 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) field.ErrorLis
 
 func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequestForJob(rayJob, headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
 	for i := range rayJob.Spec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequestForJob(rayJob, workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
 	}
 	return allErrs
 }

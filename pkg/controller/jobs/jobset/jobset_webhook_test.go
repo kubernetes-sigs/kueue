@@ -99,6 +99,22 @@ func TestValidateCreate(t *testing.T) {
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
 		},
+		{
+			name: "invalid slice topology request - slice size larger than number of podsets",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+					Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+						kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						kueuealpha.PodSetSliceSizeAnnotation:             "20",
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "replicatedJobs[0]", "template", "metadata", "annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 2"),
+			}.ToAggregate(),
+		},
 	}
 
 	for _, tc := range testcases {

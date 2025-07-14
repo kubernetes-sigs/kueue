@@ -105,7 +105,7 @@ func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
-	allErrs = append(allErrs, w.validateTopologyRequest(job)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequestForJob(job, replicaMetaPath, &job.Spec.Template.ObjectMeta)...)
 	return allErrs
 }
 
@@ -159,7 +159,7 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
-	allErrs = append(allErrs, w.validateTopologyRequest(newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequestForJob(newJob, replicaMetaPath, &newJob.Spec.Template.ObjectMeta)...)
 	return allErrs
 }
 
@@ -174,10 +174,6 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 		allErrs = append(allErrs, field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)))
 	}
 	return allErrs
-}
-
-func (w *JobWebhook) validateTopologyRequest(job *Job) field.ErrorList {
-	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

@@ -186,8 +186,8 @@ func (j *KubeflowJob) ValidateOnCreate() field.ErrorList {
 	replicaTypes := j.OrderedReplicaTypes()
 	for _, replicaType := range replicaTypes {
 		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
-			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequestForJob(
+			j, replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
 		)...)
 	}

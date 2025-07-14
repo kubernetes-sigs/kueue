@@ -186,10 +186,12 @@ func validateCreate(lws *LeaderWorkerSet) field.ErrorList {
 
 func validateTopologyRequest(lws *LeaderWorkerSet) field.ErrorList {
 	var allErrs field.ErrorList
+	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
+	podSets, _ := lwsPodSets(&lwsv1)
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, podSets)...)
 	}
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, podSets)...)
 	return allErrs
 }
 

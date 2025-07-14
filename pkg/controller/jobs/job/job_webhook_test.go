@@ -356,6 +356,19 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		{
+			name: "invalid slice topology request - slice size larger than number of podsets",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "20").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 4"),
+			},
+		},
 	}
 
 	for _, tc := range testcases {

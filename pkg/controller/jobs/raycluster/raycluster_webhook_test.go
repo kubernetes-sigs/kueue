@@ -244,6 +244,41 @@ func TestValidateCreate(t *testing.T) {
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			}.ToAggregate(),
 		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingrayutil.MakeCluster("raycluster", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+								kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+								kueuealpha.PodSetSliceSizeAnnotation:             "20",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+									kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+									kueuealpha.PodSetSliceSizeAnnotation:             "20",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.headGroupSpec.template, metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 1"),
+				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 1"),
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testcases {
