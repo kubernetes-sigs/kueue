@@ -348,8 +348,10 @@ func TestPodSets(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	testCases := map[string]struct {
-		job      *kftraining.XGBoostJob
-		wantErrs field.ErrorList
+		job                     *kftraining.XGBoostJob
+		wantValidationErrs      field.ErrorList
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -384,6 +386,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		"invalid TAS request": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
@@ -406,7 +409,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantErrs: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("spec", "xgbReplicaSpecs").
 						Key("Master").
@@ -422,16 +425,27 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
+			topologyAwareScheduling: true,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnCreate()); diff != "" {
-				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
+			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate()
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validate create error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validate create validation error list mismatch (-want +got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnUpdate(nil)); diff != "" {
-				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
+			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(nil)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validate create error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validate create validation error list mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

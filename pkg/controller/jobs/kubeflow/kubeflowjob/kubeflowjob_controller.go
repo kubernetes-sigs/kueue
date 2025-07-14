@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 )
 
 type KubeflowJob struct {
@@ -181,23 +182,48 @@ func (j *KubeflowJob) OrderedReplicaTypes() []kftraining.ReplicaType {
 	return result
 }
 
-func (j *KubeflowJob) ValidateOnCreate() field.ErrorList {
+func (j *KubeflowJob) ValidateOnCreate() (field.ErrorList, error) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil, nil
+	}
+
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()
 	for _, replicaType := range replicaTypes {
 		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
+		validationErrs := jobframework.ValidateTASPodSetRequest(
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
-		)...)
+		)
+		allErrs = append(allErrs, validationErrs...)
 	}
 	sort.Slice(allErrs, func(i, j int) bool {
 		return allErrs[i].Field < allErrs[j].Field
 	})
-	return allErrs
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	podSets, err := j.PodSets()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, replicaType := range replicaTypes {
+		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
+		podSet := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
+		validationErrs := jobframework.ValidateSliceSizeAnnotationUpperBound(
+			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+			podSet,
+		)
+		allErrs = append(allErrs, validationErrs...)
+	}
+
+	return allErrs, nil
 }
 
-func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) field.ErrorList {
+func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) (field.ErrorList, error) {
 	return j.ValidateOnCreate()
 }
 

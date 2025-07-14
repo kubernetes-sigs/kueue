@@ -114,9 +114,9 @@ type JobWithPriorityClass interface {
 // for Jobs that use BaseWebhook.
 type JobWithCustomValidation interface {
 	// ValidateOnCreate returns list of webhook create validation errors.
-	ValidateOnCreate() field.ErrorList
+	ValidateOnCreate() (field.ErrorList, error)
 	// ValidateOnUpdate returns list of webhook update validation errors.
-	ValidateOnUpdate(oldJob GenericJob) field.ErrorList
+	ValidateOnUpdate(oldJob GenericJob) (field.ErrorList, error)
 }
 
 // ComposableJob interface should be implemented by generic jobs that
