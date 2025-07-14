@@ -19,9 +19,12 @@
     - [Creation](#creation)
       - [Naming](#naming)
     - [Scheduling and Preemption](#scheduling-and-preemption)
+      - [Preemption Disambiguation.](#preemption-disambiguation)
       - [Resource Flavors](#resource-flavors)
     - [Garbage Collection of Preempted Workload Slices](#garbage-collection-of-preempted-workload-slices)
   - [Pod Scheduling Gates](#pod-scheduling-gates)
+  - [Limitations and Incompatibilities](#limitations-and-incompatibilities)
+    - [PartialAdmission](#partialadmission)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
     - [Scale Down](#scale-down)
@@ -165,10 +168,9 @@ Furthermore, each individual workload slice will record the identity of any pree
 ```golang
 
 const (
-	// WorkloadPreemptibleSliceNameKey is the annotation key used to capture an "old" workload slice
-	// that will be preempted by the "new" workload slice, i.e., this annotates a "new" workload slice.
-	// This annotation is alpha-level.
-	WorkloadPreemptibleSliceNameKey = "kueue.x-k8s.io/workload-preemptible-slice"
+    // WorkloadSliceReplacementFor is the annotation key used to capture an "old" workload slice key
+    // that will be preempted by the "new", e.g., this workload slice with annotation.
+    WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 ```
 
@@ -195,7 +197,8 @@ will result in a Workload name similar to: `job-demo-slice-75e0c`
 Whereas, changing `generation: 2`: will result in a different name similar to: `job-demo-slice-e7080`
 
 #### Scheduling and Preemption
-Kueue’s scheduler and preemptor components will be augmented to support workload slice processing, specifically by enforcing preemption of the old workload slice regardless of queue capacity to make room for the new slice. 
+Kueue’s scheduler and preemptor components will be augmented to support workload slice processing, specifically by enforcing 
+preemption of the old workload slice regardless of queue capacity to make room for the new slice. 
 
 Scheduling assignment is based on pod count capacity, accounting for the existing workload slice's allocated pods. 
 For example, scaling a job up from `3` pods to `10` pods results in the creation of a new Workload representing all `10` pods; 
@@ -207,14 +210,24 @@ What’s important to emphasize is that while the workload object is preempted, 
 
 In the example at hand, preempting an old workload with 3 running pods and admitting a new workload requesting 10 pods (7 of which are pending and schedule-gated), the new workload will effectively consist of 3 running pods and 7 un-gated pods. This transition avoids disruption while maintaining quota integrity.
 
-A Workload that is preempted by a WorkloadSlice will be correctly marked with a Preempted status condition, including an appropriate reason and message.
+##### Preemption Disambiguation.
+
+Here, we’re using the term “preemption” to describe the process of replacing an old workload slice with a new one. 
+At the same time, Kueue already uses the concept of workload preemption to mean evicting a workload and deferring its scheduling until capacity becomes available.
+
+In the context of workload slices, it may be more helpful to think of this replacement process as **aggregation** rather than preemption. 
+Aggregation involves terminating the old slice and activating the new one. In the strict sense, neither eviction nor preemption (as traditionally defined) actually occurs during this process.
+
+As such, we mark the old slice with the `Finished` condition. This ensures it is removed from the in-memory ClusterQueue snapshot, and its resource usage is released and attributed to the new slice that replaces it.
+
+A Workload that is preempted by a WorkloadSlice will be correctly marked with a Finished status condition, including an appropriate reason and message.
 ```yaml
-- type: Preempted
-  reason: WorkloadSliceReplacement
-- type: Evicted
-  reason: DeactivatedDueToWorkloadSliceReplacement
-- type: Finished  # added later
-  reason: WorkloadSliceReplacement
+- type: Finished
+  status: True
+  reason: WorkloadSliceAggregation
+  message: 'Removed to accommodate a workload (UID: a112b551-a595-4356-875d-e075aee52bac, JobUID: 88d348ca-317a-47a0-bd92-786f95f2608e) due to workload slice aggregation'
+  observedGeneration: 1
+  lastTransitionTime: "2025-07-08T20:09:24Z"
 ```
 
 ##### Resource Flavors
