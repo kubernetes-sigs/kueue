@@ -18,6 +18,8 @@ package testing
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -25,9 +27,17 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+func LogLevelWithDefault(defaultLogLevel int) int {
+	level, err := strconv.Atoi(os.Getenv("TEST_LOG_LEVEL"))
+	if err != nil {
+		return defaultLogLevel
+	}
+	return level
+}
+
 func ContextWithLog(t *testing.T) (context.Context, logr.Logger) {
 	logger := testr.NewWithOptions(t, testr.Options{
-		Verbosity: 2,
+		Verbosity: LogLevelWithDefault(2),
 	})
 	return ctrl.LoggerInto(t.Context(), logger), logger
 }

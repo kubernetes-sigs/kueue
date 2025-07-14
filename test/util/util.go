@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -78,16 +77,8 @@ const (
 	defaultLogLevel = -3
 )
 
-func logLevel() int {
-	level, err := strconv.Atoi(os.Getenv("TEST_LOG_LEVEL"))
-	if err != nil {
-		return defaultLogLevel
-	}
-	return level
-}
-
 var SetupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, logLevel()))
+	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, testing.LogLevelWithDefault(defaultLogLevel)))
 })
 
 type objAsPtr[T any] interface {

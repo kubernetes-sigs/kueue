@@ -1,8 +1,8 @@
 ---
-title: "Troubleshooting"
+title: "故障排除"
 weight: 10
 date: 2023-08-23
 description: >
-  Sometimes things go wrong. The following guides can help you understand the state of the system.
+  有时会出现问题。以下指南可以帮助你了解系统的状态。
 no_list: false
 ---

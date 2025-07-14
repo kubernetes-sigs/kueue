@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package maps
+package ptr
 
 // ValEquals returns true when ptr is non‑nil and *ptr == want.
 func ValEquals[T comparable](ptr *T, want T) bool {

@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/version"
 )
 
 type AdmissionResult string
@@ -96,6 +97,15 @@ The label 'result' can have the following values:
 	)
 
 	// Metrics tied to the queue system.
+
+	buildInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "build_info",
+			Help:      "Kueue build information. 1 labeled by git version, git commit, build date, go version, compiler, platform",
+		},
+		[]string{"git_version", "git_commit", "build_date", "go_version", "compiler", "platform"},
+	)
 
 	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -433,6 +443,11 @@ the maximum possible share value.`,
 	)
 )
 
+func init() {
+	versionInfo := version.Get()
+	buildInfo.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
+}
+
 func generateExponentialBuckets(count int) []float64 {
 	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
 }
@@ -688,6 +703,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 
 func Register() {
 	metrics.Registry.MustRegister(
+		buildInfo,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,

@@ -16,6 +16,13 @@ spec:
       labels:
         app: kueueviz-frontend
     spec:
+      {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
+      imagePullSecrets:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with  .Values.kueueViz.frontend.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       {{- with .Values.kueueViz.frontend.nodeSelector }}
       nodeSelector:
       {{- toYaml . | nindent 8 }}
@@ -32,7 +39,7 @@ spec:
             - containerPort: 8080
           env:
             - name: REACT_APP_WEBSOCKET_URL
-              value: "wss://backend.kueueviz.local"
+              value: 'wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
           resources:
             limits:
               cpu: 500m

@@ -307,6 +307,10 @@ func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWe
 		return 0, err
 	}
 	var usage float64
+	if lq.Status.FairSharing == nil || lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
+		// If FairSharing is not enabled or initialized, return 0 usage.
+		return 0, nil
+	}
 	for resName, resVal := range lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources {
 		weight, found := resWeights[resName]
 		if !found {
