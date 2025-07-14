@@ -3022,6 +3022,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 						},
 					},
 				},
+				PodSetGroup:       "default",
 				SinglePodRequests: tc.requests,
 				Count:             tc.count,
 			}
@@ -3125,14 +3126,97 @@ func TestFindTopologyAssignmentForTwoPodSets(t *testing.T) {
 
 		snapshot := buildSnapshot(ctx, t, nodes, levels)
 
-		tasInput1 := buildTASInput("podset1", topologyRequest, requests, 3)
-		tasInput2 := buildTASInput("podset2", topologyRequest, requests, 3)
+		tasInput1 := buildTASInput("podset1", topologyRequest, requests, 3, "group1")
+		tasInput2 := buildTASInput("podset2", topologyRequest, requests, 3, "group2")
 
 		flavorTASRequests := []TASPodSetRequests{tasInput1, tasInput2}
 
 		wantResult := make(TASAssignmentsResult)
 		wantResult["podset1"] = buildWantedResult(wantAssignment1)
 		wantResult["podset2"] = buildWantedResult(wantAssignment2)
+
+		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+		if diff := cmp.Diff(wantResult, gotResult); diff != "" {
+			t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+		}
+	})
+
+	t.Run("find topology assignment for two podsets with the same group", func(t *testing.T) {
+		ctx, _ := utiltesting.ContextWithLog(t)
+		nodes := []corev1.Node{
+			*testingnode.MakeNode("b1").
+				Label(tasBlockLabel, "b1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2"),
+					"example.com/gpu":     resource.MustParse("2"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2").
+				Label(tasBlockLabel, "b2").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					"example.com/gpu":   resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b3").
+				Label(tasBlockLabel, "b3").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("2"),
+					"example.com/gpu":   resource.MustParse("2"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		levels := []string{tasBlockLabel}
+		leaderRequests := resources.Requests{
+			corev1.ResourceCPU: 1000,
+		}
+		workersRequests := resources.Requests{
+			corev1.ResourceCPU: 1000,
+			"example.com/gpu":  1,
+		}
+		topologyRequest := &kueue.PodSetTopologyRequest{
+			Required: ptr.To(tasBlockLabel),
+		}
+		wantAssignment1 := &kueue.TopologyAssignment{
+			Levels: []string{tasBlockLabel},
+			Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 1,
+					Values: []string{
+						"b2",
+					},
+				},
+			},
+		}
+		wantAssignment2 := &kueue.TopologyAssignment{
+			Levels: []string{tasBlockLabel},
+			Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 4,
+					Values: []string{
+						"b2",
+					},
+				},
+			},
+		}
+
+		snapshot := buildSnapshot(ctx, t, nodes, levels)
+
+		tasInput1 := buildTASInput("leader", topologyRequest, leaderRequests, 1, "sameGroup")
+		tasInput2 := buildTASInput("workers", topologyRequest, workersRequests, 4, "sameGroup")
+
+		flavorTASRequests := []TASPodSetRequests{tasInput1, tasInput2}
+
+		wantResult := make(TASAssignmentsResult)
+		wantResult["leader"] = buildWantedResult(wantAssignment1)
+		wantResult["workers"] = buildWantedResult(wantAssignment2)
 
 		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
 		if diff := cmp.Diff(wantResult, gotResult); diff != "" {
@@ -3167,7 +3251,7 @@ func buildSnapshot(ctx context.Context, t *testing.T, nodes []corev1.Node, level
 	return snapshot
 }
 
-func buildTASInput(podsetName kueue.PodSetReference, topologyRequest *kueue.PodSetTopologyRequest, requests resources.Requests, podCount int32) TASPodSetRequests {
+func buildTASInput(podsetName kueue.PodSetReference, topologyRequest *kueue.PodSetTopologyRequest, requests resources.Requests, podCount int32, podSetGroup string) TASPodSetRequests {
 	return TASPodSetRequests{
 		PodSet: &kueue.PodSet{
 			Name:            podsetName,
@@ -3179,6 +3263,7 @@ func buildTASInput(podsetName kueue.PodSetReference, topologyRequest *kueue.PodS
 				},
 			},
 		},
+		PodSetGroup:       podSetGroup,
 		SinglePodRequests: requests,
 		Count:             podCount,
 	}

@@ -348,6 +348,7 @@ type TASPodSetRequests struct {
 	Count             int32
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
+	PodSetGroup       string
 }
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
@@ -429,30 +430,91 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+	groupedFlavorTASRequests := make(map[string]FlavorTASRequests)
 	for _, tr := range flavorTASRequests {
-		if workload.HasNodeToReplace(opts.workload) {
-			// In case of looking for Node replacement, TopologyRequest has only
-			// PodSets with the Node to replace, so we match PodSetAssignment
-			psa := findPSA(opts.workload, tr.PodSet.Name)
-			if psa == nil || psa.TopologyAssignment == nil {
-				continue
+		groupedFlavorTASRequests[tr.PodSetGroup] = append(groupedFlavorTASRequests[tr.PodSetGroup], tr)
+	}
+	for _, trs := range groupedFlavorTASRequests {
+		if len(trs) == 1 {
+			tr := trs[0]
+			if workload.HasNodeToReplace(opts.workload) {
+				// In case of looking for Node replacement, TopologyRequest has only
+				// PodSets with the Node to replace, so we match PodSetAssignment
+				psa := findPSA(opts.workload, tr.PodSet.Name)
+				if psa == nil || psa.TopologyAssignment == nil {
+					continue
+				}
+				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
+				// And there is no fit, we have the original newAssignment to retry with
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, psa.TopologyAssignment.DeepCopy(), opts.workload, assumedUsage)
+				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
+				if reason != "" {
+					return result
+				}
+				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
+			} else {
+				assignment, reason := s.findTopologyAssignment(tr, assumedUsage, opts.simulateEmpty, "")
+				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
+				if reason != "" {
+					return result
+				}
+				addAssumedUsage(assumedUsage, assignment, &tr)
 			}
-			// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
-			// And there is no fit, we have the original newAssignment to retry with
-			newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, psa.TopologyAssignment.DeepCopy(), opts.workload, assumedUsage)
-			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
-			if reason != "" {
-				return result
-			}
-			addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 		} else {
-			assignment, reason := s.findTopologyAssignment(tr, assumedUsage, opts.simulateEmpty, "")
-			result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
-			if reason != "" {
-				return result
+			workersRequests := trs[0]
+			leaderRequests := trs[1]
+			if workersRequests.Count < leaderRequests.Count {
+				workersRequests = trs[1]
+				leaderRequests = trs[0]
 			}
-			addAssumedUsage(assumedUsage, assignment, &tr)
+
+			if workload.HasNodeToReplace(opts.workload) {
+				// In case of looking for Node replacement, TopologyRequest has only
+				// PodSets with the Node to replace, so we match PodSetAssignment
+				psa := findPSA(opts.workload, workersRequests.PodSet.Name)
+				if psa == nil || psa.TopologyAssignment == nil {
+					continue
+				}
+				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
+				// And there is no fit, we have the original newAssignment to retry with
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&workersRequests, psa.TopologyAssignment.DeepCopy(), opts.workload, assumedUsage)
+				result[workersRequests.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
+
+				leaderAssignment := kueue.TopologyAssignment{}
+				if newAssignment != nil && len(newAssignment.Domains) > 0 {
+					values := newAssignment.Domains[0].Values
+					count := leaderRequests.Count
+
+					leaderTopologyDomainAssignment := kueue.TopologyDomainAssignment{Values: values, Count: count}
+					leaderAssignment = kueue.TopologyAssignment{Levels: newAssignment.Levels, Domains: []kueue.TopologyDomainAssignment{leaderTopologyDomainAssignment}}
+				}
+				result[leaderRequests.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: &leaderAssignment, FailureReason: reason}
+
+				if reason != "" {
+					return result
+				}
+				addAssumedUsage(assumedUsage, replacementAssignment, &workersRequests)
+			} else {
+				assignment, reason := s.findTopologyAssignment(workersRequests, assumedUsage, opts.simulateEmpty, "")
+				result[workersRequests.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignment, FailureReason: reason}
+
+				leaderAssignment := kueue.TopologyAssignment{}
+				if assignment != nil && len(assignment.Domains) > 0 {
+
+					values := assignment.Domains[0].Values // TODO what if there is no domain?
+					count := leaderRequests.Count
+
+					leaderTopologyDomainAssignment := kueue.TopologyDomainAssignment{Values: values, Count: count}
+					leaderAssignment = kueue.TopologyAssignment{Levels: assignment.Levels, Domains: []kueue.TopologyDomainAssignment{leaderTopologyDomainAssignment}}
+				}
+				result[leaderRequests.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: &leaderAssignment, FailureReason: reason}
+				if reason != "" {
+					return result
+				}
+				addAssumedUsage(assumedUsage, assignment, &workersRequests)
+			}
 		}
+
 	}
 	return result
 }

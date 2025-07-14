@@ -19,6 +19,7 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"k8s.io/utils/ptr"
 
@@ -45,7 +46,8 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				continue
 			}
 			isTASImplied := isTASImplied(&podSet, cq)
-			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
+			podSetGroup := podSetGroup(&podSet, i)
+			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i, podSetGroup)
 			if err != nil {
 				psAssignment.error(err)
 			} else if psTASRequest != nil {
@@ -73,7 +75,8 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	wl *workload.Info,
 	cq *cache.ClusterQueueSnapshot,
 	isTASImplied bool,
-	podSetIndex int) (*cache.TASPodSetRequests, error) {
+	podSetIndex int,
+	podSetGroup string) (*cache.TASPodSetRequests, error) {
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
@@ -111,6 +114,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetUpdates:     podSetUpdates,
 		Flavor:            *tasFlvr,
 		Implied:           isTASImplied,
+		PodSetGroup:       podSetGroup,
 	}, nil
 }
 
@@ -168,4 +172,11 @@ func isTASImplied(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
 // explicitly or implicitly.
 func isTASRequested(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
 	return ps.TopologyRequest != nil || cq.IsTASOnly()
+}
+
+func podSetGroup(ps *kueue.PodSet, psIdx int) string {
+	if ps.TopologyRequest != nil && ps.TopologyRequest.PodSetGroup != nil {
+		return *ps.TopologyRequest.PodSetGroup
+	}
+	return strconv.Itoa(psIdx)
 }
