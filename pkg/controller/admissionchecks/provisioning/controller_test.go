@@ -358,18 +358,10 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -477,18 +469,10 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -540,18 +524,10 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -714,11 +690,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -763,11 +735,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Containers(corev1.Container{
 						Name: "c",
 						Resources: corev1.ResourceRequirements{
@@ -1392,11 +1360,7 @@ func TestReconcile(t *testing.T) {
 						Operator: corev1.TolerationOpEqual,
 						Effect:   corev1.TaintEffectNoSchedule,
 					}).
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				"ppt-wl-check1-1-ps3": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps3", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
@@ -1410,11 +1374,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					NodeSelector("f2l1", "v1").
 					PriorityClass("pc-100").
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				"ppt-wl-check1-1-ps5": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps5", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
@@ -1428,11 +1388,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					NodeSelector("f2l1", "v1").
 					PriorityClass("pc-200").
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
 		},
@@ -1554,11 +1510,7 @@ func TestReconcile(t *testing.T) {
 						Operator: corev1.TolerationOpEqual,
 						Effect:   corev1.TaintEffectNoSchedule,
 					}).
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				"ppt-wl-check1-1-ps3": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps3", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
@@ -1572,11 +1524,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					NodeSelector("f2l1", "v1").
 					PriorityClass("pc-100").
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 				"ppt-wl-check1-1-ps5": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps5", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
@@ -1601,11 +1549,7 @@ func TestReconcile(t *testing.T) {
 							},
 						},
 					}).
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "autoscaling.x-k8s.io",
-						Version: "v1",
-						Kind:    "ProvisioningRequest",
-					}, "wl-check1-1", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
 		},
