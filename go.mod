@@ -35,7 +35,7 @@ require (
 	k8s.io/metrics v0.33.2
 	k8s.io/utils v0.0.0-20250502105355-0f33e8f1c979
 	sigs.k8s.io/controller-runtime v0.21.0
-	sigs.k8s.io/jobset v0.8.1
+	sigs.k8s.io/jobset v0.8.2
 	sigs.k8s.io/lws v0.6.2
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0
 	sigs.k8s.io/yaml v1.5.0
