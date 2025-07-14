@@ -124,7 +124,7 @@ Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/ap
 
 ### Job annotations
 
-Another way to pass ProvisioningRequest's [parameters](https://github.com/kubernetes/autoscaler/blob/0130d33747bb329b790ccb6e8962eedb6ffdd0a8/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1/types.go#L115) is by using Job annotations. Every annotation with the ***provreq.kueue.x-k8s.io/*** prefix will be directly passed to created ProvisioningRequest. E.g. `provreq.kueue.x-k8s.io/ValidUntilSeconds: "60"` will pass `ValidUntilSeconds` parameter with the value of `60`. See more examples below.
+Another way to pass ProvisioningRequest's [parameters](https://github.com/kubernetes/autoscaler/blob/0130d33747bb329b790ccb6e8962eedb6ffdd0a8/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1/types.go#L115) is by using Job annotations. Every annotation with the ***provreq.kueue.x-k8s.io/*** prefix will be directly passed to created ProvisioningRequest. E.g. `provreq.kueue.x-k8s.io/ValidUntilSeconds: "60"` will pass `ValidUntilSeconds` parameter with the value of `60`. See more examples below.
 
 Once Kueue creates a ProvisioningRequest for the job you submitted, modifying the value of annotations in the job will have no effect in the ProvisioningRequest.
 

@@ -31,7 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -360,14 +360,14 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -479,14 +479,14 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -542,14 +542,14 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -716,7 +716,7 @@ func TestReconcile(t *testing.T) {
 				baseTemplate2.Name: baseTemplate2.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -765,7 +765,7 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Containers(corev1.Container{
@@ -1394,7 +1394,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -1412,7 +1412,7 @@ func TestReconcile(t *testing.T) {
 					PriorityClass("pc-100").
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -1430,7 +1430,7 @@ func TestReconcile(t *testing.T) {
 					PriorityClass("pc-200").
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -1556,7 +1556,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -1574,7 +1574,7 @@ func TestReconcile(t *testing.T) {
 					PriorityClass("pc-100").
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
@@ -1603,7 +1603,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "autoscaling.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1",
 						Kind:    "ProvisioningRequest",
 					}, "wl-check1-1", "").
 					Obj(),
