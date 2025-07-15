@@ -19,6 +19,7 @@ package workloadslicing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -120,16 +121,6 @@ func FindActiveSlices(ctx context.Context, clnt client.Client, jobObject client.
 	return findSlices(ctx, clnt, jobObject, jobObjectGVK, activeSlices())
 }
 
-// finishedPreemptedCondition helper returns workload "Finished" condition for preempted workload slices.
-func finishedPreemptedCondition() metav1.Condition {
-	return metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  kueue.WorkloadSlicePreemptionReason,
-		Message: kueue.WorkloadEvictedByWorkloadSliceAggregation,
-	}
-}
-
 // finishedOutOfSyncCondition helper returns workload "Finished" condition for updated, but
 // not yet admitted workload slices.
 func finishedOutOfSyncCondition() metav1.Condition {
@@ -141,33 +132,25 @@ func finishedOutOfSyncCondition() metav1.Condition {
 	}
 }
 
-// FinishPreemptedSlice marks a preempted workload slice as finished by setting the appropriate status condition.
+// Deactivate deactivates a given workload slice by setting its "Active" spec field to false.
+// It also applies the specified status condition patches to the workload slice.
 //
-// This function updates the workload's status to reflect that it has been preempted and is now considered finished.
-// It applies the 'Finished' condition to the workload's status.conditions field.
+// This function performs the following steps:
+//  1. It patches the spec of the workload slice to mark it as inactive (i.e., setting `Spec.Active` to false)
+//     if the workload slice is currently active.
+//  2. It applies any status conditions provided in the `conditions` parameter to the workload slice's status.
 //
-// Returns:
-// - An error if the status update fails; otherwise, nil.
-func FinishPreemptedSlice(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload) error {
-	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (bool, error) {
-		return apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, finishedPreemptedCondition()), nil
-	}); err != nil {
-		return fmt.Errorf("failed to mark workload slice as finished: %w", err)
-	}
-	return nil
-}
-
-// deactivateOutOfSyncSlice deactivates a workload slice and marks it as finished
-// when its current state is out-of-sync with the associated job specification.
-//
-// This function performs two main actions:
-//  1. Deactivates the workload slice by setting its 'Active' field to false.
-//  2. Updates the workload's status conditions to reflect that it has been finished
-//     due to being out-of-sync.
+// Parameters:
+//   - ctx: The context for the operation, used for cancellation and logging.
+//   - clnt: The Kubernetes client used to interact with the API server.
+//   - workloadSlice: The workload slice to deactivate.
+//   - conditions: A variadic list of conditions to apply to the status of the workload slice.
 //
 // Returns:
-// - An error if any of the update operations fail; otherwise, nil.
-func deactivateOutOfSyncSlice(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload) error {
+//   - error: An error, if any occurred during the process. If no error occurred, nil is returned.
+//
+// This function is useful for deactivating a workload slice and updating its status conditions in one operation.
+func Deactivate(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload, conditions ...metav1.Condition) error {
 	if err := clientutil.Patch(ctx, clnt, workloadSlice, true, func() (bool, error) {
 		// Patch spec to deactivate (if needed).
 		if workload.IsActive(workloadSlice) {
@@ -176,14 +159,17 @@ func deactivateOutOfSyncSlice(ctx context.Context, clnt client.Client, workloadS
 		}
 		return false, nil
 	}); err != nil {
-		return fmt.Errorf("failed to deactivate out-of-sync workload slice: %w", err)
+		return fmt.Errorf("failed to patch workload slice: %w", err)
 	}
-
-	// Patch status condition with "Finished" (if needed also).
+	// Apply status condition patches.
 	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (bool, error) {
-		return apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, finishedOutOfSyncCondition()), nil
+		updated := false
+		for i := range conditions {
+			updated = apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, conditions[i]) || updated
+		}
+		return updated, nil
 	}); err != nil {
-		return fmt.Errorf("failed to update out-of-sync workload slice status: %w", err)
+		return fmt.Errorf("failed to patch workload slice status: %w", err)
 	}
 	return nil
 }
@@ -248,6 +234,16 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// and the old slice is pending deactivation. The system should resolve this
 		// by deactivating the old slice, after which processing will continue under "case #1".
 
+		// There is also an edge-case when the old slice was preempted/evicted by the scheduler
+		// to make the room for other (than new slice) workload, which would result in two
+		// "pending" workloads. In such case - it is safe to deactivate the old slice.
+		oldWorkload := workloads[0]
+		if !workload.HasQuotaReservation(&oldWorkload) {
+			if err := Deactivate(ctx, clnt, &oldWorkload, finishedOutOfSyncCondition()); err != nil {
+				return nil, true, err
+			}
+		}
+
 		// We consider the new workload slice only when evaluating against the incoming job (pod sets).
 		newWorkload := workloads[1]
 		newCounts := workload.ExtractPodSetCountsFromWorkload(&newWorkload)
@@ -257,19 +253,26 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 			return nil, false, nil
 		}
 
-		// Return the new workload if it's already admitted or if the pod set counts match.
+		// Return an error if the new workload has a reserved quota.
 		//
-		// - If the workload is already admitted, we defer processing changes to allow the old slice
-		//   to be deactivated, after which processing will continue under "case #1".
-		// - If the pod set counts match, we treat this as a no-op, effectively achieving the same outcome.
-		if workload.HasQuotaReservation(&newWorkload) || jobPodSetsCounts.EqualTo(newCounts) {
+		// A combination of a new workload with a reserved quota and an active old workload is considered an anomaly.
+		// This condition may indicate a race condition or external interference. Specifically, a new workload slice
+		// should never gain a quota reservation without the prior finalization of the old slice.
+		if workload.HasQuotaReservation(&newWorkload) {
+			return nil, true, errors.New("unexpected combination of old and new workload slices with reserved quota")
+		}
+
+		// If the pod set counts match, return new workload slice.
+		if jobPodSetsCounts.EqualTo(newCounts) {
 			return &newWorkload, true, nil
 		}
 
-		// Deactivating not admitted new slice as "out-of-sync".
-		err := deactivateOutOfSyncSlice(ctx, clnt, &newWorkload)
-		return &newWorkload, true, err
-
+		// Update new workload slice.
+		workload.ApplyPodSetCounts(&newWorkload, jobPodSetsCounts)
+		if err := clnt.Update(ctx, &newWorkload); err != nil {
+			return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
+		}
+		return &newWorkload, true, nil
 	default:
 		// More than two matching slices is unexpected and considered an error.
 		return nil, true, fmt.Errorf("unexpected number of matching workload slices: %d", len(workloads))

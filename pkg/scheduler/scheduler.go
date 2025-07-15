@@ -28,6 +28,8 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -40,6 +42,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -51,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -212,7 +216,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 	for iterator.hasNext() {
 		e := iterator.pop()
-
 		cq := snapshot.ClusterQueue(e.ClusterQueue)
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
 		if cq.HasParent() {
@@ -273,13 +276,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		preemptedWorkloads.Insert(e.preemptionTargets)
 		cq.AddUsage(usage)
 
-		// When placing a workload slice it is possible for a new workload to "Fit" and
-		// still have a preempted workload (old slice).
-		if mode := e.assignment.RepresentativeMode(); mode == flavorassigner.Preempt ||
-			(mode == flavorassigner.Fit && len(e.preemptionTargets) > 0) {
+		// Filter out the old workload slice from the preemption targets.
+		// The old workload slice is initially included in the preemption targets because it is treated
+		// as a preemptible target during flavor assignment. However, it should be evicted rather than preempted.
+		// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
+		preemptionTargets, oldWorkloadSlice := findPreemptedSliceTarget(e.Obj, e.preemptionTargets)
+
+		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
-			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets)
+			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets)
 			if err != nil {
 				log.Error(err, "Failed to preempt workloads")
 			}
@@ -301,6 +307,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			s.cache.WaitForPodsReady(ctx)
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
+
+		// Evict old workload-slice if any. Note: that oldWorkloadSlice is not nil only if
+		// this is a workload-slice enabled workload and there is an old slice to evict.
+		if oldWorkloadSlice != nil {
+			if err := s.aggregateWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
+				log.Error(err, "Failed to aggregate workload slice")
+				continue
+			}
+		}
+
 		e.status = nominated
 		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
@@ -482,6 +498,27 @@ func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preem
 		return []*preemption.Target{workloadSlicePreemptionTarget}, workloadSlicePreemptionTarget.WorkloadInfo
 	}
 	return nil, nil
+}
+
+// findPreemptedSliceTarget scans the provided list of preemption targets and removes
+// the one marked with the WorkloadSlicePreemptionReason, if present.
+//
+// It returns a new slice with the preemptable workload slice target removed, along with
+// the removed target itself. If no such target is found, it returns the original slice and nil.
+//
+// This is typically used to separate the special-case handling of preempted workload slices
+// from general preemption logic.
+func findPreemptedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Target) ([]*preemption.Target, *preemption.Target) {
+	sliceKey := workloadslicing.PreemptibleSliceKey(preemptor)
+	if sliceKey == "" {
+		return targets, nil
+	}
+	for i := range targets {
+		if sliceKey == string(workload.Key(targets[i].WorkloadInfo.Obj)) {
+			return append(targets[:i], targets[i+1:]...), targets[i]
+		}
+	}
+	return targets, nil
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
@@ -797,4 +834,34 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 			metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
 		}
 	}
+}
+
+// aggregateWorkloadSlice aggregates a workload slice by marking the old slice as finished
+// and evicting it (from the cache) in favor of the new workload slice. This function updates the status of
+// the old slice with a condition indicating it was evicted due to workload slice aggregation.
+// It also logs the event, triggers a Kubernetes event, and reports the eviction metrics.
+//
+// Returns:
+//   - error: An error, if any occurred during the process. If no error occurred, nil is returned.
+func (s *Scheduler) aggregateWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	if meta.IsStatusConditionTrue(oldSlice.Status.Conditions, kueue.WorkloadFinished) {
+		log.V(3).Info("Workload slice already aggregated", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
+		return nil
+	}
+	reason := kueue.WorkloadRemovedViaWorkloadSliceAggregation
+	message := fmt.Sprintf("Removed to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
+	if err := workloadslicing.Deactivate(ctx, s.client, oldSlice, metav1.Condition{
+		Type:    kueue.WorkloadFinished,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	}); err != nil {
+		return fmt.Errorf("failed to deactivate aggregated workload slice: %w", err)
+	}
+
+	log.V(3).Info("Removed", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
+	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
+	metrics.ReportAggregatedWorkloadSlices(oldQueue)
+	return nil
 }

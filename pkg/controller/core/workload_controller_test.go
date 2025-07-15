@@ -19,28 +19,20 @@ package core
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -49,7 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -2059,271 +2050,6 @@ func TestReconcile(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestWorkloadReconciler_reconcileSliceBasedEviction(t *testing.T) {
-	type fields struct {
-		client   client.Client
-		recorder record.EventRecorder
-		// fields below are not utilized in this unit-test.
-		log              logr.Logger
-		queues           *queue.Manager
-		cache            *cache.Cache
-		watchers         []WorkloadUpdateWatcher
-		waitForPodsReady *waitForPodsReadyConfig
-		clock            clock.Clock
-	}
-	type args struct {
-		ctx      context.Context
-		workload *kueue.Workload
-	}
-	type want struct {
-		err       bool
-		processed bool
-		workload  *kueue.Workload
-	}
-	clientBuilder := func(objects ...client.Object) *fake.ClientBuilder {
-		sch := runtime.NewScheme()
-		_ = kueue.AddToScheme(sch)
-		return fake.NewClientBuilder().WithScheme(sch).WithObjects(objects...).WithStatusSubresource(objects...)
-	}
-	testWorkloadMeta := metav1.ObjectMeta{
-		Name:            "test",
-		Namespace:       "default",
-		ResourceVersion: "111",
-	}
-	testWorkload := func(active bool) *kueue.Workload {
-		return &kueue.Workload{
-			ObjectMeta: testWorkloadMeta,
-			Spec:       kueue.WorkloadSpec{Active: ptr.To(active)},
-		}
-	}
-	withConditions := func(workload *kueue.Workload, conditions ...metav1.Condition) *kueue.Workload {
-		for _, condition := range conditions {
-			_ = apimeta.SetStatusCondition(&workload.Status.Conditions, condition)
-		}
-		return workload
-	}
-	withResourceVersionBump := func(workload *kueue.Workload) *kueue.Workload {
-		version, _ := strconv.ParseInt(workload.GetResourceVersion(), 10, 64)
-		workload.SetResourceVersion(strconv.FormatInt(version+1, 10))
-		return workload
-	}
-	preemptedCondition := metav1.Condition{
-		Type:   kueue.WorkloadPreempted,
-		Status: metav1.ConditionTrue,
-		Reason: kueue.WorkloadSlicePreemptionReason,
-	}
-	finishedCondition := metav1.Condition{
-		Type:               kueue.WorkloadFinished,
-		Status:             metav1.ConditionTrue,
-		Reason:             kueue.WorkloadSlicePreemptionReason,
-		Message:            kueue.WorkloadEvictedByWorkloadSliceAggregation,
-		LastTransitionTime: metav1.Now(),
-	}
-
-	tests := map[string]struct {
-		fields fields
-		args   args
-		want   want
-	}{
-		// Not preempted or preempted with the "wrong" reason workload test cases.
-		"NotPreemptedWorkload": {
-			args: args{
-				ctx:      t.Context(),
-				workload: testWorkload(true),
-			},
-		},
-		"PreemptedConditionIsNotActive": {
-			args: args{
-				ctx: t.Context(),
-				workload: withConditions(testWorkload(true), metav1.Condition{
-					Type:   kueue.WorkloadPreempted,
-					Status: metav1.ConditionUnknown, // <-- Not active condition.
-					Reason: kueue.WorkloadSlicePreemptionReason,
-				}),
-			},
-		},
-		"PreemptedForTheReasonOtherThanWorkloadSlice": {
-			args: args{
-				ctx: t.Context(),
-				workload: withConditions(testWorkload(true), metav1.Condition{
-					Type:   kueue.WorkloadPreempted,
-					Status: metav1.ConditionTrue,
-					Reason: "SomeOtherReason", // <-- No workload-slice preemption reason.
-				}),
-			},
-		},
-
-		// Preempted with workload-slice aggregation reason test cases.
-		"DeactivatedAndFinishedWorkload": {
-			// NOOP - Already deactivated and finished workload.
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(false), preemptedCondition, finishedCondition),
-			},
-			want: want{
-				processed: false,
-				workload:  withConditions(testWorkload(false), preemptedCondition, finishedCondition),
-			},
-		},
-
-		"DeactivatedButNotFinishedWorkload": {
-			fields: fields{client: clientBuilder(withConditions(testWorkload(false), preemptedCondition)).Build()},
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(false), preemptedCondition),
-			},
-			want: want{
-				processed: true,
-				workload: withResourceVersionBump(withConditions(testWorkload(false), preemptedCondition,
-					finishedCondition, // <-- added finished condition.
-				)),
-			},
-		},
-		"DeactivatedButNotFinishedWorkload_PatchFailure_NotFound": {
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(false), preemptedCondition),
-			},
-			fields: fields{
-				client: clientBuilder(withConditions(testWorkload(false), preemptedCondition)).WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
-						// We don't care about error specifics, as long as it is "NotFound".
-						return errors.NewNotFound(schema.GroupResource{}, "")
-					},
-				}).Build(),
-			},
-			want: want{
-				processed: true,
-				workload:  withConditions(testWorkload(false), preemptedCondition), // <-- unchanged workload.
-			},
-		},
-		"DeactivatedButNotFinishedWorkload_PatchFailure_Other": {
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(false), preemptedCondition),
-			},
-			fields: fields{
-				client: clientBuilder(withConditions(testWorkload(false), preemptedCondition)).WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
-						// We don't care about error specifics, as long as it is other than "NotFound".
-						return errors.NewApplyConflict(nil, "")
-					},
-				}).Build(),
-			},
-			want: want{
-				err:       true,
-				processed: true,
-				workload:  withConditions(testWorkload(false), preemptedCondition),
-			},
-		},
-		"ActiveAndNotTargetedForDeactivation": {
-			fields: fields{
-				client: clientBuilder(withConditions(testWorkload(true), preemptedCondition, finishedCondition)).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
-					}).
-					Build(),
-				recorder: record.NewFakeRecorder(1),
-			},
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(true), preemptedCondition, finishedCondition),
-			},
-			want: want{
-				processed: true,
-				workload: func() *kueue.Workload {
-					wl := withConditions(testWorkload(true), preemptedCondition, finishedCondition)
-					workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByWorkloadSliceAggregation, preemptedCondition.Message)
-					return withResourceVersionBump(wl)
-				}(),
-			},
-		},
-		"ActiveAndNotTargetedForDeactivation_PatchFailure_NotFound": {
-			fields: fields{
-				client: clientBuilder(withConditions(testWorkload(true), preemptedCondition, finishedCondition)).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return errors.NewNotFound(schema.GroupResource{}, "")
-						},
-					}).
-					Build(),
-				recorder: record.NewFakeRecorder(1),
-			},
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(true), preemptedCondition, finishedCondition),
-			},
-			want: want{
-				processed: true,
-				workload:  withConditions(testWorkload(true), preemptedCondition, finishedCondition),
-			},
-		},
-		"ActiveAndNotTargetedForDeactivation_PatchFailure_Other": {
-			fields: fields{
-				client: clientBuilder(withConditions(testWorkload(true), preemptedCondition, finishedCondition)).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							// We don't care about error specifics, as long as it is other than "NotFound".
-							return errors.NewApplyConflict(nil, "")
-						},
-					}).
-					Build(),
-				recorder: record.NewFakeRecorder(1),
-			},
-			args: args{
-				ctx:      t.Context(),
-				workload: withConditions(testWorkload(true), preemptedCondition, finishedCondition),
-			},
-			want: want{
-				err:       true,
-				processed: true,
-				workload:  withConditions(testWorkload(true), preemptedCondition, finishedCondition),
-			},
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			r := &WorkloadReconciler{
-				client: tt.fields.client,
-
-				log:              tt.fields.log,
-				queues:           tt.fields.queues,
-				cache:            tt.fields.cache,
-				watchers:         tt.fields.watchers,
-				waitForPodsReady: tt.fields.waitForPodsReady,
-				recorder:         tt.fields.recorder,
-				clock:            tt.fields.clock,
-			}
-			// If workload is not provided, default expectation to unchanged workload.
-			if tt.want.workload == nil {
-				tt.want.workload = tt.args.workload.DeepCopy()
-			}
-
-			got, err := r.reconcileSliceBasedEviction(tt.args.ctx, tt.args.workload)
-			if (err != nil) != tt.want.err {
-				t.Errorf("reconcileSliceBasedEviction() error = %v, wantErr %v", err, tt.want.err)
-				return
-			}
-			if got != tt.want.processed {
-				t.Errorf("reconcileSliceBasedEviction() got = %v, want %v", got, tt.want.processed)
-			}
-			// If client field is defined, i.e., client is required to potentially
-			// modify this workload; assert workload changes or lack thereof.
-			if tt.fields.client == nil {
-				return
-			}
-			if err := tt.fields.client.Get(tt.args.ctx, client.ObjectKeyFromObject(tt.args.workload), tt.args.workload); err != nil {
-				t.Errorf("reconcileSliceBasedEviction() unexpected error retrieving workload: %v", err)
-			}
-			if diff := cmp.Diff(tt.args.workload, tt.want.workload, cmpopts.EquateApproxTime(time.Second), cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-				return a.Type < b.Type
-			})); diff != "" {
-				t.Errorf("reconcileSliceBasedEviction() workload(-),want(+): %s", diff)
 			}
 		})
 	}

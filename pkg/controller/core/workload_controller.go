@@ -61,7 +61,6 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -339,11 +338,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		// Reconcile evicted workload slices (if any).
-		if workloadSliceEviction, err := r.reconcileSliceBasedEviction(ctx, &wl); workloadSliceEviction || err != nil {
-			return ctrl.Result{}, err
-		}
-
 		if updated, err := r.reconcileOnLocalQueueActiveState(ctx, &wl, lqExists, &lq); updated || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -436,32 +430,6 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		r.recorder.Eventf(wl, corev1.EventTypeWarning, kueue.WorkloadMaximumExecutionTimeExceeded, "The maximum execution time (%ds) exceeded", *wl.Spec.MaximumExecutionTimeSeconds)
 	}
 	return 0, nil
-}
-
-// reconcileSliceBasedEviction completes aggregated workload slice life-cycle.
-// If workload slice is active - apply deactivation condition (if needed).
-func (r *WorkloadReconciler) reconcileSliceBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	preemptedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPreempted)
-	if preemptedCondition == nil || preemptedCondition.Status != metav1.ConditionTrue || preemptedCondition.Reason != kueue.WorkloadSlicePreemptionReason {
-		return false, nil
-	}
-
-	// Workload slice was preempted (has active preempted condition with workload slice preemption reason) -
-	// proceeding with deactivation for active workloads.
-	if workload.IsActive(wl) && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
-		workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByWorkloadSliceAggregation, preemptedCondition.Message)
-		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
-			return true, client.IgnoreNotFound(err)
-		}
-		ctrl.LoggerFrom(ctx).V(3).Info("Workload is deactivated as a result of workload slice aggregation", "workload", klog.KObj(wl))
-		r.recorder.Eventf(wl, corev1.EventTypeNormal, "WorkloadSliceEviction", "Deactivating workload as a result of workload slice aggeration")
-		return true, nil
-	}
-
-	if !workload.IsFinished(wl) {
-		return true, client.IgnoreNotFound(workloadslicing.FinishPreemptedSlice(ctx, r.client, wl))
-	}
-	return false, nil
 }
 
 // reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.

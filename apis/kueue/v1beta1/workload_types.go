@@ -649,9 +649,9 @@ const (
 	// due to non-recoverable node failures.
 	WorkloadEvictedDueToNodeFailures = "NodeFailures"
 
-	// WorkloadEvictedByWorkloadSliceAggregation indicates that the workload was
-	// deactivated as a result of workload slice aggregation.
-	WorkloadEvictedByWorkloadSliceAggregation = "WorkloadSliceAggregation"
+	// WorkloadRemovedViaWorkloadSliceAggregation indicates that the workload instance was
+	// removed (typically from the internal cache only) as a result of workload slice aggregation.
+	WorkloadRemovedViaWorkloadSliceAggregation = "RemovedViaWorkloadSliceAggregation"
 
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.
