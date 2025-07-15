@@ -1109,3 +1109,15 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), "Failed to set node condition %s to %s for node %s", newCondition.Type, newCondition.Status, node.Name)
 }
+
+func ExpectLocalQueueUsageToBe(ctx context.Context, k8sClient client.Client, lqKey client.ObjectKey, comparator string, compareTo any) {
+	lq := &kueue.LocalQueue{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, lqKey, lq)).Should(gomega.Succeed())
+		g.Expect(lq.Status.FairSharing).ShouldNot(gomega.BeNil())
+		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
+		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
+		usage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+		g.Expect(usage.MilliValue()).To(gomega.BeNumerically(comparator, compareTo))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}

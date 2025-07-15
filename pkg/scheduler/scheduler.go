@@ -48,8 +48,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -75,6 +77,7 @@ type Scheduler struct {
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
+	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
 
 	// schedulingCycle identifies the number of scheduling
@@ -88,6 +91,7 @@ type Scheduler struct {
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 config.FairSharing
+	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
 }
 
@@ -115,6 +119,12 @@ func WithFairSharing(fs *config.FairSharing) Option {
 	}
 }
 
+func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		o.admissionFairSharing = afs
+	}
+}
+
 func WithClock(_ testing.TB, c clock.Clock) Option {
 	return func(o *options) {
 		o.clock = c
@@ -139,6 +149,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
+		admissionFairSharing:    options.admissionFairSharing,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -183,6 +194,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
+	snapshotOpts := make([]cache.SnapshotOption, 0)
+	if features.Enabled(features.AdmissionFairSharing) && s.queues.HasAnyEntryPenalty() {
+		s.queues.HeapifyAllClusterQueues()
+		snapshotOpts = append(snapshotOpts, cache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
+	}
+
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
@@ -193,7 +210,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	startTime := s.clock.Now()
 
 	// 2. Take a snapshot of the cache.
-	snapshot, err := s.cache.Snapshot(ctx)
+	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
 		log.Error(err, "failed to build snapshot for scheduling")
 		return wait.SlowDown
@@ -605,6 +622,13 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
+	if features.Enabled(features.AdmissionFairSharing) {
+		s.addEntryPenaltyToLq(log, e)
+
+		// Trigger LocalQueue reconciler to apply any pending penalties
+		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, newWorkload)
+	}
+
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
@@ -617,6 +641,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
 		_ = s.cache.ForgetWorkload(log, newWorkload)
+		if features.Enabled(features.AdmissionFairSharing) {
+			s.subEntryPenaltyToLq(log, e)
+		}
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
@@ -823,4 +850,20 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue)
 	return nil
+}
+
+func (s *Scheduler) addEntryPenaltyToLq(log logr.Logger, e *entry) {
+	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
+	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
+	s.queues.PushEntryPenalty(lqKey, penalty)
+
+	log.V(3).Info("Entry penalty added to lq", "lqKey", lqKey, "penalty", penalty)
+}
+
+func (s *Scheduler) subEntryPenaltyToLq(log logr.Logger, e *entry) {
+	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
+	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
+	s.queues.SubEntryPenalty(lqKey, penalty)
+
+	log.V(3).Info("Entry penalty subtracted from lq", "lqKey", lqKey, "penalty", penalty)
 }
