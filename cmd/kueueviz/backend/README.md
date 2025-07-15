@@ -44,6 +44,7 @@ KUEUE_VIZ_PORT=8181 ./kueue_ws_app
 | Environment variables | Description              | Default value |
 | --------------------- | ------------------------ | ------------- |
 | `KUEUE_VIZ_PORT`      | Default application port | 8080          |
+| `GIN_MODE`            | Gin mode                 | debug         |
 
 ## Endpoints
 
@@ -63,3 +64,9 @@ KUEUE_VIZ_PORT=8181 ./kueue_ws_app
 | `/ws/cohort/{cohort_name}`                        | Streams updates for a specific cohort   |
 | `/ws/workload/{namespace}/{workload_name}`        | Streams updates for a specific workload |
 | `/ws/workload/{namespace}/{workload_name}/events` | Streams events for a specific workload  |
+
+### REST API
+
+| Endpoint                                          | Description                             |
+| ------------------------------------------------- | --------------------------------------- |
+| `/api/{resource_type}/{name}?namespace={namespace}&output={output_type}` | Returns content for a specific resource and output type |

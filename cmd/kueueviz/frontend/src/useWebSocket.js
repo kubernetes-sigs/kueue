@@ -15,14 +15,13 @@ limitations under the License.
 */
 
 import { useEffect, useState } from 'react';
-import { env } from './env'
-
-const websocketURL = env.REACT_APP_WEBSOCKET_URL;
+import { buildWebSocketUrl, getBackendWebSocketUrl } from './utils/urlHelper';
+import { env } from './env';
 
 const useWebSocket = (url) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const fullUrl = `${websocketURL}${url}`;
+  const fullUrl = buildWebSocketUrl(url);
   useEffect(() => {
     const ws = new WebSocket(fullUrl);
 
