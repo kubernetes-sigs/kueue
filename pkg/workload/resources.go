@@ -187,27 +187,44 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.Er
 // DRA resource requests so they get accounted by the quota engine.
 // lookup converts DeviceClass → logical resource; caller can pass
 // cache.GetResourceNameForDeviceClass.
-func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, wl *kueue.Workload, lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool)) error {
+func AddDeviceClassesToContainerRequests(ctx context.Context, cl client.Client, wl *kueue.Workload, cqName string, lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool)) error {
 	log := ctrl.LoggerFrom(ctx)
-
-	podsetReqs, err := dra.GetResourceRequests(ctx, cl, wl, lookup)
+	psRCTReq, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, cl, wl, lookup)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get resource requests for resource claim templates for workload %s: %w", wl.Name, err)
 	}
+	log.V(4).Info("Got resource claim template requests", "requests", psRCTReq)
+
+	psRCReq, err := dra.GetResourceRequestsForResourceClaims(ctx, cl, wl, cqName, lookup)
+	if err != nil {
+		return fmt.Errorf("failed to get resource requests for resource claims for workload %s in cluster queue %s: %w", wl.Name, cqName, err)
+	}
+	log.V(4).Info("Got resource claim requests", "requests", psRCReq)
 
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
-		rl, ok := podsetReqs[ps.Name]
-		if !ok {
+		rl, ok := psRCTReq[ps.Name]
+		rlRC, okRC := psRCReq[ps.Name]
+		if !ok && !okRC {
 			continue
 		}
 		for ci := range ps.Template.Spec.InitContainers {
 			res := &ps.Template.Spec.InitContainers[ci].Resources
-			res.Requests = utilresource.MergeResourceListKeepSum(res.Requests, rl)
+			if rl != nil {
+				res.Requests = utilresource.MergeResourceListKeepSum(res.Requests, rl)
+			}
+			if rlRC != nil {
+				res.Requests = utilresource.MergeResourceListKeepSum(res.Requests, rlRC)
+			}
 		}
 		for ci := range ps.Template.Spec.Containers {
 			res := &ps.Template.Spec.Containers[ci].Resources
-			res.Requests = utilresource.MergeResourceListKeepSum(res.Requests, rl)
+			if rl != nil {
+				res.Requests = utilresource.MergeResourceListKeepSum(res.Requests, rl)
+			}
+			if rlRC != nil {
+				res.Requests = utilresource.MergeResourceListKeepSum(res.Requests, rlRC)
+			}
 		}
 	}
 	log.V(4).Info("Injected DRA logical resources", "workload", wl.Name)

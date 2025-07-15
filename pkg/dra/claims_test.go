@@ -110,7 +110,6 @@ func Test_GetResourceRequests(t *testing.T) {
 			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{
 				"main": {
 					"res-1": resource.MustParse("2"),
-					"res-2": resource.MustParse("1"),
 				},
 			},
 		},
@@ -206,7 +205,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				tc.modifyWL(wlCopy)
 			}
 
-			got, err := dra.GetResourceRequests(context.Background(), baseClient, wlCopy, tc.lookup)
+			got, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), baseClient, wlCopy, tc.lookup)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("unexpected error status: gotErr=%v wantErr=%v, err=%v", err != nil, tc.wantErr, err)
 			}
