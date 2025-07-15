@@ -497,10 +497,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 		if err == nil {
 			cqName := lq.Spec.ClusterQueue
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
-				metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByLocalQueueStopped)
-				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), kueue.WorkloadEvictedByLocalQueueStopped)
-				}
+				workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
 			}
 		}
 		return true, client.IgnoreNotFound(err)
