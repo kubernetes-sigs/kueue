@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"math"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -177,7 +177,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !updated && sinceLastUpdate < interval {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
-		if err := r.reconcileConsumedUsage(ctx, &queueObj, queueObj.Spec.ClusterQueue); err != nil {
+		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if err := r.queues.HeapifyClusterQueue(&cq, queueObj.Name); err != nil {
@@ -270,26 +270,23 @@ func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, 
 	return false
 }
 
-func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue, cqName kueue.ClusterQueueReference) error {
-	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
-
-	// reset usage to 0 if halfLife is 0
-	if halfLifeTime == 0 {
-		return r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{})
-	}
-	cacheLq, err := r.cache.GetCacheLocalQueue(cqName, lq)
+func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
+	alpha, err := afs.CalculateAlphaRate(
+		r.clock.Now().Sub(lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time).Seconds(),
+		r.admissionFSConfig.UsageHalfLifeTime.Seconds(),
+	)
 	if err != nil {
-		return err
+		// if halfLifeTime is 0, reset usage to 0 and apply any penalty
+		penalty := r.cache.GetAndClearEntryPenalty(lq)
+		return r.updateAdmissionFsStatus(ctx, lq, penalty)
 	}
-	// calculate alpha rate
-	oldUsage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
-	newUsage := cacheLq.GetAdmittedUsage()
-	timeSinceLastUpdate := r.clock.Now().Sub(lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time).Seconds()
-	alpha := 1.0 - math.Pow(0.5, timeSinceLastUpdate/halfLifeTime)
+
 	// calculate weighted average of old and new usage
-	scaledNewUsage := resource.MulByFloat(newUsage, alpha)
+	oldUsage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
 	scaledOldUsage := resource.MulByFloat(oldUsage, 1-alpha)
-	sum := resource.MergeResourceListKeepSum(scaledOldUsage, scaledNewUsage)
+	penalty := r.cache.GetAndClearEntryPenalty(lq)
+	sum := resource.MergeResourceListKeepSum(scaledOldUsage, penalty)
+
 	// update status
 	return r.updateAdmissionFsStatus(ctx, lq, sum)
 }

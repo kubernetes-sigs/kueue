@@ -416,6 +416,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		mgr.GetEventRecorderFor(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
+		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
