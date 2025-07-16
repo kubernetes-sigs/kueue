@@ -52,6 +52,7 @@ var (
 	testNS  = "test-ns"
 	testLWS = "test-lws"
 	testUID = "test-uid"
+	testLQ  = "test-lq"
 )
 
 func TestReconciler(t *testing.T) {
@@ -549,6 +550,103 @@ func TestReconciler(t *testing.T) {
 						GetWorkloadName(types.UID(testUID), testLWS, "0"),
 					),
 				},
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"should update prebuilt workload if queue-name label is set": {
+			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Queue(testLQ).Obj(),
+			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Queue(testLQ).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					OwnerReference(gvk, testLWS, testUID).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name: kueue.DefaultPodSetName,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{Name: "c", Image: "pause"},
+									},
+								},
+							},
+							Count: 1,
+						}).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					Queue(kueue.LocalQueueName(testLQ)).
+					OwnerReference(gvk, testLWS, testUID).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name: kueue.DefaultPodSetName,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{Name: "c", Image: "pause"},
+									},
+								},
+							},
+							Count: 1,
+						}).
+					Priority(0).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"should update prebuilt workload if queue-name label is updated": {
+			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Queue(testLQ).Obj(),
+			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Queue(testLQ).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					Queue(kueue.LocalQueueName(fmt.Sprintf("old-%s", testLQ))).
+					OwnerReference(gvk, testLWS, testUID).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name: kueue.DefaultPodSetName,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{Name: "c", Image: "pause"},
+									},
+								},
+							},
+							Count: 1,
+						}).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+					Queue(kueue.LocalQueueName(testLQ)).
+					OwnerReference(gvk, testLWS, testUID).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name: kueue.DefaultPodSetName,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{Name: "c", Image: "pause"},
+									},
+								},
+							},
+							Count: 1,
+						}).
+					Priority(0).
+					Obj(),
 			},
 			enableTopologyAwareScheduling: false,
 		},

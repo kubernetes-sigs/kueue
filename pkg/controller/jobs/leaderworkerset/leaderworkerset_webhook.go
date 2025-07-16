@@ -85,10 +85,13 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 }
 
 func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec *corev1.PodTemplateSpec) {
+	if podTemplateSpec.Labels == nil {
+		podTemplateSpec.Labels = make(map[string]string)
+	}
+	if queueName := jobframework.QueueNameForObject(lws.Object()); queueName != "" {
+		podTemplateSpec.Labels[constants.QueueLabel] = string(queueName)
+	}
 	if priorityClass := jobframework.WorkloadPriorityClassName(lws.Object()); priorityClass != "" {
-		if podTemplateSpec.Labels == nil {
-			podTemplateSpec.Labels = make(map[string]string, 1)
-		}
 		podTemplateSpec.Labels[constants.WorkloadPriorityClassLabel] = priorityClass
 	}
 
@@ -132,6 +135,9 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
+	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
+	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())
+
 	allErrs := validateCreate(newLeaderWorkerSet)
 
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
@@ -141,6 +147,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)...)
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
+	// Prevents updating the queue-name if at least one replica is ready
+	// or if the queue-name has been deleted.
+	if !isSuspended || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	}
 	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newLeaderWorkerSet.Object()) {
 		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 			newLeaderWorkerSet.Object(),
