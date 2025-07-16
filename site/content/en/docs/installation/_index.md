@@ -284,7 +284,7 @@ spec:
 | `TopologyAwareScheduling`             | `false` | Alpha | 0.9   |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta  | 0.10  |       |
-| `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  |       |
+| `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  | 0.13  |
 | `LocalQueueDefaulting`                | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha | 0.10  |       |
@@ -298,6 +298,7 @@ spec:
 
 | Feature                           | Default | Stage      | Since | Until |
 | --------------------------------- | ------- | ---------- | ----- | ----- |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
 | `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
 | `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |

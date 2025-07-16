@@ -364,14 +364,12 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	if cfg.Integrations.PodOptions != nil {
 		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))
 	}
-	if features.Enabled(features.ManagedJobsNamespaceSelector) {
-		nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
-		if err != nil {
-			setupLog.Error(err, "Failed to parse managedJobsNamespaceSelector")
-			os.Exit(1)
-		}
-		opts = append(opts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
+	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
+	if err != nil {
+		setupLog.Error(err, "Failed to parse managedJobsNamespaceSelector")
+		os.Exit(1)
 	}
+	opts = append(opts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
 
 	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())

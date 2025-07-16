@@ -100,7 +100,6 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, false)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()

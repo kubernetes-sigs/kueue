@@ -218,6 +218,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ManagedJobsNamespaceSelector: {
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.15
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},

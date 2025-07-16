@@ -367,7 +367,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// when manageJobsWithoutQueueName is enabled, standalone jobs without queue names
 	// are still not managed if they don't match the namespace selector.
-	if features.Enabled(features.ManagedJobsNamespaceSelector) && r.manageJobsWithoutQueueName && QueueName(job) == "" {
+	if r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		ns := corev1.Namespace{}
 		err := r.client.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
 		if err != nil {
