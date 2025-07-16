@@ -75,11 +75,15 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
 
 	for _, n := range nodes.Items {
-		err := clientutil.PatchStatus(ctx, k8sClient, &n, func() (bool, error) {
-			n.Status.Capacity[extraResource] = resource.MustParse("1")
-			n.Status.Allocatable[extraResource] = resource.MustParse("1")
-			return true, nil
-		})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Eventually(func(g gomega.Gomega) {
+			node := &corev1.Node{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
+			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
+				node.Status.Capacity[extraResource] = resource.MustParse("1")
+				node.Status.Allocatable[extraResource] = resource.MustParse("1")
+				return true, nil
+			})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 })
