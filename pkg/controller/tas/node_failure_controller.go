@@ -77,40 +77,27 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	if nodeExists {
-		readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
-		if readyCondition != nil {
-			if readyCondition.Status == corev1.ConditionTrue {
-				return ctrl.Result{}, nil
-			}
-			if features.Enabled(features.TASReplaceNodeOnPodTermination) {
-				workloads, err := r.getWorkloadsForImmediateReplacement(ctx, req.Name)
-				switch {
-				case err != nil:
-					r.log.Error(err, "Could not get workloads for immediate replacement", "node", klog.KRef("", req.Name))
-					return ctrl.Result{}, err
-				case len(workloads) == 0:
-					return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
-				default:
-					r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", req.NamespacedName)
-					affectedWorkloads = workloads
-				}
-			} else {
-				timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
-				if NodeFailureDelay > timeSinceNotReady {
-					return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
-				}
-				r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
-				affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
-			}
-		} else {
-			r.log.V(3).Info("Node is not ready and NodeReady condition is missing, marking as failed immediately", "nodeName", req.NamespacedName)
-			affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
-		}
-	} else {
-		r.log.V(3).Info("Node not found, assuming deleted")
+	if !nodeExists || utiltas.GetNodeCondition(&node, corev1.NodeReady) == nil {
+		r.log.V(3).Info("Node not found or NodeReady condition is missing, marking as failed immediately")
 		affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.patchWorkloadsForNodeToReplace(ctx, req.Name, affectedWorkloads)
 	}
+	readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
+	if readyCondition.Status == corev1.ConditionTrue {
+		return ctrl.Result{}, nil
+	}
+	if features.Enabled(features.TASReplaceNodeOnPodTermination) {
+		return r.reconcileForReplaceNodeOnPodTermination(ctx, req.Name)
+	}
+	timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
+	if NodeFailureDelay > timeSinceNotReady {
+		return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
+	}
+	r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
+	affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -210,19 +197,19 @@ func (r *nodeFailureReconciler) getAllWorkloadsOnNode(ctx context.Context, nodeN
 func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	tasWorkloadsOnNode, err := r.getAllWorkloadsOnNode(ctx, nodeName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list all workloads on node: %w", err)
 	}
 
 	affectedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range tasWorkloadsOnNode {
 		var podsForWl corev1.PodList
-		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name}); err != nil {
-			return nil, fmt.Errorf("listing pods for workload %s: %w", wlKey, err)
+		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name, "spec.NodeName": nodeName}); err != nil {
+			return nil, fmt.Errorf("failed to list pods for workload %s: %w", wlKey, err)
 		}
 		allPodsTerminate := true
 		for i := range podsForWl.Items {
 			pod := &podsForWl.Items[i]
-			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
+			if pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
 				allPodsTerminate = false
 				break
 			}
@@ -323,4 +310,19 @@ func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Wor
 	}
 	workload.ReportEvictedWorkload(r.recorder, wl, wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
 	return nil
+}
+
+func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx context.Context, nodeName string) (ctrl.Result, error) {
+	workloads, err := r.getWorkloadsForImmediateReplacement(ctx, nodeName)
+	switch {
+	case err != nil:
+		r.log.Error(err, "Could not get workloads for immediate replacement", "nodeName", nodeName)
+		return ctrl.Result{}, err
+	case len(workloads) == 0:
+		return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
+	default:
+		r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", nodeName)
+		patchErr := r.patchWorkloadsForNodeToReplace(ctx, nodeName, workloads)
+		return ctrl.Result{}, patchErr
+	}
 }
