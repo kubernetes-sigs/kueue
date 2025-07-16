@@ -604,6 +604,27 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	return clock.Since(queuedTime)
 }
 
+// workloadsWithPodsReadyToEvictedTime is the amount of time it takes a workload's pods running to getting evicted.
+// This measures runtime of workloads that do not run to completion (ie are evicted).
+func workloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
+	var podsReady *time.Time
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); c != nil && c.Status == metav1.ConditionTrue {
+		podsReady = &c.LastTransitionTime.Time
+	} else {
+		return nil
+	}
+	c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+
+	var evicted *time.Time
+	if c != nil && c.Status == metav1.ConditionTrue {
+		evicted = &c.LastTransitionTime.Time
+	} else {
+		return nil
+	}
+
+	return ptr.To(evicted.Sub(*podsReady))
+}
+
 // BaseSSAWorkload creates a new object based on the input workload that
 // only contains the fields necessary to identify the original object.
 // The object can be used in as a base for Server-Side-Apply.
@@ -1050,11 +1071,17 @@ func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRe
 }
 
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
-	metrics.ReportEvictedWorkloads(cqName, reason)
+	durationToPreemption := workloadsWithPodsReadyToEvictedTime(wl)
+	metrics.ReportEvictedWorkloads(cqName, reason, durationToPreemption)
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
+}
+
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, wl *kueue.Workload) {
+	durationToPreemption := workloadsWithPodsReadyToEvictedTime(wl)
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, durationToPreemption)
 }
 
 func References(wls []*Info) []klog.ObjectRef {
