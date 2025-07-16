@@ -68,7 +68,7 @@ func Enabled(object metav1.Object) bool {
 const (
 	// WorkloadPreemptibleSliceNameKey is the annotation key used to capture an "old" workload slice
 	// that will be preempted by the "new" workload slice, i.e., this annotates a "new" workload slice.
-	WorkloadPreemptibleSliceNameKey = "kueue.x-k8s.io/workload-preemptible-slice"
+	WorkloadPreemptibleSliceNameKey = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 
 // PreemptibleSliceKey returns a preemptible workload slice key if this workload
