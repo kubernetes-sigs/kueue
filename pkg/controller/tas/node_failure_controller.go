@@ -203,13 +203,13 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 	affectedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range tasWorkloadsOnNode {
 		var podsForWl corev1.PodList
-		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name, "spec.NodeName": nodeName}); err != nil {
+		if err := r.client.List(ctx, &podsForWl, client.InNamespace(wlKey.Namespace), client.MatchingFields{indexer.WorkloadNameKey: wlKey.Name}); err != nil {
 			return nil, fmt.Errorf("failed to list pods for workload %s: %w", wlKey, err)
 		}
 		allPodsTerminate := true
 		for i := range podsForWl.Items {
 			pod := &podsForWl.Items[i]
-			if pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
+			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
 				allPodsTerminate = false
 				break
 			}
