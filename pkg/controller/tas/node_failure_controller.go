@@ -212,9 +212,6 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 	if err != nil {
 		return nil, err
 	}
-	if tasWorkloadsOnNode.Len() == 0 {
-		return nil, nil
-	}
 
 	affectedWorkloads := sets.New[types.NamespacedName]()
 	for wlKey := range tasWorkloadsOnNode {
