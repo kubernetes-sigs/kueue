@@ -384,7 +384,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	log.V(2).Info("Reconciling Job")
 
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
-	wl, err := r.ensureWorkload(ctx, job, object)
+	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -765,15 +765,12 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 	}
 }
 
-// ensureWorkload ensures that a corresponding Kueue Workload exists for the given job.
-//
-// If workload slicing is enabled for the job, it attempts to manage the job using workload slices.
-// In this mode, only changes to PodSet.Count are considered compatible. Structural or semantic changes
-// to the pod sets result in an "incompatible" slice, and the function falls back to managing the job
-// using the standard "one workload per job" approach.
-//
-// Returns the associated workload (whether slice-based or not), or an error.
-func (r *JobReconciler) ensureWorkload(ctx context.Context, job GenericJob, jobObject client.Object) (*kueue.Workload, error) {
+// ensureOneWorkload will query for the single matched workload corresponding to job and return it.
+// If there are more than one workload, we should delete the excess ones.
+// The returned workload could be nil.
+func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if WorkloadSliceEnabled(job) {
 		podSets, err := job.PodSets()
@@ -784,7 +781,7 @@ func (r *JobReconciler) ensureWorkload(ctx context.Context, job GenericJob, jobO
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, jobObject, job.GVK())
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}
@@ -793,15 +790,6 @@ func (r *JobReconciler) ensureWorkload(ctx context.Context, job GenericJob, jobO
 		}
 		// Fallback.
 	}
-
-	return r.ensureOneWorkload(ctx, job, jobObject)
-}
-
-// ensureOneWorkload will query for the single matched workload corresponding to job and return it.
-// If there are more than one workload, we should delete the excess ones.
-// The returned workload could be nil.
-func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
 
 	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
 		wl := &kueue.Workload{}
