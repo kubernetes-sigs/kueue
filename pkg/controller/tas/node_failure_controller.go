@@ -208,8 +208,7 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 		}
 		allPodsTerminate := true
 		for _, pod := range podsForWl.Items {
-			pod := &podsForWl.Items[i]
-			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
+			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(&pod) {
 				allPodsTerminate = false
 				break
 			}

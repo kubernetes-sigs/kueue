@@ -187,6 +187,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantFailedNode:    nodeName,
 		},
+		"Node NotReady, pod failed, ReplaceNodeOnPodTermination feature gate off, requeued": {
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				failedPod,
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+			wantRequeue:       NodeFailureDelay,
+		},
 		"Node NotReady, pod running, not marked as unavailable, requeued": {
 			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
