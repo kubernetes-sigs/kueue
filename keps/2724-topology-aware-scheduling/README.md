@@ -31,7 +31,6 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
     - [PodSet Slice size validation](#podset-slice-size-validation)
-    - [LeaderWorkerSet validation](#leaderworkerset-validation)
   - [Internal APIs](#internal-apis)
     - [Node failures](#node-failures)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
