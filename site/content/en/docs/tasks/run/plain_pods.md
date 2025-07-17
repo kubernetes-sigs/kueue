@@ -48,12 +48,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
       - "pod"
    ```
 
-{{< feature-state state="beta" for_version="v0.10" >}}
 {{% alert title="Note" color="primary" %}}
-
-`managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
-You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-
   Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
   and `integrations.podOptions.podSelector` were used instead. The use of `podOptions` was
   deprecated in Kueue v0.11. Users should migrate to using `managedJobsNamespaceSelector`.
