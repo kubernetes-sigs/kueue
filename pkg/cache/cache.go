@@ -466,8 +466,16 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 			})
 		}
 	}
+
+	parent := curCq.Parent()
+
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
+
+	// Update cohort resources after deletion
+	if parent != nil {
+		updateCohortTreeResourcesIfNoCycle(parent)
+	}
 }
 
 func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
