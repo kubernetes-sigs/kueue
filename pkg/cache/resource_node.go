@@ -196,6 +196,16 @@ func updateCohortResourceNode(cohort *cohort) {
 	}
 }
 
+// updateCohortTreeResourcesIfNoCycle only updates Cohort tree resources if there's no cycle. Purpose
+// of this function is to reduce instances where errors from updateCohortTreeResources are silenced.
+// Errors from event handlers are not retried, so its better to execute updateCohortResourceNode when no error
+// would be produced.
+func updateCohortTreeResourcesIfNoCycle(cohort *cohort) {
+	if !hierarchy.HasCycle(cohort) {
+		updateCohortResourceNode(cohort.getRootUnsafe())
+	}
+}
+
 func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
 		parent.resourceNode.SubtreeQuota[fr] += childQuota - child.getResourceNode().guaranteedQuota(fr)
