@@ -1,138 +1,104 @@
 ---
-title: "Preemption"
+title: "抢占（Preemption）"
 date: 2024-05-28
 weight: 7
 description: >
-  Preemption is the process of evicting one or more admitted Workloads to accommodate another Workload.
+  抢占是为了容纳另一个 Workload 而驱逐一个或多个已准入 Workload 的过程。
 ---
 
-In a preemption, the following terms are relevant:
-- **Preemptees**: The preempted Workloads.
-- **Target ClusterQueues**: The ClusterQueues to which the preemptees belong.
-- **Preemptor**: The Workload being accommodated.
-- **Preempting ClusterQueue**: The ClusterQueue to which the preemptor belongs.
+在抢占过程中，以下术语相关：
+- **被抢占者（Preemptees）**：被抢占的 Workload。
+- **目标 ClusterQueue**：被抢占者所属的 ClusterQueue。
+- **抢占者（Preemptor）**：需要被容纳的 Workload。
+- **抢占 ClusterQueue**：抢占者所属的 ClusterQueue。
 
-## Reasons for preemption
+## 抢占的原因
 
-A Workload can preempt one or more Workloads if it is admitted in a [ClusterQueue with preemption enabled](/docs/concepts/cluster_queue/#preemption)
-and any of the following events happen:
-- The preemptee belongs to the same [ClusterQueue](/docs/concepts/cluster_queue) as the preemptor and the preemptee has a lower priority.
-- The preemptee belongs to the same [cohort](/docs/concepts/cluster_queue#cohort) as the preemptor and the preemptee's ClusterQueue has a usage above
-  the [nominal quota](/docs/concepts/cluster_queue#resources) for at least one resource that the preemptee and preemptor require.
+如果 Workload 被准入到[启用了抢占的 ClusterQueue](/docs/concepts/cluster_queue/#preemption)，并且发生以下任一事件，则该 Workload 可以抢占一个或多个 Workload：
+- 被抢占者与抢占者属于同一个 [ClusterQueue](/docs/concepts/cluster_queue)，且被抢占者的优先级较低。
+- 被抢占者与抢占者属于同一个 [cohort](/docs/concepts/cluster_queue#cohort)，且被抢占者的 ClusterQueue 至少有一种资源的使用量高于[名义配额](/docs/concepts/cluster_queue#resources)，而该资源是被抢占者和抢占者都需要的。
 
-The configured settings for preemption in the [Kueue Configuration](/docs/reference/kueue-config.v1beta1#FairSharing)
-and in the [ClusterQueue](/docs/concepts/cluster_queue#preemption) can limit whether a Workload can preempt others, in addition
-to the criteria above.
+在 [Kueue 配置](/docs/reference/kueue-config.v1beta1#FairSharing) 和 [ClusterQueue](/docs/concepts/cluster_queue#preemption) 中配置的抢占设置，除了上述标准外，还可以限制 Workload 是否可以抢占其他 Workload。
 
-When preempting a Workload, Kueue adds entries in the `.status.conditions` field of the preempted Workload
-that is similar to the following:
+当抢占 Workload 时，Kueue 会在被抢占 Workload 的 `.status.conditions` 字段中添加类似如下的条目：
 
 ```yaml
 status:
   - lastTransitionTime: "2025-03-07T21:19:54Z"
-    message: 'Preempted to accommodate a workload (UID: 5c023c28-8533-4927-b266-56bca5e310c1,
-      JobUID: 4548c8bd-c399-4027-bb02-6114f3a8cdeb) due to prioritization in the ClusterQueue'
+    message: '为容纳另一个 workload（UID: 5c023c28-8533-4927-b266-56bca5e310c1，JobUID: 4548c8bd-c399-4027-bb02-6114f3a8cdeb）而被抢占，原因是 ClusterQueue 中的优先级调整'
     observedGeneration: 1
     reason: Preempted
     status: "True"
     type: Evicted
   - lastTransitionTime: "2025-03-07T21:19:54Z"
-    message: 'Preempted to accommodate a workload (UID: 5c023c28-8533-4927-b266-56bca5e310c1,
-      JobUID: 4548c8bd-c399-4027-bb02-6114f3a8cdeb) due to prioritization in the ClusterQueue'
+    message: '为容纳另一个 workload（UID: 5c023c28-8533-4927-b266-56bca5e310c1，JobUID: 4548c8bd-c399-4027-bb02-6114f3a8cdeb）而被抢占，原因是 ClusterQueue 中的优先级调整'
     reason: InClusterQueue
     status: "True"
     type: Preempted
 ```
 
-The `Evicted` condition indicates that the Workload was evicted with a reason `Preempted`,
-whereas the `Preempted` condition gives more details about the preemption reason.
+`Evicted` 条件表示该 Workload 因 `Preempted` 原因被驱逐，而 `Preempted` 条件则给出了更多关于抢占原因的细节。
 
-The preempting workload can be found by running `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces`.
+可以通过运行 `kubectl get workloads --selector=kueue.x-k8s.io/job-uid=<JobUID> --all-namespaces` 查找抢占者 workload。
 
-## Preemption algorithms
+## 抢占算法
 
-Kueue offers two preemption algorithms. The main difference between them is the criteria to allow
-preemptions from a ClusterQueue to others in the Cohort, when the usage of the preempting ClusterQueue is
-already above the nominal quota. The algorithms are:
+Kueue 提供了两种抢占算法。它们的主要区别在于：当抢占 ClusterQueue 的使用量已经超过名义配额时，允许从一个 ClusterQueue 抢占到 cohort 中其他 ClusterQueue 的标准不同。两种算法如下：
 
-- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort can only happen when any of the following occurs:
-  - The usage of the ClusterQueue for the incoming workload will be under the nominal quota after the ongoing admission process
-  - Preemption while borrowing is enabled for the workload's ClusterQueue
-  - All candidates for preemption belong to the same ClusterQueue as the preempting Workload
+- **[经典抢占（Classic Preemption）](#经典抢占classic-preemption)**：只有在以下任一情况发生时，cohort 内的抢占才会发生：
+  - 新 workload 的 ClusterQueue 使用量在本次准入后将低于名义配额
+  - 工作负载的 ClusterQueue 启用了“借用时抢占”（borrowWithinCohort）
+  - 所有抢占候选都属于与抢占者相同的 ClusterQueue
 
-  In the above scenarios, a workload can only be considered for preemption, in favor a workload from another ClusterQueue, 
-  if it belongs to a ClusterQueue which is running over its nominal quota. 
-  ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
+  在上述场景下，只有当被抢占 workload 所属的 ClusterQueue 超过其名义配额时，才会考虑抢占以支持来自其他 ClusterQueue 的 workload。
+  cohort 内的 ClusterQueue 以先到先得的方式借用资源。
   
-  This algorithm is the most lightweight of the two.
+  该算法是两者中最轻量的。
 
-- **[Fair Sharing](#fair-sharing)**: ClusterQueues with pending Workloads can preempt other Workloads in their cohort
-  until the preempting ClusterQueue obtains an equal or weighted share of the borrowable resources.
-  The borrowable resources are the unused nominal quota of all the ClusterQueues in the cohort.
+- **[公平共享（Fair Sharing）](#公平共享fair-sharing)**：cohort 内有待处理 Workload 的 ClusterQueue 可以抢占 cohort 内其他 Workload，直到抢占 ClusterQueue 获得等量或加权份额的可借用资源。
+  可借用资源是 cohort 内所有 ClusterQueue 未使用的名义配额。
 
-## Classic Preemption
+## 经典抢占（Classic Preemption）
 
-An incoming Workload, which does not fit within the unused quota, is eligible
-to issue preemptions when one of the following is true:
-- the requests of the Workload are below the flavor's nominal quota, or
-- `borrowWithinCohort` is enabled.
+当一个新 Workload 无法适配未使用配额时，只有在以下任一条件为真时才有资格发起抢占：
+- 该 Workload 的请求低于 flavor 的名义配额，或
+- 启用了 `borrowWithinCohort`。
 
-### Candidates
+### 候选者
 
-The list of preemption candidates is compiled from Workloads which either:
-- belong to the same ClusterQueue as the preemptor Workload, and satisfying the `withinClusterQueue` policy of the preemptor's Cluster Queue
-- belong to other ClusterQueues in the cohort, which are actively borrowing, and satisfying the `reclaimWithinCohort` and `borrowWithinCohort` policies of the preemptor's Cluster Queue.
+抢占候选列表由以下 Workload 组成：
+- 属于与抢占者 Workload 相同的 ClusterQueue，并满足抢占者 ClusterQueue 的 `withinClusterQueue` 策略
+- 属于 cohort 内其他正在借用的 ClusterQueue，并满足抢占者 ClusterQueue 的 `reclaimWithinCohort` 和 `borrowWithinCohort` 策略
 
-The list of candidates is sorted based on the following preference checks for
-tie-breaking:
-- Workloads from borrowing queues in the cohort
-- Workloads with the lowest priority
-- Workloads which got admitted the most recently.
+候选列表根据以下优先级进行排序以便于决策：
+- cohort 内正在借用的队列中的 Workload
+- 优先级最低的 Workload
+- 最近被准入的 Workload
 
-### Targets
+### 目标
 
-The Classic Preemption algorithm qualifies the candidates as preemption targets using the heuristics
-below:
+经典抢占算法根据以下启发式方法将候选者确定为抢占目标：
 
-1. If all candidates belong to the target queue, then Kueue greedily
-qualifies candidates until the preemptor Workload can fit, allowing the usage of
-the ClusterQueue to be above the nominal quota, up to the `borrowingLimit`.
-This is referred as "borrowing" in the points below.
+1. 如果所有候选者都属于目标队列，则 Kueue 会贪婪地选择候选者，直到抢占者 Workload 能够适配，允许 ClusterQueue 的使用量超过名义配额，直至 `borrowingLimit`。这被称为“借用”。
 
-2. If `borrowWithinCohort` is enabled, then Kueue greedily qualifies
-candidates (respecting the `borrowWithinCohort.maxPriorityThreshold` threshold),
-until the preemptor Workload can fit, allowing for borrowing.
+2. 如果启用了 `borrowWithinCohort`，则 Kueue 会贪婪地选择候选者（遵循 `borrowWithinCohort.maxPriorityThreshold` 阈值），直到抢占者 Workload 能够适配，允许借用。
 
-3. If the current usage of the target queue is below nominal quota, then
-Kueue greedily qualifies the candidates, until the preemptor Workload can fit,
-disallowing for borrowing.
+3. 如果目标队列当前的使用量低于名义配额，则 Kueue 会贪婪地选择候选者，直到抢占者 Workload 能够适配，不允许借用。
 
-4. If the Workload didn't fit by using the previous heuristics, Kueue greedily
-qualifies only the candidates which belong to the preempting Cluster Queue,
-until the preemptor Workload can fit, allowing for borrowing.
+4. 如果通过上述方法仍无法适配，Kueue 只会贪婪地选择属于抢占 ClusterQueue 的候选者，直到抢占者 Workload 能够适配，允许借用。
 
-The last step of the algorithm is to minimize the set of targets. For this
-purpose, Kueue greedily traverses the list of initial targets in reverse and
-removes a Workload from the list of targets if the preemptor Workload still can be
-admitted when accounting back the quota usage of the target Workload.
+算法的最后一步是最小化目标集合。为此，Kueue 会反向遍历初始目标列表，并在抢占者 Workload 仍能适配的情况下，将目标 Workload 从目标列表中移除。
 
-## Fair Sharing
+## 公平共享（Fair Sharing）
 
-Fair Sharing introduces the concepts of ClusterQueue share values and preemption
-strategies. These work together with the preemption policies set in
-`withinClusterQueue` and `reclaimWithinCohort` (but __not__ `borrowWithinCohort`) to determine if a pending
-Workload can preempt an admitted Workload in Fair Sharing. Fair Sharing uses preemptions to
-achieve an equal or weighted share of the borrowable resources between the
-tenants of a cohort.
+公平共享引入了 ClusterQueue 份额值和抢占策略的概念。这些与 `withinClusterQueue` 和 `reclaimWithinCohort`（但__不包括__ `borrowWithinCohort`）中设置的抢占策略共同决定在公平共享下，待处理 Workload 是否可以抢占已准入 Workload。公平共享通过抢占实现 cohort 租户间可借用资源的等量或加权分配。
 
 {{< feature-state state="stable" for_version="v0.7" >}}
-{{% alert title="Note" color="primary" %}}
-Fair Sharing is compatible with Hierarchical Cohorts (any Cohort which has a
-parent) as of v0.11. Using these features together in V0.9 and V0.10 is
-unsupported, and results in undefined behavior.
+{{% alert title="注意" color="primary" %}}
+自 v0.11 起，公平共享兼容分层 cohort（即有父级的 cohort）。在 V0.9 和 V0.10 中同时使用这些功能是不支持的，会导致未定义行为。
 {{% /alert %}}
 
-To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
+要启用公平共享，[请使用如下 Kueue 配置](/docs/installation#install-a-custom-configured-release-version)：
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -142,67 +108,50 @@ fairSharing:
   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 ```
 
-The attributes in this Kueue Configuration are described in the following sections.
+Kueue 配置中的各属性将在下文中说明。
 
-### ClusterQueue share value
+### ClusterQueue 份额值
 
-When you enable Fair Sharing, Kueue assigns a numeric share value to each ClusterQueue to summarize
-the usage of borrowed resources in a ClusterQueue, in comparison to others in the same cohort.
-The share value is weighted by the `.spec.fairSharing.weight` defined in a ClusterQueue.
+启用公平共享后，Kueue 会为每个 ClusterQueue 分配一个数值型份额值，用于总结该 ClusterQueue 借用资源的使用情况，并与同一 cohort 内的其他 ClusterQueue 进行比较。
+份额值会根据 ClusterQueue 中定义的 `.spec.fairSharing.weight` 进行加权。
 
-During admission, Kueue prefers to admit Workloads from ClusterQueues that have the lowest share value first.
-During preemption, Kueue prefers to preempt Workloads from ClusterQueues that have the highest share value first.
+在准入过程中，Kueue 优先从份额值最低的 ClusterQueue 中准入 Workload。
+在抢占过程中，Kueue 优先从份额值最高的 ClusterQueue 中抢占 Workload。
 
-You can obtain the share value of a ClusterQueue in the `.status.fairSharing.weightedShare` field or querying
-the [`kueue_cluster_queue_weighted_share` metric](/docs/reference/metrics#optional-metrics).
+你可以在 `.status.fairSharing.weightedShare` 字段或通过查询 [`kueue_cluster_queue_weighted_share` 指标](/docs/reference/metrics#optional-metrics) 获取 ClusterQueue 的份额值。
 
-### Preemption strategies
+### 抢占策略
 
-The `preemptionStrategies` field in the Kueue Configuration indicates which constraints should a
-preemption satisfy, with regards to the share values of the target and preempting ClusterQueues,
-before and after preempting a particular Workload.
+Kueue 配置中的 `preemptionStrategies` 字段表示抢占时，针对目标和抢占 ClusterQueue 的份额值，在抢占特定 Workload 前后应满足哪些约束。
 
-Different `preemptionStrategies` can lead to less or more preemptions under specific scenarios.
-These are the factors you should consider when configuring `preemptionStrategies`:
-- Tolerance to disruptions, in particular when single Workloads use a significant amount of the borrowable resources.
-- Speed of convergence, in other words, how important is it to reach a steady fair state as soon as possible.
-- Overall utilization, because certain strategies might reduce the utilization of the cluster in the pursue of
-  fairness.
+不同的 `preemptionStrategies` 在特定场景下会导致更少或更多的抢占。配置抢占策略时应考虑以下因素：
+- 对中断的容忍度，尤其是当单个 Workload 占用大量可借用资源时。
+- 收敛速度，即多快达到公平状态。
+- 整体利用率，因为某些策略可能会在追求公平的过程中降低集群利用率。
 
-When you define multiple `preemptionStrategies`, the preemption algorithm will only use the next
-strategy in the list if there aren't any more Workloads that are candidates for preemption that
-satisfy the current strategy and the preemptor still doesn't fit.
+当你定义多个 `preemptionStrategies` 时，抢占算法只有在当前策略下没有更多满足条件的抢占候选且抢占者仍无法适配时，才会使用下一个策略。
 
-The values you can put in the `preemptionStrategies` list are:
-- `LessThanOrEqualToFinalShare`: Only preempt a Workload if the share of the preempting ClusterQueue
-  with the preemptor Workload is less than or equal to the share of the target ClusterQueue
-  without the preempted Workload.
-  This strategy might favor preemption of smaller workloads in the target ClusterQueue,
-  regardless of priority or start time, in an effort to keep the share of the ClusterQueue
-  as high as possible.
-- `LessThanInitialShare`: Only preempt a Workload if the share of the preempting ClusterQueue
-  with the preemptor Workload is strictly less than the share of the target ClusterQueue.
-  Note that this strategy doesn't depend on the share usage of the Workload being preempted.
-  As a result, the strategy chooses to first preempt workloads with the lowest priority and
-  newest start time within the target ClusterQueue.
-The default strategy is `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
+`preemptionStrategies` 列表可选值如下：
+- `LessThanOrEqualToFinalShare`：只有当抢占 ClusterQueue 在包含抢占者 Workload 后的份额小于等于目标 ClusterQueue 在移除被抢占 Workload 后的份额时，才允许抢占。
+  该策略可能会优先抢占目标 ClusterQueue 中较小的 workload，以尽量保持其份额较高，而不考虑优先级或启动时间。
+- `LessThanInitialShare`：只有当抢占 ClusterQueue 在包含抢占者 Workload 后的份额严格小于目标 ClusterQueue 的份额时，才允许抢占。
+  注意该策略不依赖于被抢占 Workload 的份额使用情况。因此，该策略会优先选择抢占目标 ClusterQueue 内优先级最低、启动时间最新的 workload。
+默认策略为 `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
 
-### Algorithm overview
+### 算法概述
 
-The initial step of the algorithm is to identify the [Workloads that are candidate for preemption](#candidates),
-with the same criteria and ordering as the classic preemption, and grouped by ClusterQueue.
+算法的第一步是识别[抢占候选 Workload](#候选者)，其标准和排序与经典抢占相同，并按 ClusterQueue 分组。
 
-Next, the above candidates are qualified as preemption targets,
-following an algorithm that can be summarized as follows:
+接下来，算法会将上述候选者作为抢占目标进行筛选，流程可总结如下：
 
 ```
 FindFairPreemptionTargets(X ClusterQueue, W Workload)
-  For each preemption strategy:
-    While W does not fit and there are workloads that are preemption candidates:
-      Find the ClusterQueue Y with the highest share value.
-      For each admitted Workload U in ClusterQueue Y:
-        If Workload U satisfies the preemption strategy:
-          Add workload U to the list of targets
-  In the reverse order of the list of targets:
-    Attempt to remove a Workload from the targets, while W still fits.
+  对于每个抢占策略：
+    当 W 仍无法适配且存在抢占候选时：
+      找到份额值最高的 ClusterQueue Y。
+      对于 ClusterQueue Y 中已准入的每个 Workload U：
+        如果 Workload U 满足当前抢占策略：
+          将 U 加入目标列表
+  反向遍历目标列表：
+    在 W 仍能适配的情况下，尝试将目标 Workload 从列表中移除。
 ```
