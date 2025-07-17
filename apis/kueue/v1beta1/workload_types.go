@@ -651,7 +651,7 @@ const (
 
 	// WorkloadSliceReplacement indicates that the workload instance was
 	// replaced with a new workload slice.
-	WorkloadSliceReplacement = "WorkloadSliceReplacement"
+	WorkloadSliceReplaced = "WorkloadSliceReplaced"
 
 	// WorkloadDeactivated indicates that the workload was evicted
 	// because spec.active is set to false.
