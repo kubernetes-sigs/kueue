@@ -560,8 +560,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"b": {
-					Name:                          "b",
-					AllocatableResourceGeneration: 1,
+					Name: "b",
+					// AllocatableResourceGeneration is 2 because it was incremented:
+					// 1. Once during initial setup when added to cohort "one"
+					// 2. Once during deletion when cohort tree resources were recalculated after "a" was deleted
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
