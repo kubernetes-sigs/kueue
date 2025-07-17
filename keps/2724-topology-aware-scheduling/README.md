@@ -875,7 +875,7 @@ immediately to NotReady condition could result in unnecessary node replacements.
 
 For that reason we introduce two heuristics for marking nodes to replace for a given workload:
 1. when the node is NotReady for over 30s (used by default)
-2. when the node is NotReady and all of the workload's Pods scheduled on that nodeare terminated
+2. when the node is NotReady and all of the workload's Pods scheduled on that node are terminated
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
 available starting with Kueue v0.13)
 
