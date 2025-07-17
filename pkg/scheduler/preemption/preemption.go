@@ -140,13 +140,13 @@ var HumanReadablePreemptionReasons = map[string]string{
 
 func preemptionMessage(preemptor *kueue.Workload, reason string) string {
 	var wUID, jUID string
-	if preemptor == nil || preemptor.UID == "" {
+	if preemptor.UID == "" {
 		wUID = "UNKNOWN"
 	} else {
 		wUID = string(preemptor.UID)
 	}
-	uid, ok := preemptor.Labels[constants.JobUIDLabel]
-	if !ok || uid == "" {
+	uid := preemptor.Labels[constants.JobUIDLabel]
+	if uid == "" {
 		jUID = "UNKNOWN"
 	} else {
 		jUID = uid
