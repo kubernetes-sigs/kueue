@@ -414,8 +414,20 @@ value for it in case of JobSet is `parallelism`.
 According to [Story 6](#story-6) we noticed that some users would like to
 co-locate Leader with Workers within the same replica in LeaderWorkerSet.
 
-To allow user to specify the requested topology for leader and workers we 
-are adding an annotation `kueue.x-k8s.io/leaderworkerset-group-required-topology`.
+To allow user to request topology for the group of pods consisting of leader
+and workers we are adding a new `kueue.x-k8s.io/podset-group-name` annotation.
+It specifies the name of the group for each PodSet, so if user specifies the
+same group in two or more PodSets, Kueue will:
+- find a common flavor for them
+- find a common topology domain
+
+Finding topology domain for PodSet Group comes with extra constraints that are
+described in [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
+section.
+
+User has to also request one of `kueue.x-k8s.io/podset-required-topology` or
+`kueue.x-k8s.io/podset-preferred-topology` to specify a requested topology for
+the PodSet Group.
 
 **Example**:
 
@@ -426,12 +438,14 @@ metadata:
   name: tas-example-lws
   labels:
     kueue.x-k8s.io/queue-name: user-queue
-  annotations:
-    kueue.x-k8s.io/leaderworkerset-group-required-topology: "cloud.provider.com/topology-rack"
 spec:
   replicas: 2
   leaderWorkerTemplate:
     leaderTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-group-name: lws-group
+          kueue.x-k8s.io/podset-group-required-topology: cloud.provider.com/topology-host
       spec:
         containers:
           - name: leader
@@ -439,6 +453,10 @@ spec:
             args: ["pause"]
     size: 3
     workerTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-group-name: lws-group
+          kueue.x-k8s.io/podset-group-required-topology: cloud.provider.com/topology-host
       spec:
         containers:
           - name: leader
@@ -701,6 +719,9 @@ the rules is deactivated):
   specified its own default. See [Slice size validation](#slice-size-validation))
 - The value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
+- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology` 
+  or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
+  PodTemplates included in the PodSet Group and it has to have the same value.
 
 #### PodSet Slice size validation
 
@@ -712,13 +733,6 @@ sensible default to fallback to.
 However, in case of the JobSet we expect that the most frequent use-case will be to
 define PodSet Slice as a single Job, thus if `kueue.x-k8s.io/podset-slice-size`
 is not defined for JobSet it defaults to `parallelism`.
-
-#### LeaderWorkerSet validation
-
-If user requests leader-worker group topology via `kueue.x-k8s.io/leaderworkerset-group-required-topology`
-other topology annotations (`kueue.x-k8s.io/podset-required-topology`, `kueue.x-k8s.io/podset-preferred-topology`,
-`kueue.x-k8s.io/podset-slice-size`, `kueue.x-k8s.io/podset-slice-required-topology`) are not allowed
-and will return an error.
 
 ### Internal APIs
 
@@ -1076,9 +1090,11 @@ If two or more PodSets use the same value in `PodSetGroup`, they will be grouped
 Their resource requests will be summed together and the result will be used to find a flavor
 with proper resources and enough quota to fit the whole group.
 
-This is currently used by LeaderWorkerSet integration which sets `PodSetGroup` for 
-leader and worker PodSets if `kueue.x-k8s.io/leaderworkerset-group-required-topology`
-is defined, so they are grouped together.
+It is important to mention, that the introduction of `PodSet Group` changes the flavor 
+assignment unit to `PodSet Group`.
+
+User can influence the value of `PodSetGroup` by setting `kueue.x-k8s.io/podset-group-name`
+annotation.
 
 ### Enforcing the assignment
 
