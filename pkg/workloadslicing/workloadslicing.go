@@ -73,12 +73,17 @@ const (
 
 // PreemptibleSliceKey returns a preemptible workload slice key if this workload
 // was annotated with such, otherwise, returns an empty string.
-func PreemptibleSliceKey(wl *kueue.Workload) string {
+func PreemptibleSliceKey(wl *kueue.Workload) *workload.Reference {
 	annotations := wl.GetAnnotations()
 	if len(annotations) == 0 {
-		return ""
+		return nil
 	}
-	return annotations[WorkloadPreemptibleSliceNameKey]
+	key, found := annotations[WorkloadPreemptibleSliceNameKey]
+	if !found {
+		return nil
+	}
+	ref := workload.Reference(key)
+	return &ref
 }
 
 // Workload predicate definition to match workloads.

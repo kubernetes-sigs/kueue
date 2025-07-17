@@ -43,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestEnabled(t *testing.T) {
@@ -99,9 +100,10 @@ func TestPreemptibleSliceKey(t *testing.T) {
 	type args struct {
 		wl *kueue.Workload
 	}
+	testReference := workload.NewReference("test", "test")
 	tests := map[string]struct {
 		args args
-		want string
+		want *workload.Reference
 	}{
 		"NilAnnotations": {
 			args: args{
@@ -118,16 +120,16 @@ func TestPreemptibleSliceKey(t *testing.T) {
 		"Found": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadPreemptibleSliceNameKey: "test"}},
+					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadPreemptibleSliceNameKey: string(testReference)}},
 				},
 			},
-			want: "test",
+			want: &testReference,
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := PreemptibleSliceKey(tt.args.wl); got != tt.want {
-				t.Errorf("PreemptibleSliceKey() = %v, want %v", got, tt.want)
+			if diff := cmp.Diff(PreemptibleSliceKey(tt.args.wl), tt.want); diff != "" {
+				t.Errorf("PreemptibleSliceKey() (-want,+got)\n:%s", diff)
 			}
 		})
 	}

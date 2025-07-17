@@ -510,11 +510,11 @@ func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preem
 // from general preemption logic.
 func findPreemptedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Target) ([]*preemption.Target, *preemption.Target) {
 	sliceKey := workloadslicing.PreemptibleSliceKey(preemptor)
-	if sliceKey == "" {
+	if sliceKey == nil {
 		return targets, nil
 	}
 	for i := range targets {
-		if sliceKey == string(workload.Key(targets[i].WorkloadInfo.Obj)) {
+		if *sliceKey == workload.Key(targets[i].WorkloadInfo.Obj) {
 			return append(targets[:i], targets[i+1:]...), targets[i]
 		}
 	}

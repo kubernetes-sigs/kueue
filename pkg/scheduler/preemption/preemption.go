@@ -589,10 +589,10 @@ func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
 //   - *Target: a reference to the workload slice that may be preempted, or nil if no valid target exists.
 func PreemptibleWorkloadSliceTarget(snapshot *cache.Snapshot, workloadInfo *workload.Info) *Target {
 	sliceKey := workloadslicing.PreemptibleSliceKey(workloadInfo.Obj)
-	if sliceKey == "" {
+	if sliceKey == nil {
 		return nil
 	}
-	preemptibleWorkloadSlice, found := snapshot.ClusterQueue(workloadInfo.ClusterQueue).Workloads[workload.Reference(sliceKey)]
+	preemptibleWorkloadSlice, found := snapshot.ClusterQueue(workloadInfo.ClusterQueue).Workloads[*sliceKey]
 	if !found {
 		return nil
 	}
