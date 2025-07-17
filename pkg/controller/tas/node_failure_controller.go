@@ -207,7 +207,7 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 			return nil, fmt.Errorf("failed to list pods for workload %s: %w", wlKey, err)
 		}
 		allPodsTerminate := true
-		for i := range podsForWl.Items {
+		for _, pod := range podsForWl.Items {
 			pod := &podsForWl.Items[i]
 			if pod.Spec.NodeName == nodeName && pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod) {
 				allPodsTerminate = false
