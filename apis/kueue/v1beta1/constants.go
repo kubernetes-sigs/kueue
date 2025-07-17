@@ -24,7 +24,7 @@ const (
 	// to delay their scheduling until the associated workload slice has been admitted.
 	// This gate ensures that Pods do not begin scheduling prematurely, maintaining
 	// proper sequencing in workload processing.
-	WorkloadSliceSchedulingGate = "kueue.x-k8s.io/workload-slice"
+	ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
 )
 
 type StopPolicy string
