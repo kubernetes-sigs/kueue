@@ -30,7 +30,6 @@ type podSetTopologyRequestBuilder struct {
 	podIndexLabel      *string
 	subGroupIndexLabel *string
 	subGroupCount      *int32
-	podSetGroup        *string
 	meta               *metav1.ObjectMeta
 }
 

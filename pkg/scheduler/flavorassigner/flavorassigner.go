@@ -494,9 +494,9 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 
 		podSets := groupedRequests[groupKey]
 		requests := make(resources.Requests)
-		psIDs := make([]int, len(requests))
-		for _, podset := range podSets {
-			psIDs = append(psIDs, podset.OriginalIndex)
+		psIDs := make([]int, len(podSets))
+		for idx, podset := range podSets {
+			psIDs[idx] = podset.OriginalIndex
 			requests.Add(podset.PodSet.Requests)
 		}
 
@@ -569,15 +569,6 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 	}
 	return assignment
-}
-
-func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) {
-	maps.Copy(psa.Flavors, flavors)
-	if psa.Status == nil {
-		psa.Status = status
-	} else if status != nil {
-		psa.Status.reasons = append(psa.Status.reasons, status.reasons...)
-	}
 }
 
 func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
