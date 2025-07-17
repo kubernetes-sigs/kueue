@@ -61,7 +61,7 @@ func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sCli
 
 	// Logic for managing jobs without queue names.
 	if manageJobsWithoutQueueName {
-		if features.Enabled(features.ManagedJobsNamespaceSelector) && managedJobsNamespaceSelector != nil {
+		if managedJobsNamespaceSelector != nil {
 			// Default suspend the job if the namespace selector matches
 			ns := corev1.Namespace{}
 			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
