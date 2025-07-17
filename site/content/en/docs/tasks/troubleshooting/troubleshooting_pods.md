@@ -29,12 +29,7 @@ A Pod might not have the `kueue.x-k8s.io/managed` due to one of the following re
 4. The Pod doesn't have a `kueue.x-k8s.io/queue-name` label and [`manageJobsWithoutQueueName`](/docs/reference/kueue-config.v1beta1/#Configuration)
    is set to `false`.
 
-{{< feature-state state="beta" for_version="v0.10" >}}
 {{% alert title="Note" color="primary" %}}
-
-`managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
-You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-
 Prior to Kueue v0.10, the Configuration field `integrations.podOptions.namespaceSelector`
 was used instead. The use of `podOptions` was
 deprecated in Kueue v0.11. Users should migrate to using `managedJobsNamespaceSelector`.

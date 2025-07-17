@@ -30,13 +30,7 @@ Pod 可能没有 `kueue.x-k8s.io/managed` 标签的原因如下：
    [`manageJobsWithoutQueueName`](/docs/reference/kueue-config.v1beta1/#Configuration)
    设置为 `false`。
 
-{{< feature-state state="beta" for_version="v0.10" >}}
 {{% alert title="注意" color="primary" %}}
-
-`managedJobsNamespaceSelector` 是一个默认启用的 Beta 特性。
-你可以通过设置 `ManagedJobsNamespaceSelector` 特性门控来禁用它。
-查看[安装](/docs/installation/#change-the-feature-gates-configuration)指南了解特性门控配置的详细信息。
-
 在 Kueue v0.10 之前，使用配置字段 `integrations.podOptions.namespaceSelector`。
 在 Kueue v0.11 中，`podOptions` 的使用被弃用。
 用户应该迁移到使用 `managedJobsNamespaceSelector`。

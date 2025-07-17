@@ -288,7 +288,7 @@ spec:
 | `ConfigurableResourceTransformations` | `true`  | Beta  | 0.10  |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha | 0.9   | 0.9   |
 | `WorkloadResourceRequestsSummary`     | `true`  | Beta  | 0.10  | 0.10  |
-| `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  |       |
+| `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  | 0.13  |
 | `LocalQueueDefaulting`                | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha | 0.10  |       |
@@ -302,6 +302,7 @@ spec:
 
 | 功能 | 默认值 | 阶段 | 起始版本 | 截止版本 |
 | --------------------------------- | ------- | ---------- | ----- | ----- |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA          | 0.13 |       |
 | `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
 | `MultiplePreemptions`             | `false` | Alpha      | 0.8   | 0.8   |

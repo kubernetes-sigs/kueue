@@ -430,7 +430,7 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
-		"ManagedJobsNamespaceSelector is enabled and the namespace matches the selector": {
+		"the namespace matches the selector": {
 			initObjects:                  []client.Object{defaultNamespace},
 			managedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
@@ -443,7 +443,7 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
-		"ManagedJobsNamespaceSelector is enabled but doesn’t match the managedJobsNamespaceSelector": {
+		"doesn’t match the managedJobsNamespaceSelector": {
 			initObjects: []client.Object{
 				utiltesting.MakeNamespaceWrapper("kube-system").Label(corev1.LabelMetadataName, "kube-system").Obj(),
 			},

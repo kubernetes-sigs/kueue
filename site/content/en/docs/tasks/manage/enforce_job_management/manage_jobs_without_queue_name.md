@@ -39,14 +39,6 @@ managedJobsNamespaceSelector:
     kueue.x-k8s.io/managed-namespace: true
 ```
 
-{{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="Note" color="primary" %}}
-
-`managedJobsNamespaceSelector` is a Beta feature that is enabled by default.
-
-You can disable it by setting the `ManagedJobsNamespaceSelector` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
-
 ## Expected Behavior
 
 In all namespaces that match the namespace selector, any Workloads submitted without a `kueue.x-k8s.io/queue-name`
