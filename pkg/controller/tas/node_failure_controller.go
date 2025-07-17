@@ -320,7 +320,7 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 	case len(workloads) == 0:
 		return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
 	default:
-		r.log.V(3).Info("Node is not ready and has only terminating or failed pods, marking as failed immediately", "nodeName", nodeName)
+		r.log.V(3).Info("Node is not ready and has only terminating or failed pods. Marking as failed immediately", "nodeName", nodeName)
 		patchErr := r.patchWorkloadsForNodeToReplace(ctx, nodeName, workloads)
 		return ctrl.Result{}, patchErr
 	}
