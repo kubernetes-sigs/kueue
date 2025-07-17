@@ -1065,21 +1065,8 @@ problem into subproblems:
 
 #### Ensure leader and workers end up on the same flavor
 
-To ensure leader and workers are assigned the same flavor a notion of PodSetGroup is introduced:
-
-```golang
-type PodSetTopologyRequest struct {
-  // ...
-
-	// PodSetGroup indicates the name of the group of PodSets to which this PodSet belongs to.
-	// PodSets with the same `PodSetGroup` should be assigned the same ResourceFlavor
-	//
-	// +optional
-	PodSetGroup *string `json:"podSetGroup,omitempty"`
-  
-  // ...
-}
-```
+To ensure leader and workers are assigned the same flavor a notion of `PodSet Group` is 
+introduced, indicated by the PodSetTopologyRequest's PodSetGroupName field (see [Internal APIs](Internal APIs)):
 
 This field specifies the name of a group of PodSets that should be placed on the same flavor.
 This field is optional and if a PodSet does not define it, it will be placed on a flavor 
