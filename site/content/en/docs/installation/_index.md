@@ -293,6 +293,7 @@ spec:
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
 | `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacementFailFast`    | `false` | Alpha | 0.12  |       |
+| `TASReplaceNodeOnPodTermination`      | `false` | Alpha | 0.13  |       |
 
 ### Feature gates for graduated or deprecated features
 

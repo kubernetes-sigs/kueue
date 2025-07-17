@@ -27,6 +27,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +36,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -107,6 +109,27 @@ func TestNodeFailureReconciler(t *testing.T) {
 		NodeName(nodeName).
 		Obj()
 
+	terminatingPod := basePod.DeepCopy()
+	terminatingPod.DeletionTimestamp = &metav1.Time{Time: fakeClock.Now()}
+	terminatingPod.Finalizers = []string{podcontroller.PodFinalizer}
+
+	failedPod := basePod.DeepCopy()
+	failedPod.Status.Phase = corev1.PodFailed
+	failedPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			State: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{FinishedAt: metav1.NewTime(fakeClock.Now())},
+			},
+		},
+	}
+	failedPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			State: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{FinishedAt: metav1.NewTime(fakeClock.Now())},
+			},
+		},
+	}
+
 	tests := map[string]struct {
 		initObjs          []client.Object
 		reconcileRequests []reconcile.Request
@@ -114,6 +137,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantFailedNode    string
 		wantRequeue       time.Duration
 		wantEvictedCond   *metav1.Condition
+		featureGates      []featuregate.Feature
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
@@ -143,6 +167,47 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantFailedNode:    nodeName,
 		},
+		"Node NotReady, pod terminating, marked as unavailable": {
+			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				terminatingPod,
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    nodeName,
+		},
+		"Node NotReady, pod failed, marked as unavailable": {
+			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				failedPod,
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    nodeName,
+		},
+		"Node NotReady, pod failed, ReplaceNodeOnPodTermination feature gate off, requeued": {
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				failedPod,
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+			wantRequeue:       NodeFailureDelay,
+		},
+		"Node NotReady, pod running, not marked as unavailable, requeued": {
+			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantRequeue:       1 * time.Second,
+		},
+
 		"Node Deleted - marked as unavailable": {
 			initObjs: []client.Object{
 				baseWorkload.DeepCopy(),
@@ -152,6 +217,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantFailedNode:    nodeName,
 		},
 		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
+			featureGates: []featuregate.Feature{features.TASFailedNodeReplacement},
 			initObjs: []client.Object{
 				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
 				newNodeTest(nodeName2, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
@@ -174,7 +240,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacement, true)
+			for _, fg := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, true)
+			}
 			ctx := t.Context()
 			fakeClock.SetTime(testStartTime)
 

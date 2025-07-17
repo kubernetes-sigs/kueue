@@ -946,6 +946,18 @@ const (
 )
 ```
 
+Sometimes node failures are only transient and the node might recover, and so reacting
+immediately to NotReady condition could result in unnecessary node replacements.
+
+For that reason we introduce two heuristics for marking nodes to replace for a given workload:
+1. when the node is NotReady for over 30s (used by default)
+2. when the node is NotReady and all of the workload's Pods scheduled on that node are terminated
+or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
+available starting with Kueue v0.13)
+
+For the future releases we are going to consider API configuration for the approach, but first we 
+would like to collect more user feedback using the feature gates while in Alpha.
+
 Kueue tries to find a replacement for a failed node until success (or until it gets
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
