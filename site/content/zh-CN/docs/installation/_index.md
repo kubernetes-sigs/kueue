@@ -281,8 +281,6 @@ spec:
 | `PrioritySortingWithinCohort`         | `true`  | Beta  | 0.6   |       |
 | `LendingLimit`                        | `false` | Alpha | 0.6   | 0.8   |
 | `LendingLimit`                        | `true`  | Beta  | 0.9   |       |
-| `MultiplePreemptions`                 | `false` | Alpha | 0.8   | 0.8   |
-| `MultiplePreemptions`                 | `true`  | Beta  | 0.9   | 0.9   |
 | `TopologyAwareScheduling`             | `false` | Alpha | 0.9   |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta  | 0.10  |       |
@@ -304,9 +302,6 @@ spec:
 | --------------------------------- | ------- | ---------- | ----- | ----- |
 | `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
-| `MultiplePreemptions`             | `false` | Alpha      | 0.8   | 0.8   |
-| `MultiplePreemptions`             | `true`  | Beta       | 0.9   | 0.9   |
-| `MultiplePreemptions`             | `true`  | GA         | 0.10  |       |
 | `WorkloadResourceRequestsSummary` | `false` | Alpha      | 0.9   | 0.10  |
 | `WorkloadResourceRequestsSummary` | `true`  | Beta       | 0.10  | 0.11  |
 | `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11  |       |
