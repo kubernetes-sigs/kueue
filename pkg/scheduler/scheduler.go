@@ -853,8 +853,8 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 		log.V(3).Info("Workload slice already aggregated", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
 		return nil
 	}
-	reason := kueue.WorkloadSliceReplacement
-	message := fmt.Sprintf("Removed to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
+	reason := kueue.WorkloadSliceReplaced
+	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
 	if err := workloadslicing.Deactivate(ctx, s.client, oldSlice, metav1.Condition{
 		Type:    kueue.WorkloadFinished,
 		Status:  metav1.ConditionTrue,
@@ -866,6 +866,6 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 
 	log.V(3).Info("Removed", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
 	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
-	metrics.ReportAggregatedWorkloadSlices(oldQueue)
+	metrics.ReportReplacedWorkloadSlices(oldQueue)
 	return nil
 }

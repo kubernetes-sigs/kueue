@@ -136,8 +136,7 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
 	kueue.InCohortFairSharingReason:           "Fair Sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
-	kueue.WorkloadSliceReplacementReason:      "workload slice aggregation",
-	"":                                        "UNKNOWN",
+	"": "UNKNOWN",
 }
 
 func preemptionMessage(preemptor *kueue.Workload, reason string) string {
