@@ -3454,7 +3454,7 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadRemovedViaWorkloadSliceAggregation,
+						Reason:  kueue.WorkloadSliceReplacement,
 						Message: "Removed to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
 					}).
 					Obj(),
@@ -3497,7 +3497,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "sales", Name: "foo-1"},
-					Reason:    kueue.WorkloadRemovedViaWorkloadSliceAggregation,
+					Reason:    kueue.WorkloadSliceReplacement,
 					EventType: corev1.EventTypeNormal,
 				},
 				{

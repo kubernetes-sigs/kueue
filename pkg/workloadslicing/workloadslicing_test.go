@@ -996,15 +996,15 @@ func Test_startWorkloadSlicePods(t *testing.T) {
 						// Un-gated pod should remain un-gated, i.e., no change.
 						testPod("test-one", "100", testJobObject),
 						// Gated pod - gate should be removed.
-						testPod("test-two", "200", testJobObject, corev1.PodSchedulingGate{Name: kueue.WorkloadSliceSchedulingGate}),
+						testPod("test-two", "200", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 						// Gated with some other gate -
-						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.WorkloadSliceSchedulingGate}, corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate}),
+						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate}),
 						// Other gated pod (not for this job)
 						testPod("other-pod", "400", &batchv1.Job{
 							ObjectMeta: metav1.ObjectMeta{
 								Name: "other-job",
 							},
-						}, corev1.PodSchedulingGate{Name: kueue.WorkloadSliceSchedulingGate}),
+						}, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 					},
 				}).Build(),
 				object: testJobObject,
@@ -1021,7 +1021,7 @@ func Test_startWorkloadSlicePods(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "other-job",
 						},
-					}, corev1.PodSchedulingGate{Name: kueue.WorkloadSliceSchedulingGate}),
+					}, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 				},
 			},
 		},
@@ -1030,7 +1030,7 @@ func Test_startWorkloadSlicePods(t *testing.T) {
 				ctx: t.Context(),
 				clnt: clientBuilder().WithLists(&corev1.PodList{
 					Items: []corev1.Pod{
-						testPod("test", "100", testJobObject, corev1.PodSchedulingGate{Name: kueue.WorkloadSliceSchedulingGate}),
+						testPod("test", "100", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 					},
 				}).WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(_ context.Context, _ client.WithWatch, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {

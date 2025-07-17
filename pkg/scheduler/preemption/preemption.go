@@ -136,7 +136,7 @@ var HumanReadablePreemptionReasons = map[string]string{
 	kueue.InCohortReclamationReason:           "reclamation within the cohort",
 	kueue.InCohortFairSharingReason:           "Fair Sharing within the cohort",
 	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
-	kueue.WorkloadSlicePreemptionReason:       "workload slice aggregation",
+	kueue.WorkloadSliceReplacementReason:      "workload slice aggregation",
 	"":                                        "UNKNOWN",
 }
 
@@ -599,6 +599,6 @@ func PreemptibleWorkloadSliceTarget(snapshot *cache.Snapshot, workloadInfo *work
 	}
 	return &Target{
 		WorkloadInfo: preemptibleWorkloadSlice,
-		Reason:       kueue.WorkloadSlicePreemptionReason,
+		Reason:       kueue.WorkloadSliceReplacementReason,
 	}
 }

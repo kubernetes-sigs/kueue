@@ -1151,6 +1151,17 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy)
 }
 
+// newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
+// and GroupVersionKind (GVK). If workload slicing is enabled, it includes the job's generation
+// in the generated workload name.
+func newWorkloadName(job GenericJob) string {
+	object := job.Object()
+	if WorkloadSliceEnabled(job) {
+		return GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration())
+	}
+	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
+}
+
 func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy []string) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
@@ -1160,13 +1171,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
-	var wl *kueue.Workload
-	if WorkloadSliceEnabled(job) {
-		wl = NewWorkload(GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration()), object, podSets, labelKeysToCopy)
-	} else {
-		wl = NewWorkload(GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()), object, podSets, labelKeysToCopy)
-	}
-
+	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
@@ -1198,6 +1203,7 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 	switch len(workloadSlices) {
 	case 0:
 		// No active workloads found for this job - noop.
+		return nil
 	case 1:
 		// One active workload found for this job - typically, we are in a scale-up event, where previous
 		// workload is the "old" slice.
@@ -1218,13 +1224,13 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 		}
 		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadPreemptibleSliceNameKey, string(workload.Key(&oldSlice)))
+		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
 		// Failing here, would trigger job re-processing, and hopefully giving a chance to clear up (preempt/deactivate)
 		// old slice.
 		return fmt.Errorf("unexpected workload-slices count: %d", len(workloadSlices))
 	}
-	return nil
 }
 
 // prepareWorkload adds the priority information for the constructed workload

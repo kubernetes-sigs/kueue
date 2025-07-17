@@ -311,7 +311,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		// Evict old workload-slice if any. Note: that oldWorkloadSlice is not nil only if
 		// this is a workload-slice enabled workload and there is an old slice to evict.
 		if oldWorkloadSlice != nil {
-			if err := s.aggregateWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
+			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
 				log.Error(err, "Failed to aggregate workload slice")
 				continue
 			}
@@ -501,7 +501,7 @@ func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preem
 }
 
 // findPreemptedSliceTarget scans the provided list of preemption targets and removes
-// the one marked with the WorkloadSlicePreemptionReason, if present.
+// the one marked with the WorkloadSliceReplacementReason, if present.
 //
 // It returns a new slice with the preemptable workload slice target removed, along with
 // the removed target itself. If no such target is found, it returns the original slice and nil.
@@ -836,20 +836,24 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	}
 }
 
-// aggregateWorkloadSlice aggregates a workload slice by marking the old slice as finished
-// and evicting it (from the cache) in favor of the new workload slice. This function updates the status of
-// the old slice with a condition indicating it was evicted due to workload slice aggregation.
-// It also logs the event, triggers a Kubernetes event, and reports the eviction metrics.
+// replaceWorkloadSlice handles the replacement of a workload slice by deactivating the old slice and
+// marking it as finished. It logs the replacement operation, records an event, and reports metrics.
 //
-// Returns:
-//   - error: An error, if any occurred during the process. If no error occurred, nil is returned.
-func (s *Scheduler) aggregateWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
+// This function performs the following steps:
+//  1. Checks if the old workload slice is already finished by inspecting the "Finished" condition in its status.
+//     If the slice is already finished, the function logs a message and returns early.
+//  2. If the old slice is not finished, it deactivates the old slice and marks it with a "Finished" condition,
+//     indicating that the slice was replaced to accommodate the new workload slice.
+//  3. The function logs details about the replacement, including the reason for the removal and the associated message.
+//  4. An event is recorded for the old slice to indicate that the slice was aggregated (replaced) by the new slice.
+//  5. The function reports metrics for the aggregation of workload slices for the old queue.
+func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if meta.IsStatusConditionTrue(oldSlice.Status.Conditions, kueue.WorkloadFinished) {
 		log.V(3).Info("Workload slice already aggregated", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
 		return nil
 	}
-	reason := kueue.WorkloadRemovedViaWorkloadSliceAggregation
+	reason := kueue.WorkloadSliceReplacement
 	message := fmt.Sprintf("Removed to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
 	if err := workloadslicing.Deactivate(ctx, s.client, oldSlice, metav1.Condition{
 		Type:    kueue.WorkloadFinished,

@@ -296,7 +296,7 @@ func startWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 	}
 	for i := range list.Items {
 		if err := clientutil.Patch(ctx, clnt, &list.Items[i], true, func() (bool, error) {
-			return pod.Ungate(&list.Items[i], kueue.WorkloadSliceSchedulingGate), nil
+			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
 			return fmt.Errorf("failed to patch pod: %w", err)
 		}

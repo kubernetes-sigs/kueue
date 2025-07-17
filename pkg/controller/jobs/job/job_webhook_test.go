@@ -914,7 +914,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			},
 			want: []corev1.PodSchedulingGate{
 				{Name: "SomeOtherGate"},
-				{Name: kueue.WorkloadSliceSchedulingGate},
+				{Name: kueue.ElasticJobSchedulingGate},
 			},
 		},
 		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
@@ -930,7 +930,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								SchedulingGates: []corev1.PodSchedulingGate{
-									{Name: kueue.WorkloadSliceSchedulingGate},
+									{Name: kueue.ElasticJobSchedulingGate},
 								},
 							},
 						},
@@ -938,7 +938,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 				},
 			},
 			want: []corev1.PodSchedulingGate{
-				{Name: kueue.WorkloadSliceSchedulingGate},
+				{Name: kueue.ElasticJobSchedulingGate},
 			},
 		},
 	}

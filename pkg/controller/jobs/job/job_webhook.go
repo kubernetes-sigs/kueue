@@ -63,7 +63,7 @@ func applyWorkloadSliceSchedulingGate(job *Job) {
 		return
 	}
 	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
-		Name: kueue.WorkloadSliceSchedulingGate,
+		Name: kueue.ElasticJobSchedulingGate,
 	}
 	if slices.Contains(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
 		return
