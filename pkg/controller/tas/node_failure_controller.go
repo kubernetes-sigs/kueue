@@ -79,7 +79,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !nodeExists || utiltas.GetNodeCondition(&node, corev1.NodeReady) == nil {
 		r.log.V(3).Info("Node not found or NodeReady condition is missing, marking as failed immediately")
-		affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
+		affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -97,7 +97,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
 	}
 	r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
-	affectedWorkloads, err = r.getAllWorkloadsOnNode(ctx, req.Name)
+	affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -166,7 +166,7 @@ func (r *nodeFailureReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.C
 }
 
 // getWorkloadsOnNode gets all workloads that have the given node assigned in TAS topology assignment
-func (r *nodeFailureReconciler) getAllWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
+func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
 	var allWorkloads kueue.WorkloadList
 	if err := r.client.List(ctx, &allWorkloads); err != nil {
 		return nil, fmt.Errorf("failed to list workloads: %w", err)
@@ -195,7 +195,7 @@ func (r *nodeFailureReconciler) getAllWorkloadsOnNode(ctx context.Context, nodeN
 }
 
 func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.Context, nodeName string) (sets.Set[types.NamespacedName], error) {
-	tasWorkloadsOnNode, err := r.getAllWorkloadsOnNode(ctx, nodeName)
+	tasWorkloadsOnNode, err := r.getWorkloadsOnNode(ctx, nodeName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list all workloads on node: %w", err)
 	}
@@ -316,8 +316,7 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 	workloads, err := r.getWorkloadsForImmediateReplacement(ctx, nodeName)
 	switch {
 	case err != nil:
-		r.log.Error(err, "Could not get workloads for immediate replacement", "nodeName", nodeName)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("could not get workloads for immediate replacement on node %s: %w", nodeName, err)
 	case len(workloads) == 0:
 		return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
 	default:
