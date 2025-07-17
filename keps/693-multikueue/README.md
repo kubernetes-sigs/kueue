@@ -9,6 +9,7 @@
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Subcomponents](#subcomponents)
@@ -20,6 +21,8 @@
     - [MultiKueueAdapter](#multikueueadapter)
     - [MultiKueueWatcher](#multikueuewatcher)
   - [Configuration](#configuration)
+  - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
+    - [Workload Synchronization](#workload-synchronization)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -123,6 +126,15 @@ provider. I would like to run workloads that require the newest GPUs,
 whose on-demand availability is very volatile. The GPUs are available
 at random times at random regions. I want to use ProvisioningRequest
 to try to catch them.
+
+#### Story 3
+As a user of MultiKueue I would like to have a control over the dispatching
+of workloads to the worker clusters. In particular:
+* I would like to be able to use my custom dispatching algorithm which can prioritize
+the order of clusters according to some in-house information
+* I would like to use a built-in dispatching algorithm which adds clusters incrementally,
+rather than trying all of them at once. 
+This is important to avoid preemptions happening in all clusters at the same time during the admission.
 
 ### Risks and Mitigations
 * Disabling the Job controller for all (or selected objects) may be problematic
@@ -315,6 +327,81 @@ This is used by multikueue in components like its [garbage collector](#garbage-c
 that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
 - `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.
+
+
+### MultiKueue Dispatcher API
+
+Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
+When a custom Dispatcher API is used, instead of creating the copy of the Workload on all clusters the
+the MultiKueue Workload Controller only creates the copy of the Workload on the subset of worker clusters
+specified in the Workload's .status.nominatedClusterNames field.
+
+Additionally, we implement a built-in incremental dispatcher as a reference implementation.
+Including the pre-existing dispatching algorithm until 0.12, we distinguish the following dispatchers:
+
+* **AllAtOnce**:  
+The workload is copied to all available worker clusters at once. This is the default dispatching algorithm.
+
+* **Incremental**:  
+Clusters are nominated incrementally in rounds of fixed duration (5 minutes per round). 
+The process begins by nominating an initial set of 3 clusters, which are set in the `.status.nominatedClusterNames` field in the Workload.
+If none of the clusters admit the workload within the current round's duration, the next round begins, 
+and 3 additional clusters are nominated, until the workload is admitted or all eligible clusters have been considered.
+This strategy allows for a controlled and gradual expansion of candidate clusters, rather than dispatching the workload to all clusters at once.
+
+* **External**:  
+The selection of worker clusters is delegated to an external controller. 
+The external controller is responsible for setting the `.status.nominatedClusterNames` field to the names of the selected clusters.
+If the nominated clusters field is changed by the external controller, workloads are removed from any clusters that are no longer nominated.
+While the workload `.status.clusterName` is assigned, the `nominatedClusterNames` field is immutable.
+
+#### Workload Synchronization
+
+While the Workload is pending, the dispatcher can add or remove clusters from the list, and the Workload
+Controller synchronizes the value of the field with the subset of worker clusters with the Workload copy.
+
+Changes to Workload type:
+```go
+type WorkloadStatus struct {
+  // nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+  // This field is mutually exclusive with the `.status.clusterName` field, and is reset when 
+  // `status.clusterName` is set.
+  // This field is optional.
+  // 
+  // +listType=set
+  // +kubebuilder:validation:MaxItems=10
+  // +optional
+  NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
+
+  // clusterName is the name of the cluster where the workload is actually assigned.
+  // This field is reset after the Workload is evicted.
+  // +optional
+  ClusterName *string `json:"clusterName,omitempty"`
+}
+```
+
+Extension of MultiKueue AdmissionCheck Controller configuration:
+```go
+type MultiKueue struct {
+  ...
+  // dispatcherName specifies the name of the dispatcher responsible for selecting worker clusters
+  // to handle the workload. 
+  //
+  // The value must be a valid domain-prefixed path (e.g. acme.io/foo) -
+  // all characters before the first "/" must be a valid subdomain as defined
+  // by RFC 1123. All characters trailing the first "/" must be valid HTTP Path
+  // characters as defined by RFC 3986. The value cannot exceed 63 characters.
+  // 
+  // There are two built-in values supported:
+  // - kueue.x-k8s.io/multikueue-dispatcher-all-at-once (AllAtOnce)
+  // - kueue.x-k8s.io/multikueue-dispatcher-incremental (Incremental)
+  // If not set, the default dispatcher (AllAtOnce) is used.
+  //
+  // +optional
+  DispatcherName *string `json:"dispatcherName,omitempty"`
+}
+```
+
 
 ### Follow ups ideas
 
