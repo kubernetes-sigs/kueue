@@ -32,9 +32,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -146,26 +146,6 @@ var (
 	}
 )
 
-func testWorkload(name, ownerName string, created time.Time, active *bool) *kueue.Workload {
-	return &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			CreationTimestamp: metav1.NewTime(created),
-			Name:              name,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: testJobGVK.GroupVersion().String(),
-					Kind:       testJobGVK.Kind,
-					Name:       ownerName,
-				},
-			},
-			ResourceVersion: "111",
-		},
-		Spec: kueue.WorkloadSpec{
-			Active: active,
-		},
-	}
-}
-
 func testWorkloadClientBuilder() *fake.ClientBuilder {
 	testSchema := runtime.NewScheme()
 	_ = kueue.AddToScheme(testSchema)
@@ -187,7 +167,15 @@ func testWorkloadClientBuilder() *fake.ClientBuilder {
 		})
 }
 
-func TestFindActiveSlices(t *testing.T) {
+func testWorkload(name, jobName string, jobUID types.UID, created time.Time) *utiltesting.WorkloadWrapper {
+	return utiltesting.MakeWorkload(name, "default").
+		OwnerReference(testJobGVK, jobName, string(jobUID)).
+		Creation(created).
+		ResourceVersion("1").
+		Request(corev1.ResourceCPU, "100m")
+}
+
+func TestFindNotFinishedWorkloads(t *testing.T) {
 	type args struct {
 		ctx          context.Context
 		clnt         client.Client
@@ -227,26 +215,24 @@ func TestFindActiveSlices(t *testing.T) {
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
 					Items: []kueue.Workload{
-						// Kept and sorted.
-						*testWorkload("job-test-new", testJobObject.Name, now, nil),
-						*testWorkload("job-test-old", testJobObject.Name, now.Add(-time.Minute), ptr.To(true)),
-						// Excluded.
-						*testWorkload("job-test-deactivated", testJobObject.Name, now, ptr.To(false)),
-						*testWorkload("job-not-matching", "some-other-job", now, ptr.To(true)),
+						*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).Obj(),
+						*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).Obj(),
+						*testWorkload("test-0", testJobObject.Name, testJobObject.UID, now.Add(-time.Hour)).Finished().Obj(),
+						*testWorkload("test-4", "some-other-job", uuid.NewUUID(), now).Obj(),
 					},
 				}).Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: []kueue.Workload{
-				*testWorkload("job-test-old", testJobObject.Name, now.Add(-time.Minute), ptr.To(true)),
-				*testWorkload("job-test-new", testJobObject.Name, now, nil),
+				*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).Obj(),
+				*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).Obj(),
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := FindActiveSlices(tt.args.ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
+			got, err := FindNotFinishedWorkloads(tt.args.ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FindActiveSlices() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -263,125 +249,73 @@ func TestDeactivate(t *testing.T) {
 		ctx           context.Context
 		clnt          client.Client
 		workloadSlice *kueue.Workload
-		conditions    []metav1.Condition
+		reason        string
+		message       string
 	}
 	type want struct {
 		err bool
 		// side effect.
 		workload *kueue.Workload
 	}
-	testCondition := func(conditionType string, status metav1.ConditionStatus, reason, message string, transitionTime metav1.Time) metav1.Condition {
-		return metav1.Condition{
-			Type:               conditionType,
-			Status:             status,
-			Reason:             reason,
-			Message:            message,
-			LastTransitionTime: transitionTime,
-		}
-	}
-	now := metav1.Now()
+	now := time.Now()
 	tests := map[string]struct {
 		args args
 		want want
 	}{
-		"FailureToDeactivate": {
-			args: args{
-				ctx: t.Context(),
-				clnt: testWorkloadClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-					Patch: func(_ context.Context, _ client.WithWatch, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
-						return errors.New("test-patch-spec-error")
-					},
-				}).Build(),
-				workloadSlice: &kueue.Workload{},
-			},
-			want: want{err: true},
-		},
 		"FailureToApplyConditions": {
 			args: args{
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().
-					WithObjects(testWorkload("test-wl", "test-job", time.Now(), ptr.To(true))).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							return errors.New("test-patch-status-error")
 						},
 					}).
 					Build(),
-				workloadSlice: testWorkload("test-wl", "test-job", time.Now(), ptr.To(true)),
-				conditions: []metav1.Condition{
-					testCondition("testOne", metav1.ConditionTrue, "test-reason", "Test message.", now),
-				},
+				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Obj(),
+				reason:        "TestReason",
+				message:       "Test Message.",
 			},
 			want: want{err: true},
 		},
-		"Active": {
+		"AlreadyFinishedWorkload": {
 			args: args{
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().
-					WithObjects(func() *kueue.Workload {
-						wl := testWorkload("test-wl", "test-job", time.Now(), ptr.To(true))
-						wl.Status.Conditions = []metav1.Condition{
-							testCondition("updated", metav1.ConditionFalse, "test-reason", "Test message.", now),
-						}
-						return wl
-					}()).
-					WithStatusSubresource(testWorkload("test-wl", "test-job", time.Now(), ptr.To(true))).
-					Build(),
-				workloadSlice: testWorkload("test-wl", "test-job", time.Now(), ptr.To(true)),
-				conditions: []metav1.Condition{
-					testCondition("new", metav1.ConditionTrue, "test-reason", "Test message.", now),
-					testCondition("updated", metav1.ConditionTrue, "test-reason", "Test message.", now),
-				},
+					WithObjects(testWorkload("test", "test-job", "job-uid", now).Finished().Obj()).Build(),
+				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
+				reason:        "TestReason",
+				message:       "Test Message.",
 			},
 			want: want{
-				workload: func() *kueue.Workload {
-					wl := testWorkload("test-wl", "test-job", time.Now(), ptr.To(false))
-					rv, _ := strconv.Atoi(wl.ResourceVersion)
-					wl.ResourceVersion = strconv.Itoa(rv + 2) // 1 for spec and 1 for status updates.
-					wl.Status.Conditions = []metav1.Condition{
-						testCondition("new", metav1.ConditionTrue, "test-reason", "Test message.", now),
-						testCondition("updated", metav1.ConditionTrue, "test-reason", "Test message.", now),
-					}
-					return wl
-				}(),
+				workload: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
 			},
 		},
-		"Inactive": {
+		"NotFinished": {
 			args: args{
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().
-					WithObjects(func() *kueue.Workload {
-						wl := testWorkload("test-wl", "test-job", time.Now(), ptr.To(false))
-						wl.Status.Conditions = []metav1.Condition{
-							testCondition("updated", metav1.ConditionFalse, "test-reason", "Test message.", now),
-						}
-						return wl
-					}()).
-					WithStatusSubresource(testWorkload("test-wl", "test-job", time.Now(), ptr.To(true))).
-					Build(),
-				workloadSlice: testWorkload("test-wl", "test-job", time.Now(), ptr.To(false)),
-				conditions: []metav1.Condition{
-					testCondition("new", metav1.ConditionTrue, "test-reason", "Test message.", now),
-					testCondition("updated", metav1.ConditionTrue, "test-reason", "Test message.", now),
-				},
+					WithObjects(testWorkload("test", "test-job", "job-uid", now).Obj()).
+					WithStatusSubresource(testWorkload("test", "test-job", "job-uid", now).Obj()).Build(),
+				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Obj(),
+				reason:        "TestReason",
+				message:       "Test Message.",
 			},
 			want: want{
-				workload: func() *kueue.Workload {
-					wl := testWorkload("test-wl", "test-job", time.Now(), ptr.To(false))
-					rv, _ := strconv.Atoi(wl.ResourceVersion)
-					wl.ResourceVersion = strconv.Itoa(rv + 1) // 1 for status updates.
-					wl.Status.Conditions = []metav1.Condition{
-						testCondition("new", metav1.ConditionTrue, "test-reason", "Test message.", now),
-						testCondition("updated", metav1.ConditionTrue, "test-reason", "Test message.", now),
-					}
-					return wl
-				}(),
+				workload: testWorkload("test", "test-job", "job-uid", now).
+					ResourceVersion("2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "TestReason",
+						Message: "Test Message.",
+					}).Obj(),
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := Deactivate(tt.args.ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.conditions...); (err != nil) != tt.want.err {
+			if err := Deactivate(tt.args.ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
 				t.Errorf("Deactivate() error = %v, wantErr %v", err, tt.want.err)
 			}
 			if tt.want.workload != nil {

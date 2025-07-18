@@ -1195,7 +1195,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 // prepareWorkloadSlice adds necessary workload slice annotations.
 func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
 	// Lookup existing slice for a given job.
-	workloadSlices, err := workloadslicing.FindActiveSlices(ctx, clnt, job.Object(), job.GVK())
+	workloadSlices, err := workloadslicing.FindNotFinishedWorkloads(ctx, clnt, job.Object(), job.GVK())
 	if err != nil {
 		return fmt.Errorf("failure looking up workload slices: %w", err)
 	}

@@ -23,6 +23,7 @@ import (
 	"maps"
 	"reflect"
 	goslices "slices"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -3424,8 +3425,7 @@ func TestSchedule(t *testing.T) {
 			// This may not be the same as previous "want*" values due to the stabbed apply status invocations in the test.
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo-1", "sales").
-					ResourceVersion("2").
-					Active(false).
+					ResourceVersion("1").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request(corev1.ResourceCPU, "1").
@@ -3558,6 +3558,9 @@ func TestSchedule(t *testing.T) {
 						if !ok {
 							return fmt.Errorf("unexpected object in workload status patch: %T", obj)
 						}
+						// Bump up resource version.
+						rv, _ := strconv.Atoi(wl.GetResourceVersion())
+						wl.SetResourceVersion(strconv.Itoa(rv))
 						patchedWorkloads.Insert(wl)
 						return nil
 					},

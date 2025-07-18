@@ -28,7 +28,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -86,26 +85,35 @@ func PreemptibleSliceKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
-// Workload predicate definition to match workloads.
-type predicate func(wlSlice kueue.Workload) bool
-
-// not predicate inverts the provided predicate result, used in "exclusion" filters.
-func not(predicate predicate) predicate {
-	return func(wlSlice kueue.Workload) bool {
-		return !predicate(wlSlice)
+// Deactivate updates the status of a workload slice by applying the "Finished" condition.
+// The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
+// If the "Finished" condition is not present, it applies the condition with the provided `reason` and `message`.
+//
+// This function performs the following:
+// 1. It checks if the "Finished" condition is already applied. If true, it returns immediately, doing nothing.
+// 2. If the "Finished" condition is not set, it patches the workload slice's status to add the "Finished" condition.
+// 3. If the patch fails, it returns an error.
+func Deactivate(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload, reason, message string) error {
+	// NOOP if the workload already has "Finished" condition (irrespective of reason and message values).
+	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
+		return nil
 	}
+	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (bool, error) {
+		return apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, metav1.Condition{
+			Type:    kueue.WorkloadFinished,
+			Status:  metav1.ConditionTrue,
+			Reason:  reason,
+			Message: message,
+		}), nil
+	}); err != nil {
+		return fmt.Errorf("failed to patch workload slice status: %w", err)
+	}
+	return nil
 }
 
-// activeSlices predicate matches active non-deleted workload slices.
-func activeSlices() predicate {
-	return func(wlSlice kueue.Workload) bool {
-		return workload.IsActive(&wlSlice) && wlSlice.DeletionTimestamp.IsZero()
-	}
-}
-
-// FindSlices returns a sorted list of active workloads "owned by" the provided job object/gvk combination and
-// matching the provided predicates.
-func findSlices(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind, predicate predicate) ([]kueue.Workload, error) {
+// FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
+// without "Finished" condition with status = "True".
+func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), client.MatchingFields{fmt.Sprintf(".metadata.ownerReferences[%s.%s]", jobObjectGVK.Group, jobObjectGVK.Kind): jobObject.GetName()}); err != nil {
 		return nil, err
@@ -116,67 +124,10 @@ func findSlices(ctx context.Context, clnt client.Client, jobObject client.Object
 		return list.Items[i].CreationTimestamp.Before(&list.Items[j].CreationTimestamp)
 	})
 
-	// Filter out workloads not matching the provided predicates.
-	// This is an exclusion match, i.e. it removes all entries that do not match the provided predicate.
-	return slices.DeleteFunc(list.Items, not(predicate)), nil
-}
-
-// FindActiveSlices returns a list of active workloads for a given job object/gvk combination.
-func FindActiveSlices(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
-	return findSlices(ctx, clnt, jobObject, jobObjectGVK, activeSlices())
-}
-
-// finishedOutOfSyncCondition helper returns workload "Finished" condition for updated, but
-// not yet admitted workload slices.
-func finishedOutOfSyncCondition() metav1.Condition {
-	return metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  kueue.WorkloadFinishedReasonOutOfSync,
-		Message: "The workload slice is out of sync with its parent job",
-	}
-}
-
-// Deactivate deactivates a given workload slice by setting its "Active" spec field to false.
-// It also applies the specified status condition patches to the workload slice.
-//
-// This function performs the following steps:
-//  1. It patches the spec of the workload slice to mark it as inactive (i.e., setting `Spec.Active` to false)
-//     if the workload slice is currently active.
-//  2. It applies any status conditions provided in the `conditions` parameter to the workload slice's status.
-//
-// Parameters:
-//   - ctx: The context for the operation, used for cancellation and logging.
-//   - clnt: The Kubernetes client used to interact with the API server.
-//   - workloadSlice: The workload slice to deactivate.
-//   - conditions: A variadic list of conditions to apply to the status of the workload slice.
-//
-// Returns:
-//   - error: An error, if any occurred during the process. If no error occurred, nil is returned.
-//
-// This function is useful for deactivating a workload slice and updating its status conditions in one operation.
-func Deactivate(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload, conditions ...metav1.Condition) error {
-	if err := clientutil.Patch(ctx, clnt, workloadSlice, true, func() (bool, error) {
-		// Patch spec to deactivate (if needed).
-		if workload.IsActive(workloadSlice) {
-			workloadSlice.Spec.Active = ptr.To(false)
-			return true, nil
-		}
-		return false, nil
-	}); err != nil {
-		return fmt.Errorf("failed to patch workload slice: %w", err)
-	}
-	// Apply status condition patches.
-	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (bool, error) {
-		updated := false
-		for i := range conditions {
-			updated = apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, conditions[i]) || updated
-		}
-		return updated, nil
-	}); err != nil {
-		return fmt.Errorf("failed to patch workload slice status: %w", err)
-	}
-	return nil
+	// Filter out workloads with activated "Finished" condition.
+	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
+		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+	}), nil
 }
 
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
@@ -193,7 +144,7 @@ func Deactivate(ctx context.Context, clnt client.Client, workloadSlice *kueue.Wo
 func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []kueue.PodSet, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
-	workloads, err := findSlices(ctx, clnt, jobObject, jobObjectGVK, activeSlices())
+	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
@@ -244,7 +195,7 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// "pending" workloads. In such case - it is safe to deactivate the old slice.
 		oldWorkload := workloads[0]
 		if !workload.HasQuotaReservation(&oldWorkload) {
-			if err := Deactivate(ctx, clnt, &oldWorkload, finishedOutOfSyncCondition()); err != nil {
+			if err := Deactivate(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
 				return nil, true, err
 			}
 		}
