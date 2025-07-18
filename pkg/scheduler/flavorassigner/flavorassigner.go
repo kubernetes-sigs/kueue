@@ -500,6 +500,12 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 
 		groupFlavors := make(ResourceAssignment)
+		for _, ips := range podSets {
+			for resName := range ips.PodSetAssignment.Flavors {
+				groupFlavors[resName] = ips.PodSetAssignment.Flavors[resName]
+				break
+			}
+		}
 		var groupStatus *Status
 
 		for resName := range requests {
@@ -509,7 +515,6 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				continue
 			}
 			flavors, status := a.findFlavorForPodSetResource(log, psIDs, requests, resName, assignment.Usage.Quota)
-
 			if status.IsError() || len(flavors) == 0 {
 				groupFlavors = nil
 				groupStatus = status
