@@ -507,8 +507,9 @@ func TestReconciler(t *testing.T) {
 	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{Enable: true}
 
 	cases := map[string]struct {
-		enableObjectRetentionPolicies bool
-		enableTopologyAwareScheduling bool
+		enableObjectRetentionPolicies                     bool
+		enableTopologyAwareScheduling                     bool
+		enableManagedJobsNamespaceSelectorAlwaysRespected bool
 
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
@@ -3709,18 +3710,89 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"job with queue name is not reconciled in unlabelled namespace when AlwaysRespected is enabled": {
+			enableManagedJobsNamespaceSelectorAlwaysRespected: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
+					"managed-by-kueue": "true",
+				})),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				Suspend(false).
+				Obj(),
+			wantWorkloads: nil,
+		},
+		"job with queue name is reconciled in labelled namespace when AlwaysRespected is enabled": {
+			enableManagedJobsNamespaceSelectorAlwaysRespected: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
+					"managed-by-kueue": "true",
+				})),
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *utiltestingjob.MakeJob("job", "labelled-ns").
+				Queue("test-queue").
+				Suspend(true).
+				UID("test-uid").
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "labelled-ns").
+				Queue("test-queue").
+				UID("test-uid").
+				Suspend(true).
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "labelled-ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("test-queue").
+					Priority(0).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "labelled-ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: labelled-ns/" + GetWorkloadNameForJob("job", "test-uid"),
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelectorAlwaysRespected, tc.enableManagedJobsNamespaceSelectorAlwaysRespected)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj(), testNamespace)
+
+			labelledNamespace := utiltesting.MakeNamespaceWrapper("labelled-ns").
+				Label("managed-by-kueue", "true").
+				Obj()
+
+			objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
 			kcBuilder := clientBuilder.
 				WithObjects(objs...)
 

@@ -310,6 +310,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if features.Enabled(features.ManagedJobsNamespaceSelectorAlwaysRespected) {
+		ns := corev1.Namespace{}
+		if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
+			log.Error(err, "failed to get namespace for selector check")
+			return ctrl.Result{}, err
+		}
+		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+			log.V(2).Info("Namespace not opted in for Kueue management", "namespace", ns.Name)
+			return ctrl.Result{}, nil
+		}
+	}
+
 	var (
 		ancestorJob   client.Object
 		isTopLevelJob bool
