@@ -51,12 +51,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		spotTaintedFlavor   *kueue.ResourceFlavor
 		spotUntaintedFlavor *kueue.ResourceFlavor
 		spotToleration      corev1.Toleration
-	)
-
-	var (
-		cqs []*kueue.ClusterQueue
-		lqs []*kueue.LocalQueue
-		wls []*kueue.Workload
+		cqs                 []*kueue.ClusterQueue
 	)
 
 	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
@@ -65,7 +60,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
-		lqs = append(lqs, lq)
 		return cq
 	}
 
@@ -74,7 +68,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Priority(priority).
 			Queue(queue).
 			Request(corev1.ResourceCPU, cpuRequests).Obj()
-		wls = append(wls, wl)
 		util.MustCreate(ctx, k8sClient, wl)
 		return wl
 	}
@@ -107,12 +100,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
-		for _, wl := range wls {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-		}
-		for _, lq := range lqs {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-		}
 		for _, cq := range cqs {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		}
