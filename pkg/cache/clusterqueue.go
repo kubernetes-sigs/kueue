@@ -120,8 +120,7 @@ var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borr
 func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
-			// ignore error when old Cohort has cycle.
-			_ = updateCohortTreeResources(oldParent)
+			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
