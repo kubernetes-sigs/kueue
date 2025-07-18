@@ -445,9 +445,6 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		},
 	}
 
-	// groupedRequests := make(map[string][]indexedPodSet)
-	// var groupsOrder []string
-
 	groupedRequests := newPodSetGroups()
 
 	for i, podSet := range requests {
