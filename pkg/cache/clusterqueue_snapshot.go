@@ -100,6 +100,18 @@ func (c *ClusterQueueSnapshot) SimulateUsageAddition(usage workload.Usage) func(
 	}
 }
 
+// NonPreemptibleUsage calculates the current usage by non-preemptible workloads
+// for the given FlavorResource.
+func (c *ClusterQueueSnapshot) NonPreemptibleUsage(fr resources.FlavorResource) int64 {
+	var usage int64
+	for _, wl := range c.Workloads {
+		if workload.IsNonPreemptible(wl.Obj) {
+			usage += wl.Usage().Quota[fr]
+		}
+	}
+	return usage
+}
+
 // SimulateUsageRemoval modifies the snapshot by removing usage, and
 // returns a function used to restore the usage.
 func (c *ClusterQueueSnapshot) SimulateUsageRemoval(usage workload.Usage) func() {
