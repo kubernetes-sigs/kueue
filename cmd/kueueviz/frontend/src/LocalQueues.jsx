@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Box } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import ViewYamlButton from './ViewYamlButton';
 
 const LocalQueues = () => {
   const { data: localQueues, error } = useWebSocket('/ws/local-queues');
@@ -59,6 +60,7 @@ const LocalQueues = () => {
                 <TableCell>Admitted Workloads</TableCell>
                 <TableCell>Pending Workloads</TableCell>
                 <TableCell>Reserving Workloads</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -81,6 +83,15 @@ const LocalQueues = () => {
                     <TableCell>{queue.status?.admittedWorkloads}</TableCell>
                     <TableCell>{queue.status?.pendingWorkloads}</TableCell>
                     <TableCell>{queue.status?.reservingWorkloads}</TableCell>
+                    <TableCell align="right">
+                      <Box display="flex" justifyContent="flex-end">
+                        <ViewYamlButton 
+                          resourceType="localqueue"
+                          resourceName={queue.name}
+                          namespace={queue.namespace}
+                        />
+                      </Box>
+                    </TableCell>
                   </TableRow>
                 ))
               ))}

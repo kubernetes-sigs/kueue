@@ -86,5 +86,26 @@ describe('Kueue Dashboard', () => {
     });
   })
 
+  it('should open and close YAML viewer modal on resource-flavors page', { defaultCommandTimeout: 15000 }, () => {
+    cy.visit('/resource-flavors')
+    
+    cy.get('table').should('exist')
+    
+    cy.contains('button', 'View YAML').first().click()
+    
+    cy.get('[role="dialog"]').should('be.visible')
+    
+    cy.get('[role="dialog"]').within(() => {
+      cy.get('h6').should('exist') 
+      cy.get('button').find('svg').should('exist')
+    })
+    
+    cy.get('[role="dialog"]').within(() => {
+      cy.get('button').find('svg').click()
+    })
+    
+    cy.get('[role="dialog"]').should('not.exist')
+  })
+
   // Add more test cases here as needed
 }) 

@@ -49,3 +49,8 @@ func InitializeWebSocketRoutes(router *gin.Engine, dynamicClient dynamic.Interfa
 	router.GET("/ws/resource-flavors", ResourceFlavorsWebSocketHandler(dynamicClient))
 	router.GET("/ws/resource-flavor/:flavor_name", ResourceFlavorDetailsWebSocketHandler(dynamicClient))
 }
+
+func InitializeAPIRoutes(router *gin.Engine, dynamicClient dynamic.Interface) {
+	// Generic API route
+	router.GET("/api/:resourceType/:name", GetResource(dynamicClient))
+}
