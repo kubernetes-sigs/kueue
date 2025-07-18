@@ -789,7 +789,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
@@ -845,7 +844,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-
 			cq = testing.MakeClusterQueue("cluster-queue-with-selector").
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1403,9 +1401,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl     *kueue.Workload
 		)
 
-		ginkgo.BeforeEach(func() {
-		})
-
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
@@ -1534,9 +1529,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			prodCQ *kueue.ClusterQueue
 			devCQ  *kueue.ClusterQueue
 		)
-
-		ginkgo.BeforeEach(func() {
-		})
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
@@ -2023,7 +2015,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").
@@ -2312,7 +2303,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-
 			cq1 = testing.MakeClusterQueue("cq1").
 				Cohort("cohort").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
