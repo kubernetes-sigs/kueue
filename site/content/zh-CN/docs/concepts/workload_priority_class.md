@@ -1,17 +1,17 @@
 ---
-title: "Workload Priority Class"
+title: "Workload 优先级类"
 date: 2023-10-02
 weight: 6
 description: >
-  A priority class whose value is utilized by Kueue controller and is independent from Pod's priority.
+  一种优先级类，其值被 Kueue 控制器使用，并且独立于 Pod 的优先级。
 ---
 
-A `WorkloadPriorityClass` allows you to control the [`Workload`'s](/docs/concepts/workload) priority without affecting the pod's priority.
-This feature is useful for these cases:
-- want to prioritize workloads that remain inactive for a specific duration
-- want to set a lower priority for development workloads and higher priority for production workloads
+`WorkloadPriorityClass` 允许你控制 [`Workload`](/docs/concepts/workload) 的优先级，而不会影响 Pod 的优先级。
+此功能适用于以下场景：
+- 希望优先调度那些长时间处于非活跃状态的工作负载
+- 希望为开发环境工作负载设置较低优先级，为生产环境工作负载设置较高优先级
 
-A sample WorkloadPriorityClass looks like the following:
+一个示例 WorkloadPriorityClass 如下所示：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -19,14 +19,14 @@ kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
 value: 10000
-description: "Sample priority"
+description: "示例优先级"
 ```
 
-`WorkloadPriorityClass` objects are cluster scoped, so they can be used by a job in any namespace.
+`WorkloadPriorityClass` 对象是集群范围的，因此可以被任何命名空间下的作业使用。
 
-## How to use WorkloadPriorityClass on Jobs
+## 如何在 Job 上使用 WorkloadPriorityClass
 
-You can specify the `WorkloadPriorityClass` by setting the label `kueue.x-k8s.io/priority-class`.
+你可以通过设置标签 `kueue.x-k8s.io/priority-class` 来指定 `WorkloadPriorityClass`。
 
 ```yaml
 apiVersion: batch/v1
@@ -39,12 +39,11 @@ metadata:
 spec:
 ...
 ```
-
-Kueue generates the following `Workload` for the Job above.
-The `PriorityClassName` field can accept either `PriorityClass` or
-`WorkloadPriorityClass` name as a value. To distinguish, when using `WorkloadPriorityClass`,
-a `priorityClassSource` field has the `kueue.x-k8s.io/workloadpriorityclass` value.
-When using `PriorityClass`, a `priorityClassSource` field has the `scheduling.k8s.io/priorityclass` value.
+Kueue 会为上述 Job 生成如下 `Workload`。
+`PriorityClassName` 字段可以接受 `PriorityClass` 或 `WorkloadPriorityClass` 的名称。
+为区分两者，当使用 `WorkloadPriorityClass` 时，`priorityClassSource` 字段为
+`kueue.x-k8s.io/workloadpriorityclass`；当使用 `PriorityClass` 时，`priorityClassSource`
+字段为 `scheduling.k8s.io/priorityclass`。
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -59,8 +58,8 @@ spec:
 ...
 ```
 
-For other job frameworks, you can set `WorkloadPriorityClass` using the same label.
-The Following is an example of `MPIJob`.
+对于其他作业框架，也可以通过相同标签设置 `WorkloadPriorityClass`。
+以下是 `MPIJob` 的示例：
 
 ```yaml
 apiVersion: kubeflow.org/v2beta1
@@ -74,42 +73,40 @@ spec:
 ...
 ```
 
-## The relationship between pod's priority and workload's priority
+## Pod 优先级与 Workload 优先级的关系
 
-When creating a `Workload` for a given job, Kueue considers the following scenarios:
-1. A job specifies both `WorkloadPriorityClass` and `PriorityClass`
-- `WorkloadPriorityClass` is used for the workload's priority.
-- `PriorityClass` is used for the pod's priority.
-2. A job specifies only `WorkloadPriorityClass`
-- `WorkloadPriorityClass` is used for the workload's priority.
-- `WorkloadPriorityClass` is not used for pod's priority.
-3. A job specifies only `PriorityClass`
-- `PriorityClass` is used for the workload's priority and pod's priority.
+为给定作业创建 `Workload` 时，Kueue 会考虑以下场景：
+1. 作业同时指定了 `WorkloadPriorityClass` 和 `PriorityClass`
+    - `WorkloadPriorityClass` 用于 Workload 的优先级。
+    - `PriorityClass` 用于 Pod 的优先级。
+2. 作业仅指定了 `WorkloadPriorityClass`
+    - `WorkloadPriorityClass` 用于 Workload 的优先级。
+    - `WorkloadPriorityClass` 不用于 Pod 的优先级。
+3. 作业仅指定了 `PriorityClass`
+    - `PriorityClass` 用于 Workload 和 Pod 的优先级。
 
-In certain job frameworks, there are CRDs that:
-- Define multiple pod specs, where each can have their own pod priority, or
-- Define the overall pod priority in a dedicated field.
-By default kueue will take the PriorityClassName of the first PodSet having one set,
-however the integration of the CRD with Kueue can implement
-[`JobWithPriorityClass interface`](https://github.com/kubernetes-sigs/kueue/blob/e162f8508b503d20feb9b31fd0b27d91e58f2c2f/pkg/controller/jobframework/interface.go#L81-L84)
-to change this behavior. You can read the code for each job integration
-to learn how the priority class is obtained.
+在某些作业框架中，CRD 可能：
+    - 定义多个 Pod 规范，每个规范可以有自己的 Pod 优先级，或
+    - 在专用字段中定义整体 Pod 优先级。
 
-## Where workload's priority is used
+默认情况下，kueue 会采用第一个设置了 PriorityClassName 的 PodSet，但 CRD 与 Kueue 的集成可以实现
+[`JobWithPriorityClass 接口`](https://github.com/kubernetes-sigs/kueue/blob/e162f8508b503d20feb9b31fd0b27d91e58f2c2f/pkg/controller/jobframework/interface.go#L81-L84) 来改变此行为。
+你可以阅读每个作业集成的代码，了解优先级类的获取方式。
 
-The priority of workloads is used for:
-- Sorting the workloads in the ClusterQueues.
-- Determining whether a workload can preempt others.
+## Workload 优先级的用途
 
-## Workload's priority values are always mutable
+Workload 的优先级用于：
+- 在 ClusterQueue 中对 Workload 排序。
+- 决定某个 Workload 是否可以抢占其他 Workload。
 
-The `Workload`'s `Priority` field is always mutable.
-If a `Workload` has been pending for a while, you can consider updating its priority to execute it earlier,
-based on your own policies.
-Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable.
+## Workload 优先级值始终可变
 
-## What's next?
+`Workload` 的 `Priority` 字段始终是可变的。
+如果某个 `Workload` 已经挂起一段时间，你可以根据自己的策略考虑提升其优先级以提前执行。
+Workload 的 `PriorityClassSource` 和 `PriorityClassName` 字段是不可变的。
 
-- Learn how to [run jobs](/docs/tasks/run/jobs)
-- Learn how to [run jobs with workload priority](/docs/tasks/manage/run_job_with_workload_priority)
-- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass) for `WorkloadPriorityClass`
+## 下一步？
+
+- 了解如何[运行作业](/docs/tasks/run/jobs)
+- 了解如何[使用 Workload 优先级运行作业](/docs/tasks/manage/run_job_with_workload_priority)
+- 阅读 `WorkloadPriorityClass` 的 [API 参考](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
