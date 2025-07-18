@@ -20,7 +20,7 @@ const (
 	ResourceInUseFinalizerName                 = "kueue.x-k8s.io/resource-in-use"
 	DefaultPodSetName          PodSetReference = "main"
 
-	// WorkloadSliceSchedulingGate is the name of the scheduling gate applied to Pods
+	// ElasticJobSchedulingGate is the name of the scheduling gate applied to Pods
 	// to delay their scheduling until the associated workload slice has been admitted.
 	// This gate ensures that Pods do not begin scheduling prematurely, maintaining
 	// proper sequencing in workload processing.
