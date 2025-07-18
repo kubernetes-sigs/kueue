@@ -684,18 +684,20 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		for rName, val := range requests {
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.preemptWorkloadSlice != nil {
-				preemptWorkloadRequests := a.preemptWorkloadSlice.TotalRequests[psID]
+				for _, psID := range psIDs {
+					preemptWorkloadRequests := a.preemptWorkloadSlice.TotalRequests[psID]
 
-				// Enforce consistent resource flavor assignment between slices.
-				if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
-					// Flavor mismatch. Skip further checks for this resource.
-					representativeMode = noFit
-					status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
-					break
+					// Enforce consistent resource flavor assignment between slices.
+					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
+						// Flavor mismatch. Skip further checks for this resource.
+						representativeMode = noFit
+						status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
+						break
+					}
+
+					// Subtract the resource usage of the preempted slice to request only the delta needed.
+					val -= preemptWorkloadRequests.Requests[rName]
 				}
-
-				// Subtract the resource usage of the preempted slice to request only the delta needed.
-				val -= preemptWorkloadRequests.Requests[rName]
 			}
 
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
