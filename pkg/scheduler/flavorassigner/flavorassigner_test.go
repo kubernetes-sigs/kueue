@@ -269,6 +269,120 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
+		"multiple flavors, leader worker set, fits": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("worker", 4).
+					Request(corev1.ResourceCPU, "2").
+					PodSetGroup("group1").
+					Obj(),
+				*utiltesting.MakePodSet("leader", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "9").
+						FlavorQuotas,
+				).
+				ClusterQueue,
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "worker",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+						Count: 4,
+					},
+					{
+						Name: "leader",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Count: 1,
+					}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "two", Resource: corev1.ResourceCPU}: 9_000,
+				}},
+			},
+		},
+		"multiple flavors, leader worker set 2, fits": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("worker", 4).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					Request("example.com/gpu", "1").
+					PodSetGroup("group1").
+					Obj(),
+				*utiltesting.MakePodSet("leader", 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "10").
+						FlavorQuotas,
+				).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceMemory, "5").
+						Resource("example.com/gpu", "4").
+						FlavorQuotas,
+				).
+				ClusterQueue,
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "worker",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+							"example.com/gpu":     {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("4"),
+							corev1.ResourceMemory: resource.MustParse("4"),
+							"example.com/gpu":     resource.MustParse("4"),
+						},
+						Count: 4,
+					},
+					{
+						Name: "leader",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1"),
+						},
+						Count: 1,
+					}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    5_000,
+					{Flavor: "two", Resource: corev1.ResourceMemory}: 5,
+					{Flavor: "two", Resource: "example.com/gpu"}:     4,
+				}},
+			},
+		},
 		"multiple resource groups, one could fit with preemption, other doesn't fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).

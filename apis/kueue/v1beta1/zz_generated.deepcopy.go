@@ -1244,6 +1244,11 @@ func (in *PodSetTopologyRequest) DeepCopyInto(out *PodSetTopologyRequest) {
 		*out = new(int32)
 		**out = **in
 	}
+	if in.PodSetGroup != nil {
+		in, out := &in.PodSetGroup, &out.PodSetGroup
+		*out = new(string)
+		**out = **in
+	}
 	if in.PodSetSliceRequiredTopology != nil {
 		in, out := &in.PodSetSliceRequiredTopology, &out.PodSetSliceRequiredTopology
 		*out = new(string)
