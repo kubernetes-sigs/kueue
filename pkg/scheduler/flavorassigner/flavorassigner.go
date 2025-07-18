@@ -445,8 +445,10 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		},
 	}
 
-	groupedRequests := make(map[string][]indexedPodSet)
-	var groupsOrder []string
+	// groupedRequests := make(map[string][]indexedPodSet)
+	// var groupsOrder []string
+
+	groupedRequests := newPodSetGroups()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
@@ -482,15 +484,10 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			groupKey = *tr.PodSetGroupName
 		}
 
-		if !slices.Contains(groupsOrder, groupKey) {
-			groupsOrder = append(groupsOrder, groupKey)
-		}
-
-		groupedRequests[groupKey] = append(groupedRequests[groupKey], indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
+		groupedRequests.insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
-	for _, groupKey := range groupsOrder {
-		podSets := groupedRequests[groupKey]
+	for _, podSets := range groupedRequests.orderedPodSetGroups() {
 		requests := make(resources.Requests)
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
