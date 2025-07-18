@@ -37,7 +37,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -59,7 +61,7 @@ var (
 //
 // Note: This function modifies the Job's pod template in-place.
 func applyWorkloadSliceSchedulingGate(job *Job) {
-	if !jobframework.WorkloadSliceEnabled(job) {
+	if !(features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object())) {
 		return
 	}
 	workloadSliceSchedulingGate := corev1.PodSchedulingGate{

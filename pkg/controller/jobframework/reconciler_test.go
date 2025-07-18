@@ -37,7 +37,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -45,9 +45,6 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
-
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -479,62 +476,6 @@ func TestProcessOptions(t *testing.T) {
 			if diff := cmp.Diff(tc.wantOpts, gotOpts,
 				cmpopts.IgnoreUnexported(kubeversion.ServerVersionFetcher{}, testingclock.FakePassiveClock{}, testingclock.FakeClock{})); len(diff) != 0 {
 				t.Errorf("Unexpected error from ProcessOptions (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestWorkloadSliceEnabled(t *testing.T) {
-	type args struct {
-		job GenericJob
-	}
-	tests := map[string]struct {
-		featureEnabled bool
-		args           args
-		want           bool
-	}{
-		"FeatureIsNotEnabled": {
-			args: args{
-				job: &testGenericJob{
-					Job: &batchv1.Job{},
-				},
-			},
-		},
-		"JobIsNil": {
-			featureEnabled: true,
-			args:           args{},
-		},
-		"NotOptIn": {
-			featureEnabled: true,
-			args: args{
-				job: &testGenericJob{
-					Job: &batchv1.Job{},
-				},
-			},
-		},
-		"OptIn": {
-			featureEnabled: true,
-			args: args{
-				job: &testGenericJob{
-					Job: &batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue},
-						},
-					},
-				},
-			},
-			want: true,
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			if tt.featureEnabled {
-				if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, true); err != nil {
-					t.Errorf("WorkloadSliceEnabled() unexpected error enbabling features: %v", err)
-				}
-			}
-			if got := WorkloadSliceEnabled(tt.args.job); got != tt.want {
-				t.Errorf("WorkloadSliceEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

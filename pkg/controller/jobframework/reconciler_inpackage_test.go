@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -239,6 +240,62 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.args.wl, tt.want.workload); diff != "" {
 				t.Errorf("prepareWorkloadSlice() workload(-),want(+): %s", diff)
+			}
+		})
+	}
+}
+
+func TestWorkloadSliceEnabled(t *testing.T) {
+	type args struct {
+		job GenericJob
+	}
+	tests := map[string]struct {
+		featureEnabled bool
+		args           args
+		want           bool
+	}{
+		"FeatureIsNotEnabled": {
+			args: args{
+				job: &testGenericJob{
+					Job: &batchv1.Job{},
+				},
+			},
+		},
+		"JobIsNil": {
+			featureEnabled: true,
+			args:           args{},
+		},
+		"NotOptIn": {
+			featureEnabled: true,
+			args: args{
+				job: &testGenericJob{
+					Job: &batchv1.Job{},
+				},
+			},
+		},
+		"OptIn": {
+			featureEnabled: true,
+			args: args{
+				job: &testGenericJob{
+					Job: &batchv1.Job{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tt.featureEnabled {
+				if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, true); err != nil {
+					t.Errorf("workloadSliceEnabled() unexpected error enbabling features: %v", err)
+				}
+			}
+			if got := workloadSliceEnabled(tt.args.job); got != tt.want {
+				t.Errorf("workloadSliceEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

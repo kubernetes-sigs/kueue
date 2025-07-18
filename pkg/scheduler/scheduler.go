@@ -309,8 +309,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		// Evict old workload-slice if any. Note: that oldWorkloadSlice is not nil only if
 		// this is a workload-slice enabled workload and there is an old slice to evict.
-		if oldWorkloadSlice != nil {
-			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj); err != nil {
 				log.Error(err, "Failed to aggregate workload slice")
 				continue
 			}
@@ -508,6 +508,9 @@ func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preem
 // This is typically used to separate the special-case handling of preempted workload slices
 // from general preemption logic.
 func findPreemptedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Target) ([]*preemption.Target, *preemption.Target) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return targets, nil
+	}
 	sliceKey := workloadslicing.PreemptibleSliceKey(preemptor)
 	if sliceKey == nil {
 		return targets, nil
@@ -849,7 +852,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if meta.IsStatusConditionTrue(oldSlice.Status.Conditions, kueue.WorkloadFinished) {
-		log.V(3).Info("Workload slice already aggregated", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
+		log.V(3).Info("Workload slice already finished", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
 		return nil
 	}
 	reason := kueue.WorkloadSliceReplaced
