@@ -2180,7 +2180,7 @@ within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.i
 For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
 </td>
 </tr>
-<tr><td><code>podSetGroup</code><br/>
+<tr><td><code>podSetGroupName</code><br/>
 <code>string</code>
 </td>
 <td>
