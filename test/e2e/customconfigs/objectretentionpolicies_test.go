@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"os"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -37,11 +39,16 @@ import (
 
 var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns              *corev1.Namespace
+		rf              *kueue.ResourceFlavor
+		cq              *kueue.ClusterQueue
+		lq              *kueue.LocalQueue
+		kindClusterName string
 	)
+
+	ginkgo.BeforeAll(func() {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+	})
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
@@ -77,7 +84,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 			},
 		}
 
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = nil
 			cfg.ObjectRetentionPolicies = nil
 			cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
@@ -105,7 +112,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.By("Enable ObjectRetentionPolicies feature gate", func() {
-			updateKueueConfiguration(func(cfg *configapi.Configuration) {
+			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 				cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 				cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -133,14 +140,16 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 
 var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns              *corev1.Namespace
+		rf              *kueue.ResourceFlavor
+		cq              *kueue.ClusterQueue
+		lq              *kueue.LocalQueue
+		kindClusterName string
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
@@ -261,14 +270,16 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 
 var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingLimitExceeded", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns *corev1.Namespace
-		rf *kueue.ResourceFlavor
-		cq *kueue.ClusterQueue
-		lq *kueue.LocalQueue
+		ns              *corev1.Namespace
+		rf              *kueue.ResourceFlavor
+		cq              *kueue.ClusterQueue
+		lq              *kueue.LocalQueue
+		kindClusterName string
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{

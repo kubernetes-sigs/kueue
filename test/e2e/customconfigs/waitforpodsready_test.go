@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"os"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -55,9 +57,11 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 
 		curlContainerName string
 		curlPod           *corev1.Pod
+		kindClusterName   string
 	)
 
 	ginkgo.BeforeAll(func() {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
 			Subjects: []rbacv1.Subject{
@@ -75,7 +79,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Enable:          true,
 				BlockAdmission:  ptr.To(true),
@@ -211,6 +215,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 		curlContainerName string
 		curlPod           *corev1.Pod
+		kindClusterName   string
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -231,7 +236,8 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Enable:          true,
 				BlockAdmission:  ptr.To(true),
@@ -356,6 +362,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 
 		curlContainerName string
 		curlPod           *corev1.Pod
+		kindClusterName   string
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -376,7 +383,8 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Enable:          true,
 				BlockAdmission:  ptr.To(true),

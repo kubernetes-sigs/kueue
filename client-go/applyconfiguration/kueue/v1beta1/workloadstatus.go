@@ -32,6 +32,8 @@ type WorkloadStatusApplyConfiguration struct {
 	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
 	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
+	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
+	ClusterName                          *string                                 `json:"clusterName,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -121,5 +123,23 @@ func (b *WorkloadStatusApplyConfiguration) WithAccumulatedPastExexcutionTimeSeco
 // If called multiple times, the SchedulingStats field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithSchedulingStats(value *SchedulingStatsApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.SchedulingStats = value
+	return b
+}
+
+// WithNominatedClusterNames adds the given value to the NominatedClusterNames field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the NominatedClusterNames field.
+func (b *WorkloadStatusApplyConfiguration) WithNominatedClusterNames(values ...string) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		b.NominatedClusterNames = append(b.NominatedClusterNames, values[i])
+	}
+	return b
+}
+
+// WithClusterName sets the ClusterName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ClusterName field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithClusterName(value string) *WorkloadStatusApplyConfiguration {
+	b.ClusterName = &value
 	return b
 }

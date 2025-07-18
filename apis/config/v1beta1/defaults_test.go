@@ -98,6 +98,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
 		Origin:            ptr.To(DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:    ptr.To(MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	podsReadyTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
@@ -530,6 +531,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					GCInterval:        &metav1.Duration{Duration: time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    ptr.To[string](MultiKueueDispatcherModeIncremental),
 				},
 			},
 			want: &Configuration{
@@ -545,6 +547,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					GCInterval:        &metav1.Duration{Duration: time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    ptr.To[string](MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -559,6 +562,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					GCInterval:        &metav1.Duration{Duration: time.Second},
 					Origin:            ptr.To(""),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 			},
 			want: &Configuration{
@@ -574,6 +578,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					GCInterval:        &metav1.Duration{Duration: time.Second},
 					Origin:            ptr.To(DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -602,6 +607,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					GCInterval:        &metav1.Duration{},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},

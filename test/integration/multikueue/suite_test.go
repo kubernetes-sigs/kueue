@@ -60,7 +60,8 @@ import (
 )
 
 const (
-	testingWorkerLostTimeout = 3 * time.Second
+	testingWorkerLostTimeout      = 3 * time.Second
+	defaultDispatcherRoundTimeout = 5 * time.Second
 )
 
 type cluster struct {
@@ -273,7 +274,14 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
+func managerAndMultiKueueSetup(
+	ctx context.Context,
+	mgr manager.Manager,
+	gcInterval time.Duration,
+	enabledIntegrations sets.Set[string],
+	dispatcherName string,
+	dispatcherRoundTime time.Duration,
+) {
 	managerSetup(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
@@ -287,6 +295,7 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 		multikueue.WithAdapters(adapters),
+		multikueue.WithDispatcherName(dispatcherName),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
@@ -297,17 +306,20 @@ var _ = ginkgo.BeforeSuite(func() {
 		wg := sync.WaitGroup{}
 		wg.Add(3)
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
 			c := createCluster(nil, managerFeatureGates...)
 			managerTestCluster = c
 		}()
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			c := createCluster(managerSetup)
 			worker1TestCluster = c
 		}()
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			c := createCluster(managerSetup)
 			worker2TestCluster = c

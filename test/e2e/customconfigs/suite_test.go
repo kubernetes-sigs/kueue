@@ -73,15 +73,7 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	util.ApplyKueueConfiguration(ctx, k8sClient, defaultKueueCfg)
-	util.RestartKueueController(ctx, k8sClient)
+	kindClusterName := os.Getenv("KIND_CLUSTER_NAME")
+	util.RestartKueueController(ctx, k8sClient, kindClusterName)
 	ginkgo.GinkgoLogr.Info("Default Kueue configuration restored")
 })
-
-func updateKueueConfiguration(applyChanges func(cfg *v1beta1.Configuration)) {
-	configurationUpdate := time.Now()
-	config := defaultKueueCfg.DeepCopy()
-	applyChanges(config)
-	util.ApplyKueueConfiguration(ctx, k8sClient, config)
-	util.RestartKueueController(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
-}
