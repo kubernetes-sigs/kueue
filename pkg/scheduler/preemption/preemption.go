@@ -429,6 +429,11 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 		preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
 		for _, candidateWl := range cq.Workloads {
+			// Skip non-preemptible workloads
+			if workload.IsNonPreemptible(candidateWl.Obj) {
+				continue
+			}
+
 			candidatePriority := priority.Priority(candidateWl.Obj)
 			if candidatePriority > wlPriority {
 				continue
@@ -453,6 +458,11 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 				continue
 			}
 			for _, candidateWl := range cohortCQ.Workloads {
+				// Skip non-preemptible workloads
+				if workload.IsNonPreemptible(candidateWl.Obj) {
+					continue
+				}
+
 				if onlyLowerPriority && priority.Priority(candidateWl.Obj) >= priority.Priority(wl) {
 					continue
 				}
