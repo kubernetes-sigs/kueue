@@ -284,8 +284,6 @@ spec:
 | `TopologyAwareScheduling`             | `false` | Alpha | 0.9   |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta  | 0.10  |       |
-| `WorkloadResourceRequestsSummary`     | `false` | Alpha | 0.9   | 0.9   |
-| `WorkloadResourceRequestsSummary`     | `true`  | Beta  | 0.10  | 0.10  |
 | `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  | 0.13  |
 | `LocalQueueDefaulting`                | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                | `true`  | Beta  | 0.12  |       |
@@ -301,12 +299,9 @@ spec:
 
 | 功能 | 默认值 | 阶段 | 起始版本 | 截止版本 |
 | --------------------------------- | ------- | ---------- | ----- | ----- |
-| `ManagedJobsNamespaceSelector`    | `true`  | GA          | 0.13 |       |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
 | `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
-| `WorkloadResourceRequestsSummary` | `false` | Alpha      | 0.9   | 0.10  |
-| `WorkloadResourceRequestsSummary` | `true`  | Beta       | 0.10  | 0.11  |
-| `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11  |       |
 | `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
 | `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
