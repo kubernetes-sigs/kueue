@@ -649,7 +649,7 @@ const (
 	// due to non-recoverable node failures.
 	WorkloadEvictedDueToNodeFailures = "NodeFailures"
 
-	// WorkloadSliceReplacement indicates that the workload instance was
+	// WorkloadSliceReplaced indicates that the workload instance was
 	// replaced with a new workload slice.
 	WorkloadSliceReplaced = "WorkloadSliceReplaced"
 

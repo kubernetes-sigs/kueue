@@ -511,7 +511,7 @@ func findPreemptedSliceTarget(preemptor *kueue.Workload, targets []*preemption.T
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		return targets, nil
 	}
-	sliceKey := workloadslicing.PreemptibleSliceKey(preemptor)
+	sliceKey := workloadslicing.ReplacementForKey(preemptor)
 	if sliceKey == nil {
 		return targets, nil
 	}
@@ -857,7 +857,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	}
 	reason := kueue.WorkloadSliceReplaced
 	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
-	if err := workloadslicing.Deactivate(ctx, s.client, oldSlice, reason, message); err != nil {
+	if err := workloadslicing.Finish(ctx, s.client, oldSlice, reason, message); err != nil {
 		return fmt.Errorf("failed to deactivate aggregated workload slice: %w", err)
 	}
 

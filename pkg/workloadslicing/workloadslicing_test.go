@@ -120,7 +120,7 @@ func TestPreemptibleSliceKey(t *testing.T) {
 		"Found": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadPreemptibleSliceNameKey: string(testReference)}},
+					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadSliceReplacementForKey: string(testReference)}},
 				},
 			},
 			want: &testReference,
@@ -128,8 +128,8 @@ func TestPreemptibleSliceKey(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(PreemptibleSliceKey(tt.args.wl), tt.want); diff != "" {
-				t.Errorf("PreemptibleSliceKey() (-want,+got)\n:%s", diff)
+			if diff := cmp.Diff(ReplacementForKey(tt.args.wl), tt.want); diff != "" {
+				t.Errorf("ReplacementForKey() (-want,+got)\n:%s", diff)
 			}
 		})
 	}
@@ -244,7 +244,7 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 	}
 }
 
-func TestDeactivate(t *testing.T) {
+func TestFinish(t *testing.T) {
 	type args struct {
 		ctx           context.Context
 		clnt          client.Client
@@ -315,8 +315,8 @@ func TestDeactivate(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := Deactivate(tt.args.ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
-				t.Errorf("Deactivate() error = %v, wantErr %v", err, tt.want.err)
+			if err := Finish(tt.args.ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
+				t.Errorf("Finish() error = %v, wantErr %v", err, tt.want.err)
 			}
 			if tt.want.workload != nil {
 				if err := tt.args.clnt.Get(tt.args.ctx, client.ObjectKeyFromObject(tt.args.workloadSlice), tt.args.workloadSlice); err != nil {
@@ -870,7 +870,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	}
 }
 
-func Test_startWorkloadSlicePods(t *testing.T) {
+func Test_StartWorkloadSlicePods(t *testing.T) {
 	clientBuilder := func() *fake.ClientBuilder {
 		return fake.NewClientBuilder().WithScheme(scheme.Scheme).
 			WithIndex(&corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID)
@@ -981,8 +981,8 @@ func Test_startWorkloadSlicePods(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := startWorkloadSlicePods(tt.args.ctx, tt.args.clnt, tt.args.object); (err != nil) != tt.wantErr {
-				t.Errorf("startWorkloadSlicePods() error = %v, wantErr %v", err, tt.wantErr)
+			if err := StartWorkloadSlicePods(tt.args.ctx, tt.args.clnt, tt.args.object); (err != nil) != tt.wantErr {
+				t.Errorf("StartWorkloadSlicePods() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantPods == nil {
 				return
@@ -995,7 +995,7 @@ func Test_startWorkloadSlicePods(t *testing.T) {
 			if diff := cmp.Diff(pods.Items, tt.wantPods.Items, cmpopts.SortSlices(func(a, b corev1.Pod) bool {
 				return a.Name < b.Name
 			})); diff != "" {
-				t.Errorf("startWorkloadSlicePods() pod-validaion: got(-),want(+): %s", diff)
+				t.Errorf("StartWorkloadSlicePods() pod-validaion: got(-),want(+): %s", diff)
 			}
 		})
 	}

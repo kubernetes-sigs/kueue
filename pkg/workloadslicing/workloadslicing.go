@@ -28,9 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -60,24 +58,23 @@ func Enabled(object metav1.Object) bool {
 	if object == nil {
 		return false
 	}
-	annotations := object.GetAnnotations()
-	return len(annotations) > 0 && annotations[EnabledAnnotationKey] == EnabledAnnotationValue
+	return object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
 }
 
 const (
-	// WorkloadPreemptibleSliceNameKey is the annotation key used to capture an "old" workload slice
+	// WorkloadSliceReplacementForKey is the annotation key used to capture an "old" workload slice
 	// that will be preempted by the "new" workload slice, i.e., this annotates a "new" workload slice.
-	WorkloadPreemptibleSliceNameKey = "kueue.x-k8s.io/workload-slice-replacement-for"
+	WorkloadSliceReplacementForKey = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 
-// PreemptibleSliceKey returns a preemptible workload slice key if this workload
-// was annotated with such, otherwise, returns an empty string.
-func PreemptibleSliceKey(wl *kueue.Workload) *workload.Reference {
+// ReplacementForKey returns a value for workload "WorkloadSliceReplacementForKey" annotation
+// key if this workload was annotated with such, otherwise, returns an empty string.
+func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	annotations := wl.GetAnnotations()
 	if len(annotations) == 0 {
 		return nil
 	}
-	key, found := annotations[WorkloadPreemptibleSliceNameKey]
+	key, found := annotations[WorkloadSliceReplacementForKey]
 	if !found {
 		return nil
 	}
@@ -85,7 +82,7 @@ func PreemptibleSliceKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
-// Deactivate updates the status of a workload slice by applying the "Finished" condition.
+// Finish updates the status of a workload slice by applying the "Finished" condition.
 // The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
 // If the "Finished" condition is not present, it applies the condition with the provided `reason` and `message`.
 //
@@ -93,7 +90,7 @@ func PreemptibleSliceKey(wl *kueue.Workload) *workload.Reference {
 // 1. It checks if the "Finished" condition is already applied. If true, it returns immediately, doing nothing.
 // 2. If the "Finished" condition is not set, it patches the workload slice's status to add the "Finished" condition.
 // 3. If the patch fails, it returns an error.
-func Deactivate(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload, reason, message string) error {
+func Finish(ctx context.Context, clnt client.Client, workloadSlice *kueue.Workload, reason, message string) error {
 	// NOOP if the workload already has "Finished" condition (irrespective of reason and message values).
 	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
 		return nil
@@ -136,11 +133,6 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
 // - nil, false, nil: when an incompatible workload exists and no update is performed.
 // - error: on failure to fetch, update, or deactivate a workload slice.
-//
-// Note: This function is intentionally designed to operate without requiring access to the old (preemptible) slice.
-// Preemptible slices are expected to be handled by the scheduler's preemption logic, with some exceptions.
-// EnsureWorkloadSlices processes the given Job's PodSets and returns a matching workload slice.
-// It handles workload compatibility and updates or creates new slices as needed.
 func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []kueue.PodSet, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
@@ -195,7 +187,7 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// "pending" workloads. In such case - it is safe to deactivate the old slice.
 		oldWorkload := workloads[0]
 		if !workload.HasQuotaReservation(&oldWorkload) {
-			if err := Deactivate(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
+			if err := Finish(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
 				return nil, true, err
 			}
 		}
@@ -235,17 +227,17 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 	}
 }
 
-// startWorkloadSlicePods identifies pods associated with the provided parent object
-// that are gated by the "kueue.x-k8s.io/topology" scheduling gate and removes this gate,
+// StartWorkloadSlicePods identifies pods associated with the provided parent object
+// that are gated by the ElasticJobSchedulingGate scheduling gate and removes this gate,
 // allowing them to be considered for scheduling.
 //
 // This function performs the following steps:
 // 1. Lists all pods in the same namespace with an OwnerReference UID matching the parent object.
-// 2. For each pod, removes the "kueue.x-k8s.io/topology" scheduling gate if present.
+// 2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
 //
 // Returns:
 // - An error if any of the operations fail; otherwise, nil.
-func startWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object) error {
+func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object client.Object) error {
 	list := &corev1.PodList{}
 	if err := clnt.List(ctx, list, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(object.GetUID())}); err != nil {
 		return fmt.Errorf("failed to list job pods: %w", err)
@@ -258,13 +250,4 @@ func startWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		}
 	}
 	return nil
-}
-
-// ReconcileWorkloadSlices clears pod's scheduling gates and finishes preempted workload slices
-// in the Job reconciliation context.
-func ReconcileWorkloadSlices(ctx context.Context, clnt client.Client, object client.Object) (reconcile.Result, error) {
-	if err := startWorkloadSlicePods(ctx, clnt, object); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to start workload slice pods: %w", err)
-	}
-	return ctrl.Result{}, nil
 }

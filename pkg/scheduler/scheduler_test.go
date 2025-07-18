@@ -3406,7 +3406,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("foo-2", "sales").
 					ResourceVersion("1").
-					Annotation(workloadslicing.WorkloadPreemptibleSliceNameKey, "sales/foo-1").
+					Annotation(workloadslicing.WorkloadSliceReplacementForKey, "sales/foo-1").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 15).
 						Request(corev1.ResourceCPU, "1").
@@ -3459,7 +3459,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltesting.MakeWorkload("foo-2", "sales").
-					Annotation(workloadslicing.WorkloadPreemptibleSliceNameKey, "sales/foo-1").
+					Annotation(workloadslicing.WorkloadSliceReplacementForKey, "sales/foo-1").
 					ResourceVersion("1").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 15).
