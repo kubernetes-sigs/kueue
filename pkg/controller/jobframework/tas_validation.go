@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -25,9 +26,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
+func ValidateTASPodSetRequestForJob(job GenericJob, replicaMetaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
+	podSets, _ := job.PodSets()
+	return ValidateTASPodSetRequest(replicaMetaPath, replicaMetadata, podSets)
+}
+
+func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSets []kueuebeta.PodSet) field.ErrorList {
 	var allErrs field.ErrorList
 	requiredValue, requiredFound := replicaMetadata.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	preferredValue, preferredFound := replicaMetadata.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
@@ -66,11 +73,9 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 
 	// validate slice size annotation
 	if sliceSizeFound {
-		val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
-		if err != nil {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
-		} else if int32(val) < 1 {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
+		validationErr := validateSliceSizeAnnotation(sliceSizeValue, podSets)
+		if validationErr != nil {
+			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, validationErr.Error()))
 		}
 	}
 
@@ -86,4 +91,23 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	}
 
 	return allErrs
+}
+
+func validateSliceSizeAnnotation(sliceSizeValue string, podSets []kueuebeta.PodSet) error {
+	val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
+	if err != nil {
+		return errors.New("must be a numeric value")
+	}
+
+	if int32(val) < 1 {
+		return errors.New("must be greater than or equal to 1")
+	}
+
+	for _, podSet := range podSets {
+		if int32(val) > podSet.Count {
+			return fmt.Errorf("must not be greater than pod set count %d", podSet.Count)
+		}
+	}
+
+	return nil
 }

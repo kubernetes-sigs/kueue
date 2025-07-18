@@ -75,5 +75,38 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
 		})
+
+		ginkgo.It("should reject a JobSet whose pod‑slice size exceeds total pod count", func() {
+			replicas := int32(2)
+			parallelism := int32(3)
+			invalidSliceSize := "30"
+
+			js := testingjob.MakeJobSet("bad-slice-jobset", ns.Name).
+				Queue("indexed_job").
+				ReplicatedJobs(testingjob.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Image:       util.GetAgnHostImage(),
+					Args:        util.BehaviorExitFast,
+					Replicas:    replicas,
+					Parallelism: parallelism,
+					Completions: parallelism,
+					PodAnnotations: map[string]string{
+						kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueuealpha.PodSetSliceSizeAnnotation:             invalidSliceSize,
+					},
+				}).
+				RequestAndLimit("replicated-job-1", "example.com/gpu", "1").
+				Obj()
+
+			err := k8sClient.Create(ctx, js)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(
+				gomega.ContainSubstring(
+					"Invalid value: \"%s\": must not be greater than pod set count %d",
+					invalidSliceSize, replicas*parallelism,
+				),
+			)
+		})
 	})
 })
