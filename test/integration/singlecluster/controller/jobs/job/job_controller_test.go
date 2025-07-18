@@ -2119,6 +2119,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
 				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
