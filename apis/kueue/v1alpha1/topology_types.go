@@ -89,7 +89,7 @@ const (
 	// name of a failed node running at least one pod of this workload.
 	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
 
-	// PodSetGroupName describes a name of the group of PodSets. PodSet Group
+	// PodSetGroupName is an annotation indicating the name of the group of PodSets. PodSet Group
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
 )
