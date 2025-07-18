@@ -2609,4 +2609,56 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 		})
 	})
+	ginkgo.When("Deleting ClusterQueue should update cohort borrowable resources", func() {
+		var (
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+		)
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("Should prevent incorrect admission through borrowing after ClusterQueue deletion", func() {
+			ginkgo.By("Creating two ClusterQueues in the same cohort")
+			// ClusterQueue with 8 CPU nominal quota - this will be the lender
+			cq1 = testing.MakeClusterQueue("cluster-queue-1").
+				Cohort("bug-test").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "8").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq1)).Should(gomega.Succeed())
+
+			// ClusterQueue with 0 CPU nominal quota - this will need to borrow
+			cq2 = testing.MakeClusterQueue("cluster-queue-2").
+				Cohort("bug-test").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq2)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating LocalQueues for the corresponding ClusterQueues")
+			lq1 = testing.MakeLocalQueue("local-queue-1", ns.Name).ClusterQueue(cq1.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq1)).Should(gomega.Succeed())
+
+			lq2 = testing.MakeLocalQueue("local-queue-2", ns.Name).ClusterQueue(cq2.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq2)).Should(gomega.Succeed())
+
+			ginkgo.By("Deleting cluster-queue-1 which has 8 CPU nominal quota")
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq1)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload that requests 8 CPU - should not be admitted due to no borrowable resources")
+			wl := testing.MakeWorkload("should-be-pending-wl", ns.Name).
+				Queue(lq2.Name).Request(corev1.ResourceCPU, "8").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying metrics reflect the correct state")
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, 0)
+		})
+	})
 })

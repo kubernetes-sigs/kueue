@@ -71,10 +71,16 @@ func (r ResourceNode) guaranteedQuota(fr resources.FlavorResource) int64 {
 // by providing access to the contained ResourceNode, with the ability
 // to navigate to the parent node.
 type hierarchicalResourceNode interface {
-	getResourceNode() ResourceNode
+	flatResourceNode
 
 	HasParent() bool
 	parentHRN() hierarchicalResourceNode
+}
+
+// flatResourceNode abstracts over ClusterQueues and Cohorts,
+// by providing access to the contained ResourceNode.
+type flatResourceNode interface {
+	getResourceNode() ResourceNode
 }
 
 // available determines how much capacity remains for the current
@@ -183,7 +189,17 @@ func updateCohortResourceNode(cohort *cohort) {
 	}
 }
 
-func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
+// updateCohortTreeResourcesIfNoCycle only updates Cohort tree resources if there's no cycle. Purpose
+// of this function is to reduce instances where errors from updateCohortTreeResources are silenced.
+// Errors from event handlers are not retried, so its better to execute updateCohortResourceNode when no error
+// would be produced.
+func updateCohortTreeResourcesIfNoCycle(cohort *cohort) {
+	if !hierarchy.HasCycle(cohort) {
+		updateCohortResourceNode(cohort.getRootUnsafe())
+	}
+}
+
+func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
 		parent.resourceNode.SubtreeQuota[fr] += childQuota - child.getResourceNode().guaranteedQuota(fr)
 	}
