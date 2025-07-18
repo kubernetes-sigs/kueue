@@ -92,7 +92,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	psTopologyReq.SubGroupCount = p.subGroupCount
 	psTopologyReq.SubGroupIndexLabel = p.subGroupIndexLabel
 	if podSetGroupNameFound && (requiredFound || preferredFound) {
-		psTopologyReq.PodSetGroup = &podSetGroupName
+		psTopologyReq.PodSetGroupName = &podSetGroupName
 	}
 
 	return &psTopologyReq, nil

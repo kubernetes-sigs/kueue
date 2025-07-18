@@ -418,10 +418,10 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 	return a.assignFlavors(log, counts)
 }
 
-type IndexedPodSet struct {
-	OriginalIndex    int
-	PodSet           *workload.PodSetResources
-	PodSetAssignment *PodSetAssignment
+type indexedPodSet struct {
+	originalIndex    int
+	podSet           *workload.PodSetResources
+	podSetAssignment *PodSetAssignment
 }
 
 func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignment {
@@ -445,7 +445,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		},
 	}
 
-	groupedRequests := make(map[string][]IndexedPodSet)
+	groupedRequests := make(map[string][]indexedPodSet)
 	var groupsOrder []string
 
 	for i, podSet := range requests {
@@ -478,16 +478,15 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 
 		groupKey := strconv.Itoa(i)
-		tr := a.wl.Obj.Spec.PodSets[i].TopologyRequest
-		if tr != nil && tr.PodSetGroup != nil {
-			groupKey = *tr.PodSetGroup
+		if tr := a.wl.Obj.Spec.PodSets[i].TopologyRequest; tr != nil && tr.PodSetGroupName != nil {
+			groupKey = *tr.PodSetGroupName
 		}
 
 		if !slices.Contains(groupsOrder, groupKey) {
 			groupsOrder = append(groupsOrder, groupKey)
 		}
 
-		groupedRequests[groupKey] = append(groupedRequests[groupKey], IndexedPodSet{OriginalIndex: i, PodSet: &podSet, PodSetAssignment: &psAssignment})
+		groupedRequests[groupKey] = append(groupedRequests[groupKey], indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
 	for _, groupKey := range groupsOrder {
@@ -495,14 +494,14 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		requests := make(resources.Requests)
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
-			psIDs[idx] = podset.OriginalIndex
-			requests.Add(podset.PodSet.Requests)
+			psIDs[idx] = podset.originalIndex
+			requests.Add(podset.podSet.Requests)
 		}
 
 		groupFlavors := make(ResourceAssignment)
 		for _, ips := range podSets {
-			for resName := range ips.PodSetAssignment.Flavors {
-				groupFlavors[resName] = ips.PodSetAssignment.Flavors[resName]
+			for resName := range ips.podSetAssignment.Flavors {
+				groupFlavors[resName] = ips.podSetAssignment.Flavors[resName]
 				break
 			}
 		}
@@ -529,13 +528,13 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		}
 		atLeastOnePodsAssignmentFailed := false
 		for _, podSet := range podSets {
-			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.PodSet.Requests)))
+			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.podSet.Requests)))
 
-			podSet.PodSetAssignment.Flavors = podSetFlavors
-			podSet.PodSetAssignment.Status = groupStatus
+			podSet.podSetAssignment.Flavors = podSetFlavors
+			podSet.podSetAssignment.Status = groupStatus
 
-			assignment.append(podSet.PodSet.Requests, podSet.PodSetAssignment)
-			if podSet.PodSetAssignment.Status.IsError() || (len(podSet.PodSet.Requests) > 0 && len(podSet.PodSetAssignment.Flavors) == 0) {
+			assignment.append(podSet.podSet.Requests, podSet.podSetAssignment)
+			if podSet.podSetAssignment.Status.IsError() || (len(podSet.podSet.Requests) > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
 				atLeastOnePodsAssignmentFailed = true
 			}
 		}
@@ -622,8 +621,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		ps := &a.wl.Obj.Spec.PodSets[psID]
 		podSets[idx] = ps
 
-		selector := flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
-		selectors[idx] = selector
+		selectors[idx] = flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
 	}
 
 	var bestAssignment ResourceAssignment

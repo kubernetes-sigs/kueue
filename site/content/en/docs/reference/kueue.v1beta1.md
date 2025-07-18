@@ -2184,8 +2184,8 @@ For example, in the context of JobSet this value is read from jobset.sigs.k8s.io
 <code>string</code>
 </td>
 <td>
-   <p>PodSetGroup indicates the name of the group of PodSets to which this PodSet belongs to.
-PodSets with the same <code>PodSetGroup</code> should be assigned the same ResourceFlavor</p>
+   <p>PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+PodSets with the same <code>PodSetGroupName</code> should be assigned the same ResourceFlavor</p>
 </td>
 </tr>
 <tr><td><code>podSetSliceRequiredTopology</code><br/>
