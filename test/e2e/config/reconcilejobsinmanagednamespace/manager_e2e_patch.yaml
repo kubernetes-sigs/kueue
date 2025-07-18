@@ -1,3 +1,3 @@
 - op: add
   path: /spec/template/spec/containers/0/args/-
-  value: --feature-gates=ManagedJobsNamespaceSelectorAlwaysRespected=true
+  value: --feature-gates=ManagedJobsNamespaceSelectorAlwaysRespected=false
