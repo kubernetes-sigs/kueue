@@ -64,6 +64,7 @@ linters:
       enable-all-rules: false
       rules:
         - name: context-as-argument
+        - name: deep-exit
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
@@ -94,6 +95,18 @@ linters:
           - revive
         path: 'util/*'
         text: 'var-naming: avoid meaningless package names'
+      - linters:
+          - revive
+        path: 'test/util/*'
+        text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
+      - linters:
+          - revive
+        path: 'pkg/visibility/server.go'
+        text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
+      - linters:
+          - revive
+        path: 'pkg/controller/jobframework/setup.go'
+        text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
     paths:
       - bin
       - vendor
