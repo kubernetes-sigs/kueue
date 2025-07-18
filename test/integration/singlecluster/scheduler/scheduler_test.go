@@ -2641,20 +2641,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		})
 
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			for _, cq := range cqs {
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			}
-			for _, lq := range lqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			}
-			for _, wl := range wls {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			}
-		})
-
 		ginkgo.It("finds correct flavor by discarding the first one in which preemption is not possible", func() {
 			fungibility := kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}
 			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
