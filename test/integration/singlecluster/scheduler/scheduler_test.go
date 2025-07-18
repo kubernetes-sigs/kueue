@@ -2695,13 +2695,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq1)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq2)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
