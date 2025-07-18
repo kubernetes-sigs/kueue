@@ -499,14 +499,17 @@ func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preem
 	return nil, nil
 }
 
-// findPreemptedSliceTarget scans the provided list of preemption targets and removes
-// the one marked with the WorkloadSliceReplacementReason, if present.
+// findPreemptedSliceTarget identifies and removes a preempted workload slice target from the given list of targets.
+// The function checks if Elastic Jobs via Workload Slices feature is enabled and if so, attempts to find a matching
+// workload slice in the target list for the provided preemptor. If a matching slice is found, it is removed from the list
+// and returned alongside the original target list.
 //
-// It returns a new slice with the preemptable workload slice target removed, along with
-// the removed target itself. If no such target is found, it returns the original slice and nil.
-//
-// This is typically used to separate the special-case handling of preempted workload slices
-// from general preemption logic.
+// This function performs the following:
+// 1. It checks if the feature `ElasticJobsViaWorkloadSlices` is enabled. If not, it returns the target list unchanged with `nil` as the second return value.
+// 2. It generates a replacement key for the preemptor workload slice. If no replacement key is found, it returns the original target list unchanged with `nil`.
+// 3. It iterates over the list of preemption targets, looking for a target that matches the replacement key.
+// 4. If a matching target is found, it removes it from the list and returns the updated list and the removed target.
+// 5. If no matching target is found, it returns the original target list and `nil`.
 func findPreemptedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Target) ([]*preemption.Target, *preemption.Target) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		return targets, nil

@@ -614,10 +614,6 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
-
-	// WorkloadSliceReplacementReason indicates the Workload instance was
-	// replaced by another workload slice.
-	WorkloadSliceReplacementReason string = "WorkloadSliceReplaced"
 )
 
 const (

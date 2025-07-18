@@ -598,6 +598,5 @@ func PreemptibleWorkloadSliceTarget(snapshot *cache.Snapshot, workloadInfo *work
 	}
 	return &Target{
 		WorkloadInfo: preemptibleWorkloadSlice,
-		Reason:       kueue.WorkloadSliceReplacementReason,
 	}
 }
