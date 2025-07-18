@@ -59,6 +59,8 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	sliceRequiredTopologyValue, sliceRequiredTopologyFound := p.meta.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
 	sliceSizeValue, sliceSizeFound := p.meta.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
 
+	podSetGroupName, podSetGroupNameFound := p.meta.Annotations[kueuealpha.PodSetGroupName]
+
 	switch {
 	case requiredFound:
 		psTopologyReq.Required = &requiredValue
@@ -89,6 +91,9 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	psTopologyReq.PodIndexLabel = p.podIndexLabel
 	psTopologyReq.SubGroupCount = p.subGroupCount
 	psTopologyReq.SubGroupIndexLabel = p.subGroupIndexLabel
+	if podSetGroupNameFound && (requiredFound || preferredFound) {
+		psTopologyReq.PodSetGroupName = &podSetGroupName
+	}
 
 	return &psTopologyReq, nil
 }
