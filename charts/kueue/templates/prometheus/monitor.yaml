@@ -17,5 +17,6 @@ spec:
       port: https
       scheme: https
       bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-      tlsConfig: '{{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 6 }}'
+      tlsConfig:
+      {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 8 }}
 {{- end }}
