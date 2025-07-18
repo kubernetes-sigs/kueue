@@ -455,7 +455,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 
 		psAssignment := PodSetAssignment{
 			Name:     podSet.Name,
-			Flavors:  make(ResourceAssignment),
+			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
 			Requests: podSet.Requests.ToResourceList(),
 			Count:    podSet.Count,
 		}
@@ -491,7 +491,6 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	}
 
 	for _, groupKey := range groupsOrder {
-
 		podSets := groupedRequests[groupKey]
 		requests := make(resources.Requests)
 		psIDs := make([]int, len(podSets))
@@ -523,6 +522,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
 		}
+		atLeastOnePodsAssignmentFailed := false
 		for _, podSet := range podSets {
 			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.PodSet.Requests)))
 
@@ -531,8 +531,11 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 
 			assignment.append(podSet.PodSet.Requests, podSet.PodSetAssignment)
 			if podSet.PodSetAssignment.Status.IsError() || (len(podSet.PodSet.Requests) > 0 && len(podSet.PodSetAssignment.Flavors) == 0) {
-				return assignment
+				atLeastOnePodsAssignmentFailed = true
 			}
+		}
+		if atLeastOnePodsAssignmentFailed {
+			return assignment
 		}
 	}
 	if assignment.RepresentativeMode() == NoFit {

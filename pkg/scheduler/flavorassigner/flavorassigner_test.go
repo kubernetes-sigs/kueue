@@ -269,7 +269,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"multiple flavors, leader worker set, fits": {
+		"multiple flavors, leader worker set, leader and workers request the same resources fits": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("worker", 4).
 					Request(corev1.ResourceCPU, "2").
@@ -318,7 +318,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"multiple flavors, leader worker set 2, fits": {
+		"multiple flavors, leader worker set, workers request GPU, leader does not request GPU, fits": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("worker", 4).
 					Request(corev1.ResourceCPU, "1").
@@ -381,6 +381,63 @@ func TestAssignFlavors(t *testing.T) {
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 5,
 					{Flavor: "two", Resource: "example.com/gpu"}:     4,
 				}},
+			},
+		},
+		"multiple flavors, leader worker set, workers request GPU, leader does not request GPU, does not fit, without group it would fit": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("worker", 4).
+					Request(corev1.ResourceCPU, "1").
+					Request("example.com/gpu", "1").
+					PodSetGroup("group1").
+					Obj(),
+				*utiltesting.MakePodSet("leader", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4").
+						Resource("example.com/gpu", "4").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "5").
+						Resource("example.com/gpu", "0").
+						FlavorQuotas,
+				).
+				ClusterQueue,
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "worker",
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+							"example.com/gpu":  resource.MustParse("4"),
+						},
+						Status: &Status{
+							reasons: []string{
+								"insufficient quota for cpu in flavor one, request > maximum capacity (5 > 4)",
+								"insufficient quota for example.com/gpu in flavor two, request > maximum capacity (4 > 0)",
+							},
+						},
+						Count: 4,
+					},
+					{
+						Name: "leader",
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Status: &Status{
+							reasons: []string{
+								"insufficient quota for cpu in flavor one, request > maximum capacity (5 > 4)",
+								"insufficient quota for example.com/gpu in flavor two, request > maximum capacity (4 > 0)",
+							},
+						},
+						Count: 1,
+					}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multiple resource groups, one could fit with preemption, other doesn't fit": {
