@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -110,14 +111,15 @@ type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client               client.Client
-	assumedWorkloads     map[workload.Reference]kueue.ClusterQueueReference
-	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	podsReadyTracking    bool
-	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
-	workloadInfoOptions  []workload.InfoOption
-	fairSharingEnabled   bool
-	admissionFairSharing *config.AdmissionFairSharing
+	client                client.Client
+	assumedWorkloads      map[workload.Reference]kueue.ClusterQueueReference
+	resourceFlavors       map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	podsReadyTracking     bool
+	admissionChecks       map[kueue.AdmissionCheckReference]AdmissionCheck
+	workloadInfoOptions   []workload.InfoOption
+	fairSharingEnabled    bool
+	admissionFairSharing  *config.AdmissionFairSharing
+	pendingEntryPenalties map[queue.LocalQueueReference]corev1.ResourceList
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -130,16 +132,17 @@ func New(client client.Client, opts ...Option) *Cache {
 		opt(&options)
 	}
 	c := &Cache{
-		client:               client,
-		assumedWorkloads:     make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:      make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:      make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		podsReadyTracking:    options.podsReadyTracking,
-		workloadInfoOptions:  options.workloadInfoOptions,
-		fairSharingEnabled:   options.fairSharingEnabled,
-		admissionFairSharing: options.admissionFairSharing,
-		hm:                   hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
-		tasCache:             NewTASCache(client),
+		client:                client,
+		assumedWorkloads:      make(map[workload.Reference]kueue.ClusterQueueReference),
+		resourceFlavors:       make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:       make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		podsReadyTracking:     options.podsReadyTracking,
+		workloadInfoOptions:   options.workloadInfoOptions,
+		fairSharingEnabled:    options.fairSharingEnabled,
+		admissionFairSharing:  options.admissionFairSharing,
+		hm:                    hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:              NewTASCache(client),
+		pendingEntryPenalties: make(map[queue.LocalQueueReference]corev1.ResourceList),
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c
@@ -993,4 +996,22 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 // Key is the key used to index the queue.
 func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
+}
+
+func (c *Cache) AddEntryPenalty(lq *kueue.LocalQueue, penalty corev1.ResourceList) {
+	c.Lock()
+	defer c.Unlock()
+
+	key := queueKey(lq)
+	c.pendingEntryPenalties[key] = resource.MergeResourceListKeepSum(c.pendingEntryPenalties[key], penalty)
+}
+
+func (c *Cache) GetAndClearEntryPenalty(lq *kueue.LocalQueue) corev1.ResourceList {
+	c.Lock()
+	defer c.Unlock()
+
+	key := queueKey(lq)
+	penalty := c.pendingEntryPenalties[key]
+	delete(c.pendingEntryPenalties, key)
+	return penalty
 }

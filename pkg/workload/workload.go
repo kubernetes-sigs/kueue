@@ -1135,3 +1135,11 @@ func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 	}
 	return false
 }
+
+func SumTotalRequests(totalRequests []PodSetResources) corev1.ResourceList {
+	reqs := make(resources.Requests)
+	for _, psReqs := range totalRequests {
+		reqs.Add(psReqs.Requests)
+	}
+	return reqs.ToResourceList()
+}

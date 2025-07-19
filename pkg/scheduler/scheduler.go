@@ -28,6 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -72,6 +74,7 @@ type Scheduler struct {
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
+	admissionFairSharing    *config.AdmissionFairSharing
 	clock                   clock.Clock
 
 	// schedulingCycle identifies the number of scheduling
@@ -85,6 +88,7 @@ type Scheduler struct {
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 config.FairSharing
+	admissionFairSharing        *config.AdmissionFairSharing
 	clock                       clock.Clock
 }
 
@@ -112,6 +116,12 @@ func WithFairSharing(fs *config.FairSharing) Option {
 	}
 }
 
+func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
+	return func(o *options) {
+		o.admissionFairSharing = afs
+	}
+}
+
 func WithClock(_ testing.TB, c clock.Clock) Option {
 	return func(o *options) {
 		o.clock = c
@@ -136,6 +146,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
+		admissionFairSharing:    options.admissionFairSharing,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -560,6 +571,17 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	}
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
+
+	if features.Enabled(features.AdmissionFairSharing) {
+		lq := &kueue.LocalQueue{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: e.Obj.Namespace,
+				Name:      string(e.Obj.Spec.QueueName),
+			},
+		}
+		penalty := afs.CalculateEntryPenalty(workload.SumTotalRequests(e.Info.TotalRequests), s.admissionFairSharing)
+		s.cache.AddEntryPenalty(lq, penalty)
+	}
 
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
