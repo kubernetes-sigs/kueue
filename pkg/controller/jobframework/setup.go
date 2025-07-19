@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -73,8 +72,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 		if options.EnabledFrameworks.Has(name) {
 			if cb.CanSupportIntegration != nil {
 				if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
-					log.Error(err, "Failed to configure reconcilers")
-					os.Exit(1)
+					return fmt.Errorf("failed to configure reconcilers: %w", err)
 				}
 			}
 			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())

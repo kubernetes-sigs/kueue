@@ -60,6 +60,8 @@ var (
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
+//
+//nolint:revive // deep-exit: backwards compatibility
 func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) {
 	config := newVisibilityServerConfig()
 	if err := applyVisibilityServerOptions(config); err != nil {
