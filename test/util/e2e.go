@@ -17,10 +17,14 @@ limitations under the License.
 package util
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -55,7 +59,6 @@ import (
 
 const (
 	defaultE2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
-	defaultE2eTestAgnHostImage    = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 
 	defaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
@@ -80,7 +83,49 @@ func GetAgnHostImage() string {
 		return image
 	}
 
-	return defaultE2eTestAgnHostImage
+	agnhostDockerfilePath := filepath.Join(GetProjectBaseDir(), "hack", "agnhost", "Dockerfile")
+	agnhostImage, err := getDockerImageFromDockerfile(agnhostDockerfilePath)
+	if err != nil {
+		panic(fmt.Errorf("failed to get agnhost image: %v", err))
+	}
+
+	return agnhostImage
+}
+
+func getDockerImageFromDockerfile(filePath string) (string, error) {
+	// Open the Dockerfile
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open Dockerfile: %w", err)
+	}
+	defer file.Close()
+
+	// Read the file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip empty lines or comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Check for FROM instruction
+		if strings.HasPrefix(strings.ToUpper(line), "FROM ") {
+			// Extract the part after "FROM "
+			parts := strings.Fields(line)
+			if len(parts) < 2 {
+				return "", fmt.Errorf("invalid FROM instruction: %s", line)
+			}
+			// The image name is the second field (parts[1])
+			return parts[1], nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading Dockerfile: %w", err)
+	}
+
+	return "", errors.New("no FROM instruction found in Dockerfile")
 }
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
