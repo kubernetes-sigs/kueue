@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../../../config/dev
+
+patches:
+- path: manager_e2e_patch.yaml
+  target:
+    kind: Deployment
+    name: controller-manager
+    namespace: kueue-system
+
+configMapGenerator:
+- behavior: merge
+  files:
+  - controller_manager_config.yaml
+  name: kueue-manager-config
+  namespace: kueue-system
