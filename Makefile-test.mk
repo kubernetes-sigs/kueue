@@ -38,7 +38,7 @@ INTEGRATION_OUTPUT_OPTIONS ?= --output-interceptor-mode=none
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.30.13 1.31.9 1.32.5 1.33.1
+E2E_K8S_VERSIONS ?= 1.31.9 1.32.5 1.33.1
 E2E_K8S_VERSION ?= 1.33
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found

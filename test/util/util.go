@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -78,16 +77,8 @@ const (
 	defaultLogLevel = -3
 )
 
-func logLevel() int {
-	level, err := strconv.Atoi(os.Getenv("TEST_LOG_LEVEL"))
-	if err != nil {
-		return defaultLogLevel
-	}
-	return level
-}
-
 var SetupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, logLevel()))
+	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, testing.LogLevelWithDefault(defaultLogLevel)))
 })
 
 type objAsPtr[T any] interface {
@@ -373,6 +364,14 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
 	if sleep > 0 {
 		time.Sleep(sleep)
@@ -571,6 +570,11 @@ func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	expectCounterMetric(metric, v)
 }
 
+func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason string, v int) {
+	metric := metrics.PodsReadyToEvictedTimeSeconds
+	expectHistogramMetric(metric, cqName, reason, v)
+}
+
 func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause string, v int) {
 	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause)
 	expectCounterMetric(metric, v)
@@ -589,6 +593,14 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionReason string, count int) {
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())

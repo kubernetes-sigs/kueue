@@ -583,7 +583,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					read := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify resourceRequests is not transformed", func() {
@@ -650,7 +650,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					read := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Decreasing the runtimeClass", func() {
@@ -735,7 +735,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					read := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Decreasing the limit's default", func() {

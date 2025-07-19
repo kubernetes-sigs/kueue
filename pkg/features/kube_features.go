@@ -83,13 +83,6 @@ const (
 	// Enable the usage of batch.Job spec.managedBy field its MultiKueue integration.
 	MultiKueueBatchJobWithManagedBy featuregate.Feature = "MultiKueueBatchJobWithManagedBy"
 
-	// owner: @gabesaba
-	// kep: https://github.com/kubernetes-sigs/kueue/issues/2596
-	//
-	// Enable more than one workload sharing flavors to preempt within a Cohort,
-	// as long as the preemption targets don't overlap.
-	MultiplePreemptions featuregate.Feature = "MultiplePreemptions"
-
 	// owner: @mimowo
 	//
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
@@ -102,13 +95,6 @@ const (
 	// Enable applying configurable resource transformations when computing
 	// the resource requests of a Workload
 	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
-
-	// owner: @dgrove-oss
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
-	//
-	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
-	// to improve observability
-	WorkloadResourceRequestsSummary featuregate.Feature = "WorkloadResourceRequestsSummary"
 
 	// owner: @mbobrovskyi
 	//
@@ -169,6 +155,18 @@ const (
 	//
 	// Enable replacement of failed node in TAS.
 	TASFailedNodeReplacement featuregate.Feature = "TASFailedNodeReplacement"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Evict Workload if Kueue couldn't find replacement for a failed node in TAS in the first attempt.
+	TASFailedNodeReplacementFailFast featuregate.Feature = "TASFailedNodeReplacementFailFast"
+
+	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
+	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
 )
 
 func init() {
@@ -214,11 +212,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueBatchJobWithManagedBy: {
 		{Version: version.MustParse("0.8"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	MultiplePreemptions: {
-		{Version: version.MustParse("0.8"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.12
-	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -226,16 +219,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
 	},
-	WorkloadResourceRequestsSummary: {
-		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.13
-	},
 	ExposeFlavorsInLocalQueue: {
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ManagedJobsNamespaceSelector: {
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.15
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
@@ -263,6 +252,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASFailedNodeReplacementFailFast: {
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASReplaceNodeOnPodTermination: {
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -1,28 +1,29 @@
 ---
-title: "Run job with WorkloadPriority"
+title: "使用工作负载优先级（`WorkloadPriority`）运行作业（Job）"
 date: 2023-10-02
 weight: 4
 description: >
-  Run job with WorkloadPriority, which is independent from Pod's priority
+  使用工作负载优先级运行作业（Job），此优先级（Priority）与 Pod 优先级无关
 ---
 
-Usually, in Kueue, workload's priority is calculated using for pod's priority for queuing and preemption.  
-By using a [`WorkloadPriorityClass`](/docs/concepts/workload_priority_class),
-you can independently manage the priority of workloads for queuing and preemption, separate from pod's priority.  
+通常，在 Kueue 中，工作负载的优先级是使用 Pod 的优先级来计算的，用于排队和抢占。
 
-This page contains instructions on how to run a job with workload priority.
+通过使用 [`WorkloadPriorityClass`](/zh-CN/docs/concepts/workload_priority_class)，
+你可以独立管理工作负载的优先级，以便进行排队和抢占，与 Pod 的优先级分开。
 
-## Before you begin
+此页面包含如何使用工作负载优先级运行作业的说明。
 
-Make sure the following conditions are met:
+## 在你开始之前
 
-- A Kubernetes cluster is running.
-- The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/installation).
+确保满足以下条件：
 
-## 0. Create WorkloadPriorityClass
+- 一个正在运行的 Kubernetes 集群。
+- kubectl 命令行工具能够与你的集群通信。
+- [Kueue 已安装](/zh-CN/docs/installation)。
 
-The WorkloadPriorityClass should be created first.
+## 0. 创建 WorkloadPriorityClass
+
+首先应该创建 WorkloadPriorityClass。
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -33,10 +34,10 @@ value: 10000
 description: "Sample priority"
 ```
 
-## 1. Create Job with `kueue.x-k8s.io/priority-class` label
+## 1. 创建带有 `kueue.x-k8s.io/priority-class` 标签的作业
 
-You can specify the `WorkloadPriorityClass` by setting the label `kueue.x-k8s.io/priority-class`.
-This is same for other CRDs like `RayJob`.  
+你可以通过设置 `kueue.x-k8s.io/priority-class` 标签来指定 `WorkloadPriorityClass`。
+这与其他 CRD（例如 `RayJob`）相同。
 
 ```yaml
 apiVersion: batch/v1
@@ -59,11 +60,12 @@ spec:
       restartPolicy: Never
 ```
 
-Kueue generates the following `Workload` for the Job above.
-The priority of workloads is utilized in queuing, preemption, and other scheduling processes in Kueue.
-This priority doesn't affect pod's priority.  
-Workload's `Priority` field is always mutable because it might be useful for the preemption.
-Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable.
+Kueue 为上述作业生成了以下 `Workload`。
+工作负载的优先级在 Kueue 中用于排队、抢占和其他调度过程。
+此优先级不影响 Pod 的优先级。
+
+工作负载的 `Priority` 字段总是可变的，因为这对于抢占可能有用。
+工作负载的 `PriorityClassSource` 和 `PriorityClassName` 字段是不可变的。
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1

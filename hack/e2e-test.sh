@@ -32,8 +32,6 @@ function cleanup {
         fi
         cluster_cleanup "$KIND_CLUSTER_NAME" ""
     fi
-    #do the image restore here for the case when an error happened during deploy
-    restore_managers_image
 }
 
 function startup {
@@ -44,11 +42,6 @@ function startup {
         fi
         cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
     fi
-}
-
-function kueue_deploy {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-    cluster_kueue_deploy ""
 }
 
 trap cleanup EXIT

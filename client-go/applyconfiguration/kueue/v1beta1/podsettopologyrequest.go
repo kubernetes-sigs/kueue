@@ -26,6 +26,7 @@ type PodSetTopologyRequestApplyConfiguration struct {
 	PodIndexLabel               *string `json:"podIndexLabel,omitempty"`
 	SubGroupIndexLabel          *string `json:"subGroupIndexLabel,omitempty"`
 	SubGroupCount               *int32  `json:"subGroupCount,omitempty"`
+	PodSetGroupName             *string `json:"podSetGroupName,omitempty"`
 	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
 	PodSetSliceSize             *int32  `json:"podSetSliceSize,omitempty"`
 }
@@ -81,6 +82,14 @@ func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupIndexLabel(value s
 // If called multiple times, the SubGroupCount field is set to the value of the last call.
 func (b *PodSetTopologyRequestApplyConfiguration) WithSubGroupCount(value int32) *PodSetTopologyRequestApplyConfiguration {
 	b.SubGroupCount = &value
+	return b
+}
+
+// WithPodSetGroupName sets the PodSetGroupName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodSetGroupName field is set to the value of the last call.
+func (b *PodSetTopologyRequestApplyConfiguration) WithPodSetGroupName(value string) *PodSetTopologyRequestApplyConfiguration {
+	b.PodSetGroupName = &value
 	return b
 }
 

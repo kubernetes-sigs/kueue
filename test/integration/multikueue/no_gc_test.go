@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -222,9 +221,6 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 	})
 
 	ginkgo.It("Should remove the worker's workload when AC is rejected (from pending)", func() {
-		if managerK8sVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
-			ginkgo.Skip("the managers kubernetes version is less then 1.30")
-		}
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).

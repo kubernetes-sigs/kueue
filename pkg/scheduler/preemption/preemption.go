@@ -39,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -139,13 +140,13 @@ var HumanReadablePreemptionReasons = map[string]string{
 
 func preemptionMessage(preemptor *kueue.Workload, reason string) string {
 	var wUID, jUID string
-	if preemptor == nil || preemptor.UID == "" {
+	if preemptor.UID == "" {
 		wUID = "UNKNOWN"
 	} else {
 		wUID = string(preemptor.UID)
 	}
-	uid, ok := preemptor.Labels[constants.JobUIDLabel]
-	if !ok || uid == "" {
+	uid := preemptor.Labels[constants.JobUIDLabel]
+	if uid == "" {
 		jUID = "UNKNOWN"
 	} else {
 		jUID = uid
@@ -173,7 +174,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)))
 			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
-			metrics.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
+			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, target.WorkloadInfo.Obj)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 		}
@@ -513,12 +514,21 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
+func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
+	// If both workloads are in the same ClusterQueue, but different LocalQueues,
+	// we can compare their LocalQueue usage.
+	// If the LocalQueueUsage is not nil for both Workloads, it means the feature gate has been enabled, and the
+	// AdmissionScope of the ClusterQueue is set to UsageBasedFairSharing. We inherit this information from the snapshot initialization.
+	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
+}
+
 // candidatesOrdering criteria:
 // 0. Workloads already marked for preemption first.
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
-// 2. Workloads with lower priority first.
-// 3. Workloads admitted more recently first.
+// 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
+// 3. Workloads with lower priority first.
+// 4. Workloads admitted more recently first.
 func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
 	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
@@ -531,6 +541,11 @@ func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now
 		return !aInCQ
 	}
 
+	if features.Enabled(features.AdmissionFairSharing) && resourceUsagePreemptionEnabled(a, b) {
+		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
+			return *a.LocalQueueFSUsage > *b.LocalQueueFSUsage
+		}
+	}
 	pa := priority.Priority(a.Obj)
 	pb := priority.Priority(b.Obj)
 	if pa != pb {

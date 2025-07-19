@@ -145,7 +145,7 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		replicas = ptr.Deref(lws.Spec.Replicas, 1)
 	)
 
-	for i := int32(0); i < replicas; i++ {
+	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
 		if _, ok := toFinalize[workloadName]; ok {
 			delete(toFinalize, workloadName)

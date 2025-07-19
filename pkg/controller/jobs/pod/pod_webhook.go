@@ -136,7 +136,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if err != nil {
 			return fmt.Errorf("failed to get namespace: %w", err)
 		}
-		if features.Enabled(features.ManagedJobsNamespaceSelector) && !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+		if w.managedJobsNamespaceSelector != nil && !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
 			return nil
 		}
 

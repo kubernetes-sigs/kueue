@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -40,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -416,6 +418,12 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 	return a.assignFlavors(log, counts)
 }
 
+type indexedPodSet struct {
+	originalIndex    int
+	podSet           *workload.PodSetResources
+	podSetAssignment *PodSetAssignment
+}
+
 func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignment {
 	var requests []workload.PodSetResources
 	if len(counts) == 0 {
@@ -436,6 +444,8 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
 		},
 	}
+
+	groupedRequests := newPodSetGroups()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
@@ -466,23 +476,63 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			}
 		}
 
-		for resName := range podSet.Requests {
-			if _, found := psAssignment.Flavors[resName]; found {
+		groupKey := strconv.Itoa(i)
+		if tr := a.wl.Obj.Spec.PodSets[i].TopologyRequest; tr != nil && tr.PodSetGroupName != nil {
+			groupKey = *tr.PodSetGroupName
+		}
+
+		groupedRequests.insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
+	}
+
+	for _, podSets := range groupedRequests.orderedPodSetGroups() {
+		requests := make(resources.Requests)
+		psIDs := make([]int, len(podSets))
+		for idx, podset := range podSets {
+			psIDs[idx] = podset.originalIndex
+			requests.Add(podset.podSet.Requests)
+		}
+
+		groupFlavors := make(ResourceAssignment)
+		for _, ips := range podSets {
+			for resName := range ips.podSetAssignment.Flavors {
+				groupFlavors[resName] = ips.podSetAssignment.Flavors[resName]
+				break
+			}
+		}
+		var groupStatus *Status
+
+		for resName := range requests {
+			if _, found := groupFlavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
 				// No need to compute again.
 				continue
 			}
-			flavors, status := a.findFlavorForPodSetResource(log, i, podSet.Requests, resName, assignment.Usage.Quota)
+			flavors, status := a.findFlavorForPodSetResource(log, psIDs, requests, resName, assignment.Usage.Quota)
 			if status.IsError() || len(flavors) == 0 {
-				psAssignment.Flavors = nil
-				psAssignment.Status = status
+				groupFlavors = nil
+				groupStatus = status
 				break
 			}
-			psAssignment.append(flavors, status)
+			maps.Copy(groupFlavors, flavors)
+			if groupStatus == nil {
+				groupStatus = status
+			} else if status != nil {
+				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
+			}
 		}
+		atLeastOnePodsAssignmentFailed := false
+		for _, podSet := range podSets {
+			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.podSet.Requests)))
 
-		assignment.append(podSet.Requests, &psAssignment)
-		if psAssignment.Status.IsError() || (len(podSet.Requests) > 0 && len(psAssignment.Flavors) == 0) {
+			podSet.podSetAssignment.Flavors = podSetFlavors
+			podSet.podSetAssignment.Status = groupStatus
+
+			assignment.append(podSet.podSet.Requests, podSet.podSetAssignment)
+			if podSet.podSetAssignment.Status.IsError() || (len(podSet.podSet.Requests) > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
+				atLeastOnePodsAssignmentFailed = true
+			}
+		}
+		if atLeastOnePodsAssignmentFailed {
 			return assignment
 		}
 	}
@@ -522,15 +572,6 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	return assignment
 }
 
-func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) {
-	maps.Copy(psa.Flavors, flavors)
-	if psa.Status == nil {
-		psa.Status = status
-	} else if status != nil {
-		psa.Status.reasons = append(psa.Status.reasons, status.reasons...)
-	}
-}
-
 func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
@@ -552,7 +593,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 // reasons or failure.
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
-	psID int,
+	psIDs []int,
 	requests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
@@ -566,16 +607,23 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	status := &Status{}
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
-	ps := &a.wl.Obj.Spec.PodSets[psID]
-	podSpec := &ps.Template.Spec
+
+	podSets := make([]*kueue.PodSet, len(psIDs))
+	selectors := make([]nodeaffinity.RequiredNodeAffinity, len(psIDs))
+
+	for idx, psID := range psIDs {
+		ps := &a.wl.Obj.Spec.PodSets[psID]
+		podSets[idx] = ps
+
+		selectors[idx] = flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
+	}
 
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := noFit
 
 	// We will only check against the flavors' labels for the resource.
-	selector := flavorSelector(podSpec, resourceGroup.LabelKeys)
 	attemptedFlavorIdx := -1
-	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
+	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psIDs[0], resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
@@ -585,26 +633,37 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			status.appendf("flavor %s not found", fName)
 			continue
 		}
-		if features.Enabled(features.TopologyAwareScheduling) {
-			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
-				log.Error(nil, *message)
-				status.appendf("%s", *message)
-				continue
+
+		var flavorUnmatchMessage *string
+		for psIdx, psID := range psIDs {
+			if features.Enabled(features.TopologyAwareScheduling) {
+				ps := &a.wl.Obj.Spec.PodSets[psID]
+				flavorUnmatchMessage = checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor)
+				if flavorUnmatchMessage != nil {
+					log.Error(nil, *flavorUnmatchMessage)
+					break
+				}
+			}
+			podSpec := podSets[psIdx].Template.Spec
+			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
+				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
+			})
+			if untolerated {
+				flavorUnmatchMessage = ptr.To(fmt.Sprintf("untolerated taint %s in flavor %s", taint, fName))
+				break
+			}
+			selector := selectors[psIdx]
+			if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
+				if err != nil {
+					status.err = err
+					return nil, status
+				}
+				flavorUnmatchMessage = ptr.To(fmt.Sprintf("flavor %s doesn't match node affinity", fName))
+				break
 			}
 		}
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
-			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-		})
-		if untolerated {
-			status.appendf("untolerated taint %s in flavor %s", taint, fName)
-			continue
-		}
-		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
-			if err != nil {
-				status.err = err
-				return nil, status
-			}
-			status.appendf("flavor %s doesn't match node affinity", fName)
+		if flavorUnmatchMessage != nil {
+			status.reasons = append(status.reasons, *flavorUnmatchMessage)
 			continue
 		}
 		needsBorrowing := false

@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/version"
 )
 
 type AdmissionResult string
@@ -97,6 +98,15 @@ The label 'result' can have the following values:
 
 	// Metrics tied to the queue system.
 
+	buildInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "build_info",
+			Help:      "Kueue build information. 1 labeled by git version, git commit, build date, go version, compiler, platform",
+		},
+		[]string{"git_version", "git_commit", "build_date", "go_version", "compiler", "platform"},
+	)
+
 	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -142,6 +152,21 @@ The label 'result' can have the following values:
 			Help:      "The time between a workload was created or requeued until it got quota reservation, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(14),
 		}, []string{"cluster_queue"},
+	)
+
+	PodsReadyToEvictedTimeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pods_ready_to_evicted_time_seconds",
+			Help: `The number of seconds between a workload's pods being ready and eviction workloads per 'cluster_queue',
+The label 'reason' can have the following values:
+- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
+- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
+- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
+- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
+- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+			Buckets: generateExponentialBuckets(14),
+		}, []string{"cluster_queue", "reason"},
 	)
 
 	localQueueQuotaReservedWaitTime = prometheus.NewHistogramVec(
@@ -433,6 +458,11 @@ the maximum possible share value.`,
 	)
 )
 
+func init() {
+	versionInfo := version.Get()
+	buildInfo.WithLabelValues(versionInfo.GitVersion, versionInfo.GitCommit, versionInfo.BuildDate, versionInfo.GoVersion, versionInfo.Compiler, versionInfo.Platform).Set(1)
+}
+
 func generateExponentialBuckets(count int) []float64 {
 	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
 }
@@ -496,8 +526,11 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, reason string) {
-	EvictedWorkloadsTotal.WithLabelValues(string(cqName), reason).Inc()
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason string, durationToPreemption *time.Duration) {
+	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason).Inc()
+	if durationToPreemption != nil {
+		PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), evictionReason).Observe(durationToPreemption.Seconds())
+	}
 }
 
 func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason string) {
@@ -508,9 +541,9 @@ func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, unde
 	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause).Inc()
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, durationToPreemption *time.Duration) {
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
-	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
+	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption, durationToPreemption)
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
@@ -526,6 +559,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
 	QuotaReservedWorkloadsTotal.DeleteLabelValues(cqName)
 	quotaReservedWaitTime.DeleteLabelValues(cqName)
+	PodsReadyToEvictedTimeSeconds.DeleteLabelValues(cqName)
 	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
 	admissionWaitTime.DeleteLabelValues(cqName)
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
@@ -688,6 +722,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 
 func Register() {
 	metrics.Registry.MustRegister(
+		buildInfo,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
@@ -696,6 +731,7 @@ func Register() {
 		AdmittedActiveWorkloads,
 		QuotaReservedWorkloadsTotal,
 		quotaReservedWaitTime,
+		PodsReadyToEvictedTimeSeconds,
 		AdmittedWorkloadsTotal,
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,

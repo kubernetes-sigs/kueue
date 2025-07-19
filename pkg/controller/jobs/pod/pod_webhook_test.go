@@ -83,8 +83,7 @@ func TestDefault(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		enableTopologyAwareScheduling      bool
-		enableManagedJobsNamespaceSelector bool
+		enableTopologyAwareScheduling bool
 
 		initObjects                  []client.Object
 		pod                          *corev1.Pod
@@ -431,10 +430,9 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
-		"ManagedJobsNamespaceSelector is enabled and the namespace matches the selector": {
-			enableManagedJobsNamespaceSelector: true,
-			initObjects:                        []client.Object{defaultNamespace},
-			managedJobsNamespaceSelector:       defaultManagedJobsNamespaceSelector,
+		"the namespace matches the selector": {
+			initObjects:                  []client.Object{defaultNamespace},
+			managedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("queue").
 				Obj(),
@@ -445,8 +443,7 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
-		"ManagedJobsNamespaceSelector is enabled but doesn’t match the managedJobsNamespaceSelector": {
-			enableManagedJobsNamespaceSelector: true,
+		"doesn’t match the managedJobsNamespaceSelector": {
 			initObjects: []client.Object{
 				utiltesting.MakeNamespaceWrapper("kube-system").Label(corev1.LabelMetadataName, "kube-system").Obj(),
 			},
@@ -515,7 +512,6 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, tc.enableManagedJobsNamespaceSelector)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			builder := utiltesting.NewClientBuilder(rayv1.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, appsv1.AddToScheme)

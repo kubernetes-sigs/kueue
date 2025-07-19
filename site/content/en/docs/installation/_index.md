@@ -266,7 +266,7 @@ spec:
 ### Feature gates for alpha and beta features
 
 | Feature                               | Default | Stage | Since | Until |
-|---------------------------------------|---------|-------|-------|-------|
+| ------------------------------------- | ------- | ----- | ----- | ----- |
 | `FlavorFungibility`                   | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                          | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                          | `true`  | Beta  | 0.9   |       |
@@ -281,14 +281,10 @@ spec:
 | `PrioritySortingWithinCohort`         | `true`  | Beta  | 0.6   |       |
 | `LendingLimit`                        | `false` | Alpha | 0.6   | 0.8   |
 | `LendingLimit`                        | `true`  | Beta  | 0.9   |       |
-| `MultiplePreemptions`                 | `false` | Alpha | 0.8   | 0.8   |
-| `MultiplePreemptions`                 | `true`  | Beta  | 0.9   | 0.9   |
 | `TopologyAwareScheduling`             | `false` | Alpha | 0.9   |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta  | 0.10  |       |
-| `WorkloadResourceRequestsSummary`     | `false` | Alpha | 0.9   | 0.9   |
-| `WorkloadResourceRequestsSummary`     | `true`  | Beta  | 0.10  | 0.10  |
-| `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  |       |
+| `ManagedJobsNamespaceSelector`        | `true`  | Beta  | 0.10  | 0.13  |
 | `LocalQueueDefaulting`                | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                   | `false` | Alpha | 0.10  |       |
@@ -296,19 +292,16 @@ spec:
 | `ObjectRetentionPolicies`             | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
 | `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
+| `TASFailedNodeReplacementFailFast`    | `false` | Alpha | 0.12  |       |
+| `TASReplaceNodeOnPodTermination`      | `false` | Alpha | 0.13  |       |
 
 ### Feature gates for graduated or deprecated features
 
 | Feature                           | Default | Stage      | Since | Until |
-|-----------------------------------|---------|------------|-------|-------|
+| --------------------------------- | ------- | ---------- | ----- | ----- |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
 | `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
-| `MultiplePreemptions`             | `false` | Alpha      | 0.8   | 0.8   |
-| `MultiplePreemptions`             | `true`  | Beta       | 0.9   | 0.9   |
-| `MultiplePreemptions`             | `true`  | GA         | 0.10  |       |
-| `WorkloadResourceRequestsSummary` | `false` | Alpha      | 0.9   | 0.10  |
-| `WorkloadResourceRequestsSummary` | `true`  | Beta       | 0.10  | 0.11  |
-| `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11  |       |
 | `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
 | `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |

@@ -31,7 +31,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestValidate(t *testing.T) {
@@ -68,9 +67,8 @@ func TestValidate(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		cfg                    *configapi.Configuration
-		wantErr                field.ErrorList
-		managedJobsFeatureGate bool
+		cfg     *configapi.Configuration
+		wantErr field.ErrorList
 	}{
 		"empty": {
 			cfg: &configapi.Configuration{},
@@ -208,22 +206,6 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector with mjns feature gate disabled": {
-			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: nil,
-				},
-			},
-			managedJobsFeatureGate: false,
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
 		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: defaultQueueVisibility,
@@ -232,33 +214,10 @@ func TestValidate(t *testing.T) {
 					PodOptions: nil,
 				},
 			},
-			managedJobsFeatureGate: true,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "managedJobsNamespaceSelector",
-				},
-				&field.Error{
-					Type:  field.ErrorTypeRequired,
-					Field: "managedJobsNamespaceSelector",
-				},
-			},
-		},
-		"nil PodIntegrationOptions.NamespaceSelector and nil managedJobsNamespaceSelector": {
-			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: nil,
-					},
-				},
-			},
-			managedJobsFeatureGate: false,
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeRequired,
-					Field: "integrations.podOptions.namespaceSelector",
 				},
 			},
 		},
@@ -290,8 +249,7 @@ func TestValidate(t *testing.T) {
 				ManagedJobsNamespaceSelector: systemNamespacesSelector,
 				Integrations:                 defaultIntegrations,
 			},
-			wantErr:                nil,
-			managedJobsFeatureGate: true,
+			wantErr: nil,
 		},
 
 		"prohibited namespace in MatchLabels": {
@@ -331,7 +289,6 @@ func TestValidate(t *testing.T) {
 					Field: "managedJobsNamespaceSelector",
 				},
 			},
-			managedJobsFeatureGate: true,
 		},
 		"prohibited namespace in MatchExpressions with operator In": {
 			cfg: &configapi.Configuration{
@@ -378,7 +335,6 @@ func TestValidate(t *testing.T) {
 					Field: "managedJobsNamespaceSelector",
 				},
 			},
-			managedJobsFeatureGate: true,
 		},
 		"prohibited namespace in MatchExpressions with operator NotIn": {
 			cfg: &configapi.Configuration{
@@ -414,8 +370,7 @@ func TestValidate(t *testing.T) {
 				},
 				Integrations: defaultIntegrations,
 			},
-			wantErr:                nil,
-			managedJobsFeatureGate: true,
+			wantErr: nil,
 		},
 		"no supported waitForPodsReady.requeuingStrategy.timestamp": {
 			cfg: &configapi.Configuration{
@@ -873,7 +828,6 @@ func TestValidate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, tc.managedJobsFeatureGate)
 			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}

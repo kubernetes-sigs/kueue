@@ -1641,6 +1641,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The LocalQueue is stopped",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToLocalQueueStopped",
+					Message:   "The LocalQueue is stopped",
+				},
+			},
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
 			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),

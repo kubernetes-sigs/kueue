@@ -3,6 +3,7 @@ kep-number: 2724
 authors:
   - "@mimowo"
   - "@mwielgus"
+  - "@pbundyra"
 status: provisional
 creation-date: 2023-07-30
 reviewers:
@@ -37,6 +38,9 @@ feature-gates:
   - name: TASProfileLeastAllocated
   - name: TASProfileMixed
   - name: TASProfileLeastFreeCapacity
+  - name: TASFailedNodeReplacement
+  - name: TASFailedNodeReplacementFailFast
+  - name: TASReplaceNodeOnPodTermination
 disable-supported: true
 
 # The following PRR answers are required at beta release

@@ -413,6 +413,8 @@ objectRetentionPolicies:
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 	}
 
+	defaultWaitForPodsReady := &configapi.WaitForPodsReady{}
+
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -431,6 +433,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -487,6 +490,7 @@ objectRetentionPolicies:
 						},
 					},
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -506,6 +510,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
@@ -547,6 +552,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -568,6 +574,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -587,6 +594,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -676,6 +684,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -698,6 +707,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -751,6 +761,7 @@ objectRetentionPolicies:
 				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -793,6 +804,7 @@ objectRetentionPolicies:
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -854,6 +866,7 @@ objectRetentionPolicies:
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -895,6 +908,7 @@ objectRetentionPolicies:
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -941,6 +955,7 @@ objectRetentionPolicies:
 						},
 					},
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -974,6 +989,7 @@ objectRetentionPolicies:
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -1087,6 +1103,7 @@ func TestEncode(t *testing.T) {
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
 				},
+				"waitForPodsReady": map[string]any{},
 			},
 		},
 	}
@@ -1113,9 +1130,6 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 		cfg  *configapi.Configuration
 		want bool
 	}{
-		"cfg.waitForPodsReady is null": {
-			cfg: &configapi.Configuration{},
-		},
 		"cfg.WaitForPodsReadyIsEnabled.enable is false": {
 			cfg: &configapi.Configuration{
 				WaitForPodsReady: &configapi.WaitForPodsReady{},
