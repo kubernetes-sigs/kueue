@@ -99,14 +99,6 @@ linters:
           - revive
         path: 'test/util/*'
         text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
-      - linters:
-          - revive
-        path: 'pkg/visibility/server.go'
-        text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
-      - linters:
-          - revive
-        path: 'pkg/controller/jobframework/setup.go'
-        text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
     paths:
       - bin
       - vendor
