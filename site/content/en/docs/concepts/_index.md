@@ -64,7 +64,12 @@ but it should not to be confused with [pod scheduling](https://kubernetes.io/doc
 
 ### [Admission](docs/concepts/admission/)
 
-_Admission_ is the process of allowing a Workload to start (Pods to be created). A Workload is admitted when it has a Quota Reservation and all its AdmissionCheckStates are `Ready`. 
+_Admission_ is the process of allowing a Workload to start (Pods to be created). 
+
+A Workload is admitted when:
+- it has the `Quota Reservation` condition
+- the physical Node capacity allows to run the Workload, when [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling/) is used
+- all(optional) its AdmissionCheckStates are in the`Ready` state. 
 
 ### [Cohort](/docs/concepts/cluster_queue#cohort)
 

@@ -3,17 +3,24 @@ title: "Admission"
 date: 
 weight: 
 description: >
-  Kueue's admission process where quota reservation meets physical capacity guarantees, using ProvisioningRequest for autoscaling integration.
+  Kueue's admission process determines when a Job should be started.
 ---
 
-Kueue's admission process determines whether a Workload can begin execution. It involves verifying logical resource availability through quota reservation, followed by performing AdmissionChecks to validate physical resource provisioning and policy compliance. 
+Kueue's admission process determines whether a Workload can begin execution. 
+
+It involves verifying:
+- logical resource availability via quota reservation
+- physical resource availability via Topology-Aware Scheduling, when used,
+- optional AdmissionChecks for additional admission guards.
 
 Kueue implements this through a two-phase admission cycle: 
 
-1. **Quota Reservation:** When a user submits a Workload, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue checks if the targeted ClusterQueue's available quota and resource flavors can accomodate requested resources (CPU, memory, GPUs, etc.). If the quota is available, the Kueue reserves resources for this Workload and prevents other Workloads from using the same resources. 
+1. **Quota Reservation:** When a user submits a Workload, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue checks if the targeted ClusterQueue's available quota and resource flavors can accomodate requested resources (CPU, memory, GPUs, etc.). If the quota is available, the Kueue reserves resources for this Workload and prevents other Workloads from using the same resources. This phase also includes checking the availability of physical resources when 
+    Topology-Aware Scheduling is enabled.
 
-2. **Admission Checks:** After the quota reservation, Kueue executes all [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue, concurrently. These are the pluggable controllers that can perform validations such as policy checks, compliance, etc.
-These checks can be external or internal and determine if additional criteria are met before the Workload is admitted. The Workload is admitted once all its [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are marked `Ready`.
+2. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. can be either built-in like [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/admission-check-controllers/provisioning/), or are the pluggable
+controllers that can perform validations such as policy checks, compliance, etc.
+The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are in the `Ready` state.
 
 ## Provisioning AdmissionCheck 
 
