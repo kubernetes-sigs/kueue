@@ -1223,7 +1223,7 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 			return fmt.Errorf("unexpected workload-slice name collision: %s", wl.Name)
 		}
 		// Annotate new workload slice with the preemptible (old) workload slice.
-		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementForKey, string(workload.Key(&oldSlice)))
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
@@ -1325,7 +1325,8 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 
 	// Wait until there are no active pods, unless this is a workload-slice job.
-	// For workload-slice enabled job we allow for job to be "Active".
+	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
+	// the scale-up case, where the new workload slice replaces the old workload slice.
 	if job.IsActive() && !workloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil

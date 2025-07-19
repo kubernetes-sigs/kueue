@@ -62,19 +62,19 @@ func Enabled(object metav1.Object) bool {
 }
 
 const (
-	// WorkloadSliceReplacementForKey is the annotation key used to capture an "old" workload slice
-	// that will be preempted by the "new" workload slice, i.e., this annotates a "new" workload slice.
-	WorkloadSliceReplacementForKey = "kueue.x-k8s.io/workload-slice-replacement-for"
+	// WorkloadSliceReplacementFor is the annotation key used to capture an "old" workload slice key
+	// that will be preempted by the "new", e.g., this workload slice with annotation.
+	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 
-// ReplacementForKey returns a value for workload "WorkloadSliceReplacementForKey" annotation
+// ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
 // key if this workload was annotated with such, otherwise, returns an empty string.
 func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	annotations := wl.GetAnnotations()
 	if len(annotations) == 0 {
 		return nil
 	}
-	key, found := annotations[WorkloadSliceReplacementForKey]
+	key, found := annotations[WorkloadSliceReplacementFor]
 	if !found {
 		return nil
 	}

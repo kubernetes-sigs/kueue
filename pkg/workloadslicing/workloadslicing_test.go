@@ -120,7 +120,7 @@ func TestPreemptibleSliceKey(t *testing.T) {
 		"Found": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadSliceReplacementForKey: string(testReference)}},
+					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)}},
 				},
 			},
 			want: &testReference,

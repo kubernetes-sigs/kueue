@@ -208,7 +208,7 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 			want: want{
 				workload: func() *kueue.Workload {
 					wl := testWorkload(t, testJob(2))
-					metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementForKey, string(workload.Key(testWorkload(t, testJob(1)))))
+					metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(testWorkload(t, testJob(1)))))
 					return wl
 				}(),
 			},
