@@ -1,138 +1,138 @@
 ---
-title: "Pending Workloads in Grafana"
+title: "Grafana 中监控待处理的工作负载"
 date: 2025-06-12
 weight: 20
 description: >
-  Monitoring Pending Workloads using the VisibilityOnDemand feature in Grafana.
+  使用 Grafana 中的 **VisibilityOnDemand** 特性监控待处理的工作负载。
 ---
 
-This guide explains how to monitor pending workloads in Grafana using the `VisibilityOnDemand` feature.
+本指南解释了如何使用 `VisibilityOnDemand` 特性在 Grafana 中监控待处理的工作负载。
 
-The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator)
-for ClusterQueue visibility, and [batch users](/docs/tasks#batch-user) for LocalQueue visibility.
+本文的受众是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)，
+用于 ClusterQueue 可见性，以及[批处理用户](/zh-cn/docs/tasks#batch-user)用于 LocalQueue 可见性。
 
-## Before you begin
+## 开始之前
 
-Make sure the following conditions are met:
+确保满足以下条件：
 
-- A Kubernetes cluster is running.
-- [Kueue](/docs/installation) is installed
-- [Kube-prometheus operator](https://github.com/prometheus-operator/kube-prometheus/blob/main/README.md#quickstart) is installed in version v0.15.0 or later.
-- The [VisibilityOnDemand](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#monitor-pending-workloads-on-demand) feature is enabled.
+- 正在运行一个 Kubernetes 集群。
+- 已安装 [Kueue](/zh-CN/docs/installation)
+- 已安装 [Kube-prometheus operator](https://github.com/prometheus-operator/kube-prometheus/blob/main/README.md#quickstart)
+  版本 v0.15.0 或更新版本。
+- 已启用 [VisibilityOnDemand](/zh-CN/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#monitor-pending-workloads-on-demand) 特性。
 
-## Setting Up Grafana for Pending Workloads
+## 配置 Grafana 监控待处理工作负载   {#setting-up-grafana-for-pending-workloads}
 
-### Step 1: Configure Cluster Permissions
+### 步骤 1：配置集群权限
 
-To enable visibility, create a `ClusterRole` and `ClusterRoleBinding` for either `ClusterQueue` or `LocalQueue`:
+为了启用可见性，为 `ClusterQueue` 或 `LocalQueue` 创建 `ClusterRole` 和 `ClusterRoleBinding`：
 
-- For `ClusterQueue` visibility:
+- 对于 `ClusterQueue` 可见性：
 
 {{< include "examples/visibility/grafana-cluster-queue-reader.yaml" "yaml" >}}
 
-- For `LocalQueue` visibility:
+- 对于 `LocalQueue` 可见性：
 
 {{< include "examples/visibility/grafana-local-queue-reader.yaml" "yaml" >}}
 
-Apply the appropriate configuration:
+应用适当的配置：
 
 ```shell
 kubectl apply -f <filename>.yaml
 ```
 
-### Step 2: Generate a Service Account Token
+### 步骤 2：生成服务账号令牌
 
-Create a token for Grafana authentication:
+为 Grafana 创建身份验证令牌：
 
 ```shell
 TOKEN=$(kubectl create token default -n default)
 echo $TOKEN
 ```
 
-Save the token for use in Step 5.
+保存令牌，以便在步骤 5 中使用。
 
-### Step 3: Set up port forwarding for Grafana
+### 步骤 3：为 Grafana 设置端口转发
 
-Access Grafana locally:
+本地访问 Grafana ：
 
 ```shell
 kubectl port-forward -n monitoring service/grafana 3000:3000
 ```
 
-Grafana is now available at [http://localhost:3000](http://localhost:3000).
+Grafana 现已在 [http://localhost:3000](http://localhost:3000) 可用。
 
-### Step 4: Install the Infinity Plugin
+### 步骤 4：安装 Infinity 插件
 
-1. Open Grafana at [http://localhost:3000](http://localhost:3000).
-2. Log in (default credentials: admin/admin).
-3. Go to `Connections` > `Add new connection`. 
-4. Search for `Infinity` and click `Install`.
+1. 打开 Grafana，访问 [http://localhost:3000](http://localhost:3000)。
+2. 登录（默认凭据：admin/admin）。
+3. 转到 `Connections` > `Add new connection`。
+4. 搜索 `Infinity` 并点击 `Install`。
 
-### Step 5: Configure the Infinity Data Source
+### 步骤 5：配置 Infinity 数据源
 
-1. Go to `Connections` >` Data sources` and click `+ Add new data source`.
-2. Select `Infinity`.
-3. Configure the data source:
-    - Authentication: Set the `Bearer Token` to the token generated in Step 2.
-    - Network: Enable `Skip TLS Verify`.
-    - Security: Add `https://kubernetes.default.svc` to allowed hosts and set `Query security` to `Allowed`.
-4. Click `Save & test` to verify the configuration.
+1. 转到 `Connections` > `Data sources` 并点击 `+ Add new data source`。
+2. 选择 `Infinity`。
+3. 配置数据源：
+    - 认证：设置 `Bearer Token` 为步骤 2 中生成的令牌。
+    - 网络：启用 `Skip TLS Verify`。
+    - 安全性：添加 `https://kubernetes.default.svc` 到允许的主机，并将 `Query security` 设置为 `Allowed`。
+4. 点击 `Save & test` 以验证配置。
 
+### 步骤 6：导入待处理工作负载仪表板
 
-### Step 6: Import the Pending Workloads Dashboard
+1. 下载适当的仪表板 JSON：
+    - [ClusterQueue 可视化](examples/visibility/pending-workloads-for-cluster-queue-visibility-dashboard.json)。
+    - [LocalQueue 可视化](examples/visibility/pending-workloads-for-local-queue-visibility-dashboard.json)。
+2. 在 Grafana 中，转到 `Dashboards` > `New` > `Import`。
+3. 选择 `Upload dashboard JSON` 文件并选择下载的文件。
+4. 选择在步骤 5 中配置的 Infinity 数据源。
+5. 点击 `Import`。
 
-1. Download the appropriate dashboard JSON:
-   - [ClusterQueue Visibility](examples/visibility/pending-workloads-for-cluster-queue-visibility-dashboard.json).
-   - [LocalQueue Visibility](examples/visibility/pending-workloads-for-local-queue-visibility-dashboard.json).
-2. In Grafana, go to `Dashboards` > `New` > `Import`.
-3. Select `Upload dashboard JSON` file and choose the downloaded file.
-4. Select the Infinity data source configured in Step 5.
-5. Click `Import`.
+### 步骤 7：设置 ClusterQueue
 
-### Step 7: Set Up ClusterQueue
-
-To configure a basic `ClusterQueue`, apply the following:
+要配置一个基本的 `ClusterQueue`，应用以下内容：
 
 {{< include "examples/admin/single-clusterqueue-setup.yaml" "yaml" >}}
 
-Apply the configuration:
+应用配置：
 
 ```shell
 kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/single-clusterqueue-setup.yaml
 ```
 
-### Step 8: Create Sample Workloads
+### 步骤 8：创建示例工作负载
 
-To populate the dashboard with data, create sample jobs:
+要向仪表板填充数据，创建示例作业：
 
 {{< include "examples/jobs/sample-job.yaml" "yaml" >}}
 
-Apply the job multiple times:
+多次应用该作业：
 
 ```shell
 for i in {1..6}; do kubectl create -f https://kueue.sigs.k8s.io/examples/jobs/sample-job.yaml; done
 ```
 
-### Step 9: View the Dashboard
+### 步骤 9：查看仪表板
 
-1. In Grafana, navigate to `Dashboards`.
-2. Select the imported dashboard (e.g., "Pending Workloads for ClusterQueue visibility").
-3. Verify that pending workloads are displayed.
+1. 在 Grafana 中，导航到 `Dashboards`。
+2. 选择导入的仪表板（例如，“ClusterQueue 可见性的待处理工作负载”）。
+3. 确认显示了待处理的工作负载。
 
 ![ClusterQueue Visibility Dashboard](/images/pending-workloads-for-cluster-queue-visibility-dashboard.png)
 
 ![LocalQueue Visibility Dashboard](/images/pending-workloads-for-local-queue-visibility-dashboard.png)
 
-## Troubleshooting
+## 故障排查
 
-### No data in dashboard
+### 仪表板中无数据
 
-Ensure jobs are created and the `Infinity` data source is correctly configured.
+确保已创建作业并且正确配置了 `Infinity` 数据源。
 
-### Permission errors
+### 权限错误
 
-Verify the `ClusterRole` and `ClusterRoleBinding` are applied correctly.
+验证是否正确应用了 `ClusterRole` 和 `ClusterRoleBinding`。
 
-### Grafana inaccessible
+### 无法访问 Grafana
 
-Check port forwarding and ensure the Grafana service is running in the monitoring namespace.
+检查端口转发并确保 Grafana 服务在 monitoring 命名空间中运行。
