@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // ResourceFlavorApplyConfiguration represents a declarative configuration of the ResourceFlavor type for use
@@ -39,6 +42,41 @@ func ResourceFlavor(name string) *ResourceFlavorApplyConfiguration {
 	b.WithKind("ResourceFlavor")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractResourceFlavor extracts the applied configuration owned by fieldManager from
+// resourceFlavor. If no managedFields are found in resourceFlavor for fieldManager, a
+// ResourceFlavorApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// resourceFlavor must be a unmodified ResourceFlavor API object that was retrieved from the Kubernetes API.
+// ExtractResourceFlavor provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractResourceFlavor(resourceFlavor *kueuev1beta1.ResourceFlavor, fieldManager string) (*ResourceFlavorApplyConfiguration, error) {
+	return extractResourceFlavor(resourceFlavor, fieldManager, "")
+}
+
+// ExtractResourceFlavorStatus is the same as ExtractResourceFlavor except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractResourceFlavorStatus(resourceFlavor *kueuev1beta1.ResourceFlavor, fieldManager string) (*ResourceFlavorApplyConfiguration, error) {
+	return extractResourceFlavor(resourceFlavor, fieldManager, "status")
+}
+
+func extractResourceFlavor(resourceFlavor *kueuev1beta1.ResourceFlavor, fieldManager string, subresource string) (*ResourceFlavorApplyConfiguration, error) {
+	b := &ResourceFlavorApplyConfiguration{}
+	err := managedfields.ExtractInto(resourceFlavor, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.ResourceFlavor"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(resourceFlavor.Name)
+
+	b.WithKind("ResourceFlavor")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value

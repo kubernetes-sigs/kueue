@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // AdmissionCheckApplyConfiguration represents a declarative configuration of the AdmissionCheck type for use
@@ -40,6 +43,41 @@ func AdmissionCheck(name string) *AdmissionCheckApplyConfiguration {
 	b.WithKind("AdmissionCheck")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractAdmissionCheck extracts the applied configuration owned by fieldManager from
+// admissionCheck. If no managedFields are found in admissionCheck for fieldManager, a
+// AdmissionCheckApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// admissionCheck must be a unmodified AdmissionCheck API object that was retrieved from the Kubernetes API.
+// ExtractAdmissionCheck provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractAdmissionCheck(admissionCheck *kueuev1beta1.AdmissionCheck, fieldManager string) (*AdmissionCheckApplyConfiguration, error) {
+	return extractAdmissionCheck(admissionCheck, fieldManager, "")
+}
+
+// ExtractAdmissionCheckStatus is the same as ExtractAdmissionCheck except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractAdmissionCheckStatus(admissionCheck *kueuev1beta1.AdmissionCheck, fieldManager string) (*AdmissionCheckApplyConfiguration, error) {
+	return extractAdmissionCheck(admissionCheck, fieldManager, "status")
+}
+
+func extractAdmissionCheck(admissionCheck *kueuev1beta1.AdmissionCheck, fieldManager string, subresource string) (*AdmissionCheckApplyConfiguration, error) {
+	b := &AdmissionCheckApplyConfiguration{}
+	err := managedfields.ExtractInto(admissionCheck, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.AdmissionCheck"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(admissionCheck.Name)
+
+	b.WithKind("AdmissionCheck")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value
