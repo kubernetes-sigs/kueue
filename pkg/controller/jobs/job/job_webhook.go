@@ -19,9 +19,11 @@ package job
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,10 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -42,6 +47,31 @@ var (
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
 	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
 )
+
+// applyWorkloadSliceSchedulingGate ensures that the workload slice-specific
+// PodSchedulingGate is present in the Workload-slice enabled Job's pod template.
+// If the scheduling gate is not already included, it appends it to the list of scheduling gates.
+//
+// This function is essential for enabling workload slice-aware scheduling
+// behavior in Kueue-managed Jobs, allowing for fine-grained control over
+// resource allocation and scheduling decisions.
+//
+// Parameters:
+//   - job: Pointer to the Job object to be modified.
+//
+// Note: This function modifies the Job's pod template in-place.
+func applyWorkloadSliceSchedulingGate(job *Job) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
+		return
+	}
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+	if slices.Contains(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+		return
+	}
+	job.Spec.Template.Spec.SchedulingGates = append(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
+}
 
 type JobWebhook struct {
 	client                       client.Client
@@ -84,6 +114,8 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+
+	applyWorkloadSliceSchedulingGate(job)
 
 	return nil
 }

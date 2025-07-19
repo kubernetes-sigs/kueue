@@ -384,15 +384,26 @@ type FlavorAssigner struct {
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
 	oracle            preemptionOracle
+
+	// preemptWorkloadSlice identifies the workload slice that will be mandatorily preempted
+	// by this workload. It must be considered during flavor computation and included in the preemption targets.
+	//
+	// Note: This value may be nil in the following cases:
+	//   - Workload slicing is not enabled (either globally or for this specific workload).
+	//   - The current workload does not represent a scale-up slice.
+	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
+	// non-sliced workloads.
+	preemptWorkloadSlice *workload.Info
 }
 
-func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle) *FlavorAssigner {
+func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
 	return &FlavorAssigner{
-		wl:                wl,
-		cq:                cq,
-		resourceFlavors:   resourceFlavors,
-		enableFairSharing: enableFairSharing,
-		oracle:            oracle,
+		wl:                   wl,
+		cq:                   cq,
+		resourceFlavors:      resourceFlavors,
+		enableFairSharing:    enableFairSharing,
+		oracle:               oracle,
+		preemptWorkloadSlice: preemptWorkloadSlice,
 	}
 }
 
@@ -671,6 +682,24 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
 		representativeMode := fit
 		for rName, val := range requests {
+			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.preemptWorkloadSlice != nil {
+				for _, psID := range psIDs {
+					preemptWorkloadRequests := a.preemptWorkloadSlice.TotalRequests[psID]
+
+					// Enforce consistent resource flavor assignment between slices.
+					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
+						// Flavor mismatch. Skip further checks for this resource.
+						representativeMode = noFit
+						status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
+						break
+					}
+
+					// Subtract the resource usage of the preempted slice to request only the delta needed.
+					val -= preemptWorkloadRequests.Requests[rName]
+				}
+			}
+
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}

@@ -19,6 +19,7 @@ package webhooks
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -272,7 +273,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
@@ -341,4 +342,27 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		}
 	}
 	return ret
+}
+
+// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
+func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
+		// Allow scale-down for elastic jobs.
+		new.Count = old.Count
+	}
+	return apivalidation.ValidateImmutableField(new, old, path)
+}
+
+// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
+func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+	if len(new) != len(old) {
+		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
+	}
+	allErrs := make(field.ErrorList, 0, len(new))
+	for i := range new {
+		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+		}
+	}
+	return allErrs
 }
