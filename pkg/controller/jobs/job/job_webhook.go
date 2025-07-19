@@ -61,7 +61,7 @@ var (
 //
 // Note: This function modifies the Job's pod template in-place.
 func applyWorkloadSliceSchedulingGate(job *Job) {
-	if !(features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object())) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
 		return
 	}
 	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
