@@ -445,7 +445,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
-
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
@@ -968,25 +967,66 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should allow workload podSets count update when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
+		ginkgo.It("Should not allow workload podSets count increase even when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			util.MustCreate(ctx, k8sClient, workload)
+			wl := testing.MakeWorkload(workloadName, ns.Name).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
 
 			ginkgo.By("Admitting the Workload")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload)).To(gomega.Succeed())
-				workload.Status.Admission = testing.MakeAdmission("cluster-queue").Obj()
-				g.Expect(k8sClient.Status().Update(ctx, workload)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("default").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					AssignmentPodCount(1).
+					Obj()
+				workload.SetQuotaReservation(wl, admission, realClock)
+				wl.Status.Admission = admission
+
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Updating PodSets count")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload)).To(gomega.Succeed())
-				workload.Spec.PodSets[0].Count++
-				g.Expect(k8sClient.Status().Update(ctx, workload)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.PodSets[0].Count++ // Increase from 1 -> 2.
+				g.Expect(k8sClient.Update(ctx, wl)).Should(testing.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.It("Should allow workload podSets count decrease when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			ginkgo.By("Creating a new Workload")
+			wl := testing.MakeWorkload(workloadName, ns.Name).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 10).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Admitting the Workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("default").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					AssignmentPodCount(10).
+					Obj()
+				workload.SetQuotaReservation(wl, admission, realClock)
+				wl.Status.Admission = admission
+
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating PodSets count")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.PodSets[0].Count = 5 // Decrease from 10 -> 5.
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
