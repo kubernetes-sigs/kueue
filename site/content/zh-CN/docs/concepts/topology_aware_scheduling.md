@@ -1,163 +1,116 @@
 ---
-title: "Topology Aware Scheduling"
+title: "拓扑感知调度"
 date: 2024-04-11
 weight: 6
 description: >
-  Allows scheduling of Pods based on the topology of nodes in a data center.
+  允许基于数据中心节点拓扑结构调度 Pod。
 ---
 
 {{< feature-state state="alpha" for_version="v0.9" >}}
 
-It is common that AI/ML workloads require a significant amount of pod-to-pod
-communication. Therefore the network bandwidth between the running Pods
-translates into the workload execution time, and the cost of running
-such workloads. The available bandwidth between the Pods depends on the placement
-of the Nodes, running the Pods, in the data center.
+AI/ML 工作负载通常需要大量的 Pod 间通信。因此，运行 Pod
+之间的网络带宽会直接影响工作负载的执行时间和运行成本。
+Pod 之间的可用带宽取决于运行这些 Pod 的节点在数据中心中的分布。
 
-We observe that the data centers have a hierarchical structure of their
-organizational units, like racks and blocks, where there are multiple nodes
-within a rack, and there are multiple racks within a block. Pods running within
-the same organizational unit have better network bandwidth than Pods on
-different units. We say that nodes placed in different racks are more distant
-than nodes placed within the same rack. Similarly, nodes placed in different
-blocks are more distant than two nodes within the same block.
+我们观察到，数据中心的组织单元具有层次结构，如机架（rack）和区块（block），一个机架内有多个节点，
+一个区块内有多个机架。运行在同一组织单元内的 Pod 之间的网络带宽优于运行在不同单元的 Pod。
+我们认为，不同机架上的节点比同一机架内的节点距离更远。同理，不同区块的节点比同一区块内的节点距离更远。
 
-In this feature (called Topology Aware Scheduling, or TAS for short) we
-introduce a convention to represent the
-[hierarchical node topology information](#node-topology-information), and a set
-of APIs for Kueue administrators and users to utilize the information
-to optimize the Pod placement.
+本特性（称为拓扑感知调度，简称 TAS）引入了一种约定，用于表示[分层节点拓扑信息](#node-topology-information)，
+并为 Kueue 管理员和用户提供一组 API，以利用这些信息优化 Pod 的放置。
 
-### Node topology information
+### 节点拓扑信息 {#node-topology-information}
 
-We propose a lightweight model for representing the hierarchy of nodes within a
-data center by using node labels. In this model the node labels are set up by a
-cloud provider, or set up manually by administrators of on-premise clusters.
+我们提出了一种轻量级模型，通过节点标签来表示数据中心内节点的层次结构。在该模型中，节点标签由云服务商设置，或由本地集群管理员手动设置。
 
-Additionally, we assume that every node used for TAS has a set of the labels
-which identifies uniquely its location in the tree structure. We do not assume
-global uniqueness of labels on each level, i.e. there could be two nodes with
-the same "rack" label, but in different "blocks".
+此外，我们假设用于 TAS 的每个节点都带有一组标签，这些标签能唯一标识其在树状结构中的位置。
+我们不要求每一层标签全局唯一，即可能存在两个节点具有相同的 "rack" 标签，但位于不同的 "block"。
 
-For example, this is a representation of the data center hierarchy;
+例如，数据中心层次结构的表示如下：
 
-|  node  |  cloud.provider.com/topology-block | cloud.provider.com/topology-rack |
+|  节点  |  cloud.provider.com/topology-block | cloud.provider.com/topology-rack |
 |:------:|:----------------------------------:|:--------------------------------:|
 | node-1 |               block-1              |              rack-1              |
 | node-2 |               block-1              |              rack-2              |
 | node-3 |               block-2              |              rack-1              |
 | node-4 |               block-2              |              rack-3              |
 
-Note that, there is a pair of nodes, node-1 and node-3, with the same value of
-the "cloud.provider.com/topology-rack" label, but in different blocks.
+注意，node-1 和 node-3 虽然 "cloud.provider.com/topology-rack" 标签值相同，但位于不同的 block。
 
-### Capacity calculation
+### 容量计算
 
-For each PodSet TAS determines the current free capacity per each topology
-domain (like a given rack) by:
-- including Node allocatable capacity (based on the `.status.allocatable` field)
-  of only ready (with `Ready=True` condition) and schedulable (with `.spec.unschedulable=false`) Nodes,
-- subtracting the usage coming from all other admitted TAS workloads,
-- subtracting the usage coming from all other non-TAS Pods (owned mainly by
-  DaemonSets, but also including static Pods, Deployments, etc.).
+对于每个 PodSet，TAS 通过以下方式确定每个拓扑域（如某个机架）的当前可用容量：
+- 仅包括已就绪（`Ready=True` 条件）且可调度（`.spec.unschedulable=false`）节点的 Node 可分配容量（基于 `.status.allocatable` 字段），
+- 减去所有其他已准入 TAS 工作负载的用量，
+- 减去所有其他非 TAS Pod（主要由 DaemonSet 拥有，也包括静态 Pod、Deployment 等）的用量。
 
-### Admin-facing APIs
+### 管理员 API
 
-As an admin, in order to enable the feature you need to:
-1. ensure the `TopologyAwareScheduling` feature gate is enabled
-2. create at least one instance of the `Topology` API
-3. reference the `Topology` API from a dedicated ResourceFlavor by the
-   `.spec.topologyName` field
+作为管理员，启用该特性需：
+1. 确保已启用 `TopologyAwareScheduling` 特性门控（feature gate）
+2. 至少创建一个 `Topology` API 实例
+3. 通过 `.spec.topologyName` 字段在专用 ResourceFlavor 中引用 `Topology` API
 
-#### Example
+#### 示例
 
 {{< include "examples/tas/sample-queues.yaml" "yaml" >}}
 
-### User-facing APIs
+### 用户 API
 
-Once TAS is configured and ready to be used, you can create Jobs with the
-following annotations set at the PodTemplate level:
-- `kueue.x-k8s.io/podset-preferred-topology` - indicates that a PodSet requires
-	Topology Aware Scheduling, but scheduling all pods within pods on nodes
-	within the same topology domain is a preference rather than requirement.
-	The levels are evaluated one-by-one going up from the level indicated by
-	the annotation. If the PodSet cannot fit within a given topology domain
-	then the next topology level up is considered. If the PodSet cannot fit
-	at the highest topology level, then it gets admitted as distributed
-	among multiple topology domains.
-- `kueue.x-k8s.io/podset-required-topology` - indicates indicates that a PodSet
-  requires Topology Aware Scheduling, and requires scheduling all pods on nodes
-	within the same topology domain corresponding to the topology level
-	indicated by the annotation value (e.g. within a rack or within a block).
+TAS 配置好并可用后，用户可在 PodTemplate 层级设置如下注解来创建 Job：
+- `kueue.x-k8s.io/podset-preferred-topology` —— 表示 PodSet 需要拓扑感知调度，
+  但所有 Pod 调度到同一拓扑域节点只是偏好而非强制。系统会自下而上逐级评估注解指定的层级。
+  如果 PodSet 无法适配某一拓扑域，则考虑上一级拓扑。如果在最高层级仍无法适配，
+  则会分布在多个拓扑域。
+- `kueue.x-k8s.io/podset-required-topology` —— 表示 PodSet 需要拓扑感知调度，
+  且要求所有 Pod 必须调度到注解值指定的拓扑层级（如同一机架或同一区块）内的节点。
 
-#### Example
+#### 示例
 
-Here is an example Job a user might submit to use TAS. It assumes there exists
-a LocalQueue named `tas-user-queue` which refernces the ClusterQueue pointing
-to a TAS ResourceFlavor.
+以下是用户提交以使用 TAS 的 Job 示例。假设存在名为 `tas-user-queue` 的 LocalQueue，且其引用的 ClusterQueue 指向 TAS ResourceFlavor。
 
 {{< include "examples/tas/sample-job-preferred.yaml" "yaml" >}}
 
-### ClusterAutoscaler support
+### ClusterAutoscaler 支持
 
-TAS integrates with the [Kubernetes ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
-through the [Provisioning AdmissionCheck](/docs/admission-check-controllers/provisioning/).
+TAS 通过 [Provisioning AdmissionCheck](/docs/admission-check-controllers/provisioning/)
+集成 [Kubernetes ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)。
 
-When a workload is assigned to the TAS ResourceFlavor with Provisioning
-AdmissionCheck, then its admission flow has the following stages:
-1. **Quota reservation**: quota is reserved, and the Workload obtains the
-  `QuotaReserved` condition. Preemptions are evaluated if configured.
-2. **Admission checks**: Kueue waits for all AdmissionChecks, including the
-  Provisioning one, to report `Ready` inside the Workload's
-  `status.admissionChecks` field.
-3. **Topology assignment**: Kueue sets topology assignment, on the Workload
-  object, calculated taking into account any newly provisioned nodes.
+当工作负载分配到带有 Provisioning AdmissionCheck 的 TAS ResourceFlavor 时，其准入流程如下：
+1. **配额预留**：预留配额，Workload 获得 `QuotaReserved` 条件。如配置了抢占，则会评估抢占。
+2. **准入检查**：Kueue 等待所有 AdmissionCheck（包括 Provisioning）在 Workload 的 `status.admissionChecks` 字段中报告 `Ready`。
+3. **拓扑分配**：Kueue 在 Workload 对象上设置拓扑分配，计算时会考虑新扩容的节点。
 
-Check also [PodSet updates in ProvisioningRequestConfig](site/content/en/docs/admission-check-controllers/provisioning.md)
-to see how you can configure Kueue if you want to restrict scheduling to the
-newly provisioned nodes (assuming the provisioning class supports it).
+另请参阅 [ProvisioningRequestConfig 中的 PodSet 更新](site/content/en/docs/admission-check-controllers/provisioning.md)，了解如何配置 Kueue 以限制调度到新扩容节点（前提是扩容类支持）。
 
-### Hot swap support
-{{% alert title="Note" color="primary" %}}
-To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
-`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
-`kubernetes.io/hostname`. This feature was introduced to Kueue in version 0.12.
+### 热插拔（Hot swap）支持
+{{% alert title="注意" color="primary" %}}
+要启用此特性，需将 `TASFailedNodeReplacement`  [特性门控](https://kubernetes.io/zh-cn/docs/reference/command-line-tools-reference/feature-gates/)设置为 `true`，
+且最低拓扑标签必须为 `kubernetes.io/hostname`。此特性自 Kueue 0.12 版本引入。
 {{% /alert %}}
 
-When the lowest level of Topology is set to node, TAS finds a fixed assignment
-of pods to nodes and injects a NodeSelector to make sure the pods get scheduled
-on the selected nodes. But this means that in case
-of any node failures or deletions, which occur during the runtime of a workload,
-the workload cannot run on any other nodes. In order to avoid costly re-scheduling
-of the entire TAS workload we introduce the node hot swap feature.
+当拓扑最低层级为节点时，TAS 会为 Pod 到节点做固定分配，并注入 NodeSelector，
+确保 Pod 调度到选定节点。但这意味着如果运行期间节点发生故障或被删除，
+工作负载无法迁移到其他节点。为避免整个 TAS 工作负载的高成本重调度，引入了节点热插拔特性。
 
-With this feature, TAS tries to find a replacement of the failed or deleted node for
-all the affected workloads, without changing the rest of the topology assignment.
-Currently this works only for a single node failure at the time and in case of multiple failures,
-the workload gets evicted. The node is assumed to have failed if its `conditions.Status.Ready`
-is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
+启用后，TAS 会尝试为所有受影响的工作负载找到故障或被删除节点的替代节点，
+同时保持其他拓扑分配不变。目前仅支持单节点故障，多节点故障时工作负载会被驱逐。
+若节点的 `conditions.Status.Ready` 至少 30 秒不为 `True`，
+或节点被移除（从集群中消失），则视为节点故障。
 
-Note that finding a replacement node within the old domain (like rack) may not always
-be possible. Hence, we recommend using [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
-and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads from
-waiting for the replacement indefinetly.
+注意，在原有域（如机架）内找到替代节点并非总是可行。因此，建议使用
+[WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) 并配置 `waitForPodsReady.recoveryTimeout`，
+以防止工作负载无限等待替换节点。
 
-### Limitations
+### 限制
 
-Currently, there are limitations for the compatibility of TAS with other
-features, including:
-- some scheduling directives (e.g. pod affinities and anti-affinities) are ignored,
-- the "podset-required-topology" annotation may fail if the underlying
-  ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
-- a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
-with Topology name (`.spec.topologyName`) is marked as inactive.
+目前，TAS 与其他特性兼容性存在如下限制：
+- 某些调度指令（如 Pod 亲和性和反亲和性）会被忽略，
+- 若底层 ClusterAutoscaler 无法扩容满足域约束的节点，则 "podset-required-topology" 注解可能失效，
+- [MultiKueue](multikueue.md) 的 ClusterQueue 若引用带拓扑名（`.spec.topologyName`）的 ResourceFlavor，则会被标记为非活跃。
 
-These usage scenarios are considered to be supported in the future releases
-of Kueue.
+这些场景计划在 Kueue 后续版本中支持。
 
-## Drawbacks
+## 缺点
 
-When enabling the feature Kueue starts to keep track of all Pods and all nodes
-in the system, which results in larger memory requirements for Kueue.
-Additionally, Kueue will take longer to schedule the workloads as it needs to
-take the topology information into account.
+启用该特性后，Kueue 会开始跟踪系统中所有 Pod 和节点，这会导致 Kueue 占用更多内存。此外，Kueue 调度工作负载时需考虑拓扑信息，调度耗时也会增加。
