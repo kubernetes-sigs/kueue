@@ -58,6 +58,7 @@ However, under the current implementation, the priority of the `Workload` is tie
 Implement `WorkloadPriorityClass`. `Workload` can utilize `WorkloadPriorityClass`.  
 JobFrameworks like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.  
 Users can modify the priority of a `Workload` by changing `Workload`'s priority directly.
+Provide admin-controlled preemption policies through `WorkloadPriorityClass` for fine-grained control over which workloads can be preempted.
 
 ### Non-Goals
 
@@ -99,6 +100,11 @@ In such cases, they create two `WorkloadPriorityClass` and apply each one to the
 An organization desires to modify the priority of workloads that remain inactive for a specific duration.
 By developing a custom controller to manage Priority value of `Workload` spec, this expectation can be met.
 
+#### Story 3
+
+An organization runs different types of workloads in the same ClusterQueue, but some workloads should never be preempted while others can be.
+The administrator creates multiple `WorkloadPriorityClass` objects with different `preemptionPolicy` settings, allowing users to choose the appropriate class for their workload type while maintaining admin control over preemption behavior.
+
 ### Notes/Constraints/Caveats (Optional)
 
 #### Workload's priority values are always mutable
@@ -133,7 +139,16 @@ type WorkloadPriorityClass struct {
 
 	Value int32   `json:"value"`
 	Description string `json:"description,omitempty"`
+
+	PreemptionPolicy PreemptionPolicy `json:"preemptionPolicy,omitempty"`
 }
+
+type PreemptionPolicy string
+
+const (
+	PreemptionPolicyAlways PreemptionPolicy = "Always" // Default
+	PreemptionPolicyNever  PreemptionPolicy = "Never" 
+)
 ```
 
 Also `PriorityClassSource` field is added to `WorkloadSpec`.  
@@ -213,6 +228,18 @@ spec:
 
 In this example, since the `WorkloadPriorityClassName` of `sample-job` is set to `sample-priority`, the `priority` of the `sample-job` will be set to 10,000.
 During queuing and preemption of the workload, this priority value will be used in the calculations.
+
+### Preemption Policy Control
+
+`WorkloadPriorityClass` includes a `preemptionPolicy` field that controls whether workloads using that priority class can be preempted. This provides administrators with fine-grained control over preemption behavior.
+
+
+#### Quota Constraints for Non-Preemptible Workloads
+
+Workloads using a `WorkloadPriorityClass` with `preemptionPolicy: Never` are subject to additional quota constraints:
+- They can only consume resources up to the ClusterQueue's nominal quota
+- They cannot borrow resources from other ClusterQueues in the cohort
+- This prevents resource deadlocks where non-preemptible workloads consume borrowed quota that cannot be reclaimed
 
 ### How to use WorkloadPriorityClass on MPIJob
 
@@ -467,6 +494,10 @@ Also, by introducing job's webhook, it makes the `workloadPriorityClass` label o
 ### Future works
 
 In the future, we plan to enable each organization using Kueue to customize the priority values according to their specific requirements through CRDs defined by each organization.
+
+Additional preemption policy options may be added in the future, such as:
+- `OnlyWhenFairSharing`: Allow preemption only when fair sharing policies are violated
+- `OnceCheckpointed`: Allow preemption only after workloads have created checkpoints
 
 ### Test Plan
 
