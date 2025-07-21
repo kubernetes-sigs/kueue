@@ -429,6 +429,14 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 
+	ClusterQueueBudgetResourceUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_budget_resource_usage",
+			Help:      `Reports the cluster_queue's total budget usage within all the flavors`,
+		}, []string{"cohort", "cluster_queue", "flavor", "budget"},
+	)
+
 	LocalQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -678,6 +686,10 @@ func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resour
 }
 
 func ReportClusterQueueResourceUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
+	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
+}
+
+func ReportClusterQueueBudgetUsage(cohort kueue.CohortReference, queue, flavor, resource string, usage float64) {
 	ClusterQueueResourceUsage.WithLabelValues(string(cohort), queue, flavor, resource).Set(usage)
 }
 
