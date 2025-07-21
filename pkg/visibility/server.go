@@ -31,7 +31,6 @@ import (
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
