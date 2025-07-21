@@ -303,17 +303,20 @@ var _ = ginkgo.BeforeSuite(func() {
 		wg := sync.WaitGroup{}
 		wg.Add(3)
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
 			c := createCluster(nil, managerFeatureGates...)
 			managerTestCluster = c
 		}()
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			c := createCluster(managerSetup)
 			worker1TestCluster = c
 		}()
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			c := createCluster(managerSetup)
 			worker2TestCluster = c
