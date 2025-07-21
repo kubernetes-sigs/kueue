@@ -403,7 +403,7 @@ Integration tests will be executed against mocked clients for `batchv1/Job` reso
 * A `batchv1/Job` is updated to increase its `parallelism` value.
 * New pods are created in the `ScheduleGated` state.
 * A new `WorkloadSlice` is created and admitted.
-* The previous `WorkloadSlice` is deactivated and marked as "Finished."
+* The previous `WorkloadSlice` is marked as "Finished."
 * `ScheduleGates` are removed from the new pods, allowing them to transition to the running state.
 
 ---
