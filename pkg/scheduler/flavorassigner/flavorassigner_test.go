@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -33,6 +34,17 @@ import (
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+var (
+	statusComparer = cmp.Comparer(func(a, b Status) bool {
+		if a.err != nil || b.err != nil {
+			return errors.Is(a.err, b.err)
+		}
+		return cmp.Equal(a.reasons, b.reasons, cmpopts.SortSlices(func(x, y string) bool {
+			return x < y
+		}))
+	})
 )
 
 type testOracle struct {
@@ -216,7 +228,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor default, 1 more needed"},
 					},
 					Count: 1,
@@ -418,7 +430,7 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU: resource.MustParse("4"),
 							"example.com/gpu":  resource.MustParse("4"),
 						},
-						Status: &Status{
+						Status: Status{
 							reasons: []string{
 								"insufficient quota for cpu in flavor one, request > maximum capacity (5 > 4)",
 								"insufficient quota for example.com/gpu in flavor two, request > maximum capacity (4 > 0)",
@@ -431,7 +443,7 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
 						},
-						Status: &Status{
+						Status: Status{
 							reasons: []string{
 								"insufficient quota for cpu in flavor one, request > maximum capacity (5 > 4)",
 								"insufficient quota for example.com/gpu in flavor two, request > maximum capacity (4 > 0)",
@@ -471,7 +483,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{
 							"insufficient quota for memory in flavor b_one, request > maximum capacity (10Mi > 1Mi)",
 						},
@@ -583,7 +595,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 						"example.com/gpu":     resource.MustParse("3"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{
 							"insufficient quota for cpu in flavor one, request > maximum capacity (3 > 2)",
 							"insufficient unused quota for memory in flavor two, 5Mi more needed",
@@ -625,7 +637,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("3"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{
 							"insufficient quota for cpu in flavor one, request > maximum capacity (3 > 2)",
 							"insufficient quota for memory in flavor two, request > maximum capacity (10Mi > 5Mi)",
@@ -871,7 +883,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{
 							"flavor one doesn't match node affinity",
 							"flavor two doesn't match node affinity",
@@ -1023,7 +1035,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient quota for cpu in flavor one, request > maximum capacity (2 > 1)"},
 					},
 					Count: 1,
@@ -1069,7 +1081,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
 
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 					},
 					Count: 1,
@@ -1105,7 +1117,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 					},
 					Count: 1,
@@ -1151,7 +1163,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 					},
 					Count: 1,
@@ -1193,7 +1205,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{
 							"flavor one doesn't match node affinity",
 							"insufficient unused quota for cpu in flavor two, 1 more needed",
@@ -1245,7 +1257,7 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2"),
 						},
-						Status: &Status{
+						Status: Status{
 							reasons: []string{
 								"insufficient unused quota for cpu in flavor one, 1 more needed",
 								"untolerated taint {instance spot NoSchedule <nil>} in flavor tainted",
@@ -1261,7 +1273,7 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("10"),
 						},
-						Status: &Status{
+						Status: Status{
 							reasons: []string{
 								"insufficient quota for cpu in flavor one, request > maximum capacity (12 > 4)",
 								"insufficient unused quota for cpu in flavor tainted, 3 more needed",
@@ -1294,7 +1306,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						"example.com/gpu": resource.MustParse("2"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"resource example.com/gpu unavailable in ClusterQueue"},
 					},
 					Count: 1,
@@ -1358,7 +1370,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("3"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient quota for pods in flavor default, request > maximum capacity (3 > 2)"},
 					},
 					Count: 3,
@@ -1439,7 +1451,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 					},
 					Count: 1,
@@ -1686,7 +1698,7 @@ func TestAssignFlavors(t *testing.T) {
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 					},
 					Requests: corev1.ResourceList{
@@ -1743,7 +1755,7 @@ func TestAssignFlavors(t *testing.T) {
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 					},
 					Requests: corev1.ResourceList{
@@ -1842,7 +1854,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{
 					{
 						Name: kueue.DefaultPodSetName,
-						Status: &Status{
+						Status: Status{
 							reasons: []string{"insufficient quota for cpu in flavor one, request > maximum capacity (12 > 11)"},
 						},
 						Requests: corev1.ResourceList{
@@ -2007,8 +2019,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: nil,
-					Count:  1,
+					Count: 1,
 				}},
 				Borrowing: 1,
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
@@ -2054,7 +2065,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("9"),
 						corev1.ResourcePods: resource.MustParse("1"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 					},
 					Count: 1,
@@ -2103,7 +2114,7 @@ func TestAssignFlavors(t *testing.T) {
 					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 					},
 					Requests: corev1.ResourceList{
@@ -2341,7 +2352,7 @@ func TestAssignFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
 		})
@@ -2575,7 +2586,7 @@ func TestDeletedFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1"),
 					},
-					Status: &Status{
+					Status: Status{
 						reasons: []string{"flavor deleted-flavor not found"},
 					},
 					Count: 1,
@@ -2635,7 +2646,7 @@ func TestDeletedFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
 		})
