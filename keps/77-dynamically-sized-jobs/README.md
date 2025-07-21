@@ -224,7 +224,7 @@ A Workload that is preempted by a WorkloadSlice will be correctly marked with a 
 ```yaml
 - type: Finished
   status: True
-  reason: WorkloadSliceAggregation
+  reason: WorkloadSliceReplaced
   message: 'Removed to accommodate a workload (UID: a112b551-a595-4356-875d-e075aee52bac, JobUID: 88d348ca-317a-47a0-bd92-786f95f2608e) due to workload slice aggregation'
   observedGeneration: 1
   lastTransitionTime: "2025-07-08T20:09:24Z"
