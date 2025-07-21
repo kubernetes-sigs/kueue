@@ -258,7 +258,12 @@ func main() {
 	go cCache.CleanUpOnContext(ctx)
 
 	if features.Enabled(features.VisibilityOnDemand) {
-		go visibility.CreateAndStartVisibilityServer(ctx, queues)
+		go func() {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues); err != nil {
+				setupLog.Error(err, "Unable to create and start visibility server")
+				os.Exit(1)
+			}
+		}()
 	}
 
 	if err := setupScheduler(mgr, cCache, queues, &cfg); err != nil {

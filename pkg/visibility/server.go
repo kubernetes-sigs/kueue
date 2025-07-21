@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 
 	validatingadmissionpolicy "k8s.io/apiserver/pkg/admission/plugin/policy/validating"
@@ -60,30 +59,26 @@ var (
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-//
-//nolint:revive // deep-exit: backwards compatibility
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) error {
 	config := newVisibilityServerConfig()
 	if err := applyVisibilityServerOptions(config); err != nil {
-		setupLog.Error(err, "Unable to apply VisibilityServerOptions")
-		os.Exit(1)
+		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
 	visibilityServer, err := config.Complete().New("visibility-server", genericapiserver.NewEmptyDelegate())
 	if err != nil {
-		setupLog.Error(err, "Unable to create visibility server")
-		os.Exit(1)
+		return fmt.Errorf("unable to create visibility server: %w", err)
 	}
 
 	if err := api.Install(visibilityServer, kueueMgr); err != nil {
-		setupLog.Error(err, "Unable to install visibility.kueue.x-k8s.io API")
-		os.Exit(1)
+		return fmt.Errorf("unable to to install visibility.kueue.x-k8s.io API: %w", err)
 	}
 
 	if err := visibilityServer.PrepareRun().RunWithContext(ctx); err != nil {
-		setupLog.Error(err, "Error running visibility server")
-		os.Exit(1)
+		return fmt.Errorf("running visibility server: %w", err)
 	}
+
+	return nil
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) error {
