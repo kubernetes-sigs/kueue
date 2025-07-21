@@ -276,7 +276,7 @@ type MultiKueue struct {
 
 	// DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.
 	// - If specified, the workload will be handled by the named dispatcher.
-	// - If not specified, the workload will be handled by the default (MultiKueueDispatcherModeAllAtOnce) dispatcher.
+	// - If not specified, the workload will be handled by the default ("kueue.x-k8s.io/multikueue-dispatcher-all-at-once") dispatcher.
 	// +optional
 	DispatcherName *string `json:"dispatcherName,omitempty"`
 }

@@ -21,16 +21,15 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 const (
-	defaultGCInterval                 = time.Minute
-	defaultOrigin                     = "multikueue"
-	defaultWorkerLostTimeout          = 5 * time.Minute
-	defaultDispatcherName             = "kueue.x-k8s.io/multikueue-dispatcher-all-at-once"
-	incrementalDispatcherRoundTimeout = 5 * time.Minute
+	defaultGCInterval        = time.Minute
+	defaultOrigin            = "multikueue"
+	defaultWorkerLostTimeout = 5 * time.Minute
 )
 
 type SetupOptions struct {
@@ -97,7 +96,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
 		adapters:          make(map[string]jobframework.MultiKueueAdapter),
-		dispatcherName:    defaultDispatcherName,
+		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
 	}
 
 	for _, o := range opts {
