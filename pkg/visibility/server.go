@@ -42,7 +42,6 @@ import (
 )
 
 var (
-	setupLog = ctrl.Log.WithName("visibility-server")
 	// Admission plugins that are enabled by default in the kubeapi server
 	// but are not required for the visibility server.
 	disabledPlugins = []string{
@@ -71,7 +70,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager
 	}
 
 	if err := api.Install(visibilityServer, kueueMgr); err != nil {
-		return fmt.Errorf("unable to to install visibility.kueue.x-k8s.io API: %w", err)
+		return fmt.Errorf("unable to install visibility.kueue.x-k8s.io API: %w", err)
 	}
 
 	if err := visibilityServer.PrepareRun().RunWithContext(ctx); err != nil {
