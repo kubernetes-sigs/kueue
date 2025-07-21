@@ -50,27 +50,14 @@ updates:
           - "minor"
           - "patch"
 
-  # Maintain kueue shellcheck dependency
+  # Maintain Dockerfiles
   - package-ecosystem: "docker"
-    directory: "/hack/shellcheck"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "ok-to-test"
-      - "release-note-none"
-
-  # Maintain kueue cypress dependency
-  - package-ecosystem: "docker"
-    directory: "/hack/cypress"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "ok-to-test"
-      - "release-note-none"
-
-  # Maintain Dockerfile for depcheck
-  - package-ecosystem: "docker"
-    directory: "/hack/depcheck"
+    directories:
+      - "/cmd/kueueviz/frontend"
+      - "/hack/agnhost"
+      - "/hack/cypress"
+      - "/hack/depcheck"
+      - "/hack/shellcheck"
     schedule:
       interval: "weekly"
     labels:
@@ -126,12 +113,3 @@ updates:
         update-types:
           - "minor"
           - "patch"
-
-  # Maintain docker dependencies for KueueViz frontend
-  - package-ecosystem: "docker"
-    directory: "/cmd/kueueviz/frontend"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "ok-to-test"
-      - "release-note-none"
