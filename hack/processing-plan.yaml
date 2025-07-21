@@ -764,9 +764,8 @@ files:
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
-      - type: UPDATE
+      - type: DELETE
         key: .spec.endpoints.[].tlsConfig
-        value: '"{{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 6 }}"'
         onFileCondition: '.kind == "ServiceMonitor"'
         onItemCondition: '.spec.endpoints.[].path == "/metrics"'
       - type: UPDATE
@@ -791,6 +790,13 @@ files:
             {{- include "kueue.metricsService.labels" . | nindent 6 }}
         indentation: 2
         onFileCondition: '.kind == "ServiceMonitor"'
+      - type: INSERT_TEXT
+        key: .spec.endpoints.[].bearerTokenFile
+        value: |
+          tlsConfig:
+          {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 8 }}
+        onFileCondition: '.kind == "ServiceMonitor"'
+        onItemCondition: '.spec.endpoints.[].path == "/metrics"'
       - type: INSERT_TEXT
         position: START
         value: |
