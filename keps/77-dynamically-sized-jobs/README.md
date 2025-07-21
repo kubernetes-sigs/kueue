@@ -480,6 +480,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Dynamic resizing is enabled for all Kueue-managed workloads that support the elastic-job feature (including JobSet, RayJob, Kubeflow jobs, etc.)
 * [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with elastic workloads, considering all current and emerging alternatives within Kueue.
 * [ ] Re-evaluate currently disallowed per-job-instance combination of enabled PartialAdmission and ElasticJobs.
+* [ ] Re-evaluate the approach for removing PodSchedulingReadiness gate for admitted workload slices to use a dedicated controller rather than calling from Job reconciler (see 3. in [comment](https://github.com/kubernetes-sigs/kueue/pull/5510#issuecomment-3060737465)).
 
 #### GA (Stable)
 
