@@ -56,7 +56,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
 	var err error
-	k8sClient, _, err = util.CreateClientUsingCluster("")
+	k8sClient, cfg, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	restClient = util.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
