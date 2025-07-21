@@ -83,11 +83,10 @@ func GetAgnHostImage() string {
 	return defaultE2eTestAgnHostImage
 }
 
-func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
+func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, error) {
 	cfg, err := config.GetConfigWithContext(kContext)
 	if err != nil {
-		fmt.Printf("unable to get kubeconfig for context %q: %s", kContext, err)
-		os.Exit(1)
+		return nil, nil, fmt.Errorf("unable to get kubeconfig for context %q: %w", kContext, err)
 	}
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
@@ -127,7 +126,7 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	return client, cfg
+	return client, cfg, nil
 }
 
 // CreateRestClient creates a *rest.RESTClient using the provided config.
@@ -139,11 +138,10 @@ func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
 	return restClient
 }
 
-func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Interface {
+func CreateVisibilityClient(user string) (visibilityv1beta1.VisibilityV1beta1Interface, error) {
 	cfg, err := config.GetConfigWithContext("")
 	if err != nil {
-		fmt.Printf("unable to get kubeconfig: %s", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to get kubeconfig: %w", err)
 	}
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
@@ -153,11 +151,10 @@ func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Inte
 
 	kueueClient, err := kueueclientset.NewForConfig(cfg)
 	if err != nil {
-		fmt.Printf("unable to create kueue clientset: %s", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to create kueue clientset: %w", err)
 	}
 	visibilityClient := kueueClient.VisibilityV1beta1()
-	return visibilityClient
+	return visibilityClient, nil
 }
 
 func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {

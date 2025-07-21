@@ -95,10 +95,6 @@ linters:
           - revive
         path: 'util/*'
         text: 'var-naming: avoid meaningless package names'
-      - linters:
-          - revive
-        path: 'test/util/*'
-        text: 'deep-exit: calls to os\.Exit only in main\(\) or init\(\) functions'
     paths:
       - bin
       - vendor

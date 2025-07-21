@@ -55,7 +55,9 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
-	k8sClient, cfg = util.CreateClientUsingCluster("")
+	var err error
+	k8sClient, _, err = util.CreateClientUsingCluster("")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	restClient = util.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
 
