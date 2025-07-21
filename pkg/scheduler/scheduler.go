@@ -864,7 +864,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 		return fmt.Errorf("failed to deactivate aggregated workload slice: %w", err)
 	}
 
-	log.V(3).Info("Removed", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
+	log.V(3).Info("Replaced", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
 	s.recorder.Eventf(oldSlice, corev1.EventTypeNormal, reason, message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue)
 	return nil
