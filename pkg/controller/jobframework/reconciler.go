@@ -1208,20 +1208,6 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 		// One active workload found for this job - typically, we are in a scale-up event, where previous
 		// workload is the "old" slice.
 		oldSlice := workloadSlices[0]
-		// Assert that we are processing a new workload-slice.
-		if wl.Name == oldSlice.Name {
-			// This should never happen.
-			// In the context of workload slices, prepareWorkload is only called during the
-			// "create new workload" flow. By definition, that means there should be no existing
-			// workload with the same name.
-			//
-			// If we reach this point—where we're preparing a new workload slice but there's already
-			// an existing workload with the same name—it suggests one of the following:
-			// - prepareWorkload is now being invoked in flows other than creation,
-			// - there is a bug or race condition, or
-			// - both.
-			return fmt.Errorf("unexpected workload-slice name collision: %s", wl.Name)
-		}
 		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
 		return nil

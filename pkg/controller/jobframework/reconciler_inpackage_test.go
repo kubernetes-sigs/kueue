@@ -177,23 +177,6 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 				workload: testWorkload(t, testJob(1)),
 			},
 		},
-		"EdgeCase_OneExistingWorkload_NameCollision": {
-			// Simulates a scenario where a new workload collides with an existing one by name.
-			args: args{
-				ctx: t.Context(),
-				clnt: testClient().WithLists(&kueue.WorkloadList{
-					Items: []kueue.Workload{
-						*testWorkload(t, testJob(1)),
-					},
-				}).Build(),
-				job: testJob(1),
-				wl:  testWorkload(t, testJob(1)),
-			},
-			want: want{
-				err:      true,
-				workload: testWorkload(t, testJob(1)),
-			},
-		},
 		"OneExistingWorkload": {
 			args: args{
 				ctx: t.Context(),
