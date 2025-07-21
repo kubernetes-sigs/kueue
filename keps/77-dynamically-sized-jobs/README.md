@@ -320,7 +320,7 @@ Scaling up and down for `batch/v1.Job` will be the initial phase of the MVP, as 
 1. Create a `batch/v1.Job` with workload-slice enablement and an initial `parallelism` value greater than 0.
 2. Verify that a corresponding `Workload` is created and admitted, and that the Job’s pods are in the `Running` state, matching the specified parallelism.
 3. Increase the Job’s `parallelism` value to trigger a scale-up event.
-4. Confirm that a new `Workload` slice is created and admitted, reflecting the increased pod count, while the previous slice is deactivated and marked as `Finished`.
+4. Confirm that a new `Workload` slice is created and admitted, reflecting the increased pod count, while the previous slice is marked as `Finished`.
 5. Observe that the total number of running pods increases to match the updated parallelism, with the original pods continuing to run without disruption.
 
 ### Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration
