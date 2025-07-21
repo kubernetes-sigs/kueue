@@ -456,7 +456,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [x] Scale-up events result in the creation of new `WorkloadSlice`s; scale-downs result in updates to the original `Workload`.
 * [x] Pod-level gating using `PodSchedulingGates` is integrated with slice admission.
 * [x] Sticky flavor behavior is enforced: scale-ups must reuse the original assigned flavor.
-* [x] Superseded slices are deactivated and marked as `Finished` once the new slice is admitted.
+* [x] Superseded slices are marked as `Finished` once the new slice is admitted.
 * [x] Support for `batch/v1.Job` in both single-cluster and multi-cluster (multiKueue) configurations.
 * [x] Integration tests cover basic scale-up, scale-down, and resource flavor constraints.
 * [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/elastic-job: "true"`).
