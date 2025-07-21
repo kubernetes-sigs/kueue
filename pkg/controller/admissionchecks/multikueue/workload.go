@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +51,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+const (
+	incrementalDispatcherRoundTimeout = 5 * time.Minute
 )
 
 var (
@@ -413,7 +418,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			// Set the cluster name to the reserving remote and clear the nominated clusters.
 			wlPatch.Status.ClusterName = &reservingRemote
-			wlPatch.Status.NominatedClusterNames = []string{}
+			wlPatch.Status.NominatedClusterNames = nil
 			log.V(2).Info("KACZKA fail",
 				"oldSelf.ClusterName", group.local.Status.ClusterName,
 				"oldSelf.NominatedClusterNames", group.local.Status.NominatedClusterNames,
@@ -459,7 +464,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 	case config.MultiKueueDispatcherModeIncremental:
-		key := types.NamespacedName{Name: group.local.Name, Namespace: group.local.Namespace}
+		key := client.ObjectKeyFromObject(group.local)
 		roundStart, found := w.roundStartTimes[key]
 		now := w.clock.Now()
 
@@ -471,7 +476,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 
 		nextNominatedWorkers, err := getNextNominatedWorkers(log, group)
 		if err != nil {
-			log.V(2).Error(err, "nominating next worker clusters failed")
+			log.Error(err, "nominating next worker clusters failed")
 			return reconcile.Result{}, err
 		}
 
@@ -481,7 +486,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		wlPatch := workload.BaseSSAWorkload(group.local)
 		wlPatch.Status.NominatedClusterNames = nominatedWorkers
 		if err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName)); err != nil {
-			log.V(2).Error(err, "Failed to patch nominated clusters", "workloadName", group.local.Name)
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
 			return reconcile.Result{}, err
 		}
 	default:
@@ -489,14 +494,11 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
-	log.V(4).Info("Synchronize nominated workers", "nominatedWorkers", nominatedWorkers)
+	log.V(4).Info("Synchronize nominated worker clusters", "nominatedWorkerClusterNames", nominatedWorkers)
 
 	var errs []error
-	// Create or keep only nominated workers, remove others.
-	nominatedSet := sets.New(nominatedWorkers...)
-
 	for rem, remoteWl := range group.remotes {
-		if _, isNominated := nominatedSet[rem]; isNominated {
+		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
 				if err := group.remoteClients[rem].client.Create(ctx, clone); err != nil {
@@ -504,14 +506,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 					errs = append(errs, err)
 				}
 			}
-		} else {
-			if remoteWl != nil {
-				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
-					log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
-					errs = append(errs, err)
-				}
-				group.remotes[rem] = nil
+		} else if remoteWl != nil {
+			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
+				errs = append(errs, err)
 			}
+			group.remotes[rem] = nil
 		}
 	}
 	return reconcile.Result{RequeueAfter: retryAfter}, errors.Join(errs...)
@@ -520,20 +520,17 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 // getNextNominatedWorkers returns the next set of nominated workers for incremental dispatching.
 // It nominates up to 3 remotes that have not yet been nominated, in sorted order.
 func getNextNominatedWorkers(log logr.Logger, group *wlGroup) ([]string, error) {
-	alreadyNominated := make(map[string]struct{}, len(group.local.Status.NominatedClusterNames))
-	for _, remote := range group.local.Status.NominatedClusterNames {
-		alreadyNominated[remote] = struct{}{}
-	}
+	alreadyNominated := sets.New[string](group.local.Status.NominatedClusterNames...)
 
 	workers := make([]string, 0, len(group.remotes))
 	for remoteWorker := range group.remotes {
-		if _, found := alreadyNominated[remoteWorker]; !found {
+		if !alreadyNominated.Has(remoteWorker) {
 			workers = append(workers, remoteWorker)
 		}
 	}
-	sort.Strings(workers)
+	slices.Sort(workers)
 
-	log.V(5).Info("getNextNominatedWorkers (incremental)", "alreadyNominated", alreadyNominated, "remaining", workers)
+	log.V(5).Info("getNextNominatedWorkers (incremental)", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)
 
 	if len(workers) == 0 {
 		return nil, errors.New("no more workers to nominate")
