@@ -480,16 +480,16 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	return assignment, targets
 }
 
-// preemptableWorkloadSlice determines whether the given workload is eligible for
-// slice-based preemption under the ElasticJobsViaWorkloadSlices feature.
+// replacedWorkloadSlice determines whether the given workload is eligible for
+// slice-based replacement under the ElasticJobsViaWorkloadSlices feature.
 //
 // If the feature gate `ElasticJobsViaWorkloadSlices` is not enabled, it returns nil.
-// Otherwise, it attempts to identify a preemptible workload slice target from the
+// Otherwise, it attempts to identify a replaceable workload slice target from the
 // provided snapshot that can be reclaimed to admit the given workload.
 //
-// Returns a list containing a single preemption target and the associated workload info
-// if a suitable preemptible slice is found, or nil if no such target exists.
-func preemptableWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
+// Returns a list containing a single replacement workload info
+// if a suitable replacement workload slice is found, or nil if no such target exists.
+func replacedWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || snap == nil {
 		return nil, nil
 	}
@@ -551,9 +551,9 @@ func findPreemptedSliceTarget(preemptor *kueue.Workload, targets []*preemption.T
 func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
-	preemptionTargets, preemptableWorkloadSlice := preemptableWorkloadSlice(wl, snap)
+	preemptionTargets, replaceableWorkloadSlice := replacedWorkloadSlice(wl, snap)
 
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), preemptableWorkloadSlice)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()
