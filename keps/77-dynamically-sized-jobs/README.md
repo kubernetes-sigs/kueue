@@ -466,7 +466,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 
 * [ ] Feature is enabled by default in Kueue, still guarded by the feature gate for opt-out.
 * [ ] Complete support for garbage collection of preempted and inactive `WorkloadSlice`s, with tunable retention (e.g., `revisionHistoryLimit`-like mechanism).
-* [ ] Metrics and events emitted for slice lifecycle transitions (e.g., created, admitted, deactivated, failed admission).
+* [ ] Metrics and events emitted for slice lifecycle transitions (e.g., created, admitted, failed admission).
 * [ ] Documentation includes examples for users and integrators to adopt the WorkloadSlice model.
 * [ ] Formal conformance tests validate end-to-end behavior for:
     * Horizontal scale-up and scale-down
