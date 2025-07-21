@@ -1,63 +1,61 @@
 ---
-title: "Run A Tekton Pipeline"
+title: "运行 Tekton Pipeline"
 linkTitle: "Tekton Pipeline"
 date: 2025-02-01
 weight: 7
-description: >
-  Integrate Kueue with Tekton Pipelines.
+description: 将 Kueue 集成到 Tekton Pipelines。
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Tekton pipelines](https://tekton.dev/docs/).
+本页展示了在运行 [Tekton pipelines](https://tekton.dev/docs/) 时，如何利用 Kueue 的调度和资源管理能力。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于对 Kueue 有基本了解的[批量用户](/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/docs/overview)。
 
-We demonstrate how to support scheduling Tekton Pipelines Tasks in Kueue based on the [Plain Pod](/docs/tasks/run_plain_pods) integration, where every Pod from a Pipeline is represented as a single independent Plain Pod.
+我们演示了如何基于 [Plain Pod](/docs/tasks/run_plain_pods) 集成支持在 Kueue 中调度 Tekton Pipelines 的任务，其中 Pipeline 的每个 Pod 都被视为一个独立的原生 Pod。
 
-## Before you begin
+## 开始之前
 
-1. Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
+1. 学习如何[使用自定义管理器配置安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)。
 
-1. Follow the steps in [Run Plain Pods](docs/tasks/run/plain_pods/#before-you-begin) to learn how to enable and configure the `pod` integration.
+1. 按照[运行原生 Pod](docs/tasks/run/plain_pods/#before-you-begin)中的步骤，了解如何启用和配置 `pod` 集成。
 
-1. Check [Administrator cluster quotas](/docs/tasks/manage/administer_cluster_quotas/) for details on the initial Kueue step.
+1. 查阅[管理员集群配额](/docs/tasks/manage/administer_cluster_quotas/)以了解 Kueue 的初始设置。
 
-1. Your cluster has tekton pipelines [installed](https://tekton.dev/docs/installation/pipelines/).
+1. 集群已[安装](https://tekton.dev/docs/installation/pipelines/) Tekton pipelines。
 
 
-## Tekton Background
+## Tekton 背景
 
-Tekton has the concept of [Pipelines](https://tekton.dev/vault/pipelines-v0.59.x-lts/pipelines/), [Tasks](https://tekton.dev/vault/pipelines-v0.59.x-lts/tasks/) and [PipelineRun](https://tekton.dev/vault/pipelines-v0.59.x-lts/pipelineruns/).
+Tekton 有 [Pipelines](https://tekton.dev/vault/pipelines-v0.59.x-lts/pipelines/)、[Tasks](https://tekton.dev/vault/pipelines-v0.59.x-lts/tasks/) 和 [PipelineRun](https://tekton.dev/vault/pipelines-v0.59.x-lts/pipelineruns/) 的概念。
 
-A pipeline consists of tasks. Tasks and pipelines must be created before running a pipeline.
+一个 pipeline 由多个 task 组成。task 和 pipeline 必须在运行 pipeline 前创建。
 
-A PipelineRun runs the pipeline.
+PipelineRun 用于运行 pipeline。
 
-A TaskRun runs a single task. PipelineRuns will reuse TaskRuns to run each task in a pipeline.
+TaskRun 用于运行单个 task。PipelineRun 会复用 TaskRun 来运行 pipeline 中的每个 task。
 
-### Tekton Defintions
+### Tekton 定义
 
-As a simple example, we will define two tasks named sleep and hello:
+作为简单示例，我们将定义两个名为 sleep 和 hello 的 task：
 
 {{< include "examples/pod-based-workloads/tekton-sleep-task.yaml" "yaml" >}}
 
 {{< include "examples/pod-based-workloads/tekton-hello-task.yaml" "yaml" >}}
 
-A pipeline composes these tasks.
+pipeline 组合这些 task。
 
 {{< include "examples/pod-based-workloads/tekton-pipeline.yaml" "yaml" >}}
 
-## a. Targeting a single LocalQueue
+## a. 目标为单个 LocalQueue
 
-If you want every task to target a single [local queue](/docs/concepts/local_queue),
-it should be specified in the `metadata.label` section of the PipelineRun configuration.
+如果你希望每个 task 都使用同一个 [local queue](/docs/concepts/local_queue)，
+应在 PipelineRun 配置的 `metadata.label` 部分指定。
 
 {{< include "examples/pod-based-workloads/tekton-pipeline-run.yaml" "yaml" >}}
 
-This will inject the kueue label on every pod of the pipeline. Kueue will gate the pods once you are over the quota limits.
+这会在 pipeline 的每个 pod 上注入 kueue 标签。当你超出配额限制时，Kueue 会阻塞这些 pod。
 
-## Limitations 
+## 限制
 
-- Kueue will only manage pods created by Tekton.
-- Each pod in a Workflow will create a new Workload resource and must wait for admission by Kueue.
-- There is no way to ensure that a Workflow will complete before it is started. If one step of a multi-step Workflow does not have
-available quota, Tekton pipelines will run all previous steps and then wait for quota to become available.
+- Kueue 只管理 Tekton 创建的 pod。
+- Workflow 中的每个 pod 都会创建一个新的 Workload 资源，并且必须等待 Kueue 的准入。
+- 无法保证 Workflow 会在启动前就能全部完成。如果多步骤 Workflow 的某一步没有可用配额，Tekton pipelines 会运行所有前置步骤，然后等待配额可用。
