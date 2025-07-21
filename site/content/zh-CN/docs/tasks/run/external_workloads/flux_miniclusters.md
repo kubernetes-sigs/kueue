@@ -1,39 +1,39 @@
 ---
-title: "Run A Flux MiniCluster"
+title: "运行 Flux MiniCluster"
 linkTitle: "Flux MiniClusters"
 date: 2022-02-14
 weight: 2
 description: >
-  Run a Kueue scheduled Flux MiniCluster.
+  运行由 Kueue 调度的 Flux MiniCluster。
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Flux Operator's](https://flux-framework.org/flux-operator/) MiniClusters.
+本页展示了在运行 [Flux Operator](https://flux-framework.org/flux-operator/) 的 MiniClusters 时，如何利用 Kueue 的调度和资源管理能力。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于对 Kueue 有基本了解的[批量用户](/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/docs/overview)。
 
-## Before you begin
+## 开始之前
 
-Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
+请查阅[管理集群配额](/docs/tasks/manage/administer_cluster_quotas)以了解初始集群设置的详细信息。
 
-Check [the Flux Operator installation guide](https://flux-framework.org/flux-operator/getting_started/user-guide.html#install).
+请查阅 [Flux Operator 安装指南](https://flux-framework.org/flux-operator/getting_started/user-guide.html#install)。
 
-## MiniCluster definition
+## MiniCluster 定义
 
-Because a Flux MiniCluster runs as a [`batch/Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/), Kueue does not require extra components to manage a Flux MiniCluster.
-However, take into consideration the following aspects:
+由于 Flux MiniCluster 以 [`batch/Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/) 形式运行，Kueue 无需额外组件即可管理 Flux MiniCluster。
+但请注意以下几点：
 
-### a. Queue selection
+### a. 队列选择
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `spec.jobLabels` section of the MiniCluster configuration.
+目标 [local queue](/docs/concepts/local_queue) 应在 MiniCluster 配置的 `spec.jobLabels` 部分指定。
 
 ```yaml
   jobLabels:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Configure the resource needs
+### b. 配置资源需求
 
-The resource needs of the workload can be configured in the `spec.container[*].resources` sections of the MiniCluster configuration.
+工作负载的资源需求可在 MiniCluster 配置的 `spec.container[*].resources` 部分进行配置。
 
 ```yaml
 spec:
@@ -45,7 +45,7 @@ spec:
           memory: "200Mi"
 ```
 
-## Sample MiniCluster
+## MiniCluster 示例
 
 ```yaml
 apiVersion: flux-framework.org/v1alpha1
@@ -65,4 +65,4 @@ spec:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run/python_jobs/#flux-operator-job).
+如需使用 Python 实现的等效操作，请参见[运行 Python 作业](/docs/tasks/run/python_jobs/#flux-operator-job)。
