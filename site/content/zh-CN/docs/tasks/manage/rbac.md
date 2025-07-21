@@ -1,44 +1,36 @@
 ---
-title: "Setup RBAC"
+title: "配置 RBAC"
 date: 2022-02-14
 weight: 1
-description: >
-  Setup role-based access control (RBAC) in your cluster to control the types of users that can view and create Kueue objects.
+description: 在集群中配置基于角色的访问控制（RBAC），以控制哪些类型的用户可以查看和创建 Kueue 对象。
 ---
 
-This page shows you how to setup role-based access control (RBAC) in your cluster
-to control the types of users that can view and create Kueue objects.
+本页面向您展示如何在集群中配置基于角色的访问控制（RBAC），以控制哪些类型的用户可以查看和创建 Kueue 对象。
 
-The page is intended for a [batch administrator](/docs/tasks#batch-administrator).
+本页面面向[批处理管理员](/docs/tasks#batch-administrator)。
 
-## Before you begin
+## 在你开始之前
 
-Make sure the following conditions are met:
+请确保满足以下条件：
 
-- A Kubernetes cluster is running.
-- The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/installation).
+- Kubernetes 集群已运行。
+- kubectl 命令行工具已能与您的集群通信。
+- [已安装 Kueue](/docs/installation)。
 
-This page assumes you are already familiar with [RBAC in kubernetes](https://kubernetes.io/docs/reference/access-authn-authz/rbac/).
+本页面假设您已熟悉 [Kubernetes 中的 RBAC](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)。
 
-## ClusterRoles included in the installation
+## 安装时包含的 ClusterRole
 
-When you install Kueue, the following set of ClusterRoles are created for the
-two main personas that we assume will interact with Kueue:
+当您安装 Kueue 时，会为我们假定的两类主要用户创建以下 ClusterRole：
 
-- `kueue-batch-admin-role` includes the permissions to manage ClusterQueues,
-  Queues, Workloads, and ResourceFlavors.
-- `kueue-batch-user-role` includes the permissions to manage [Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
-  and to view Queues and Workloads.
+- `kueue-batch-admin-role` 包含管理 ClusterQueue、Queue、Workload 和 ResourceFlavor 的权限。
+- `kueue-batch-user-role` 包含管理 [Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/) 以及查看 Queue 和 Workload 的权限。
 
-## Giving permissions to a batch administrator
+## 授权批处理管理员权限
 
-A batch administrator typically requires the `kueue-batch-admin-role` ClusterRole
-for all the namespaces.
+批处理管理员通常需要在所有命名空间拥有 `kueue-batch-admin-role` ClusterRole。
 
-To bind the `kueue-batch-admin-role` role to a batch administrator, represented
-by the user `admin@example.com`, create a ClusterRoleBinding with a manifest
-similar to the following:
+要将 `kueue-batch-admin-role` 角色绑定到批处理管理员（如用户 `admin@example.com`），请创建如下的 ClusterRoleBinding 清单：
 
 ```yaml
 # batch-admin-role-binding.yaml
@@ -56,24 +48,21 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-To create the ClusterRoleBinding, save the preceding manifest and run the
-following command:
+要创建 ClusterRoleBinding，请保存上述清单并运行以下命令：
 
 ```shell
 kubectl apply -f batch-admin-role-binding.yaml
 ```
 
-## Giving permissions to a batch user
+## 授权批处理用户权限
 
-A batch user typically requires permissions to:
+批处理用户通常需要以下权限：
 
-- Create and view Jobs in their namespace.
-- View the queues available in their namespace.
-- View the status of their [Workloads](/docs/concepts/workload) in their namespace.
+- 在其命名空间中创建和查看 Job。
+- 查看其命名空间中可用的队列。
+- 查看其命名空间中 [Workload](/docs/concepts/workload) 的状态。
 
-To give these permissions to a group of users `team-a@example.com` for the
-namespace `team-a`, create a RoleBinding with a manifest similar to the
-following:
+要为用户组 `team-a@example.com` 在命名空间 `team-a` 授予这些权限，请创建如下的 RoleBinding 清单：
 
 ```yaml
 # team-a-batch-user-role-binding.yaml
@@ -92,8 +81,7 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-To create the RoleBinding, save the preceding manifest and run the
-following command:
+要创建 RoleBinding，请保存上述清单并运行以下命令：
 
 ```shell
 kubectl apply -f team-a-batch-user-role-binding.yaml
