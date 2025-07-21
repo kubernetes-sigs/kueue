@@ -114,7 +114,7 @@ Workload Slices represent per-replica changes to a Job that were not initially a
 
 The benefit of Workload Slices is that Kueue can evaluate admission on a per-replica basis without changing the existing semantics of the Workload API. 
 Once a WorkloadSlice is admitted, it will replace the original/old WorkloadSlice. 
-The latter will be deactivated and marked as finished.
+The replaced slice will be marked as finished.
 - Each WorkloadSlice inherits the resource flavor assignment of the original admitted slice, enforcing flavor consistency across scale-ups. 
 - In MultiKueue, Workload Slices would go into both clusters (management and workload) in a multi-cluster environment.
 - Workload Slices will be created by Kueue and use identical PodTemplate.
