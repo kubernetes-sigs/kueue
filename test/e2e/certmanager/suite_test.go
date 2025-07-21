@@ -28,16 +28,14 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
-	k8sClient       client.WithWatch
-	ctx             context.Context
-	defaultKueueCfg *v1beta1.Configuration
-	cfg             *rest.Config
-	restClient      *rest.RESTClient
+	k8sClient  client.WithWatch
+	ctx        context.Context
+	cfg        *rest.Config
+	restClient *rest.RESTClient
 )
 
 func TestAPIs(t *testing.T) {
@@ -64,11 +62,4 @@ var _ = ginkgo.BeforeSuite(func() {
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
-	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	util.ApplyKueueConfiguration(ctx, k8sClient, defaultKueueCfg)
-	util.RestartKueueController(ctx, k8sClient)
-	ginkgo.GinkgoLogr.Info("Default Kueue configuration restored")
 })

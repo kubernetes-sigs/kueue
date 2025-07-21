@@ -153,9 +153,9 @@ func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Inte
 	return visibilityClient
 }
 
-func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName, kindClusterName string) {
 	// Export logs before the rollout to preserve logs from the previous version.
-	exportKindLogs(ctx)
+	exportKindLogs(ctx, kindClusterName)
 
 	deployment := &appsv1.Deployment{}
 	var deploymentCondition *appsv1.DeploymentCondition
@@ -186,14 +186,14 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 }
 
-func exportKindLogs(ctx context.Context) {
+func exportKindLogs(ctx context.Context, kindClusterName string) {
 	// Path to the kind binary
 	kind := os.Getenv("KIND")
 	// Path to the artifacts
 	artifacts := os.Getenv("ARTIFACTS")
 
 	if kind != "" && artifacts != "" {
-		cmd := exec.CommandContext(ctx, kind, "export", "logs", artifacts)
+		cmd := exec.CommandContext(ctx, kind, "export", "logs", "-n", kindClusterName, artifacts)
 		cmd.Stdout = ginkgo.GinkgoWriter
 		cmd.Stderr = ginkgo.GinkgoWriter
 		gomega.Expect(cmd.Run()).To(gomega.Succeed())
@@ -289,9 +289,9 @@ func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueue
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func RestartKueueController(ctx context.Context, k8sClient client.Client) {
+func RestartKueueController(ctx context.Context, k8sClient client.Client, kindClusterName string) {
 	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-controller-manager"}
-	rolloutOperatorDeployment(ctx, k8sClient, kcmKey)
+	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
 }
 
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
@@ -387,4 +387,13 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges func(cfg *configapi.Configuration)) {
+	configurationUpdate := time.Now()
+	config = config.DeepCopy()
+	applyChanges(config)
+	ApplyKueueConfiguration(ctx, k8sClient, config)
+	RestartKueueController(ctx, k8sClient, kindClusterName)
+	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
 }
