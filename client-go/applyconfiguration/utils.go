@@ -163,6 +163,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.TopologySpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("UnhealthyNode"):
 		return &kueuev1beta1.UnhealthyNodeApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WallTimeFlavor"):
+		return &kueuev1beta1.WallTimeFlavorApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WallTimeFlavorUsage"):
+		return &kueuev1beta1.WallTimeFlavorUsageApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WallTimePolicy"):
+		return &kueuev1beta1.WallTimePolicyApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):

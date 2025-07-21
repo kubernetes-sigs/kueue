@@ -14,18 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package workload
+package resources
 
 import (
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/resources"
+	"fmt"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-type TASFlavorUsage []TopologyDomainRequests
-type TASUsage map[kueue.ResourceFlavorReference]TASFlavorUsage
-
-type Usage struct {
-	Quota    resources.FlavorResourceQuantities
-	TAS      TASUsage
-	WallTime resources.FlavorWallTimeQuantities
+type FlavorWallTimeResource struct {
+	Flavor kueue.ResourceFlavorReference
 }
+
+func (fr FlavorWallTimeResource) String() string {
+	return fmt.Sprintf(`{"Flavor":"%s"}`, string(fr.Flavor))
+}
+
+type FlavorWallTimeQuantities map[FlavorWallTimeResource]int32

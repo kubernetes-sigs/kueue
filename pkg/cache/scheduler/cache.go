@@ -115,6 +115,7 @@ type Cache struct {
 	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
 	workloadInfoOptions  []workload.InfoOption
 	fairSharingEnabled   bool
+	budgetPolicy         bool
 	admissionFairSharing *config.AdmissionFairSharing
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
@@ -702,11 +703,12 @@ func (c *Cache) ForgetWorkload(log logr.Logger, w *kueue.Workload) error {
 }
 
 type ClusterQueueUsageStats struct {
-	ReservedResources  []kueue.FlavorUsage
-	ReservingWorkloads int
-	AdmittedResources  []kueue.FlavorUsage
-	AdmittedWorkloads  int
-	WeightedShare      float64
+	ReservedResources   []kueue.FlavorUsage
+	ReservingWorkloads  int
+	AdmittedResources   []kueue.FlavorUsage
+	AdmittedWorkloads   int
+	WeightedShare       int64
+	WallTimeFlavorUsage []kueue.WallTimeFlavorUsage
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
@@ -720,10 +722,11 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	stats := &ClusterQueueUsageStats{
-		ReservedResources:  getUsage(cq.resourceNode.Usage, cq),
-		ReservingWorkloads: len(cq.Workloads),
-		AdmittedResources:  getUsage(cq.AdmittedUsage, cq),
-		AdmittedWorkloads:  cq.admittedWorkloadsCount,
+		ReservedResources:   getUsage(cq.resourceNode.Usage, cq),
+		ReservingWorkloads:  len(cq.Workloads),
+		AdmittedResources:   getUsage(cq.AdmittedUsage, cq),
+		AdmittedWorkloads:   cq.admittedWorkloadsCount,
+		WallTimeFlavorUsage: getWallTimeUsage(cq.resourceNode.WallTimeUsage, cq),
 	}
 
 	if c.fairSharingEnabled {
@@ -813,6 +816,22 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				return cmp.Compare(a.Name, b.Name)
 			})
 			usage = append(usage, outFlvUsage)
+		}
+	}
+	return usage
+}
+
+func getWallTimeUsage(bfq resources.FlavorWallTimeQuantities, cq *clusterQueue) []kueue.WallTimeFlavorUsage {
+	usage := make([]kueue.WallTimeFlavorUsage, 0, len(bfq))
+	for _, rg := range cq.WallTimeGroups {
+		for _, fName := range rg.Flavors {
+			fr := resources.FlavorWallTimeResource{Flavor: fName}
+			outWallTimeUsage := kueue.WallTimeFlavorUsage{
+				Name:              fName,
+				WallTimeUsed:      bfq[fr],
+				WallTimeAllocated: cq.resourceNode.WallTimeQuotas[fr].WallTimeAllocatedHours,
+			}
+			usage = append(usage, outWallTimeUsage)
 		}
 	}
 	return usage

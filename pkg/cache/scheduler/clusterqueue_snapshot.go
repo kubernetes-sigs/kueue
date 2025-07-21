@@ -96,6 +96,9 @@ func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
 		addUsage(c, fr, q)
 	}
 	c.updateTASUsage(usage.TAS, add)
+	for b, q := range usage.WallTime {
+		addWallTimeUsage(c, b, q)
+	}
 }
 
 func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
