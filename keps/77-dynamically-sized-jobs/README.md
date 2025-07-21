@@ -470,7 +470,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Documentation includes examples for users and integrators to adopt the WorkloadSlice model.
 * [ ] Formal conformance tests validate end-to-end behavior for:
     * Horizontal scale-up and scale-down
-    * Slice transitions (preemption/deactivation)
+    * Slice replacements
     * Sticky flavor enforcement
     * Multi-cluster propagation
 * [ ] At least one additional framework beyond `batch/v1.Job` (e.g., RayCluster) integrates and validates the WorkloadSlice flow.
