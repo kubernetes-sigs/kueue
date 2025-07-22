@@ -1,65 +1,65 @@
 ---
-title: "Installation"
-linkTitle: "Installation"
+title: "安装"
+linkTitle: "安装"
 date: 2024-05-09
 weight: 20
 description: >
-  Installing the kubectl-kueue plugin, kueuectl.
+  安装 kubectl-kueue 插件，kueuectl。
 ---
 
-## Installing via Krew
+## 通过 Krew 安装 {#installing_via_krew}
 
 ```shell
 kubectl krew install kueue
 ```
 
-## Installing From Release Binaries
+## 从发布版本二进制文件安装 {#installing_from_release_binaries}
 
-### 1. Download the latest release:
+### 1. 下载最新版本：{#download_the_latest_release}
 
-On Linux:
+在 Linux 上：
 
 {{< tabpane lang="shell" persist=disabled >}}
 {{< tab header="AMD64 / x86_64"  >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-amd64{{< /tab >}}
 {{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-arm64{{< /tab >}}
 {{< /tabpane >}}
 
-On Mac:
+在 Mac 上：
 
 {{< tabpane lang="shell" persist=disabled >}}
 {{< tab header="AMD64 / x86_64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-amd64{{< /tab >}}
 {{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-arm64{{< /tab >}}
 {{< /tabpane >}}
 
-### 2. Make the kubectl-kueue binary executable.
+### 2. 使 kubectl-kueue 二进制文件可执行。 {#make_the_kubectl-kueue_binary_executable}
 
 ```shell
 chmod +x ./kubectl-kueue
 ```
 
-### 3. Move the kubectl binary to a file location on your system PATH.
+### 3. 将 kubectl 二进制文件移动到系统 PATH 上的文件位置。{#move_the_kubectl_binary_to_a_file_location_on_your_system_path}
 
 ```shell
 sudo mv ./kubectl-kueue /usr/local/bin/kubectl-kueue
 ```
 
-## Installing From Source
+## 从源码安装 {#installing_from_source}
 
 ```bash
 make kueuectl
 sudo mv ./bin/kubectl-kueue /usr/local/bin/kubectl-kueue
 ```
 
-## Kueuectl
+## Kueuectl {#kueuectl}
 
-Additionally, you can create an alias `kueuectl` to allow shorter syntax.
+此外，您可以创建别名 `kueuectl` 以允许更短的语法。
 
 {{< tabpane lang=shell persist=disabled >}}
 {{< tab header="Bash" >}}echo 'alias kueuectl="kubectl kueue"' >> ~/.bashrc{{< /tab >}}
 {{< tab header="Zsh" >}}echo 'alias kueuectl="kubectl kueue"' >> ~/.zshrc{{< /tab >}}
 {{< /tabpane >}}
 
-## Autocompletion
+## 自动补全 {#autocompletion}
 
 {{< tabpane lang=shell persist=disabled >}}
 {{< tab header="Bash" >}}echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion bash)' >> ~/.bashrc{{< /tab >}}
@@ -70,7 +70,7 @@ Additionally, you can create an alias `kueuectl` to allow shorter syntax.
 cat <<EOF >kubectl_complete-kueue
 #!/usr/bin/env sh
 
-# Call the __complete command passing it all arguments
+# 调用 __complete 命令并传递所有参数
 kubectl kueue __complete "\$@"
 EOF
 
