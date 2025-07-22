@@ -1402,9 +1402,8 @@ candidates for preemption in the current flavor.</li>
 <a href="#kueue-x-k8s-io-v1beta1-FlavorSelectionStrategy"><code>FlavorSelectionStrategy</code></a>
 </td>
 <td>
-   <p>WhenCanPreemptAndBorrow defines how should the flavor be chosen in case of multiple
-options. If some flavor allows to fit without preemption and borrowing, it will always
-be preferred. But if either borrowing or preemption is neccessary and multiple options
+   <p>whenCanPreemptAndBorrow defines how should a workload chose the flavor in case of
+multiple options. If either borrowing or preemption is necessary and multiple options
 are available, then this field defines the selection strategy. The possible values are:</p>
 <ul>
 <li><code>AvoidPreemption</code> (default): prefer to allocate in a flavor that does not preempt
