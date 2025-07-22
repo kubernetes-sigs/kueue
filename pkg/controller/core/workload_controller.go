@@ -80,37 +80,29 @@ type workloadRetentionConfig struct {
 	afterFinished *time.Duration
 }
 
-type options struct {
-	watchers                []WorkloadUpdateWatcher
-	waitForPodsReadyConfig  *waitForPodsReadyConfig
-	workloadRetentionConfig *workloadRetentionConfig
-}
-
 // Option configures the reconciler.
-type Option func(*options)
+type Option func(*WorkloadReconciler)
 
 // WithWaitForPodsReady indicates the configuration for the WaitForPodsReady feature.
 func WithWaitForPodsReady(value *waitForPodsReadyConfig) Option {
-	return func(o *options) {
-		o.waitForPodsReadyConfig = value
+	return func(r *WorkloadReconciler) {
+		r.waitForPodsReady = value
 	}
 }
 
 // WithWorkloadUpdateWatchers allows to specify the workload update watchers
 func WithWorkloadUpdateWatchers(value ...WorkloadUpdateWatcher) Option {
-	return func(o *options) {
-		o.watchers = value
+	return func(r *WorkloadReconciler) {
+		r.watchers = value
 	}
 }
 
 // WithWorkloadRetention allows to specify retention for workload resources
 func WithWorkloadRetention(value *workloadRetentionConfig) Option {
-	return func(o *options) {
-		o.workloadRetentionConfig = value
+	return func(r *WorkloadReconciler) {
+		r.workloadRetention = value
 	}
 }
-
-var defaultOptions = options{}
 
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
@@ -132,23 +124,19 @@ type WorkloadReconciler struct {
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
 
-func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
+func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, options ...Option) *WorkloadReconciler {
+	r := &WorkloadReconciler{
+		log:      ctrl.Log.WithName("workload-reconciler"),
+		client:   client,
+		queues:   queues,
+		cache:    cache,
+		recorder: recorder,
+		clock:    realClock,
 	}
-
-	return &WorkloadReconciler{
-		log:               ctrl.Log.WithName("workload-reconciler"),
-		client:            client,
-		queues:            queues,
-		cache:             cache,
-		watchers:          options.watchers,
-		waitForPodsReady:  options.waitForPodsReadyConfig,
-		recorder:          recorder,
-		clock:             realClock,
-		workloadRetention: options.workloadRetentionConfig,
+	for _, option := range options {
+		option(r)
 	}
+	return r
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch

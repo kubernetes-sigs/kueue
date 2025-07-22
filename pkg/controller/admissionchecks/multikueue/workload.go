@@ -77,19 +77,11 @@ type wlGroup struct {
 	controllerKey types.NamespacedName
 }
 
-type options struct {
-	clock clock.Clock
-}
-
-type Option func(*options)
-
-var defaultOptions = options{
-	clock: realClock,
-}
+type Option func(reconciler *wlReconciler)
 
 func WithClock(_ testing.TB, c clock.Clock) Option {
-	return func(o *options) {
-		o.clock = c
+	return func(r *wlReconciler) {
+		r.clock = c
 	}
 }
 
@@ -471,14 +463,8 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter, opts ...Option) *wlReconciler {
-	options := defaultOptions
-
-	for _, opt := range opts {
-		opt(&options)
-	}
-
-	return &wlReconciler{
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter, options ...Option) *wlReconciler {
+	r := &wlReconciler{
 		client:            c,
 		helper:            helper,
 		clusters:          cRec,
@@ -488,8 +474,12 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		eventsBatchPeriod: eventsBatchPeriod,
 		adapters:          adapters,
 		recorder:          recorder,
-		clock:             options.clock,
+		clock:             realClock,
 	}
+	for _, option := range options {
+		option(r)
+	}
+	return r
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {

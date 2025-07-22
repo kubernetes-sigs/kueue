@@ -35,24 +35,10 @@ type ServerVersionFetcher struct {
 	rwm           sync.RWMutex
 }
 
-type Options struct {
-	Interval time.Duration
-}
-
-type Option func(*Options)
-
-var defaultOptions = Options{
-	Interval: fetchServerVersionInterval,
-}
-
-func NewServerVersionFetcher(dc discovery.DiscoveryInterface, opts ...Option) *ServerVersionFetcher {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+func NewServerVersionFetcher(dc discovery.DiscoveryInterface) *ServerVersionFetcher {
 	return &ServerVersionFetcher{
 		dc:            dc,
-		ticker:        time.NewTicker(options.Interval),
+		ticker:        time.NewTicker(fetchServerVersionInterval),
 		serverVersion: &versionutil.Version{},
 	}
 }
