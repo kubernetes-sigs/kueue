@@ -715,7 +715,7 @@ if the connection with its reserving worker cluster is lost.</p>
    <p>DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.</p>
 <ul>
 <li>If specified, the workload will be handled by the named dispatcher.</li>
-<li>If not specified, the workload will be handled by the default (MultiKueueDispatcherModeAllAtOnce) dispatcher.</li>
+<li>If not specified, the workload will be handled by the default (&quot;kueue.x-k8s.io/multikueue-dispatcher-all-at-once&quot;) dispatcher.</li>
 </ul>
 </td>
 </tr>
