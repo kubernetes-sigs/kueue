@@ -1650,43 +1650,39 @@ func TestSchedule(t *testing.T) {
 		"hierarchical fair sharing schedule workload which wins tournament": {
 			enableFairSharing: true,
 			cohorts: []kueuealpha.Cohort{
-				utiltesting.MakeCohort("A").
+				*utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "200").Obj(),
-					).Cohort,
-				utiltesting.MakeCohort("B").Parent("A").Cohort,
-				utiltesting.MakeCohort("C").Parent("A").Cohort,
+					).Obj(),
+				*utiltesting.MakeCohort("B").Parent("A").Obj(),
+				*utiltesting.MakeCohort("C").Parent("A").Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("d").
+				*utiltesting.MakeClusterQueue("d").
 					Cohort("B").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("e").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("e").
 					Cohort("B").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("f").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("f").
 					Cohort("C").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("g").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("g").
 					Cohort("C").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
+					).Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lq-d", "eng-alpha").ClusterQueue("d").Obj(),
@@ -1695,51 +1691,51 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lq-g", "eng-alpha").ClusterQueue("g").Obj(),
 			},
 			workloads: []kueue.Workload{
-				utiltesting.MakeWorkload("d0", "eng-alpha").
+				*utiltesting.MakeWorkload("d0", "eng-alpha").
 					Queue("lq-d").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
+						Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("d", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).
-					Workload,
-				utiltesting.MakeWorkload("e0", "eng-alpha").
+					Obj(),
+				*utiltesting.MakeWorkload("e0", "eng-alpha").
 					Queue("lq-e").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "20").
-						PodSet).
+						Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("e", "one").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj()).
-					Workload,
-				utiltesting.MakeWorkload("g0", "eng-alpha").
+					Obj(),
+				*utiltesting.MakeWorkload("g0", "eng-alpha").
 					Queue("lq-g").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "100").
-						PodSet).
+						Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("g", "one").Assignment(corev1.ResourceCPU, "on-demand", "100").Obj()).
-					Workload,
-				utiltesting.MakeWorkload("d1", "eng-alpha").
+					Obj(),
+				*utiltesting.MakeWorkload("d1", "eng-alpha").
 					Queue("lq-d").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "70").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("e1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("e1", "eng-alpha").
 					Queue("lq-e").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "61").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("f1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("f1", "eng-alpha").
 					Queue("lq-f").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "1").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("g1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("g1", "eng-alpha").
 					Queue("lq-g").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "1").
-						PodSet).
-					Workload,
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/d0": *utiltesting.MakeAdmission("d", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
@@ -1762,52 +1758,50 @@ func TestSchedule(t *testing.T) {
 		"fair sharing schedule workload with lowest drf after admission": {
 			enableFairSharing: true,
 			cohorts: []kueuealpha.Cohort{
-				utiltesting.MakeCohort("A").
+				*utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "100").Obj(),
-					).Cohort,
+					).Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("b").
+				*utiltesting.MakeClusterQueue("b").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("c").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("c").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
+					).Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lq-b", "eng-alpha").ClusterQueue("b").Obj(),
 				*utiltesting.MakeLocalQueue("lq-c", "eng-alpha").ClusterQueue("c").Obj(),
 			},
 			workloads: []kueue.Workload{
-				utiltesting.MakeWorkload("b0", "eng-alpha").
+				*utiltesting.MakeWorkload("b0", "eng-alpha").
 					Queue("lq-b").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
+						Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("b", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).
-					Workload,
-				utiltesting.MakeWorkload("b1", "eng-alpha").
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
 					Queue("lq-b").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "50").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("c1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
 					Queue("lq-c").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "75").
-						PodSet).
-					Workload,
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/b0": *utiltesting.MakeAdmission("b", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
@@ -1832,34 +1826,34 @@ func TestSchedule(t *testing.T) {
 		"fair sharing schedule singleton cqs and cq without cohort": {
 			enableFairSharing: true,
 			cohorts: []kueuealpha.Cohort{
-				utiltesting.MakeCohort("A").
+				*utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "10").Obj(),
-					).Cohort,
-				utiltesting.MakeCohort("B").Cohort,
+					).Obj(),
+				*utiltesting.MakeCohort("B").Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("a").
+				*utiltesting.MakeClusterQueue("a").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
 					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("b").
+					Obj(),
+				*utiltesting.MakeClusterQueue("b").
 					Cohort("B").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "10").Obj(),
 					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("c").
+					Obj(),
+				*utiltesting.MakeClusterQueue("c").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "10").Obj(),
 					).
-					ClusterQueue,
+					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lq-a", "eng-alpha").ClusterQueue("a").Obj(),
@@ -1867,24 +1861,24 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lq-c", "eng-alpha").ClusterQueue("c").Obj(),
 			},
 			workloads: []kueue.Workload{
-				utiltesting.MakeWorkload("a1", "eng-alpha").
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
 					Queue("lq-a").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("b1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
 					Queue("lq-b").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("c1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
 					Queue("lq-c").
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/a1": *utiltesting.MakeAdmission("a", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
@@ -1897,48 +1891,46 @@ func TestSchedule(t *testing.T) {
 		"fair sharing schedule highest priority first": {
 			enableFairSharing: true,
 			cohorts: []kueuealpha.Cohort{
-				utiltesting.MakeCohort("A").
+				*utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "10").Obj(),
-					).Cohort,
-				utiltesting.MakeCohort("B").Cohort,
+					).Obj(),
+				*utiltesting.MakeCohort("B").Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("b").
+				*utiltesting.MakeClusterQueue("b").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("c").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("c").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
+					).Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lq-b", "eng-alpha").ClusterQueue("b").Obj(),
 				*utiltesting.MakeLocalQueue("lq-c", "eng-alpha").ClusterQueue("c").Obj(),
 			},
 			workloads: []kueue.Workload{
-				utiltesting.MakeWorkload("b1", "eng-alpha").
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
 					Queue("lq-b").
 					Priority(99).
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("c1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
 					Queue("lq-c").
 					Priority(101).
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/c1": *utiltesting.MakeAdmission("c", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
@@ -1951,50 +1943,48 @@ func TestSchedule(t *testing.T) {
 		"fair sharing schedule earliest timestamp first": {
 			enableFairSharing: true,
 			cohorts: []kueuealpha.Cohort{
-				utiltesting.MakeCohort("A").
+				*utiltesting.MakeCohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "10").Obj(),
-					).Cohort,
-				utiltesting.MakeCohort("B").Cohort,
+					).Obj(),
+				*utiltesting.MakeCohort("B").Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("b").
+				*utiltesting.MakeClusterQueue("b").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("c").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("c").
 					Cohort("A").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
+					).Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lq-b", "eng-alpha").ClusterQueue("b").Obj(),
 				*utiltesting.MakeLocalQueue("lq-c", "eng-alpha").ClusterQueue("c").Obj(),
 			},
 			workloads: []kueue.Workload{
-				utiltesting.MakeWorkload("b1", "eng-alpha").
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
 					Creation(now.Add(time.Second)).
 					Queue("lq-b").
 					Priority(101).
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("c1", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
 					Creation(now).
 					Queue("lq-c").
 					Priority(101).
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "10").
-						PodSet).
-					Workload,
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/c1": *utiltesting.MakeAdmission("c", "one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
@@ -3252,48 +3242,46 @@ func TestSchedule(t *testing.T) {
 		//
 		"in a hierarchical cohort, workload borrowing less is scheduled first": {
 			cohorts: []kueuealpha.Cohort{
-				utiltesting.MakeCohort("root").Cohort,
-				utiltesting.MakeCohort("guaranteed").
+				*utiltesting.MakeCohort("root").Obj(),
+				*utiltesting.MakeCohort("guaranteed").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("default").
 							Resource(corev1.ResourceCPU, "4").Obj(),
-					).Parent("root").Cohort,
+					).Parent("root").Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("guaranteed").
+				*utiltesting.MakeClusterQueue("guaranteed").
 					Cohort("guaranteed").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("default").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
-				utiltesting.MakeClusterQueue("best-effort").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("best-effort").
 					Cohort("root").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("default").
 							Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					ClusterQueue,
+					).Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("lq-guaranteed", "eng-alpha").ClusterQueue("guaranteed").Obj(),
 				*utiltesting.MakeLocalQueue("lq-best-effort", "eng-alpha").ClusterQueue("best-effort").Obj(),
 			},
 			workloads: []kueue.Workload{
-				utiltesting.MakeWorkload("guaranteed", "eng-alpha").
+				*utiltesting.MakeWorkload("guaranteed", "eng-alpha").
 					Queue("lq-guaranteed").
 					Priority(0).
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
-						PodSet).
-					Workload,
-				utiltesting.MakeWorkload("best-effort", "eng-alpha").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("best-effort", "eng-alpha").
 					Queue("lq-best-effort").
 					Priority(3).
-					PodSets(utiltesting.MakePodSet("one", 1).
+					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "4").
-						PodSet).
-					Workload,
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/guaranteed": *utiltesting.MakeAdmission("guaranteed", "one").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
@@ -3938,12 +3926,12 @@ func TestLastSchedulingContext(t *testing.T) {
 					).Obj(),
 			},
 			admittedWorkloads: []kueue.Workload{
-				utiltesting.MakeWorkload("low-1", "default").
+				*utiltesting.MakeWorkload("low-1", "default").
 					Queue("main").
 					Request(corev1.ResourceCPU, "50").
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
 					Admitted(true).
-					Workload,
+					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("preemptor", "default").
@@ -3952,12 +3940,12 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 			deleteWorkloads: []kueue.Workload{
-				utiltesting.MakeWorkload("low-1", "default").
+				*utiltesting.MakeWorkload("low-1", "default").
 					Queue("main").
 					Request(corev1.ResourceCPU, "50").
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
 					Admitted(true).
-					Workload,
+					Obj(),
 			},
 			wantPreempted:                 sets.Set[string]{},
 			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
