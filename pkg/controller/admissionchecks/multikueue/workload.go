@@ -20,11 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
+	"golang.org/x/exp/slices"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -395,7 +396,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
@@ -403,33 +403,32 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
-			if group.jobAdapter.KeepAdmissionCheckPending() {
-				acs.State = kueue.CheckStatePending
-			} else {
-				acs.State = kueue.CheckStateReady
-			}
-			// update the message
-			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
-			// update the transition time since is used to detect the lost worker state.
-			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+			err := utilclient.PatchStatus(ctx, w.client, group.local, func() (bool, error) {
+				if group.jobAdapter.KeepAdmissionCheckPending() {
+					acs.State = kueue.CheckStatePending
+				} else {
+					acs.State = kueue.CheckStateReady
+				}
+				// update the message
+				acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
+				// update the transition time since is used to detect the lost worker state.
+				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-			wlPatch := workload.BaseSSAWorkload(group.local)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
+				workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
 
-			// Set the cluster name to the reserving remote and clear the nominated clusters.
-			wlPatch.Status.ClusterName = &reservingRemote
-			wlPatch.Status.NominatedClusterNames = nil
-			log.V(2).Info("KACZKA fail",
-				"oldSelf.ClusterName", group.local.Status.ClusterName,
-				"oldSelf.NominatedClusterNames", group.local.Status.NominatedClusterNames,
-				"self.ClusterName", wlPatch.Status.ClusterName,
-				"self.NominatedClusterNames", wlPatch.Status.NominatedClusterNames)
-			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
+				if w.dispatcherName == config.MultiKueueDispatcherModeIncremental {
+					// Set the cluster name to the reserving remote and clear the nominated clusters.
+					group.local.Status.ClusterName = &reservingRemote
+					group.local.Status.NominatedClusterNames = nil
+				}
+
+				return true, nil
+			})
 			if err != nil {
-				log.V(2).Info("KACZKA failed to patch", "err", err)
+				log.Error(err, "Failed to patch workload")
 				return reconcile.Result{}, err
 			}
-			w.recorder.Eventf(wlPatch, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
 		}
 		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
 	} else if acs.State == kueue.CheckStateReady {
@@ -449,16 +448,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	return w.nominateAndSynchronizeWorkers(ctx, group, w.dispatcherName)
+	return w.nominateAndSynchronizeWorkers(ctx, group)
 }
 
-func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup, dispatcherMode string) (reconcile.Result, error) {
+func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 	var nominatedWorkers []string
 	var retryAfter time.Duration
 
-	switch dispatcherMode {
+	switch w.dispatcherName {
 	case config.MultiKueueDispatcherModeAllAtOnce:
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
