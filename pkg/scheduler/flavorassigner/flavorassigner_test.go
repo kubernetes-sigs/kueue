@@ -2706,3 +2706,77 @@ func TestHierarchical(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
+	cases := map[string]struct {
+		cq         cache.ClusterQueueSnapshot
+		assignment Assignment
+		workload   workload.Info
+		wantErr    string
+	}{
+		"workload requires Topology, but there is no TAS cache information": {
+			cq: cache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*cache.TASFlavorSnapshot{},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  1,
+					Status: &Status{},
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "workload requires Topology, but there is no TAS cache information",
+		},
+		"workload requires Topology, but there is no TAS cache information for the assigned flavor": {
+			cq: cache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*cache.TASFlavorSnapshot{"tas": nil},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  1,
+					Status: &Status{},
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "workload requires Topology, but there is no TAS cache information for the assigned flavor",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tasReqs := tc.assignment.WorkloadsTopologyRequests(&tc.workload, &tc.cq)
+			if len(tasReqs) != 0 {
+				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
+			}
+			if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
+				t.Errorf("Error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
