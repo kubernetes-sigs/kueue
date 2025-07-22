@@ -228,7 +228,7 @@ func validateLendingLimit(lend, nominal resource.Quantity, config validationConf
 	return allErrs
 }
 
-// validateLendingLimit enforces that LendingLimit is not greater than NominalQuota
+// validateFlavorFungibility enforces that FlavorSelectionStrategy is consistent with WhenCanBorrow and WhenCanPreempt
 func validateFlavorFungibility(flavorFungibility *kueue.FlavorFungibility, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if features.Enabled(features.FlavorFungibility) && flavorFungibility != nil {
