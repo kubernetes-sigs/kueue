@@ -5,35 +5,30 @@ auto_generated: true
 no_list: false
 ---
 
-<!--
-The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
--->
-
-## Synopsis
+## 概要 {#synopsis}
 
 
-Lists all pods that matches the given criteria: should be part of the specified Job kind, belonging to the specified namespace, matching the label selector or the field selector.)
+列出符合给定条件的所有 pod：应该是指定作业类型的一部分、属于指定命名空间、匹配标签选择器或字段选择器。
 
- The --for=pod/pod-name option allows to find pods from the same pod group as the specified pod, including that pod itself.
+ --for=pod/pod-name 选项允许查找与指定 Pod 属于同一 PodGroup 的 Pod，包括该 Pod 本身。
 
 ```
 kueuectl list pods --for TYPE[.API-GROUP]/NAME
 ```
 
 
-## Examples
+## 示例 {#examples}
 
 ```
-  # List Pods for the Job
+  # 列出作业的 Pod
   kueuectl list pods --for job/job-name
   
-  # List Pods for the Pod group
+  # 列出 Pod 组的 Pod
   kueuectl list pods --for pod/pod-name
 ```
 
 
-## Options
+## 选项 {#options}
 
 
 <table style="width: 100%; table-layout: fixed;">
@@ -48,16 +43,16 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
+            <p>如果存在，则列出所有命名空间中的请求对象。即使使用 --namespace 指定，当前上下文中的命名空间也会被忽略。</p>
         </td>
     </tr>
     <tr>
-        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
+        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;默认值: true</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
+            <p>如果为 true，当模板中缺少字段或映射键时忽略模板中的任何错误。仅适用于 golang 和 jsonpath 输出格式。</p>
         </td>
     </tr>
     <tr>
@@ -66,7 +61,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Selector (field query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. --field-selector key1=value1,key2=value2). The server only supports a limited number of field queries per type.</p>
+            <p>用于过滤的选择器（字段查询），支持 &#39;=&#39;、&#39;==&#39; 和 &#39;!=&#39;。（例如 --field-selector key1=value1,key2=value2）。服务器每种类型仅支持有限数量的字段查询。</p>
         </td>
     </tr>
     <tr>
@@ -75,7 +70,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Filter only those pertaining to the specified resource.</p>
+            <p>仅过滤与指定资源相关的那些。</p>
         </td>
     </tr>
     <tr>
@@ -84,7 +79,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for pods</p>
+            <p>pods 命令的帮助信息</p>
         </td>
     </tr>
     <tr>
@@ -93,7 +88,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+            <p>输出格式。可选值为：json、yaml、name、go-template、go-template-file、template、templatefile、jsonpath、jsonpath-as-json、jsonpath-file。</p>
         </td>
     </tr>
     <tr>
@@ -102,7 +97,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Selector (label query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. -l key1=value1,key2=value2). Matching objects must satisfy all of the specified label constraints.</p>
+            <p>用于过滤的选择器（标签查询），支持 &#39;=&#39;、&#39;==&#39; 和 &#39;!=&#39;。（例如 -l key1=value1,key2=value2）。匹配的对象必须满足所有指定的标签约束。</p>
         </td>
     </tr>
     <tr>
@@ -111,7 +106,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+            <p>如果为 true，在 JSON 或 YAML 格式打印对象时保留 managedFields。</p>
         </td>
     </tr>
     <tr>
@@ -120,7 +115,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
+            <p>当 -o=go-template, -o=go-template-file 时使用的模板字符串或模板文件路径。模板格式是 golang 模板 [http://golang.org/pkg/text/template/#pkg-overview]。</p>
         </td>
     </tr>
     </tbody>
@@ -128,7 +123,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
 
 
 
-## Options inherited from parent commands
+## 从父命令继承的选项 {#options_inherited_from_parent_commands}
 <table style="width: 100%; table-layout: fixed;">
     <colgroup>
         <col span="1" style="width: 10px;" />
@@ -141,7 +136,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Username to impersonate for the operation. User could be a regular user or a service account in a namespace.</p>
+            <p>为操作模拟的用户名。用户可以是常规用户或命名空间中的服务账户。</p>
         </td>
     </tr>
     <tr>
@@ -150,7 +145,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Group to impersonate for the operation, this flag can be repeated to specify multiple groups.</p>
+            <p>为操作模拟的组，此标志可以重复指定多个组。</p>
         </td>
     </tr>
     <tr>
@@ -159,16 +154,16 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>UID to impersonate for the operation.</p>
+            <p>为操作模拟的 UID。</p>
         </td>
     </tr>
     <tr>
-        <td colspan="2">--cache-dir string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;$HOME/.kube/cache&#34;</td>
+        <td colspan="2">--cache-dir string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;默认值: &#34;$HOME/.kube/cache&#34;</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Default cache directory</p>
+            <p>默认缓存目录</p>
         </td>
     </tr>
     <tr>
@@ -177,7 +172,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to a cert file for the certificate authority</p>
+            <p>证书颁发机构证书文件的路径</p>
         </td>
     </tr>
     <tr>
@@ -186,7 +181,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to a client certificate file for TLS</p>
+            <p>TLS 客户端证书文件的路径</p>
         </td>
     </tr>
     <tr>
@@ -195,7 +190,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to a client key file for TLS</p>
+            <p>TLS 客户端密钥文件的路径</p>
         </td>
     </tr>
     <tr>
@@ -204,7 +199,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The name of the kubeconfig cluster to use</p>
+            <p>要使用的 kubeconfig 集群的名称</p>
         </td>
     </tr>
     <tr>
@@ -213,7 +208,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The name of the kubeconfig context to use</p>
+            <p>要使用的 kubeconfig 上下文的名称</p>
         </td>
     </tr>
     <tr>
@@ -222,7 +217,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, opt-out of response compression for all requests to the server</p>
+            <p>如果为 true，则选择退出对所有服务器请求的响应压缩</p>
         </td>
     </tr>
     <tr>
@@ -231,7 +226,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, the server&#39;s certificate will not be checked for validity. This will make your HTTPS connections insecure</p>
+            <p>如果为 true，则不会检查服务器证书的有效性。这将使您的 HTTPS 连接不安全</p>
         </td>
     </tr>
     <tr>
@@ -240,7 +235,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to the kubeconfig file to use for CLI requests.</p>
+            <p>用于 CLI 请求的 kubeconfig 文件的路径。</p>
         </td>
     </tr>
     <tr>
@@ -249,16 +244,16 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If present, the namespace scope for this CLI request</p>
+            <p>如果存在，则为此 CLI 请求的命名空间范围</p>
         </td>
     </tr>
     <tr>
-        <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
+        <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;默认值: &#34;0&#34;</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don&#39;t timeout requests.</p>
+            <p>在放弃单个服务器请求之前等待的时间长度。非零值应包含相应的时间单位（例如 1s、2m、3h）。零值表示不超时请求。</p>
         </td>
     </tr>
     <tr>
@@ -267,7 +262,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The address and port of the Kubernetes API server</p>
+            <p>Kubernetes API 服务器的地址和端口</p>
         </td>
     </tr>
     <tr>
@@ -276,7 +271,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Server name to use for server certificate validation. If it is not provided, the hostname used to contact the server is used</p>
+            <p>用于服务器证书验证的服务器名称。如果未提供，则使用用于联系服务器的主机名</p>
         </td>
     </tr>
     <tr>
@@ -285,7 +280,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Bearer token for authentication to the API server</p>
+            <p>用于 API 服务器身份验证的持有者令牌</p>
         </td>
     </tr>
     <tr>
@@ -294,7 +289,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The name of the kubeconfig user to use</p>
+            <p>要使用的 kubeconfig 用户的名称</p>
         </td>
     </tr>
     </tbody>
@@ -302,7 +297,7 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
 
 
 
-## See Also
+## 另请参阅 {#see_also}
 
-* [kueuectl list](../)	 - Display resources
+* [kueuectl list](../) - 显示资源
 
