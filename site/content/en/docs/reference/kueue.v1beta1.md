@@ -1399,7 +1399,7 @@ candidates for preemption in the current flavor.</li>
 </td>
 </tr>
 <tr><td><code>whenCanPreemptAndBorrow</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta1-FlavorSelectionStrategy"><code>FlavorSelectionStrategy</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-FlavorSelectionPolicy"><code>FlavorSelectionPolicy</code></a>
 </td>
 <td>
    <p>whenCanPreemptAndBorrow defines how should a workload chose the flavor in case of
@@ -1462,7 +1462,7 @@ There could be up to 16 resources.</p>
 </tbody>
 </table>
 
-## `FlavorSelectionStrategy`     {#kueue-x-k8s-io-v1beta1-FlavorSelectionStrategy}
+## `FlavorSelectionPolicy`     {#kueue-x-k8s-io-v1beta1-FlavorSelectionPolicy}
     
 (Alias of `string`)
 

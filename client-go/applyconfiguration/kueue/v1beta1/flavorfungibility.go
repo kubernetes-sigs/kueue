@@ -26,7 +26,7 @@ import (
 type FlavorFungibilityApplyConfiguration struct {
 	WhenCanBorrow           *kueuev1beta1.FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	WhenCanPreempt          *kueuev1beta1.FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
-	WhenCanPreemptAndBorrow *kueuev1beta1.FlavorSelectionStrategy `json:"whenCanPreemptAndBorrow,omitempty"`
+	WhenCanPreemptAndBorrow *kueuev1beta1.FlavorSelectionPolicy   `json:"whenCanPreemptAndBorrow,omitempty"`
 }
 
 // FlavorFungibilityApplyConfiguration constructs a declarative configuration of the FlavorFungibility type for use with
@@ -54,7 +54,7 @@ func (b *FlavorFungibilityApplyConfiguration) WithWhenCanPreempt(value kueuev1be
 // WithWhenCanPreemptAndBorrow sets the WhenCanPreemptAndBorrow field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the WhenCanPreemptAndBorrow field is set to the value of the last call.
-func (b *FlavorFungibilityApplyConfiguration) WithWhenCanPreemptAndBorrow(value kueuev1beta1.FlavorSelectionStrategy) *FlavorFungibilityApplyConfiguration {
+func (b *FlavorFungibilityApplyConfiguration) WithWhenCanPreemptAndBorrow(value kueuev1beta1.FlavorSelectionPolicy) *FlavorFungibilityApplyConfiguration {
 	b.WhenCanPreemptAndBorrow = &value
 	return b
 }

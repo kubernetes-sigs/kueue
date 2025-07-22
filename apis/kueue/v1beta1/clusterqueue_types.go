@@ -385,11 +385,11 @@ const (
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
-type FlavorSelectionStrategy string
+type FlavorSelectionPolicy string
 
 const (
-	PreferBorrowing  FlavorSelectionStrategy = "PreferBorrowing"
-	PreferPreemption FlavorSelectionStrategy = "PreferPreemption"
+	PreferBorrowing  FlavorSelectionPolicy = "PreferBorrowing"
+	PreferPreemption FlavorSelectionPolicy = "PreferPreemption"
 )
 
 // FlavorFungibility determines whether a workload should try the next flavor
@@ -426,7 +426,7 @@ type FlavorFungibility struct {
 	//    even if it means preempting other workloads.
 	// +kubebuilder:validation:Enum={PreferBorrowing,PreferPreemption}
 	// +kubebuilder:default="PreferBorrowing"
-	WhenCanPreemptAndBorrow FlavorSelectionStrategy `json:"whenCanPreemptAndBorrow,omitempty"`
+	WhenCanPreemptAndBorrow FlavorSelectionPolicy `json:"whenCanPreemptAndBorrow,omitempty"`
 }
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this

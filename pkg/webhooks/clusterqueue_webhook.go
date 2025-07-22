@@ -228,7 +228,7 @@ func validateLendingLimit(lend, nominal resource.Quantity, config validationConf
 	return allErrs
 }
 
-// validateFlavorFungibility enforces that FlavorSelectionStrategy is consistent with WhenCanBorrow and WhenCanPreempt
+// validateFlavorFungibility enforces that FlavorSelectionPolicy is consistent with WhenCanBorrow and WhenCanPreempt
 func validateFlavorFungibility(flavorFungibility *kueue.FlavorFungibility, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if features.Enabled(features.FlavorFungibility) && flavorFungibility != nil {

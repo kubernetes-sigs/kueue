@@ -340,7 +340,7 @@ const (
 )
 
 // isPreferred returns true if mode a is better than b according to the selected strategy
-func isPreferred(a, b granularMode, strategy kueue.FlavorSelectionStrategy) bool {
+func isPreferred(a, b granularMode, strategy kueue.FlavorSelectionPolicy) bool {
 	if a.preemptionMode == noFit {
 		return false
 	}
