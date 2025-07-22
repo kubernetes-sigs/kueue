@@ -46,33 +46,20 @@ var (
 	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
 )
 
-type options struct {
-	podsReadyRequeuingTimestamp config.RequeuingTimestamp
-	workloadInfoOptions         []workload.InfoOption
-	admissionFairSharing        *config.AdmissionFairSharing
-	clock                       clock.WithDelayedExecution
-}
-
 // Option configures the manager.
-type Option func(*options)
-
-var defaultOptions = options{
-	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
-	workloadInfoOptions:         []workload.InfoOption{},
-	clock:                       clock.RealClock{},
-}
+type Option func(*Manager)
 
 // WithClock allows to specify a custom clock
 func WithClock(c clock.WithDelayedExecution) Option {
-	return func(o *options) {
-		o.clock = c
+	return func(m *Manager) {
+		m.clock = c
 	}
 }
 
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
-	return func(o *options) {
+	return func(m *Manager) {
 		if features.Enabled(features.AdmissionFairSharing) {
-			o.admissionFairSharing = cfg
+			m.admissionFairSharingConfig = cfg
 		}
 	}
 }
@@ -80,22 +67,22 @@ func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
 // workloads that have been requeued due to the PodsReady condition.
 func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
-	return func(o *options) {
-		o.podsReadyRequeuingTimestamp = ts
+	return func(m *Manager) {
+		m.workloadOrdering.PodsReadyRequeuingTimestamp = ts
 	}
 }
 
 // WithExcludedResourcePrefixes sets the list of excluded resource prefixes
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
-	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
+	return func(m *Manager) {
+		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
 	}
 }
 
 // WithResourceTransformations sets the resource transformations.
 func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
-	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceTransformations(transforms))
+	return func(m *Manager) {
+		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithResourceTransformations(transforms))
 	}
 }
 
@@ -127,27 +114,25 @@ type Manager struct {
 	secondPassQueue            *secondPassQueue
 }
 
-func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
-		clock:          options.clock,
+		clock:          realClock,
 		client:         client,
 		statusChecker:  checker,
 		localQueues:    make(map[LocalQueueReference]*LocalQueue),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload, 0),
 		workloadOrdering: workload.Ordering{
-			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
+			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
-		workloadInfoOptions: options.workloadInfoOptions,
+		workloadInfoOptions: []workload.InfoOption{},
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 
-		topologyUpdateWatchers:     make([]TopologyUpdateWatcher, 0),
-		admissionFairSharingConfig: options.admissionFairSharing,
-		secondPassQueue:            newSecondPassQueue(),
+		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
+		secondPassQueue:        newSecondPassQueue(),
+	}
+	for _, option := range options {
+		option(m)
 	}
 	m.cond.L = &m.RWMutex
 	return m
