@@ -2683,11 +2683,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
 			}
 		})
-		ginkgo.It("chooses a correct flavor when AvoidBorrowing is selected", func() {
+		ginkgo.It("chooses a correct flavor when PreferPreemption is selected", func() {
 			fungibility := kueue.FlavorFungibility{
 				WhenCanBorrow:           kueue.TryNextFlavor,
 				WhenCanPreempt:          kueue.TryNextFlavor,
-				WhenCanPreemptAndBorrow: kueue.AvoidBorrowing}
+				WhenCanPreemptAndBorrow: kueue.PreferPreemption}
 			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
 			createQueue(testing.MakeClusterQueue("cq1").

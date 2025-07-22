@@ -203,19 +203,19 @@ spec:
                         - TryNextFlavor
                       type: string
                     whenCanPreemptAndBorrow:
-                      default: AvoidPreemption
+                      default: PreferBorrowing
                       description: |-
                         whenCanPreemptAndBorrow defines how should a workload chose the flavor in case of
                         multiple options. If either borrowing or preemption is necessary and multiple options
                         are available, then this field defines the selection strategy. The possible values are:
 
-                        - `AvoidPreemption` (default): prefer to allocate in a flavor that does not preempt
+                        - `PreferBorrowing` (default): prefer to allocate in a flavor that does not preempt
                            other workloads.
-                        - `AvoidBorrowing`: prefer to allocate in a flavor that uses only the nominal quota
+                        - `PreferPreemption`: prefer to allocate in a flavor that uses only the nominal quota
                            even if it means preempting other workloads.
                       enum:
-                        - AvoidPreemption
-                        - AvoidBorrowing
+                        - PreferBorrowing
+                        - PreferPreemption
                       type: string
                   type: object
                 namespaceSelector:

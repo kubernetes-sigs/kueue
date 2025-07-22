@@ -1406,9 +1406,9 @@ candidates for preemption in the current flavor.</li>
 multiple options. If either borrowing or preemption is necessary and multiple options
 are available, then this field defines the selection strategy. The possible values are:</p>
 <ul>
-<li><code>AvoidPreemption</code> (default): prefer to allocate in a flavor that does not preempt
+<li><code>PreferBorrowing</code> (default): prefer to allocate in a flavor that does not preempt
 other workloads.</li>
-<li><code>AvoidBorrowing</code>: prefer to allocate in a flavor that uses only the nominal quota
+<li><code>PreferPreemption</code>: prefer to allocate in a flavor that uses only the nominal quota
 even if it means preempting other workloads.</li>
 </ul>
 </td>

@@ -819,7 +819,7 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 			FlavorFungibility: &kueue.FlavorFungibility{
 				WhenCanBorrow:           kueue.Borrow,
 				WhenCanPreempt:          kueue.TryNextFlavor,
-				WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+				WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 			},
 		},
 	}}

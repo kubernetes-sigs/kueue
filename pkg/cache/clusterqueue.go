@@ -118,7 +118,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 var defaultFlavorFungibility = kueue.FlavorFungibility{
 	WhenCanBorrow:           kueue.Borrow,
 	WhenCanPreempt:          kueue.TryNextFlavor,
-	WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+	WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 }
 
 func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {

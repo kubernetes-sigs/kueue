@@ -347,7 +347,7 @@ func isPreferred(a, b granularMode, strategy kueue.FlavorSelectionStrategy) bool
 	if b.preemptionMode == noFit {
 		return true
 	}
-	if strategy == kueue.AvoidBorrowing {
+	if strategy == kueue.PreferPreemption {
 		if a.borrowingDistance != b.borrowingDistance {
 			return a.borrowingDistance < b.borrowingDistance
 		}

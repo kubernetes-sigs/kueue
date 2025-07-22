@@ -2188,7 +2188,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"avoidBorrowing; preempt without borrowing is preferred over fit with borrowing; preempt within cohort": {
+		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt within cohort": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -2199,7 +2199,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt:          kueue.TryNextFlavor,
 					WhenCanBorrow:           kueue.TryNextFlavor,
-					WhenCanPreemptAndBorrow: kueue.AvoidBorrowing,
+					WhenCanPreemptAndBorrow: kueue.PreferPreemption,
 				}).
 				ResourceGroup(
 					utiltesting.MakeFlavorQuotas("one").
@@ -2246,7 +2246,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"avoidBorrowing; preempt without borrowing is preferred over fit with borrowing; preempt in own CQ": {
+		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt in own CQ": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -2257,7 +2257,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt:          kueue.TryNextFlavor,
 					WhenCanBorrow:           kueue.TryNextFlavor,
-					WhenCanPreemptAndBorrow: kueue.AvoidBorrowing,
+					WhenCanPreemptAndBorrow: kueue.PreferPreemption,
 				}).
 				ResourceGroup(
 					utiltesting.MakeFlavorQuotas("one").
@@ -2304,7 +2304,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"avoidBorrowing; fit without borrowing is preferred over fit with borrowing": {
+		"preferPreemption; fit without borrowing is preferred over fit with borrowing": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -2315,7 +2315,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt:          kueue.TryNextFlavor,
 					WhenCanBorrow:           kueue.TryNextFlavor,
-					WhenCanPreemptAndBorrow: kueue.AvoidBorrowing,
+					WhenCanPreemptAndBorrow: kueue.PreferPreemption,
 				}).
 				ResourceGroup(
 					utiltesting.MakeFlavorQuotas("one").

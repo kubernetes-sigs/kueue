@@ -165,7 +165,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility: kueue.FlavorFungibility{
 						WhenCanBorrow:           kueue.TryNextFlavor,
 						WhenCanPreempt:          kueue.TryNextFlavor,
-						WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+						WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 					},
 					FairWeight: oneQuantity,
 				},
@@ -292,7 +292,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility: kueue.FlavorFungibility{
 						WhenCanBorrow:           kueue.TryNextFlavor,
 						WhenCanPreempt:          kueue.TryNextFlavor,
-						WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+						WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 					},
 					FairWeight: oneQuantity,
 				},
@@ -394,7 +394,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility: kueue.FlavorFungibility{
 						WhenCanBorrow:           kueue.TryNextFlavor,
 						WhenCanPreempt:          kueue.TryNextFlavor,
-						WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+						WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 					},
 					FairWeight: oneQuantity,
 				},
@@ -603,7 +603,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility: kueue.FlavorFungibility{
 						WhenCanBorrow:           kueue.TryNextFlavor,
 						WhenCanPreempt:          kueue.TryNextFlavor,
-						WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+						WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 					},
 					FairWeight: oneQuantity,
 				},
@@ -678,7 +678,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility: kueue.FlavorFungibility{
 						WhenCanBorrow:           kueue.TryNextFlavor,
 						WhenCanPreempt:          kueue.TryNextFlavor,
-						WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
+						WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 					},
 					FairWeight: oneQuantity,
 				},
