@@ -24,6 +24,7 @@ set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$(cd "$SOURCE_DIR/../.." && pwd -P)"
+HACK_DIR="$(cd "$SOURCE_DIR/.." && pwd -P)"
 
 # Enable CRDs MultiKueue
 export JOBSET_VERSION="${JOBSET_VERSION:-v0.8.0}"
@@ -42,8 +43,15 @@ export MANAGER_KUBECONFIG="${ARTIFACTS}/kubeconfig-$MANAGER_KIND_CLUSTER_NAME"
 export WORKER1_KUBECONFIG="${ARTIFACTS}/kubeconfig-$WORKER1_KIND_CLUSTER_NAME"
 export WORKER2_KUBECONFIG="${ARTIFACTS}/kubeconfig-$WORKER2_KIND_CLUSTER_NAME"
 
+# Temporarily override SOURCE_DIR for e2e-common.sh to find agnhost Dockerfile
+MULTIKUEUE_SOURCE_DIR="$SOURCE_DIR"
+SOURCE_DIR="$HACK_DIR"
+
 # shellcheck source=hack/e2e-common.sh
 source "${ROOT_DIR}/hack/e2e-common.sh"
+
+# Restore SOURCE_DIR for multikueue-specific files
+SOURCE_DIR="$MULTIKUEUE_SOURCE_DIR"
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -137,21 +145,21 @@ function wait_for_kueue_ready() {
     
     # Check if webhook service exists
     echo "  Checking webhook service availability..."
-    kubectl --kubeconfig="$kubeconfig" get service kueue-webhook-service -n kueue-system >/dev/null 2>&1 && {
+    if kubectl --kubeconfig="$kubeconfig" get service kueue-webhook-service -n kueue-system >/dev/null 2>&1; then
         echo "  ✓ Webhook service found in $cluster_name"
-    } || {
+    else
         echo "  Warning: Webhook service not found in $cluster_name"
         kubectl --kubeconfig="$kubeconfig" get services -n kueue-system || true
-    }
+    fi
     
     # Check if Kueue CRDs are registered
     echo "  Verifying Kueue CRDs are registered..."
-    kubectl --kubeconfig="$kubeconfig" get crd clusterqueues.kueue.x-k8s.io >/dev/null 2>&1 && {
+    if kubectl --kubeconfig="$kubeconfig" get crd clusterqueues.kueue.x-k8s.io >/dev/null 2>&1; then
         echo "  ✓ Kueue CRDs are registered in $cluster_name"
-    } || {
+    else
         echo "  Warning: Kueue CRDs not found in $cluster_name"
         kubectl --kubeconfig="$kubeconfig" get crd | grep -i kueue || echo "  No Kueue CRDs found"
-    }
+    fi
     
     echo "  Kueue readiness check completed for $cluster_name cluster."
 }
