@@ -320,7 +320,7 @@ func (m FlavorAssignmentMode) String() string {
 
 // granularMode is the FlavorAssignmentMode internal to
 // FlavorAssigner, which lets us distinguish priority based preemption,
-// and reclamation within Cohort.
+// reclamation within Cohort and borrowing.
 type granularMode struct {
 	preemptionMode    preemptionMode
 	borrowingDistance int
