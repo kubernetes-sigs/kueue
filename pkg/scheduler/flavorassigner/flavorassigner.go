@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -645,7 +646,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	}
 
 	var bestAssignment ResourceAssignment
-	bestAssignmentMode := granularMode{preemptionMode: noFit, borrowingDistance: 1}
+	bestAssignmentMode := granularMode{preemptionMode: noFit, borrowingDistance: math.MaxInt}
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
@@ -836,7 +837,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	if val > maxCapacity {
 		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
 			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
-		return granularMode{preemptionMode: noFit, borrowingDistance: 0}, &status
+		return granularMode{preemptionMode: noFit, borrowingDistance: math.MaxInt}, &status
 	}
 
 	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
