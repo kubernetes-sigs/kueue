@@ -1398,6 +1398,22 @@ candidates for preemption in the current flavor.</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>whenCanPreemptAndBorrow</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FlavorSelectionStrategy"><code>FlavorSelectionStrategy</code></a>
+</td>
+<td>
+   <p>WhenCanPreemptAndBorrow defines how should the flavor be chosen in case of multiple
+options. If some flavor allows to fit without preemption and borrowing, it will always
+be preferred. But if either borrowing or preemption is neccessary and multiple options
+are available, then this field defines the selection strategy. The possible values are:</p>
+<ul>
+<li><code>AvoidPreemption</code> (default): prefer to allocate in a flavor that does not preempt
+other workloads.</li>
+<li><code>AvoidBorrowing</code>: prefer to allocate in a flavor that uses only the nominal quota
+even if it means preempting other workloads.</li>
+</ul>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1446,6 +1462,18 @@ There could be up to 16 resources.</p>
 </tr>
 </tbody>
 </table>
+
+## `FlavorSelectionStrategy`     {#kueue-x-k8s-io-v1beta1-FlavorSelectionStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FlavorFungibility](#kueue-x-k8s-io-v1beta1-FlavorFungibility)
+
+
+
+
 
 ## `FlavorUsage`     {#kueue-x-k8s-io-v1beta1-FlavorUsage}
     

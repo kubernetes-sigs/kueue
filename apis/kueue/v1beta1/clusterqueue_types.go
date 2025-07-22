@@ -385,6 +385,13 @@ const (
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
+type FlavorSelectionStrategy string
+
+const (
+	AvoidPreemption FlavorSelectionStrategy = "AvoidPreemption"
+	AvoidBorrowing  FlavorSelectionStrategy = "AvoidBorrowing"
+)
+
 // FlavorFungibility determines whether a workload should try the next flavor
 // before borrowing or preempting in current flavor.
 type FlavorFungibility struct {
@@ -409,6 +416,18 @@ type FlavorFungibility struct {
 	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
 	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
+	// WhenCanPreemptAndBorrow defines how should the flavor be chosen in case of multiple
+	// options. If some flavor allows to fit without preemption and borrowing, it will always
+	// be preferred. But if either borrowing or preemption is neccessary and multiple options
+	// are available, then this field defines the selection strategy. The possible values are:
+	//
+	// - `AvoidPreemption` (default): prefer to allocate in a flavor that does not preempt
+	//    other workloads.
+	// - `AvoidBorrowing`: prefer to allocate in a flavor that uses only the nominal quota
+	//    even if it means preempting other workloads.
+	// +kubebuilder:validation:Enum={AvoidPreemption,AvoidBorrowing}
+	// +kubebuilder:default="AvoidPreemption"
+	WhenCanPreemptAndBorrow FlavorSelectionStrategy `json:"whenCanPreemptAndBorrow,omitempty"`
 }
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
