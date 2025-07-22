@@ -344,7 +344,7 @@ func isPreferred(a, b granularMode, strategy kueue.FlavorSelectionStrategy) bool
 	if a.preemptionMode == noFit {
 		return false
 	}
-        if b.preemptionMode == noFit {
+	if b.preemptionMode == noFit {
 		return true
 	}
 	if strategy == kueue.AvoidBorrowing {
