@@ -42,8 +42,9 @@ const (
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	var ns *corev1.Namespace
 	defaultFlavorFungibility := &kueue.FlavorFungibility{
-		WhenCanBorrow:  kueue.Borrow,
-		WhenCanPreempt: kueue.TryNextFlavor,
+		WhenCanBorrow:           kueue.Borrow,
+		WhenCanPreempt:          kueue.TryNextFlavor,
+		WhenCanPreemptAndBorrow: kueue.AvoidPreemption,
 	}
 
 	ginkgo.BeforeEach(func() {
