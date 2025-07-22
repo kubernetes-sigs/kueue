@@ -31,7 +31,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -250,4 +253,67 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		}
 	}
 	return nil
+}
+
+// ReplacedWorkloadSlice returns the replacement workload slice for the given workload `wl`
+// if it has been marked as replaced by another slice. This is determined using the
+// `ReplacementForKey` annotation or metadata.
+//
+// It returns a slice containing the corresponding preemption.Target for the replacement,
+// as well as a pointer to the replacement workload.Info object.
+//
+// Returns nil if:
+// - The ElasticJobsViaWorkloadSlices feature gate is not enabled
+// - The input workload or snapshot is nil
+// - The workload has no replacement slice key
+// - The referenced replacement workload is not found in the ClusterQueue snapshot
+func ReplacedWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || snap == nil {
+		return nil, nil
+	}
+
+	sliceKey := ReplacementForKey(wl.Obj)
+	if sliceKey == nil {
+		return nil, nil
+	}
+
+	// Retrieve cluster queue.
+	queue := snap.ClusterQueue(wl.ClusterQueue)
+	if queue == nil {
+		return nil, nil
+	}
+
+	replaced, found := queue.Workloads[*sliceKey]
+	if !found {
+		return nil, nil
+	}
+
+	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// FindReplacedSliceTarget identifies and removes a preempted workload slice target from the given list of targets.
+// The function checks if Elastic Jobs via Workload Slices feature is enabled and if so, attempts to find a matching
+// workload slice in the target list for the provided preemptor. If a matching slice is found, it is removed from the list
+// and returned alongside the original target list.
+//
+// This function performs the following:
+// 1. It checks if the feature `ElasticJobsViaWorkloadSlices` is enabled. If not, it returns the target list unchanged with `nil` as the second return value.
+// 2. It generates a replacement key for the preemptor workload slice. If no replacement key is found, it returns the original target list unchanged with `nil`.
+// 3. It iterates over the list of preemption targets, looking for a target that matches the replacement key.
+// 4. If a matching target is found, it removes it from the list and returns the updated list and the removed target.
+// 5. If no matching target is found, it returns the original target list and `nil`.
+func FindReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Target) ([]*preemption.Target, *preemption.Target) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return targets, nil
+	}
+	sliceKey := ReplacementForKey(preemptor)
+	if sliceKey == nil {
+		return targets, nil
+	}
+	for i := range targets {
+		if *sliceKey == workload.Key(targets[i].WorkloadInfo.Obj) {
+			return append(targets[:i], targets[i+1:]...), targets[i]
+		}
+	}
+	return targets, nil
 }

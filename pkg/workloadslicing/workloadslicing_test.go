@@ -41,7 +41,11 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -996,6 +1000,108 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 				return a.Name < b.Name
 			})); diff != "" {
 				t.Errorf("StartWorkloadSlicePods() pod-validaion: got(-),want(+): %s", diff)
+			}
+		})
+	}
+}
+
+func TestReplacedWorkloadSlice(t *testing.T) {
+	type args struct {
+		wl   *workload.Info
+		snap *cache.Snapshot
+	}
+	type want struct {
+		wl      *workload.Info
+		targets []*preemption.Target
+	}
+
+	tests := map[string]struct {
+		featureEnabled bool
+		args           args
+		want           want
+	}{
+		"FeatureNotEnabled": {},
+		"EdgeCase_WorkloadIsNil": {
+			featureEnabled: true,
+		},
+		"EdgeCase_SnapshotIsNil": {
+			featureEnabled: true,
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test", "default").Obj()),
+			},
+		},
+		"WorkloadWithoutReplacementAnnotation": {
+			featureEnabled: true,
+			args: args{
+				wl:   workload.NewInfo(utiltesting.MakeWorkload("test", "default").Obj()),
+				snap: &cache.Snapshot{},
+			},
+		},
+		"ReplacedWorkloadIsNotFound_MissingClusterQueue": {
+			featureEnabled: true,
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
+					Annotation(WorkloadSliceReplacementFor, "test-old").
+					Obj()),
+				snap: &cache.Snapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[kueue.CohortReference]*cache.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot{}),
+				},
+			},
+		},
+		"EdgeCase_ReplacedWorkloadIsNotFound_NotInClusterQueue": {
+			featureEnabled: true,
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
+					Annotation(WorkloadSliceReplacementFor, "test-old").
+					Admission(utiltesting.MakeAdmission("default").Obj()).
+					Obj()),
+				snap: &cache.Snapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[kueue.CohortReference]*cache.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot{
+							"default": {},
+						}),
+				},
+			},
+		},
+		"ReplacedWorkloadIsFound": {
+			featureEnabled: true,
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
+					Annotation(WorkloadSliceReplacementFor, "test-old").
+					Admission(utiltesting.MakeAdmission("default").Obj()).
+					Obj()),
+				snap: &cache.Snapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[kueue.CohortReference]*cache.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot{
+							"default": {
+								Workloads: map[workload.Reference]*workload.Info{
+									"test-old": workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj()),
+								},
+							},
+						}),
+				},
+			},
+			want: want{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj()),
+				targets: []*preemption.Target{
+					{WorkloadInfo: workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj())},
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tt.featureEnabled)
+			targets, wl := ReplacedWorkloadSlice(tt.args.wl, tt.args.snap)
+			if diff := cmp.Diff(tt.want.targets, targets); diff != "" {
+				t.Errorf("ReplacedWorkloadSlice() targets (+want,-got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {
+				t.Errorf("ReplacedWorkloadSlice() workload (+want,-got):\n%s", diff)
 			}
 		})
 	}

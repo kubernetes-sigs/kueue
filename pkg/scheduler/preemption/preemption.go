@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const parallelPreemptions = 8
@@ -568,35 +567,4 @@ func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
 		return now
 	}
 	return cond.LastTransitionTime.Time
-}
-
-// PreemptibleWorkloadSliceTarget returns the preemption target for a given workload slice, if any.
-//
-// In the WorkloadSlice model, a newly created slice may preempt at most one existing slice.
-// This function identifies that potential target by reading a specific annotation on the
-// given workload's object, which encodes the key of the slice it may preempt.
-//
-// The function looks up the referenced slice in the scheduling snapshot for the same ClusterQueue.
-// If the referenced workload slice is found, it returns a Target pointing to that slice along with
-// the standard preemption reason. If no valid target is found (either the annotation is missing or
-// the slice cannot be resolved), the function returns nil.
-//
-// Parameters:
-//   - snapshot: the current scheduling snapshot containing all active workloads.
-//   - workloadInfo: the workload slice for which a potential preemption target is being resolved.
-//
-// Returns:
-//   - *Target: a reference to the workload slice that may be preempted, or nil if no valid target exists.
-func PreemptibleWorkloadSliceTarget(snapshot *cache.Snapshot, workloadInfo *workload.Info) *Target {
-	sliceKey := workloadslicing.ReplacementForKey(workloadInfo.Obj)
-	if sliceKey == nil {
-		return nil
-	}
-	preemptibleWorkloadSlice, found := snapshot.ClusterQueue(workloadInfo.ClusterQueue).Workloads[*sliceKey]
-	if !found {
-		return nil
-	}
-	return &Target{
-		WorkloadInfo: preemptibleWorkloadSlice,
-	}
 }
