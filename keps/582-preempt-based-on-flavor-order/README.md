@@ -122,7 +122,21 @@ in my cluster. In this case I prefer my high priority jobs not running on spot
 instances. If high priority jobs can preempt jobs in standard instances before trying spot instances,
 stability can be achieved.
 
-This use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreemptAndBorrow` to
+My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to
+`Preempt`  in the ClusterQueue's spec.
+
+#### Story 2
+
+As a Kueue user I want to ensure that high-priority jobs will be assigned a flavor that
+guarantees the most stable allocation. By most stable here we mean minimizing the
+likelihood of this job beeing preempted. To achieve this we note that in kueue,
+the workloads that borrow resources from other ClusterQueues are at risk of being
+preempted. It is because even a lower priority job in the other cluster queue might
+reclaim the nomial quota. So, to ensure a more stable allocation of a high-priority
+workload, it should chose a flavor that avoids borrowing from other ClusterQueues,
+even if it means preempting other workloads in its own ClusterQueue.
+
+The use case can be supported by setting `.spec.FlavorFungibility.WhenCanPreemptAndBorrow` to
 `PreferPreemption` in the ClusterQueue's spec.
 
 ### Notes/Constraints/Caveats (Optional)
