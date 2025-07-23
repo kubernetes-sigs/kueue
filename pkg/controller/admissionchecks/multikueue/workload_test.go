@@ -1379,7 +1379,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				fakeClock.SetTime(now.Add(tt.advanceClock))
 			}
 
-			res, err := wlRec.nominateAndSynchronizeWorkers(context.Background(), group, tt.dispatcherMode)
+			res, err := wlRec.nominateAndSynchronizeWorkers(context.Background(), group)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
 			}

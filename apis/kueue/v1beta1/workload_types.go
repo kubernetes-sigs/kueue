@@ -420,7 +420,7 @@ type WorkloadStatus struct {
 	// `status.clusterName` is set.
 	// This field is optional.
 	//
-	// +listType=set
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=10
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`

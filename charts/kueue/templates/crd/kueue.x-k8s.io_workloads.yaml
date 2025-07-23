@@ -8315,7 +8315,7 @@ spec:
                     type: string
                   maxItems: 10
                   type: array
-                  x-kubernetes-list-type: set
+                  x-kubernetes-list-type: atomic
                 reclaimablePods:
                   description: |-
                     reclaimablePods keeps track of the number pods within a podset for which
