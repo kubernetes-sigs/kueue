@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -38,7 +39,55 @@ const (
 	WorkloadQuotaReservedKey   = "status.quotaReserved"
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 	OwnerReferenceUID          = "metadata.ownerReferences.uid"
+
+	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
+	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
+	//
+	// The format expects two placeholders: the owner's Group and Kind, and produces a path like:
+	// ".metadata.ownerReferences[<group>.<kind>]"
+	// which can be used as an index key in field selectors.
+	//
+	// Example:
+	//
+	//	fmt.Sprintf(OwnerReferenceGroupKindFmt, "batch", "Job")
+	//	=> ".metadata.ownerReferences[batch.Job]"
+	ownerReferenceGroupKindFmt = ".metadata.ownerReferences[%s.%s]"
 )
+
+// OwnerReferenceIndexKey returns an index key based on the workload owner's GroupVersionKind and Name.
+func OwnerReferenceIndexKey(ownerGVK schema.GroupVersionKind) string {
+	return fmt.Sprintf(ownerReferenceGroupKindFmt, ownerGVK.Group, ownerGVK.Kind)
+}
+
+// OwnerReferenceIndexFieldMatcher returns a field matcher used to filter objects based on a specific OwnerReference.
+func OwnerReferenceIndexFieldMatcher(gvk schema.GroupVersionKind, name string) client.MatchingFields {
+	return client.MatchingFields{OwnerReferenceIndexKey(gvk): name}
+}
+
+// SetupWorkloadOwnerIndex registers a field index on kueue.Workload objects based on their OwnerReferences
+// that match the specified GroupVersionKind.
+func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
+	return indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceIndexKey(gvk), WorkloadOwnerIndexFunc(gvk))
+}
+
+// WorkloadOwnerIndexFunc returns the field indexing function for kueue.Workload objects based on their OwnerReferences
+// that match the specified GroupVersionKind.
+func WorkloadOwnerIndexFunc(gvk schema.GroupVersionKind) client.IndexerFunc {
+	return func(object client.Object) []string {
+		wl, ok := object.(*kueue.Workload)
+		if !ok || len(wl.OwnerReferences) == 0 {
+			return nil
+		}
+		owners := make([]string, 0, len(wl.OwnerReferences))
+		for i := range wl.OwnerReferences {
+			owner := &wl.OwnerReferences[i]
+			if owner.Kind == gvk.Kind && owner.APIVersion == gvk.GroupVersion().String() {
+				owners = append(owners, owner.Name)
+			}
+		}
+		return owners
+	}
+}
 
 func IndexQueueClusterQueue(obj client.Object) []string {
 	q, ok := obj.(*kueue.LocalQueue)

@@ -18,30 +18,16 @@ package jobframework
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 )
-
-// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
-// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
-//
-// The format expects two placeholders: the owner's Group and Kind, and produces a path like:
-// ".metadata.ownerReferences[<group>.<kind>]"
-// which can be used as an index key in field selectors.
-//
-// Example:
-//
-//	fmt.Sprintf(OwnerReferenceGroupKindFmt, "batch", "Job")
-//	=> ".metadata.ownerReferences[batch.Job]"
-const OwnerReferenceGroupKindFmt = ".metadata.ownerReferences[%s.%s]"
 
 // OwnerReferenceIndexKey returns an index key based on the workload owner's GroupVersionKind and Name.
 func OwnerReferenceIndexKey(ownerGVK schema.GroupVersionKind) string {
-	return fmt.Sprintf(OwnerReferenceGroupKindFmt, ownerGVK.Group, ownerGVK.Kind)
+	return coreindexer.OwnerReferenceIndexKey(ownerGVK)
 }
 
 // OwnerReferenceIndexFieldMatcher returns a field matcher used to filter objects based on a specific OwnerReference.
@@ -57,7 +43,7 @@ func OwnerReferenceIndexKey(ownerGVK schema.GroupVersionKind) string {
 //
 // The index key is derived using OwnerReferenceIndexKey(gvk).
 func OwnerReferenceIndexFieldMatcher(gvk schema.GroupVersionKind, name string) client.MatchingFields {
-	return client.MatchingFields{OwnerReferenceIndexKey(gvk): name}
+	return coreindexer.OwnerReferenceIndexFieldMatcher(gvk, name)
 }
 
 // SetupWorkloadOwnerIndex registers a field index on kueue.Workload objects based on their OwnerReferences
@@ -87,18 +73,5 @@ func OwnerReferenceIndexFieldMatcher(gvk schema.GroupVersionKind, name string) c
 //	matcher := OwnerReferenceIndexFieldMatcher(gvk, "my-job-name")
 //	cl.List(ctx, &workloadList, matcher)
 func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceIndexKey(gvk), func(object client.Object) []string {
-		wl, ok := object.(*kueue.Workload)
-		if !ok || len(wl.OwnerReferences) == 0 {
-			return nil
-		}
-		owners := make([]string, 0, len(wl.OwnerReferences))
-		for i := range wl.OwnerReferences {
-			owner := &wl.OwnerReferences[i]
-			if owner.Kind == gvk.Kind && owner.APIVersion == gvk.GroupVersion().String() {
-				owners = append(owners, owner.Name)
-			}
-		}
-		return owners
-	})
+	return coreindexer.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }

@@ -115,7 +115,7 @@ func Finish(ctx context.Context, clnt client.Client, workloadSlice *kueue.Worklo
 // without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), client.MatchingFields{fmt.Sprintf(".metadata.ownerReferences[%s.%s]", jobObjectGVK.Group, jobObjectGVK.Kind): jobObject.GetName()}); err != nil {
+	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
 		return nil, err
 	}
 
