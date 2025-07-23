@@ -208,8 +208,7 @@ func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.Po
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
-				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).PodIndexLabel(
-				ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).Build()
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
 			if err != nil {
 				return nil, err
 			}

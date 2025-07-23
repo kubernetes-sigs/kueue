@@ -195,7 +195,6 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 
 	for _, psas := range groupedPodSetAssignments {
 		if len(psas) > 1 {
-
 			leader := psas[0]
 			workers := psas[1]
 			if *leader.Count > *workers.Count {
