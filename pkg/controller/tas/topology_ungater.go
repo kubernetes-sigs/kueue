@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -179,6 +180,40 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
+	groupedPodSetAssignments := make(map[string][]*kueue.PodSetAssignment)
+
+	for i, psa := range wl.Status.Admission.PodSetAssignments {
+		groupName := strconv.Itoa(i)
+		if psNameToTopologyRequest[psa.Name] != nil && psNameToTopologyRequest[psa.Name].PodSetGroupName != nil {
+			groupName = *psNameToTopologyRequest[psa.Name].PodSetGroupName
+		}
+		groupedPodSetAssignments[groupName] = append(groupedPodSetAssignments[groupName], &psa)
+	}
+
+	rankOffsets := make(map[kueue.PodSetReference]int32)
+	maxRank := make(map[kueue.PodSetReference]int32)
+
+	for _, psas := range groupedPodSetAssignments {
+		if len(psas) > 1 {
+			// In case of LeaderWorkerSet, in each Workload there will be
+			// 1 leader and N workers. Leader will get rank 0 and workers
+			// 1, 2, ..., N. To detect the leader we are selecting PodSet
+			// which is smaller.
+			smallerPsa := psas[0]
+			largerPsa := psas[1]
+			if *smallerPsa.Count > *largerPsa.Count {
+				smallerPsa = psas[1]
+				largerPsa = psas[0]
+			}
+			rankOffsets[smallerPsa.Name] = 0
+			rankOffsets[largerPsa.Name] = *smallerPsa.Count
+			maxRank[smallerPsa.Name] = *smallerPsa.Count
+			maxRank[largerPsa.Name] = *largerPsa.Count + *smallerPsa.Count
+		} else {
+			rankOffsets[psas[0].Name] = 0
+			maxRank[psas[0].Name] = *psas[0].Count
+		}
+	}
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
 			pods, err := r.podsForPodSet(ctx, wl.Namespace, wl.Name, psa.Name)
@@ -186,7 +221,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
 			}
-			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name])
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
@@ -289,8 +324,10 @@ func assignGatedPodsToDomains(
 	log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
-	psReq *kueue.PodSetTopologyRequest) []podWithDomain {
-	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq); ok {
+	psReq *kueue.PodSetTopologyRequest,
+	offset int32,
+	maxRank int32) []podWithDomain {
+	if rankToGatedPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank); ok {
 		return assignGatedPodsToDomainsByRanks(psa, rankToGatedPod)
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
@@ -367,11 +404,13 @@ func assignGatedPodsToDomainsGreedy(
 func readRanksIfAvailable(log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
-	psReq *kueue.PodSetTopologyRequest) (map[int]*corev1.Pod, bool) {
+	psReq *kueue.PodSetTopologyRequest,
+	offset int32,
+	maxRank int32) (map[int]*corev1.Pod, bool) {
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-	result, err := readRanksForLabels(psa, pods, psReq)
+	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
 		log.Error(err, "failed to read rank information from Pods")
 		return nil, false
@@ -382,7 +421,9 @@ func readRanksIfAvailable(log logr.Logger,
 func readRanksForLabels(
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
-	psReq *kueue.PodSetTopologyRequest) (map[int]*corev1.Pod, error) {
+	psReq *kueue.PodSetTopologyRequest,
+	offset int32,
+	maxRank int32) (map[int]*corev1.Pod, error) {
 	result := make(map[int]*corev1.Pod)
 	podSetSize := int(*psa.Count)
 	singleJobSize := podSetSize
@@ -391,12 +432,12 @@ func readRanksForLabels(
 	}
 
 	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.PodIndexLabel, singleJobSize)
+		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.PodIndexLabel, int(maxRank))
 		if err != nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, err
 		}
-		rank := *podIndex
+		rank := *podIndex - int(offset)
 		if psReq.SubGroupIndexLabel != nil {
 			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
 			if err != nil {
@@ -408,12 +449,15 @@ func readRanksForLabels(
 				// supported by the rank-based ordering of pods.
 				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", *podIndex, klog.KObj(pod), singleJobSize)
 			}
-			rank = *podIndex + *jobIndex*singleJobSize
+			rank = *podIndex + *jobIndex*singleJobSize - int(offset)
 		}
 		if rank >= podSetSize {
 			// the rank exceeds the PodSet size, this scenario is not supported
 			// by the rank-based ordering of pods.
 			return nil, fmt.Errorf("rank %v of Pod %q exceeds PodSet size %v", rank, klog.KObj(pod), podSetSize)
+		}
+		if rank < 0 {
+			return nil, fmt.Errorf("rank %v of Pod %q is below 0", rank, klog.KObj(pod))
 		}
 		if _, found := result[rank]; found {
 			// there is a conflict in ranks, they cannot be used

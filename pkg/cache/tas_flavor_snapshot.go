@@ -348,6 +348,7 @@ type TASPodSetRequests struct {
 	Count             int32
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
+	PodSetGroupName   *string
 }
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {

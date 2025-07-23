@@ -104,6 +104,11 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 			}
 		}
 	}
+	var podSetGroupName *string
+	if podSet.TopologyRequest != nil {
+		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
+	}
+
 	return &cache.TASPodSetRequests{
 		Count:             podCount,
 		SinglePodRequests: singlePodRequests,
@@ -111,6 +116,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetUpdates:     podSetUpdates,
 		Flavor:            *tasFlvr,
 		Implied:           isTASImplied,
+		PodSetGroupName:   podSetGroupName,
 	}, nil
 }
 
