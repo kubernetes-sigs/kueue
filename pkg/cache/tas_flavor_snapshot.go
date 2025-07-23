@@ -621,12 +621,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	leaderTasPodSetRequests *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID) (map[kueue.PodSetReference]*kueue.TopologyAssignment, string) {
-	// TODO Assumptions
-	// only two PodSets
-	// the bigger one is "workers"
-	// the smaller one is "leaders"
-	// number of pods in "leaders" podset should be relatively small
-
 	requests := workersTasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 
