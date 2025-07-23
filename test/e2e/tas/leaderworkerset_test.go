@@ -172,8 +172,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 	ginkgo.When("creating a LeaderWorkerSet with leader grouped with workers", func() {
 		ginkgo.It("should place pods based on the ranks-ordering", func() {
 			const (
-				replicas = int32(2)
-				size     = int32(3)
+				replicas = int32(1)
+				size     = int32(4)
 			)
 
 			podsTotalCount := replicas * size
@@ -266,24 +266,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					index := fmt.Sprintf("%s/%s", pod.Labels[leaderworkersetv1.GroupIndexLabelKey], pod.Labels[leaderworkersetv1.WorkerIndexLabelKey])
 					gotAssignment[index] = pod.Spec.NodeName
 				}
-				gomega.Expect(gotAssignment).Should(gomega.Or(
+				gomega.Expect(gotAssignment).Should(
 					gomega.BeComparableTo(map[string]string{
 						"0/0": "kind-worker",
 						"0/1": "kind-worker2",
 						"0/2": "kind-worker3",
-						"1/0": "kind-worker5",
-						"1/1": "kind-worker6",
-						"1/2": "kind-worker7",
+						"0/3": "kind-worker4",
 					}),
-					gomega.BeComparableTo(map[string]string{
-						"1/0": "kind-worker",
-						"1/1": "kind-worker2",
-						"1/2": "kind-worker3",
-						"0/0": "kind-worker5",
-						"0/1": "kind-worker6",
-						"0/2": "kind-worker7",
-					}),
-				))
+				)
 			})
 		},
 		)
