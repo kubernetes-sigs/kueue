@@ -169,7 +169,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		)
 	})
 
-	ginkgo.When("creating a LeaderWorkerSet with leader", func() {
+	ginkgo.When("creating a LeaderWorkerSet with leader grouped with workers", func() {
 		ginkgo.It("should place pods based on the ranks-ordering", func() {
 			const (
 				replicas = int32(2)
@@ -186,6 +186,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetGroupName:                  "same-group",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -211,6 +212,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{
 								kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+								kueuealpha.PodSetGroupName:                  "same-group",
 							},
 						},
 						Spec: corev1.PodSpec{
