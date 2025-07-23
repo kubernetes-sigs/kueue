@@ -39,7 +39,6 @@ import (
 const (
 	limitIsEmptyErrorMsgTemplate string = `must be nil when %s is empty`
 	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
-	flavorFungibilityErrorMsg    string = `flavor selection policy can be selected only if WhenCanBorrow=TryNextFlavor and WhenCanPreempt=TryNextFlavor`
 )
 
 type ClusterQueueWebhook struct{}
@@ -111,7 +110,6 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
 	allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
-
 	return allErrs
 }
 
