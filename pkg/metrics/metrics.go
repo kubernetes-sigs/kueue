@@ -280,6 +280,14 @@ The label 'reason' can have the following values:
 		}, []string{"cluster_queue", "reason"},
 	)
 
+	ReplacedWorkloadSlicesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "replaced_workload_slices_total",
+			Help:      `The number of replaced workload slices per 'cluster_queue'`,
+		}, []string{"cluster_queue"},
+	)
+
 	LocalQueueEvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -531,6 +539,10 @@ func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason s
 	if durationToPreemption != nil {
 		PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), evictionReason).Observe(durationToPreemption.Seconds())
 	}
+}
+
+func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
+	ReplacedWorkloadSlicesTotal.WithLabelValues(string(cqName)).Inc()
 }
 
 func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason string) {

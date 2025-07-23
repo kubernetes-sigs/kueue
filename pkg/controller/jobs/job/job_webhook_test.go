@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -42,6 +43,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
@@ -854,6 +856,100 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
+	type args struct {
+		job *Job
+	}
+	// Test case matrix covers combinations of:
+	//   - WorkloadSlice feature enabled: true or false
+	//   - Job opt-in via annotation: present or absent
+	tests := map[string]struct {
+		featureEnabled bool
+		args           args
+		want           []corev1.PodSchedulingGate
+	}{
+		"FeatureDisabledAndNotOptIn": {
+			args: args{job: &Job{}},
+		},
+		"FeatureDisabledAndOptIn": {
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+				},
+			},
+		},
+		"FeatureEnabledButNotOptIn": {
+			featureEnabled: true,
+			args:           args{job: &Job{}},
+		},
+		"FeatureEnabledAndOptIn": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									// To assert that other gates are not removed as a side effect.
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: kueue.ElasticJobSchedulingGate},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, tt.featureEnabled); err != nil {
+				t.Errorf("applyWorkloadSliceSchedulingGate() unexpcted error enabling feature: %v", err)
+			}
+			applyWorkloadSliceSchedulingGate(tt.args.job)
+			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
+				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)
 			}
 		})
 	}

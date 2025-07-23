@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,6 +48,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -3081,6 +3083,148 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 						g.Expect(createdJob.GetDeletionTimestamp()).Should(gomega.BeNil())
 					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
+			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = testing.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = testing.MakeClusterQueue("default").
+			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
+		ginkgo.When("Job is opted in", func() {
+			var (
+				testJob         *batchv1.Job
+				testJobWorkload *kueue.Workload
+			)
+
+			ginkgo.It("Should support job scale-down and scale-up", func() {
+				testJob = testingjob.MakeJob("job1", ns.Name).
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "100m").
+					Parallelism(3).
+					Completions(3).
+					Obj()
+
+				ginkgo.By("creating a job")
+				util.MustCreate(ctx, k8sClient, testJob)
+
+				ginkgo.By("admitting the job's workload")
+				gomega.Eventually(func(g gomega.Gomega) {
+					workloads := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+					testJobWorkload = &workloads.Items[0]
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("the job is unsuspended")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(testJob.Spec.Suspend, false)).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("resource flavor utilization is correctly recorded")
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("300m")))
+				}).Should(gomega.Succeed())
+
+				ginkgo.By("reducing the job's parallelism to emulate scale-down operation")
+				gomega.Eventually(func(g gomega.Gomega) {
+					testJob.Spec.Parallelism = ptr.To(int32(1))
+					g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+				}).Should(gomega.Succeed())
+
+				ginkgo.By("resource flavor utilization is correctly updated")
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("100m")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("assert the job's workload is updated and still admitted")
+				gomega.Eventually(func(g gomega.Gomega) {
+					workloads := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+					g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
+					g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testJobWorkload.UID))
+					testJobWorkload = &workloads.Items[0]
+				}).Should(gomega.Succeed())
+
+				ginkgo.By("increasing the job's parallelism to emulate scale-up operation")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+					testJob.Spec.Parallelism = ptr.To(int32(2))
+					g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+				}).Should(gomega.Succeed())
+
+				ginkgo.By("resource flavor utilization is correctly updated")
+				gomega.Eventually(func(g gomega.Gomega) {
+					cq := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("200m")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("old workload is finished and new workload is admitted")
+				gomega.Eventually(func(g gomega.Gomega) {
+					workloads := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+					g.Expect(workloads.Items).Should(gomega.HaveLen(2))
+					for i := range workloads.Items {
+						if workloads.Items[i].Name == testJobWorkload.Name {
+							g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
+							continue
+						}
+						testJobWorkload = &workloads.Items[i]
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
