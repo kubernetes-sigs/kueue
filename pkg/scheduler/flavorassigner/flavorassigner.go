@@ -339,15 +339,16 @@ const (
 )
 
 // isPreferred returns true if mode a is better than b according to the selected strategy
-func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bool {
+func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility, fairSharingEnabled bool) bool {
 	if a.preemptionMode == noFit {
 		return false
 	}
 	if b.preemptionMode == noFit {
 		return true
 	}
-	if (fungiblityConfig.WhenCanPreemptAndBorrow != nil && *fungiblityConfig.WhenCanPreemptAndBorrow == kueue.PreferPreemption) ||
-		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) {
+
+	if (fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) ||
+		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.TryNextFlavor && fairSharingEnabled) {
 		if a.needsBorrowing != b.needsBorrowing {
 			return !a.needsBorrowing
 		}
@@ -734,8 +735,16 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				status.reasons = append(status.reasons, s.reasons...)
 			}
 			mode := granularMode{preemptionMode, borrow > 0}
-			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
-				representativeMode = mode
+			if features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
+				if isPreferred(representativeMode, mode, a.cq.FlavorFungibility, a.enableFairSharing) {
+					representativeMode = mode
+				}
+			} else {
+				if representativeMode.preemptionMode > mode.preemptionMode {
+					representativeMode = mode
+				} else if representativeMode.preemptionMode == mode.preemptionMode {
+					representativeMode.needsBorrowing = mode.needsBorrowing || representativeMode.needsBorrowing
+				}
 			}
 			if representativeMode.preemptionMode == noFit {
 				// The flavor doesn't fit, no need to check other resources.
@@ -755,9 +764,16 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				bestAssignmentMode = representativeMode
 				break
 			}
-			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility) {
-				bestAssignment = assignments
-				bestAssignmentMode = representativeMode
+			if features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
+				if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility, a.enableFairSharing) {
+					bestAssignment = assignments
+					bestAssignmentMode = representativeMode
+				}
+			} else {
+				if representativeMode.preemptionMode > bestAssignmentMode.preemptionMode {
+					bestAssignment = assignments
+					bestAssignmentMode = representativeMode
+				}
 			}
 		} else if representativeMode.preemptionMode > bestAssignmentMode.preemptionMode {
 			bestAssignment = assignments

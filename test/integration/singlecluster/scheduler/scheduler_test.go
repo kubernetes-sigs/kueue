@@ -2579,11 +2579,23 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
 			}
 		})
-		ginkgo.It("chooses a correct flavor when PreferPreemption is selected", func() {
+	})
+	ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
+		ginkgo.BeforeEach(func() {
+			f1 := testing.MakeResourceFlavor("f1").Obj()
+			util.MustCreate(ctx, k8sClient, f1)
+
+			f2 := testing.MakeResourceFlavor("f2").Obj()
+			util.MustCreate(ctx, k8sClient, f2)
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
+		})
+		ginkgo.AfterEach(func() {
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+		})
+		ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
 			fungibility := kueue.FlavorFungibility{
-				WhenCanBorrow:           kueue.TryNextFlavor,
-				WhenCanPreempt:          kueue.TryNextFlavor,
-				WhenCanPreemptAndBorrow: ptr.To(kueue.PreferPreemption)}
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.Preempt}
 			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
 			createQueue(testing.MakeClusterQueue("cq1").
