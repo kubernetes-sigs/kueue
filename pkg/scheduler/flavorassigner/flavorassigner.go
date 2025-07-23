@@ -17,7 +17,6 @@ limitations under the License.
 package flavorassigner
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -26,8 +25,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -134,7 +131,7 @@ func (a *Assignment) RepresentativeMode() FlavorAssignmentMode {
 func (a *Assignment) Message() string {
 	var builder strings.Builder
 	for _, ps := range a.PodSets {
-		if ps.Status == nil {
+		if ps.Status.IsFit() {
 			continue
 		}
 		if ps.Status.IsError() {
@@ -182,6 +179,16 @@ type Status struct {
 	err     error
 }
 
+func NewStatus(reasons ...string) *Status {
+	return &Status{
+		reasons: reasons,
+	}
+}
+
+func (s *Status) IsFit() bool {
+	return s == nil || (s.err == nil && len(s.reasons) == 0)
+}
+
 func (s *Status) IsError() bool {
 	return s != nil && s.err != nil
 }
@@ -202,18 +209,6 @@ func (s *Status) Message() string {
 	return strings.Join(s.reasons, ", ")
 }
 
-func (s *Status) Equal(o *Status) bool {
-	if s == nil || o == nil {
-		return s == o
-	}
-	if s.err != nil {
-		return errors.Is(s.err, o.err)
-	}
-	return cmp.Equal(s.reasons, o.reasons, cmpopts.SortSlices(func(a, b string) bool {
-		return a < b
-	}))
-}
-
 // PodSetAssignment holds the assigned flavors and status messages for each of
 // the resources that the pod set requests. Each assigned flavor is accompanied
 // with an AssignmentMode.
@@ -224,7 +219,7 @@ func (s *Status) Equal(o *Status) bool {
 type PodSetAssignment struct {
 	Name     kueue.PodSetReference
 	Flavors  ResourceAssignment
-	Status   *Status
+	Status   Status
 	Requests corev1.ResourceList
 	Count    int32
 
@@ -235,7 +230,7 @@ type PodSetAssignment struct {
 // RepresentativeMode calculates the representative mode for this assignment as
 // the worst assignment mode among all assigned flavors.
 func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
-	if psa.Status == nil {
+	if psa.Status.IsFit() {
 		return Fit
 	}
 	if len(psa.Flavors) == 0 {
@@ -257,16 +252,10 @@ func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
 }
 
 func (psa *PodSetAssignment) reason(reason string) {
-	if psa.Status == nil {
-		psa.Status = &Status{}
-	}
 	psa.Status.reasons = append(psa.Status.reasons, reason)
 }
 
 func (psa *PodSetAssignment) error(err error) {
-	if psa.Status == nil {
-		psa.Status = &Status{}
-	}
 	psa.Status.err = err
 }
 
@@ -510,8 +499,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				break
 			}
 		}
-		var groupStatus *Status
-
+		var groupStatus Status
 		for resName := range requests {
 			if _, found := groupFlavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
@@ -521,13 +509,11 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			flavors, status := a.findFlavorForPodSetResource(log, psIDs, requests, resName, assignment.Usage.Quota)
 			if status.IsError() || len(flavors) == 0 {
 				groupFlavors = nil
-				groupStatus = status
+				groupStatus = *status
 				break
 			}
 			maps.Copy(groupFlavors, flavors)
-			if groupStatus == nil {
-				groupStatus = status
-			} else if status != nil {
+			if status != nil {
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
 		}
@@ -611,12 +597,10 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 ) (ResourceAssignment, *Status) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
-		return nil, &Status{
-			reasons: []string{fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)},
-		}
+		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName))
 	}
 
-	status := &Status{}
+	status := NewStatus()
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
 
 	podSets := make([]*kueue.PodSet, len(psIDs))
