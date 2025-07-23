@@ -3500,6 +3500,74 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 		},
+		"one preemption per cycle": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("borrower-queue").
+					Cohort("other").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("lender-queue1").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("lender-queue2").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("borrower-queue").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("lender-queue1").Obj(),
+				*utiltesting.MakeLocalQueue("other2", "eng-beta").ClusterQueue("lender-queue2").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("preemptor1", "eng-beta").
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor2", "eng-beta").
+					Queue("other2").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("use-all", "eng-alpha").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("borrower-queue").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("use-all2", "eng-alpha").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("borrower-queue").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"lender-queue1": {"eng-beta/preemptor1"},
+				"lender-queue2": {"eng-beta/preemptor2"},
+			},
+			wantPreempted: sets.New[workload.Reference]("eng-alpha/use-all"),
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/use-all":  *utiltesting.MakeAdmission("borrower-queue").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
+				"eng-alpha/use-all2": *utiltesting.MakeAdmission("borrower-queue").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
+			},
+			wantSkippedPreemptions: map[string]int{
+				"lender-queue2": 1,
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
