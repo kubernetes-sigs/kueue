@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -2471,11 +2470,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 	}
-	restrictedTestcases := sets.New[string]("when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor")
 	for name, tc := range cases {
-		if !restrictedTestcases.Has(name) {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
