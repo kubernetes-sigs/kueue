@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -2310,7 +2311,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt:          kueue.TryNextFlavor,
 					WhenCanBorrow:           kueue.TryNextFlavor,
-					WhenCanPreemptAndBorrow: kueue.PreferPreemption,
+					WhenCanPreemptAndBorrow: ptr.To(kueue.PreferPreemption),
 				}).
 				ResourceGroup(
 					utiltesting.MakeFlavorQuotas("one").
@@ -2368,7 +2369,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt:          kueue.TryNextFlavor,
 					WhenCanBorrow:           kueue.TryNextFlavor,
-					WhenCanPreemptAndBorrow: kueue.PreferPreemption,
+					WhenCanPreemptAndBorrow: ptr.To(kueue.PreferPreemption),
 				}).
 				ResourceGroup(
 					utiltesting.MakeFlavorQuotas("one").
@@ -2426,7 +2427,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt:          kueue.TryNextFlavor,
 					WhenCanBorrow:           kueue.TryNextFlavor,
-					WhenCanPreemptAndBorrow: kueue.PreferPreemption,
+					WhenCanPreemptAndBorrow: ptr.To(kueue.PreferPreemption),
 				}).
 				ResourceGroup(
 					utiltesting.MakeFlavorQuotas("one").

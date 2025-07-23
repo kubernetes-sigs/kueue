@@ -234,7 +234,7 @@ func validateFlavorFungibility(flavorFungibility *kueue.FlavorFungibility, fldPa
 	if features.Enabled(features.FlavorFungibility) && flavorFungibility != nil {
 		if (flavorFungibility.WhenCanBorrow != kueue.TryNextFlavor ||
 			flavorFungibility.WhenCanPreempt != kueue.TryNextFlavor) &&
-			flavorFungibility.WhenCanPreemptAndBorrow != "" {
+			flavorFungibility.WhenCanPreemptAndBorrow != nil {
 			allErrs = append(allErrs, field.Invalid(fldPath, flavorFungibility, flavorFungibilityErrorMsg))
 		}
 	}

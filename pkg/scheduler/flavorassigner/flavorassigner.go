@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -323,8 +322,8 @@ func (m FlavorAssignmentMode) String() string {
 // FlavorAssigner, which lets us distinguish priority based preemption,
 // reclamation within Cohort and borrowing.
 type granularMode struct {
-	preemptionMode    preemptionMode
-	borrowingDistance int
+	preemptionMode preemptionMode
+	needsBorrowing bool
 }
 
 type preemptionMode int
@@ -347,17 +346,17 @@ func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bo
 	if b.preemptionMode == noFit {
 		return true
 	}
-	if fungiblityConfig.WhenCanPreemptAndBorrow == kueue.PreferPreemption ||
+	if (fungiblityConfig.WhenCanPreemptAndBorrow != nil && *fungiblityConfig.WhenCanPreemptAndBorrow == kueue.PreferPreemption) ||
 		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) {
-		if a.borrowingDistance != b.borrowingDistance {
-			return a.borrowingDistance < b.borrowingDistance
+		if a.needsBorrowing != b.needsBorrowing {
+			return !a.needsBorrowing
 		}
 		return a.preemptionMode > b.preemptionMode
 	} else {
 		if a.preemptionMode != b.preemptionMode {
 			return a.preemptionMode > b.preemptionMode
 		}
-		return a.borrowingDistance < b.borrowingDistance
+		return !a.needsBorrowing && b.needsBorrowing
 	}
 }
 
@@ -373,8 +372,8 @@ func fromPreemptionPossibility(preemptionPossibility preemptioncommon.Preemption
 	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
 }
 
-func (mode granularMode) flavorAssignmentMode() FlavorAssignmentMode {
-	switch mode.preemptionMode {
+func (mode preemptionMode) flavorAssignmentMode() FlavorAssignmentMode {
+	switch mode {
 	case noFit:
 		return NoFit
 	case noPreemptionCandidates:
@@ -658,7 +657,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	}
 
 	var bestAssignment ResourceAssignment
-	bestAssignmentMode := granularMode{preemptionMode: noFit, borrowingDistance: math.MaxInt}
+	bestAssignmentMode := granularMode{preemptionMode: noFit, needsBorrowing: true}
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
@@ -707,7 +706,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		}
 		assignments := make(ResourceAssignment, len(requests))
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
-		representativeMode := granularMode{preemptionMode: fit, borrowingDistance: 0}
+		representativeMode := granularMode{preemptionMode: fit, needsBorrowing: false}
 		for rName, val := range requests {
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.preemptWorkloadSlice != nil {
@@ -717,7 +716,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 					// Enforce consistent resource flavor assignment between slices.
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
 						// Flavor mismatch. Skip further checks for this resource.
-						representativeMode = granularMode{preemptionMode: noFit, borrowingDistance: math.MaxInt}
+						representativeMode = granularMode{preemptionMode: noFit, needsBorrowing: true}
 						status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
 						break
 					}
@@ -730,10 +729,11 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
-			mode, s := a.fitsResourceQuota(log, fr, val+assignmentUsage[fr], resQuota)
+			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, val+assignmentUsage[fr], resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
+			mode := granularMode{preemptionMode, borrow > 0}
 			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
 				representativeMode = mode
 			}
@@ -744,8 +744,8 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 			assignments[rName] = &FlavorAssignment{
 				Name:   fName,
-				Mode:   mode.flavorAssignmentMode(),
-				borrow: mode.borrowingDistance,
+				Mode:   preemptionMode.flavorAssignmentMode(),
+				borrow: borrow,
 			}
 		}
 
@@ -789,16 +789,16 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
 	if representativeMode.isPreemptMode() && policyPreempt == kueue.Preempt {
-		if representativeMode.borrowingDistance == 0 || policyBorrow == kueue.Borrow {
+		if !representativeMode.needsBorrowing || policyBorrow == kueue.Borrow {
 			return false
 		}
 	}
 
-	if representativeMode.preemptionMode == fit && representativeMode.borrowingDistance > 0 && policyBorrow == kueue.Borrow {
+	if representativeMode.preemptionMode == fit && representativeMode.needsBorrowing && policyBorrow == kueue.Borrow {
 		return false
 	}
 
-	if representativeMode.preemptionMode == fit && representativeMode.borrowingDistance == 0 {
+	if representativeMode.preemptionMode == fit && !representativeMode.needsBorrowing {
 		return false
 	}
 
@@ -857,7 +857,7 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (preemptionMode, int, *Status) {
 	var status Status
 
 	available := a.cq.Available(fr)
@@ -867,13 +867,13 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	if val > maxCapacity {
 		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
 			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
-		return granularMode{preemptionMode: noFit, borrowingDistance: math.MaxInt}, &status
+		return noFit, 0, &status
 	}
 
 	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
 	// Fit
 	if val <= available {
-		return granularMode{preemptionMode: fit, borrowingDistance: borrow}, nil
+		return fit, borrow, nil
 	}
 
 	// Preempt
@@ -883,9 +883,9 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 	if val <= rQuota.Nominal || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
-		return granularMode{preemptionMode: mode, borrowingDistance: borrowAfterPreemptions}, &status
+		return mode, borrowAfterPreemptions, &status
 	}
-	return granularMode{preemptionMode: noFit, borrowingDistance: borrow}, &status
+	return noFit, borrow, &status
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {

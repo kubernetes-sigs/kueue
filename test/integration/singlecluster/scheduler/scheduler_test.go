@@ -2583,7 +2583,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			fungibility := kueue.FlavorFungibility{
 				WhenCanBorrow:           kueue.TryNextFlavor,
 				WhenCanPreempt:          kueue.TryNextFlavor,
-				WhenCanPreemptAndBorrow: kueue.PreferPreemption}
+				WhenCanPreemptAndBorrow: ptr.To(kueue.PreferPreemption)}
 			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
 			createQueue(testing.MakeClusterQueue("cq1").
