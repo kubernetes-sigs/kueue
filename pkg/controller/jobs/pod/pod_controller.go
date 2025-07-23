@@ -164,39 +164,37 @@ var (
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 )
 
-type options struct {
-	excessPodExpectations *expectations.Store
-	clock                 clock.Clock
-}
+// PodOption is a function type that modifies a Pod. It allows customization of a Pod's
+// properties during its creation.
+type PodOption func(pod *Pod)
 
-type PodOption func(*options)
-
+// WithExcessPodExpectations sets the excessPodExpectations field of the Pod to the given expectations store.
+// This allows customizing the expectations for excess pods that are tracked by the Pod.
 func WithExcessPodExpectations(store *expectations.Store) PodOption {
-	return func(o *options) {
-		o.excessPodExpectations = store
+	return func(pod *Pod) {
+		pod.excessPodExpectations = store
 	}
 }
 
-func WithClock(c clock.Clock) PodOption {
-	return func(o *options) {
-		o.clock = c
+// WithClock sets the clock field of the Pod to the given clock. This allows the Pod to
+// use a custom clock instead of the default one.
+func WithClock(clock clock.Clock) PodOption {
+	return func(pod *Pod) {
+		pod.clock = clock
 	}
 }
 
-var defaultOptions = options{
-	clock: realClock,
-}
-
+// NewPod creates a new Pod with the provided options. It applies all the given PodOptions
+// to customize the Pod's fields. By default, the Pod is created with a real clock, unless
+// overridden by a WithClock option.
 func NewPod(opts ...PodOption) *Pod {
-	options := defaultOptions
+	pod := &Pod{
+		clock: realClock, // Default clock is set to realClock.
+	}
 	for _, opt := range opts {
-		opt(&options)
+		opt(pod) // Apply each option to the pod.
 	}
-
-	return &Pod{
-		excessPodExpectations: options.excessPodExpectations,
-		clock:                 options.clock,
-	}
+	return pod
 }
 
 func FromObject(o runtime.Object) *Pod {

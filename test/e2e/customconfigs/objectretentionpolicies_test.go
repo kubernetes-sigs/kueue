@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 			},
 		}
 
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = nil
 			cfg.ObjectRetentionPolicies = nil
 			cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.By("Enable ObjectRetentionPolicies feature gate", func() {
-			updateKueueConfiguration(func(cfg *configapi.Configuration) {
+			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 				cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 				cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
@@ -268,7 +268,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
