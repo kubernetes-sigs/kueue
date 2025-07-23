@@ -416,7 +416,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 				workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
 
-				if w.dispatcherName == config.MultiKueueDispatcherModeIncremental {
+				if w.dispatcherName != config.MultiKueueDispatcherModeAllAtOnce {
 					// Set the cluster name to the reserving remote and clear the nominated clusters.
 					group.local.Status.ClusterName = &reservingRemote
 					group.local.Status.NominatedClusterNames = nil

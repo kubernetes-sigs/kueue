@@ -768,6 +768,93 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			),
 		)
 
+		ginkgo.DescribeTable("Validate Workload status on update",
+			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomega.OmegaMatcher) {
+				ginkgo.By("Creating a new Workload")
+				workload := testing.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
+				util.MustCreate(ctx, k8sClient, workload)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					setupWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(setupMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					updateWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(updateMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Valid: ClusterName is in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is not in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker3")
+				},
+				gomega.Succeed(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is changed",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker1")
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				testing.BeInvalidError(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is set when NominatedClusters is empty",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+				},
+				gomega.Succeed(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Valid: neither ClusterName nor NominatedClusters is set",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = nil
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+		)
 		ginkgo.It("Should forbid the change of spec.queueName of an admitted workload", func() {
 			ginkgo.By("Creating and admitting a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
