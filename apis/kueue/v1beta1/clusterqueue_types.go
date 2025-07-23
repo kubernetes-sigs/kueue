@@ -418,14 +418,17 @@ type FlavorFungibility struct {
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 	// whenCanPreemptAndBorrow defines how should a workload chose the flavor in case of
 	// multiple options. If either borrowing or preemption is necessary and multiple options
-	// are available, then this field defines the selection strategy. The possible values are:
+	// are available, then this field defines the selection strategy. Can be set only if
+	// `WhenCanBorrow = TryNextFlavor` and `WhenCanPreempt = TryNextFlavor`.
+	// The possible values are:
 	//
-	// - `PreferBorrowing` (default): prefer to allocate in a flavor that does not preempt
-	//    other workloads.
+	// - `PreferBorrowing`: prefer to allocate in a flavor that does not preempt
+	//    other workloads. This is the default flavor selection policy if
+	//    `WhenCanBorrow = TryNextFlavor` and `WhenCanPreempt = TryNextFlavor`.
 	// - `PreferPreemption`: prefer to allocate in a flavor that uses only the nominal quota
 	//    even if it means preempting other workloads.
+	// +optional
 	// +kubebuilder:validation:Enum={PreferBorrowing,PreferPreemption}
-	// +kubebuilder:default="PreferBorrowing"
 	WhenCanPreemptAndBorrow FlavorSelectionPolicy `json:"whenCanPreemptAndBorrow,omitempty"`
 }
 

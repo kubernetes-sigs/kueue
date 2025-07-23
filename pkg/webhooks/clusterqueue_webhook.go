@@ -39,7 +39,7 @@ import (
 const (
 	limitIsEmptyErrorMsgTemplate string = `must be nil when %s is empty`
 	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
-	flavorFungibilityErrorMsg    string = `message`
+	flavorFungibilityErrorMsg    string = `flavor selection policy can be selected only if WhenCanBorrow=TryNextFlavor and WhenCanPreempt=TryNextFlavor`
 )
 
 type ClusterQueueWebhook struct{}
@@ -232,14 +232,9 @@ func validateLendingLimit(lend, nominal resource.Quantity, config validationConf
 func validateFlavorFungibility(flavorFungibility *kueue.FlavorFungibility, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if features.Enabled(features.FlavorFungibility) && flavorFungibility != nil {
-		if flavorFungibility.WhenCanBorrow == kueue.Borrow &&
-			flavorFungibility.WhenCanPreempt == kueue.TryNextFlavor &&
-			flavorFungibility.WhenCanPreemptAndBorrow == kueue.PreferPreemption {
-			allErrs = append(allErrs, field.Invalid(fldPath, flavorFungibility, flavorFungibilityErrorMsg))
-		}
-		if flavorFungibility.WhenCanBorrow == kueue.TryNextFlavor &&
-			flavorFungibility.WhenCanPreempt == kueue.Preempt &&
-			flavorFungibility.WhenCanPreemptAndBorrow == kueue.PreferBorrowing {
+		if (flavorFungibility.WhenCanBorrow != kueue.TryNextFlavor ||
+			flavorFungibility.WhenCanPreempt != kueue.TryNextFlavor) &&
+			flavorFungibility.WhenCanPreemptAndBorrow != "" {
 			allErrs = append(allErrs, field.Invalid(fldPath, flavorFungibility, flavorFungibilityErrorMsg))
 		}
 	}

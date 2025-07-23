@@ -1398,16 +1398,19 @@ candidates for preemption in the current flavor.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>whenCanPreemptAndBorrow</code> <B>[Required]</B><br/>
+<tr><td><code>whenCanPreemptAndBorrow</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FlavorSelectionPolicy"><code>FlavorSelectionPolicy</code></a>
 </td>
 <td>
    <p>whenCanPreemptAndBorrow defines how should a workload chose the flavor in case of
 multiple options. If either borrowing or preemption is necessary and multiple options
-are available, then this field defines the selection strategy. The possible values are:</p>
+are available, then this field defines the selection strategy. Can be set only if
+<code>WhenCanBorrow = TryNextFlavor</code> and <code>WhenCanPreempt = TryNextFlavor</code>.
+The possible values are:</p>
 <ul>
-<li><code>PreferBorrowing</code> (default): prefer to allocate in a flavor that does not preempt
-other workloads.</li>
+<li><code>PreferBorrowing</code>: prefer to allocate in a flavor that does not preempt
+other workloads. This is the default flavor selection policy if
+<code>WhenCanBorrow = TryNextFlavor</code> and <code>WhenCanPreempt = TryNextFlavor</code>.</li>
 <li><code>PreferPreemption</code>: prefer to allocate in a flavor that uses only the nominal quota
 even if it means preempting other workloads.</li>
 </ul>

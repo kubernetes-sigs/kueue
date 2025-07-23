@@ -340,14 +340,15 @@ const (
 )
 
 // isPreferred returns true if mode a is better than b according to the selected strategy
-func isPreferred(a, b granularMode, strategy kueue.FlavorSelectionPolicy) bool {
+func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
 		return false
 	}
 	if b.preemptionMode == noFit {
 		return true
 	}
-	if strategy == kueue.PreferPreemption {
+	if fungiblityConfig.WhenCanPreemptAndBorrow == kueue.PreferPreemption ||
+		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) {
 		if a.borrowingDistance != b.borrowingDistance {
 			return a.borrowingDistance < b.borrowingDistance
 		}
@@ -704,7 +705,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
-			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility.WhenCanPreemptAndBorrow) {
+			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
 				representativeMode = mode
 			}
 			if representativeMode.preemptionMode == noFit {
@@ -725,7 +726,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				bestAssignmentMode = representativeMode
 				break
 			}
-			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility.WhenCanPreemptAndBorrow) {
+			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility) {
 				bestAssignment = assignments
 				bestAssignmentMode = representativeMode
 			}
