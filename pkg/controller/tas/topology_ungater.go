@@ -195,16 +195,20 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 
 	for _, psas := range groupedPodSetAssignments {
 		if len(psas) > 1 {
-			leader := psas[0]
-			workers := psas[1]
-			if *leader.Count > *workers.Count {
-				leader = psas[1]
-				workers = psas[0]
+			// In case of LeaderWorkerSet, in each Workload there will be
+			// 1 leader and N workers. Leader will get rank 0 and workers
+			// 1, 2, ..., N. To detect the leader we are selecting PodSet
+			// which is smaller.
+			smallerPsa := psas[0]
+			largerPsa := psas[1]
+			if *smallerPsa.Count > *largerPsa.Count {
+				smallerPsa = psas[1]
+				largerPsa = psas[0]
 			}
-			rankOffsets[leader.Name] = 0
-			rankOffsets[workers.Name] = *leader.Count
-			maxRank[leader.Name] = *leader.Count
-			maxRank[workers.Name] = *workers.Count + *leader.Count
+			rankOffsets[smallerPsa.Name] = 0
+			rankOffsets[largerPsa.Name] = *smallerPsa.Count
+			maxRank[smallerPsa.Name] = *smallerPsa.Count
+			maxRank[largerPsa.Name] = *largerPsa.Count + *smallerPsa.Count
 		} else {
 			rankOffsets[psas[0].Name] = 0
 			maxRank[psas[0].Name] = *psas[0].Count
