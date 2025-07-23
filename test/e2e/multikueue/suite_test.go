@@ -262,9 +262,14 @@ var _ = ginkgo.BeforeSuite(func() {
 	worker2ClusterName = os.Getenv("WORKER2_KIND_CLUSTER_NAME")
 	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
 
-	k8sManagerClient, managerCfg = util.CreateClientUsingCluster("kind-" + managerClusterName)
-	k8sWorker1Client, worker1Cfg = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
-	k8sWorker2Client, worker2Cfg = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
+	var err error
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	k8sManagerClient, managerCfg, err = util.CreateClientUsingCluster("kind-" + managerClusterName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	k8sWorker1Client, worker1Cfg, err = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	k8sWorker2Client, worker2Cfg, err = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	managerRestClient = util.CreateRestClient(managerCfg)
 	worker1RestClient = util.CreateRestClient(worker1Cfg)

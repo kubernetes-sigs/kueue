@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"syscall"
 
 	"go.uber.org/zap"
@@ -36,7 +35,10 @@ type options struct {
 }
 
 func main() {
-	opts := parseOptions()
+	opts, err := parseOptions()
+	if err != nil {
+		log.Fatalf("Failed to parse options: %v", err)
+	}
 
 	logger, err := newLogger(opts.LogLevel)
 	if err != nil {
@@ -65,7 +67,7 @@ func main() {
 	fileProcessor.ProcessPlan(*processingPlan)
 }
 
-func parseOptions() *options {
+func parseOptions() (*options, error) {
 	opts := &options{}
 
 	flag.StringVar(&opts.LogLevel, "zap-log-level", "info", "Minimum enabled logging level")
@@ -77,12 +79,12 @@ func parseOptions() *options {
 	flag.Parse()
 	if flag.NArg() != 1 {
 		flag.Usage()
-		os.Exit(1)
+		return nil, errors.New("exactly one processing plan file argument is required")
 	}
 
 	opts.ProcessingPlan = flag.Arg(0)
 
-	return opts
+	return opts, nil
 }
 
 func newLogger(logLevel string) (*zap.Logger, error) {

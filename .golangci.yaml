@@ -64,6 +64,7 @@ linters:
       enable-all-rules: false
       rules:
         - name: context-as-argument
+        - name: deep-exit
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
