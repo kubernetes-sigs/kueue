@@ -81,7 +81,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			Cohort("two").
 			NamespaceSelector(nil).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanBorrow: kueue.TryNextFlavor,
+				WhenCanBorrow:           kueue.TryNextFlavor,
+				WhenCanPreemptAndBorrow: kueue.PreferBorrowing,
 			}).
 			Obj(),
 	}
