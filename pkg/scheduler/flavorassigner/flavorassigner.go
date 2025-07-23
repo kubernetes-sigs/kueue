@@ -717,7 +717,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 					// Enforce consistent resource flavor assignment between slices.
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
 						// Flavor mismatch. Skip further checks for this resource.
-						representativeMode = noFit
+						representativeMode = granularMode{preemptionMode: noFit, borrowingDistance: math.MaxInt}
 						status.reasons = append(status.reasons, fmt.Sprintf("could not assign %s flavor since the original workload is assigned: %s", fName, originalFlavor))
 						break
 					}
