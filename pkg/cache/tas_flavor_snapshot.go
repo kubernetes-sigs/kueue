@@ -1041,7 +1041,6 @@ func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count 
 			remainingSlices -= domain.sliceStateWithLeader
 
 			result = append(result, domain)
-
 		} else {
 			if useBestFitAlgorithm(unconstrained) && domain.sliceState >= remainingSlices {
 				// optimize the last domain
@@ -1060,7 +1059,6 @@ func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count 
 			remainingSlices -= domain.sliceState
 			result = append(result, domain)
 		}
-
 	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingSlices", remainingSlices,
