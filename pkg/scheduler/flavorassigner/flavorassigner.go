@@ -597,12 +597,10 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 ) (ResourceAssignment, *Status) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
-		return nil, &Status{
-			reasons: []string{fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)},
-		}
+		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName))
 	}
 
-	status := &Status{}
+	status := NewStatus()
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
 
 	podSets := make([]*kueue.PodSet, len(psIDs))
