@@ -429,7 +429,7 @@ type FlavorFungibility struct {
 	//    even if it means preempting other workloads.
 	// +optional
 	// +kubebuilder:validation:Enum={PreferBorrowing,PreferPreemption}
-	WhenCanPreemptAndBorrow FlavorSelectionPolicy `json:"whenCanPreemptAndBorrow,omitempty"`
+	WhenCanPreemptAndBorrow *FlavorSelectionPolicy `json:"whenCanPreemptAndBorrow,omitempty"`
 }
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
