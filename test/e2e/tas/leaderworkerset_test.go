@@ -169,7 +169,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 		)
 	})
 
-	ginkgo.When("creating a LeaderWorkerSet co-locating leader and workers in a single topology domain", func() {
+	ginkgo.When("creating a LeaderWorkerSet with leader grouped with workers", func() {
 		ginkgo.It("should place pods based on the ranks-ordering", func() {
 			const (
 				replicas = int32(2)
@@ -182,11 +182,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 				Replicas(replicas).
 				Size(size).
 				Queue(localQueue.Name).
-				LeaderTemplate(corev1.PodTemplateSpec{
+				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "any-group-name",
+							kueuealpha.PodSetGroupName:                  "same-group",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -198,20 +198,22 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("100m"),
+										extraResource:      resource.MustParse("1"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("100m"),
+										extraResource:      resource.MustParse("1"),
 									},
 								},
 							},
 						},
 					},
 				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
+				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "any-group-name",
+							kueuealpha.PodSetGroupName:                  "same-group",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -223,11 +225,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("100m"),
-										extraResource:      resource.MustParse("1"),
 									},
 									Requests: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("100m"),
-										extraResource:      resource.MustParse("1"),
 									},
 								},
 							},
