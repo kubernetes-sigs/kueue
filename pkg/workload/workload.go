@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -819,7 +821,7 @@ func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
 	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+	return ApplyAdmissionStatusPatch(ctx, c, w, wlCopy)
 }
 
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
@@ -830,8 +832,38 @@ func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueu
 }
 
 // ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
-func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, orig, patch *kueue.Workload) error {
+	//return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	return ApplyPatch(ctx, c, client.FieldOwner(constants.AdmissionName), orig, patch)
+}
+
+// ApplyPatch applies SSA patch
+func ApplyPatch(ctx context.Context, c client.Client, fieldOwner client.FieldOwner, orig, patch *kueue.Workload) error {
+	options := []client.SubResourcePatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(fieldOwner),
+	}
+	if len(orig.Status.NominatedClusterNames) > 0 && (patch.Status.ClusterName != nil || IsEvicted(patch)) {
+		// Use unstructured object to allow setting nominatedClusterNames to nil.
+		// This is a workaround for the SSA limitation that a field which is not owner by Kueue
+		// cannot be reset. Long term this is expected to be replaced either by using StrategicMergePatch
+		// or MAP.
+		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(patch)
+		if err != nil {
+			return err
+		}
+		u := &unstructured.Unstructured{Object: objMap}
+		if IsEvicted(patch) {
+			if err := unstructured.SetNestedField(u.Object, nil, "status", "clusterName"); err != nil {
+				return err
+			}
+		}
+		if err := unstructured.SetNestedField(u.Object, nil, "status", "nominatedClusterNames"); err != nil {
+			return err
+		}
+		return c.Status().Patch(ctx, u, client.Apply, options...)
+	}
+	return c.Status().Patch(ctx, patch, client.Apply, options...)
 }
 
 type Ordering struct {

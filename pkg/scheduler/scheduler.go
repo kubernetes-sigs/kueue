@@ -745,7 +745,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {
-			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
+			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, e.Obj, patch); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 		}
