@@ -16,10 +16,11 @@ limitations under the License.
 
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
+import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import ViewYamlButton from './ViewYamlButton';
 
 const Cohorts = () => {
   const { data: cohorts, error } = useWebSocket('/ws/cohorts');
@@ -46,6 +47,7 @@ const Cohorts = () => {
                 <TableCell>Cohort Name</TableCell>
                 <TableCell>Number of Queues</TableCell>
                 <TableCell>Cluster Queue Name</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -66,6 +68,16 @@ const Cohorts = () => {
                       <TableCell>
                         <Link to={`/cluster-queue/${queue.name}`}>{queue.name}</Link>
                       </TableCell>
+                      {index === 0 && (
+                        <TableCell rowSpan={cohort.clusterQueues.length} align="right">
+                          <Box display="flex" justifyContent="flex-end">
+                            <ViewYamlButton 
+                              resourceType="cohort"
+                              resourceName={cohort.name}
+                            />
+                          </Box>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))
                 ) : (
@@ -75,6 +87,14 @@ const Cohorts = () => {
                     </TableCell>
                     <TableCell>{0}</TableCell>
                     <TableCell>No cluster queues found for this cohort.</TableCell>
+                    <TableCell align="right">
+                      <Box display="flex" justifyContent="flex-end">
+                        <ViewYamlButton 
+                          resourceType="cohort"
+                          resourceName={cohort.name}
+                        />
+                      </Box>
+                    </TableCell>
                   </TableRow>
                 )
               ))}

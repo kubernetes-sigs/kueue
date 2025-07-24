@@ -17,9 +17,10 @@ limitations under the License.
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
-import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
+import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box } from '@mui/material';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import ViewYamlButton from './ViewYamlButton';
 
 const ClusterQueues = () => {
   const { data: clusterQueues, error } = useWebSocket('/ws/cluster-queues');
@@ -49,6 +50,7 @@ const ClusterQueues = () => {
                 <TableCell>Admitted Workloads</TableCell>
                 <TableCell>Pending Workloads</TableCell>
                 <TableCell>Reserving Workloads</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -75,6 +77,14 @@ const ClusterQueues = () => {
                   <TableCell>{queue.admittedWorkloads ?? 'N/A'}</TableCell>
                   <TableCell>{queue.pendingWorkloads ?? 'N/A'}</TableCell>
                   <TableCell>{queue.reservingWorkloads ?? 'N/A'}</TableCell>
+                  <TableCell align="right">
+                    <Box display="flex" justifyContent="flex-end">
+                      <ViewYamlButton 
+                        resourceType="clusterqueue"
+                        resourceName={queue.name}
+                      />
+                    </Box>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
