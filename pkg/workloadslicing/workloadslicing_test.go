@@ -19,7 +19,6 @@ package workloadslicing
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -155,20 +154,7 @@ func testWorkloadClientBuilder() *fake.ClientBuilder {
 	_ = kueue.AddToScheme(testSchema)
 	return fake.NewClientBuilder().
 		WithScheme(testSchema).
-		WithIndex(&kueue.Workload{}, fmt.Sprintf(".metadata.ownerReferences[%s.%s]", testJobGVK.Group, testJobGVK.Kind), func(object client.Object) []string {
-			wl, ok := object.(*kueue.Workload)
-			if !ok || len(wl.OwnerReferences) == 0 {
-				return nil
-			}
-			owners := make([]string, 0, len(wl.OwnerReferences))
-			for i := range wl.OwnerReferences {
-				owner := &wl.OwnerReferences[i]
-				if owner.Kind == testJobGVK.Kind && owner.APIVersion == testJobGVK.GroupVersion().String() {
-					owners = append(owners, owner.Name)
-				}
-			}
-			return owners
-		})
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testJobGVK), indexer.WorkloadOwnerIndexFunc(testJobGVK))
 }
 
 func testWorkload(name, jobName string, jobUID types.UID, created time.Time) *utiltesting.WorkloadWrapper {
