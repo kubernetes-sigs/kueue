@@ -327,13 +327,13 @@ const (
 	fit
 )
 
-func preferToAvoidBorrowing(fungiblityConfig kueue.FlavorFungibility, fairSharingEnabled bool) bool {
+func preferToAvoidBorrowing(fungiblityConfig kueue.FlavorFungibility) bool {
 	return (fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) ||
-		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.TryNextFlavor && fairSharingEnabled)
+		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.TryNextFlavor)
 }
 
 // isPreferred returns true if mode a is better than b according to the selected policy
-func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility, fairSharingEnabled bool) bool {
+func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
 		return false
 	}
@@ -349,7 +349,7 @@ func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility, fa
 		}
 	}
 
-	if preferToAvoidBorrowing(fungiblityConfig, fairSharingEnabled) {
+	if preferToAvoidBorrowing(fungiblityConfig) {
 		if a.needsBorrowing != b.needsBorrowing {
 			return !a.needsBorrowing
 		}
@@ -731,7 +731,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				status.reasons = append(status.reasons, s.reasons...)
 			}
 			mode := granularMode{preemptionMode, borrow > 0}
-			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility, a.enableFairSharing) {
+			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility) {
 				representativeMode = mode
 			}
 			if representativeMode.preemptionMode == noFit {
@@ -751,7 +751,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				bestAssignmentMode = representativeMode
 				break
 			}
-			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility, a.enableFairSharing) {
+			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility) {
 				bestAssignment = assignments
 				bestAssignmentMode = representativeMode
 			}
