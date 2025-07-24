@@ -123,8 +123,7 @@ in my cluster. In this case I prefer my high priority jobs not running on spot
 instances. If high priority jobs can preempt jobs in standard instances before trying spot instances,
 stability can be achieved.
 
-My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to
-`Preempt`  in the ClusterQueue's spec.
+My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to `Preempt` in the ClusterQueue's spec.
 
 #### Story 2
 
@@ -137,8 +136,9 @@ reclaim the nomial quota. So, to ensure a more stable allocation of a high-prior
 workload, it should chose a flavor that avoids borrowing from other ClusterQueues,
 even if it means preempting other workloads in its own ClusterQueue.
 
-The use case can be supported by setting `.spec.FlavorFungibility.WhenCanPreemptAndBorrow` to
-`PreferPreemption` in the ClusterQueue's spec.
+The use case can be supported by setting
+`.spec.FlavorFungibility.WhenCanPreempt` to `Preempt` in the ClusterQueue's spec and enabling
+the feature gate `FlavorFungibilityImplicitPreferenceDefault`.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -185,13 +185,6 @@ const (
   TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
-type FlavorSelectionPolicy string
-
-const (
-   PreferBorrowing FlavorSelectionPolicy = "PreferBorrowing"
-   PreferPreemption  FlavorSelectionPolicy = "PreferPreemption"
-)
-
 type FlavorFungibility struct {
   // whenCanBorrow determines whether a workload should try the next flavor
   // or stop the search. The possible values are:
@@ -215,17 +208,6 @@ type FlavorFungibility struct {
   // +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
   // +kubebuilder:default="TryNextFlavor"
   WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
-  // whenCanPreemptAndBorrow defines how should a workload chose the flavor in case of
-  // multiple options. If either borrowing or preemption is necessary and multiple options
-  // are available, then this field defines the selection strategy. The possible values are:
-  //
-  // - `PreferBorrowing` (default): prefer to allocate in a flavor that does not preempt
-  //    other workloads.
-  // - `PreferPreemption`: prefer to allocate in a flavor that uses only the nominal quota
-  //    even if it means preempting other workloads.
-  // +kubebuilder:validation:Enum={PreferBorrowing,PreferPreemption}
-  // +kubebuilder:default="PreferBorrowing"
-  WhenCanPreemptAndBorrow FlavorSelectionPolicy `json:"preferredStrategy,omitempty"`
 }
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
@@ -235,7 +217,7 @@ type ClusterQueueSpec struct {
 }
 ```
 
-If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `Borrow`, set `WhenCanPreempt` to `TryNextFlavor` and `WhenCanPreemptAndBorrow` to `PreferBorrowing` to maintain consistency with the current behavior.
+If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `Borrow` and set `WhenCanPreempt` to `TryNextFlavor` to maintain consistency with the current behavior.
 
 ### Behavior Changes
 
@@ -252,11 +234,13 @@ We try to schedule a podset in succesive resource flavors in a loop and we decid
 | `Fit`, `Borrow` | `WhenCanBorrow = Borrow` | break |
 | `Fit`, `NoBorrow`| any| break| 
 
-By `Borrow`/`NoBorrow` we mean whether borrowing is required or not to fit the considered podset in the sumulation result. After we complete the loop, either by trying all the flavors or by breaking out of it, we end up with a list of possible flavors containing all the considered flavors that yielded a result different than `NoFit`. We choose the flavor to assign based on the following rules:
+By `Borrow`/`NoBorrow` we mean whether borrowing is required or not to fit the considered podset in the sumulation result. After we complete the loop, either by trying all the flavors or by breaking out of it, we end up with a list of possible flavors containing all the considered flavors that yielded a result different than `NoFit`. We choose the flavor to assign based on the following default preference order: (`Fit`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `NoBorrow`), (`Preempt`, `Borrow`).
 
-- (`Fit`, `NoBorrow`) is the most prefered
-- (`Fit`, `Borrow`) is prefered over (`Preempt`, `NoBorrow`) if `WhenCanPreemptAndBorrow = PreferBorrowing`
-- (`Preempt`, `NoBorrow`) is prefered over (`Fit`, `Borrow`) if `WhenCanPreemptAndBorrow = PreferPreemption`
+An alternative order of preference can be set by enabling the feature gate `FlavorFungibilityImplicitPreferenceDefault`.
+The alternative order prioritizes assignments that don't borrow: (`Fit`, `NoBorrow`),(`Preempt`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `Borrow`). It is used in two cases:
+
+1. If `WhenCanPreempt = Preempt` and `WhenCanBorrow = TryNextFlavor`
+2. If `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor` and Fair Sharing is enabled in the cohort.
 
 We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastTriedFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
 
@@ -432,6 +416,11 @@ milestones with these graduation criteria:
 [maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
+
+The feature gate `FlavorFungibilityImplicitPreferenceDefault` is a temporary measure
+until a new shape of the API, that allows to explicitely define the preference
+is implemented. The feature gate will be removed once the API is updated
+(planned for kueue v0.14).
 
 ## Implementation History
 
