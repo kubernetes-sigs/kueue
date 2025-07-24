@@ -17,6 +17,8 @@ limitations under the License.
 package preemption
 
 import (
+	"math"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -48,18 +50,19 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 
-	if len(candidates) > 0 {
-		workloadsToPreempt := make([]*workload.Info, len(candidates))
-		for i, c := range candidates {
-			workloadsToPreempt[i] = c.WorkloadInfo
-		}
-		revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
-		defer revertRemoval()
-	}
-	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	if len(candidates) == 0 {
-		return preemptioncommon.NoCandidates, borrowAfterPreemptions
+		return preemptioncommon.NoCandidates, math.MaxInt
 	}
+
+	workloadsToPreempt := make([]*workload.Info, len(candidates))
+	for i, c := range candidates {
+		workloadsToPreempt[i] = c.WorkloadInfo
+	}
+	revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
+	defer revertRemoval()
+
+	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
 			return preemptioncommon.Preempt, borrowAfterPreemptions
