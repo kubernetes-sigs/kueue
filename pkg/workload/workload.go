@@ -801,6 +801,8 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 		}
 		wlCopy.Status.SchedulingStats.Evictions = append(wlCopy.Status.SchedulingStats.Evictions, w.Status.SchedulingStats.Evictions...)
 	}
+	wlCopy.Status.ClusterName = w.Status.ClusterName
+	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
 }
 
 func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -1057,8 +1059,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	SetEvictedCondition(wl, reason, msg)
-	ResetChecksOnEviction(wl, clock.Now())
+	PrepareForEviction(wl, clock.Now(), reason, msg)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
 	}
