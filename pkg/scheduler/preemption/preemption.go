@@ -38,7 +38,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -194,7 +193,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 		reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(w, kueue.WorkloadEvictedByPreemption, "")
 		workload.SetPreemptedCondition(w, reason, message)
 		return true, nil
-	}, client.FieldOwner(kueueconstants.AdmissionName), client.ForceOwnership)
+	})
 	if err != nil {
 		return err
 	}

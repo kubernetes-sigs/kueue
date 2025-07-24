@@ -1061,7 +1061,7 @@ func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRe
 		SetEvictedCondition(wl, reason, msg)
 		ResetChecksOnEviction(wl, clock.Now())
 		return true, nil
-	}, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	}, client.FieldOwner(constants.AdmissionName))
 	if err != nil {
 		return err
 	}

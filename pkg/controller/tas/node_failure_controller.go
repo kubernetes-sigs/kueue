@@ -307,7 +307,7 @@ func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Wor
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		return true, nil
-	}, client.FieldOwner(kueueconstants.AdmissionName), client.ForceOwnership)
+	}, client.FieldOwner(kueueconstants.AdmissionName))
 
 	if err != nil {
 		return err
