@@ -180,6 +180,13 @@ const (
 	// Enforces that even Jobs with a queue-name label are only reconciled if their namespace
 	// matches managedJobsNamespaceSelector.
 	ManagedJobsNamespaceSelectorAlwaysRespected featuregate.Feature = "ManagedJobsNamespaceSelectorAlwaysRespected"
+
+	// owner: @pajakd
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
+	//
+	// In flavor fungiblity, the preference whether to preempt or borrow is inferred from flavor fungiblity policy
+	// This feature gate is going to be replaced by an API before graduation or deprecation.
+	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
 )
 
 func init() {
@@ -276,6 +283,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
+		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
