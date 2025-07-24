@@ -35,6 +35,17 @@ func CreatePatch(before, after client.Object) (client.Patch, error) {
 // If strict is true, the resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
 func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (bool, error)) error {
+	return patch(ctx, c, obj, strict, false, update)
+}
+
+// PatchStatus applies the merge patch of client.Object status.
+// The resourceVersion will be part of the patch, make this call fail if
+// client.Object was changed.
+func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (bool, error)) error {
+	return patch(ctx, c, obj, true, true, update)
+}
+
+func patch(ctx context.Context, c client.Client, obj client.Object, strict bool, status bool, update func() (bool, error)) error {
 	objOriginal := obj.DeepCopyObject().(client.Object)
 	if strict {
 		// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
@@ -48,29 +59,8 @@ func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool,
 	if err != nil {
 		return err
 	}
-	if err = c.Patch(ctx, obj, patch); err != nil {
-		return err
+	if status {
+		return c.Status().Patch(ctx, obj, patch)
 	}
-	return nil
-}
-
-// PatchStatus applies the merge patch of client.Object status.
-// The resourceVersion will be part of the patch, make this call fail if
-// client.Object was changed.
-func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (bool, error)) error {
-	objOriginal := obj.DeepCopyObject().(client.Object)
-	// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
-	objOriginal.SetResourceVersion("")
-	updated, err := update()
-	if err != nil || !updated {
-		return err
-	}
-	patch, err := CreatePatch(objOriginal, obj)
-	if err != nil {
-		return err
-	}
-	if err = c.Status().Patch(ctx, obj, patch); err != nil {
-		return err
-	}
-	return nil
+	return c.Patch(ctx, obj, patch)
 }
