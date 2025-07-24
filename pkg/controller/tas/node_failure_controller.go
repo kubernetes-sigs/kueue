@@ -44,7 +44,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -307,8 +306,7 @@ func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Wor
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		return true, nil
-	}, client.FieldOwner(kueueconstants.AdmissionName))
-
+	})
 	if err != nil {
 		return err
 	}
