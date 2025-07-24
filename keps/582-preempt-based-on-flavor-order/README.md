@@ -127,9 +127,9 @@ My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt`
 
 #### Story 2
 
-As an admin of system managed by Kueue with FairSharing enabled I would like to minimize the risk that admitted workloads get preempted soon after admission. Since every borrowing workload is a preemption(reclaim) candidate, to minimize the risk, I would like to prioritize selecting flavors which are preempting rather than borrowing.
+As an admin of system managed by Kueue with Fair Sharing enabled I would like to minimize the risk that admitted workloads get preempted soon after admission. Since every borrowing workload is a preemption (reclaim) candidate, to minimize the risk, I would like to prioritize selecting flavors which are preempting rather than borrowing.
 
-My use case can be supported by setting `spec.flavorFungability.whenCanPreemptAndBorrow: Preempt`.
+My use case can be supported by setting `Spec.FlavorFungibility.WhenCanPreempt: Preempt`.
 
 ### Notes/Constraints/Caveats (Optional)
 
