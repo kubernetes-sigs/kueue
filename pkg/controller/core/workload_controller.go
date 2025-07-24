@@ -240,6 +240,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				reason = fmt.Sprintf("%sDueTo%s", reason, dtCond.Reason)
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 			}
+			workload.SetEvictedCondition(&wl, reason, message)
 			updated = true
 			evicted = true
 		}
@@ -251,7 +252,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			updated = true
 		}
 
-		updated = workload.PrepareForEviction(&wl, r.clock.Now(), reason, message) || updated
+		// exception due to complicated logic, not using PrepareForEviction (temporarily)
+		wl.Status.ClusterName = nil
+		wl.Status.NominatedClusterNames = nil
+		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
 		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
