@@ -56,11 +56,7 @@ Extend the `WorkloadPriorityClass` type with a `preemptionPolicy` field:
 ```golang
 // apis/kueue/v1beta1/workloadpriorityclass_types.go
 type WorkloadPriorityClass struct {
-    metav1.TypeMeta   `json:",inline"`
-    metav1.ObjectMeta `json:"metadata,omitempty"`
-
-    Value int32 `json:"value"`
-    Description string `json:"description,omitempty"`
+    // ... existing fields ...
     
     // preemptionPolicy controls whether workloads using this priority class can be preempted.
     // Valid values are "Always" (default) and "Never".
@@ -69,21 +65,21 @@ type WorkloadPriorityClass struct {
     // +kubebuilder:default=Always
     // +kubebuilder:validation:Enum=Always;Never
     // +optional
-    PreemptionPolicy *PreemptionPolicy `json:"preemptionPolicy,omitempty"`
+    PreemptionPolicy *WorkloadPriorityClassPreemptionPolicy `json:"preemptionPolicy,omitempty"`
 }
 
-// PreemptionPolicy describes a policy for if/when to preempt a workload.
-type PreemptionPolicy string
+// WorkloadPriorityClassPreemptionPolicy describes a policy for if/when to preempt a workload.
+type WorkloadPriorityClassPreemptionPolicy string
 
 const (
-    // PreemptionPolicyAlways means that workloads can always be preempted by
+    // WorkloadPriorityClassPreemptionPolicyAlways means that workloads can always be preempted by
     // other workloads with higher priority.
-    PreemptionPolicyAlways PreemptionPolicy = "Always"
+    WorkloadPriorityClassPreemptionPolicyAlways WorkloadPriorityClassPreemptionPolicy = "Always"
     
-    // PreemptionPolicyNever means that workloads should never be preempted.
+    // WorkloadPriorityClassPreemptionPolicyNever means that workloads should never be preempted.
     // Workloads with this policy are restricted to nominal quota and cannot
     // borrow resources from other ClusterQueues.
-    PreemptionPolicyNever PreemptionPolicy = "Never"
+    WorkloadPriorityClassPreemptionPolicyNever WorkloadPriorityClassPreemptionPolicy = "Never"
 )
 ```
 
