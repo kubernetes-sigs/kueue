@@ -466,6 +466,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -530,6 +531,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -664,6 +666,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -735,6 +738,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -1090,6 +1094,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ClusterName("worker1").
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{

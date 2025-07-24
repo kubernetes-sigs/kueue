@@ -92,6 +92,13 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.Admi
 	return nil
 }
 
+func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) bool {
+	SetEvictedCondition(w, reason, message)
+	w.Status.ClusterName = nil
+	w.Status.NominatedClusterNames = nil
+	return ResetChecksOnEviction(w, now)
+}
+
 // ResetChecksOnEviction sets all AdmissionChecks to Pending
 func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
 	checks := w.Status.AdmissionChecks

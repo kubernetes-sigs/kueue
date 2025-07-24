@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -58,6 +60,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Ordered, ginkg
 
 		worker2Cq *kueue.ClusterQueue
 		worker2Lq *kueue.LocalQueue
+		realClock = clock.RealClock{}
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -214,6 +217,26 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Ordered, ginkg
 				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.By("setting the check conditions for eviction", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
+					State:   kueue.CheckStateRejected,
+					Message: "check rejected",
+				}, realClock)
+				g.Expect(workload.ApplyAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, true, realClock)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload ClusterName and NominatedClusterNames are reset in the management cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeNil())
+				g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 })
 
@@ -231,6 +254,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.C
 		multiKueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
+		realClock                = clock.RealClock{}
 
 		worker1Cq *kueue.ClusterQueue
 		worker1Lq *kueue.LocalQueue
@@ -374,7 +398,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.C
 				managerWl := &kueue.Workload{}
 				gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				managerWl.Status.NominatedClusterNames = []string{workerCluster2.Name}
-				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, managerWl)).To(gomega.Succeed())
+				g.Expect(workload.ApplyAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, true, realClock)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -402,7 +426,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.C
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				managerWl.Status.NominatedClusterNames = []string{workerCluster1.Name, workerCluster2.Name}
-				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, managerWl)).To(gomega.Succeed())
+				g.Expect(workload.ApplyAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, true, realClock)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -439,6 +463,26 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.C
 				g.Expect(createdWorkload.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)))
 				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeEmpty())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting the check conditions for eviction", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
+					State:   kueue.CheckStateRejected,
+					Message: "check rejected",
+				}, realClock)
+				g.Expect(workload.ApplyAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, true, realClock)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload ClusterName and NominatedClusterNames are reset in the management cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeNil())
+				g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

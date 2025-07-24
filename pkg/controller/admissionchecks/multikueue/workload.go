@@ -49,7 +49,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -396,6 +395,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
+		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
@@ -403,29 +403,21 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
-			err := utilclient.PatchStatus(ctx, w.client, group.local, func() (bool, error) {
-				if group.jobAdapter.KeepAdmissionCheckPending() {
-					acs.State = kueue.CheckStatePending
-				} else {
-					acs.State = kueue.CheckStateReady
-				}
-				// update the message
-				acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
-				// update the transition time since is used to detect the lost worker state.
-				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+			if group.jobAdapter.KeepAdmissionCheckPending() {
+				acs.State = kueue.CheckStatePending
+			} else {
+				acs.State = kueue.CheckStateReady
+			}
+			// update the message
+			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
+			// update the transition time since is used to detect the lost worker state.
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-				workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
-
-				if w.dispatcherName != config.MultiKueueDispatcherModeAllAtOnce {
-					// Set the cluster name to the reserving remote and clear the nominated clusters.
-					group.local.Status.ClusterName = &reservingRemote
-					group.local.Status.NominatedClusterNames = nil
-				}
-
-				return true, nil
-			})
-			if err != nil {
-				log.Error(err, "Failed to patch workload")
+			workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
+			// Set the cluster name to the reserving remote and clear the nominated clusters.
+			group.local.Status.ClusterName = &reservingRemote
+			group.local.Status.NominatedClusterNames = nil
+			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
 				return reconcile.Result{}, err
 			}
 			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
@@ -481,10 +473,8 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 
 		nominatedWorkers = append(group.local.Status.NominatedClusterNames, nextNominatedWorkers...)
 		w.roundStartTimes[key] = now
-
-		wlPatch := workload.BaseSSAWorkload(group.local)
-		wlPatch.Status.NominatedClusterNames = nominatedWorkers
-		if err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName)); err != nil {
+		group.local.Status.NominatedClusterNames = nominatedWorkers
+		if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
 			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
 			return reconcile.Result{}, err
 		}
