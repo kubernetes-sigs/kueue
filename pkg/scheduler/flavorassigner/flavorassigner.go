@@ -338,7 +338,12 @@ const (
 	fit
 )
 
-// isPreferred returns true if mode a is better than b according to the selected strategy
+func preferToAvoidBorrowing(fungiblityConfig kueue.FlavorFungibility, fairSharingEnabled bool) bool {
+	return (fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) ||
+		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.TryNextFlavor && fairSharingEnabled)
+}
+
+// isPreferred returns true if mode a is better than b according to the selected policy
 func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility, fairSharingEnabled bool) bool {
 	if a.preemptionMode == noFit {
 		return false
@@ -347,8 +352,15 @@ func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility, fa
 		return true
 	}
 
-	if (fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) ||
-		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.TryNextFlavor && fairSharingEnabled) {
+	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
+		if a.preemptionMode != b.preemptionMode {
+			return a.preemptionMode > b.preemptionMode
+		} else {
+			return !a.needsBorrowing && b.needsBorrowing
+		}
+	}
+
+	if preferToAvoidBorrowing(fungiblityConfig, fairSharingEnabled) {
 		if a.needsBorrowing != b.needsBorrowing {
 			return !a.needsBorrowing
 		}
@@ -735,16 +747,8 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				status.reasons = append(status.reasons, s.reasons...)
 			}
 			mode := granularMode{preemptionMode, borrow > 0}
-			if features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-				if isPreferred(representativeMode, mode, a.cq.FlavorFungibility, a.enableFairSharing) {
-					representativeMode = mode
-				}
-			} else {
-				if representativeMode.preemptionMode > mode.preemptionMode {
-					representativeMode = mode
-				} else if representativeMode.preemptionMode == mode.preemptionMode {
-					representativeMode.needsBorrowing = mode.needsBorrowing || representativeMode.needsBorrowing
-				}
+			if isPreferred(representativeMode, mode, a.cq.FlavorFungibility, a.enableFairSharing) {
+				representativeMode = mode
 			}
 			if representativeMode.preemptionMode == noFit {
 				// The flavor doesn't fit, no need to check other resources.
@@ -757,23 +761,15 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				borrow: borrow,
 			}
 		}
-
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility) {
 				bestAssignment = assignments
 				bestAssignmentMode = representativeMode
 				break
 			}
-			if features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-				if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility, a.enableFairSharing) {
-					bestAssignment = assignments
-					bestAssignmentMode = representativeMode
-				}
-			} else {
-				if representativeMode.preemptionMode > bestAssignmentMode.preemptionMode {
-					bestAssignment = assignments
-					bestAssignmentMode = representativeMode
-				}
+			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility, a.enableFairSharing) {
+				bestAssignment = assignments
+				bestAssignmentMode = representativeMode
 			}
 		} else if representativeMode.preemptionMode > bestAssignmentMode.preemptionMode {
 			bestAssignment = assignments
