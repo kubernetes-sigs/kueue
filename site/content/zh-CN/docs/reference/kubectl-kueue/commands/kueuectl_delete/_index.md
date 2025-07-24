@@ -5,18 +5,13 @@ auto_generated: true
 no_list: true
 ---
 
-<!--
-The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
--->
-
-## Synopsis
+## 概要 {#synopsis}
 
 
-Delete a resource
+删除资源
 
 
-## Options
+## 选项 {#options}
 
 
 <table style="width: 100%; table-layout: fixed;">
@@ -31,7 +26,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for delete</p>
+            <p>delete 命令的帮助信息</p>
         </td>
     </tr>
     </tbody>
@@ -39,7 +34,7 @@ Delete a resource
 
 
 
-## Options inherited from parent commands
+## 从父命令继承的选项 {#options-inherited-from-parent-commands}
 <table style="width: 100%; table-layout: fixed;">
     <colgroup>
         <col span="1" style="width: 10px;" />
@@ -52,7 +47,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Username to impersonate for the operation. User could be a regular user or a service account in a namespace.</p>
+            <p>为操作模拟的用户名。用户可以是普通用户或命名空间中的服务账户。</p>
         </td>
     </tr>
     <tr>
@@ -61,7 +56,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Group to impersonate for the operation, this flag can be repeated to specify multiple groups.</p>
+            <p>为操作模拟的组，此标志可以重复使用，以指定多个组。</p>
         </td>
     </tr>
     <tr>
@@ -70,7 +65,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>UID to impersonate for the operation.</p>
+            <p>为操作模拟的 UID。</p>
         </td>
     </tr>
     <tr>
@@ -79,7 +74,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Default cache directory</p>
+            <p>默认缓存目录</p>
         </td>
     </tr>
     <tr>
@@ -88,7 +83,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to a cert file for the certificate authority</p>
+            <p>证书颁发机构证书文件的路径</p>
         </td>
     </tr>
     <tr>
@@ -97,7 +92,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to a client certificate file for TLS</p>
+            <p>TLS 客户端证书文件的路径</p>
         </td>
     </tr>
     <tr>
@@ -106,7 +101,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to a client key file for TLS</p>
+            <p>TLS 客户端密钥文件的路径</p>
         </td>
     </tr>
     <tr>
@@ -115,7 +110,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The name of the kubeconfig cluster to use</p>
+            <p>要使用的 kubeconfig 集群的名称</p>
         </td>
     </tr>
     <tr>
@@ -124,7 +119,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The name of the kubeconfig context to use</p>
+            <p>要使用的 kubeconfig 上下文的名称</p>
         </td>
     </tr>
     <tr>
@@ -133,7 +128,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, opt-out of response compression for all requests to the server</p>
+            <p>如果为 true，则取消对所有服务器请求的响应压缩</p>
         </td>
     </tr>
     <tr>
@@ -142,7 +137,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, the server&#39;s certificate will not be checked for validity. This will make your HTTPS connections insecure</p>
+            <p>如果为 true，将不检查服务器证书的有效性。这将使你的 HTTPS 连接不安全</p>
         </td>
     </tr>
     <tr>
@@ -151,7 +146,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Path to the kubeconfig file to use for CLI requests.</p>
+            <p>用于 CLI 请求的 kubeconfig 文件路径。</p>
         </td>
     </tr>
     <tr>
@@ -160,16 +155,16 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If present, the namespace scope for this CLI request</p>
+            <p>如果存在，则为此次 CLI 请求的命名空间范围</p>
         </td>
     </tr>
     <tr>
-        <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
+        <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;默认值: &#34;0&#34;</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don&#39;t timeout requests.</p>
+            <p>在放弃单个服务器请求之前等待的时间长度。非零值应包含相应的时间单位（例如 1s、2m、3h）。零值表示不超时请求。</p>
         </td>
     </tr>
     <tr>
@@ -178,7 +173,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The address and port of the Kubernetes API server</p>
+            <p>Kubernetes API 服务器的地址和端口</p>
         </td>
     </tr>
     <tr>
@@ -187,7 +182,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Server name to use for server certificate validation. If it is not provided, the hostname used to contact the server is used</p>
+            <p>用于服务器证书验证的服务器名称。如果未提供，则使用联系服务器所用的主机名</p>
         </td>
     </tr>
     <tr>
@@ -196,7 +191,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Bearer token for authentication to the API server</p>
+            <p>API 服务器身份验证所用的持有者令牌</p>
         </td>
     </tr>
     <tr>
@@ -205,7 +200,7 @@ Delete a resource
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>The name of the kubeconfig user to use</p>
+            <p>要使用的 kubeconfig 用户的名称</p>
         </td>
     </tr>
     </tbody>
@@ -213,11 +208,11 @@ Delete a resource
 
 
 
-## See Also
+## 另请参阅 {#see-also}
 
-* [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;delete clusterqueue&#34; to kubectl
-* [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;delete localqueue&#34; to kubectl
-* [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;delete resourceflavor&#34; to kubectl
-* [kueuectl delete workload](kueuectl_delete_workload/)	 - Delete the given Workload and its corresponding Job
+* [kueuectl](../kueuectl/) - 控制 Kueue 队列管理器
+* [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/) - 将"delete clusterqueue"透传给 kubectl
+* [kueuectl delete localqueue](kueuectl_delete_localqueue/) - 将"delete localqueue"透传给 kubectl
+* [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/) - 将"delete resourceflavor"透传给 kubectl
+* [kueuectl delete workload](kueuectl_delete_workload/) - 删除给定的 Workload 及其对应的 Job
 
