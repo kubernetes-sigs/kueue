@@ -1057,9 +1057,12 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	SetEvictedCondition(wl, reason, msg)
-	ResetChecksOnEviction(wl, clock.Now())
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+	err := clientutil.PatchStatus(ctx, c, wl, func() (bool, error) {
+		SetEvictedCondition(wl, reason, msg)
+		ResetChecksOnEviction(wl, clock.Now())
+		return true, nil
+	}, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	if err != nil {
 		return err
 	}
 	reportWorkloadEvictedOnce := WorkloadEvictionStateInc(wl, reason, "")
