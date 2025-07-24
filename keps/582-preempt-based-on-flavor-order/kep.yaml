@@ -24,7 +24,9 @@ milestone:
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
-feature-gates: FlavorFungibility
+feature-gates:
+  - FlavorFungibility
+  - FlavorFungibilityImplicitPreferenceDefault
 disable-supported: true
 
 # The following PRR answers are required at beta release
