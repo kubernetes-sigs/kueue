@@ -2635,6 +2635,51 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
 			}
 		})
+		ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
+			fungibility := kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor}
+			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+			createQueue(testing.MakeClusterQueue("cq1").
+				FlavorFungibility(fungibility).Cohort("cohort").
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").FlavorQuotas).Obj())
+
+			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").FlavorQuotas).Obj())
+
+			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			}
+
+			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+
+			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+
+				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+			}
+
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+		})
 	})
 	ginkgo.When("Deleting ClusterQueue should update cohort borrowable resources", func() {
 		ginkgo.It("Should prevent incorrect admission through borrowing after ClusterQueue deletion", func() {
