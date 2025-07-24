@@ -127,7 +127,7 @@ My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt`
 
 #### Story 2
 
-As an admin of system managed by Kueue with Fair Sharing enabled I would like to minimize the risk that admitted workloads get preempted soon after admission. Since every borrowing workload is a preemption (reclaim) candidate, to minimize the risk, I would like to prioritize selecting flavors which are preempting rather than borrowing.
+As an admin of system managed by Kueue I would like to minimize the risk that admitted workloads get preempted soon after admission. Since every borrowing workload is a preemption (reclaim) candidate, to minimize the risk, I would like to prioritize selecting flavors which are preempting rather than borrowing.
 
 My use case can be supported by setting `Spec.FlavorFungibility.WhenCanPreempt: Preempt`.
 
@@ -231,7 +231,7 @@ An alternative order of preference can be set by enabling the feature gate `Flav
 The alternative order prioritizes assignments that don't borrow: (`Fit`, `NoBorrow`),(`Preempt`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `Borrow`). It is used in two cases:
 
 1. If `WhenCanPreempt = Preempt` and `WhenCanBorrow = TryNextFlavor`
-2. If `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor` and Fair Sharing is enabled in the cohort.
+2. If `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor`
 
 We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastTriedFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
 
