@@ -205,30 +205,32 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		var updated bool
-		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
-			switch cond.Reason {
-			case kueue.WorkloadDeactivated:
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
-				updated = true
-			case kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadEvictedByAdmissionCheck:
-				var requeueAfter time.Duration
-				if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
-					requeueAfter = wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
+		var (
+			updated      bool
+			requeueAfter time.Duration
+		)
+		err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
+				switch cond.Reason {
+				case kueue.WorkloadDeactivated:
+					workload.SetRequeuedCondition(&wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
+					updated = true
+				case kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadEvictedByAdmissionCheck:
+					if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+						requeueAfter = wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
+						return false, nil
+					}
+					if wl.Status.RequeueState != nil {
+						wl.Status.RequeueState.RequeueAt = nil
+					}
+					workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
+					updated = true
 				}
-				if requeueAfter > 0 {
-					return reconcile.Result{RequeueAfter: requeueAfter}, nil
-				}
-				if wl.Status.RequeueState != nil {
-					wl.Status.RequeueState.RequeueAt = nil
-				}
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
-				updated = true
 			}
-		}
-
-		if updated {
-			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
+			return updated, nil
+		})
+		if err != nil || updated || requeueAfter > 0 {
+			return ctrl.Result{RequeueAfter: requeueAfter}, client.IgnoreNotFound(err)
 		}
 	} else {
 		var updated, evicted, reportWorkloadEvictedOnce bool
