@@ -185,6 +185,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
 	// In flavor fungiblity, the preference whether to preempt or borrow is inferred from flavor fungiblity policy
+	// This feature gate is going to be replaced by an API before graduation or deprecation.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
 )
 
