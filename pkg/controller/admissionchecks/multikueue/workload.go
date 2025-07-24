@@ -414,9 +414,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 			workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
-			// Set the cluster name to the reserving remote and clear the nominated clusters.
-			group.local.Status.ClusterName = &reservingRemote
-			group.local.Status.NominatedClusterNames = nil
+			if w.dispatcherName != config.MultiKueueDispatcherModeAllAtOnce {
+				// Set the cluster name to the reserving remote and clear the nominated clusters.
+				group.local.Status.ClusterName = &reservingRemote
+				group.local.Status.NominatedClusterNames = nil
+			}
 			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
 				return reconcile.Result{}, err
 			}
