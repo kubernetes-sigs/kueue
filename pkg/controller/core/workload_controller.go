@@ -52,6 +52,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -632,18 +633,20 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return recheckAfter, nil
 	}
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
-	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
-		return 0, err
-	}
-	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
 	reportWorkloadEvictedOnce := false
+	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
+	deactivated := false
 	err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		var err error
+		if deactivated, err = r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
+			return false, err
+		}
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByPodsReadyTimeout, underlyingCause)
 		return true, nil
-	})
-	if err == nil {
+	}, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+	if !deactivated && err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 		if reportWorkloadEvictedOnce {
