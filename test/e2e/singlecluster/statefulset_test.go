@@ -69,9 +69,11 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
