@@ -52,7 +52,9 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
-	k8sClient, _ = util.CreateClientUsingCluster("")
+	var err error
+	k8sClient, _, err = util.CreateClientUsingCluster("")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
@@ -71,7 +73,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	nodes := &corev1.NodeList{}
 	requiredLabels := client.MatchingLabels{}
 	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
-	err := k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
+	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
 
 	for _, n := range nodes.Items {

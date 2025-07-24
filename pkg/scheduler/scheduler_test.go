@@ -4761,12 +4761,12 @@ func TestResourcesToReserve(t *testing.T) {
 			assignment := flavorassigner.Assignment{
 				PodSets: []flavorassigner.PodSetAssignment{{
 					Name:    "memory",
-					Status:  &flavorassigner.Status{},
+					Status:  *flavorassigner.NewStatus("needs to preempt"),
 					Flavors: flavorassigner.ResourceAssignment{corev1.ResourceMemory: &flavorassigner.FlavorAssignment{Mode: tc.assignmentMode}},
 				},
 					{
 						Name:    "gpu",
-						Status:  &flavorassigner.Status{},
+						Status:  *flavorassigner.NewStatus("needs to preempt"),
 						Flavors: flavorassigner.ResourceAssignment{"gpu": &flavorassigner.FlavorAssignment{Mode: tc.assignmentMode}},
 					},
 				},
