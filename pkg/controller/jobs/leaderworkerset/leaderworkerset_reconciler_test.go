@@ -364,8 +364,7 @@ func TestReconciler(t *testing.T) {
 							},
 							Count: 1,
 							TopologyRequest: &kueue.PodSetTopologyRequest{
-								Required:      ptr.To("cloud.com/block"),
-								PodIndexLabel: ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+								Required: ptr.To("cloud.com/block"),
 							},
 						},
 						kueue.PodSet{
