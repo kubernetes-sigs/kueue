@@ -410,6 +410,13 @@ func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {
 							Resources: corev1.ResourceRequirements{
 								Requests: make(corev1.ResourceList),
 							},
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: ptr.To(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+							},
 						},
 					},
 				},
