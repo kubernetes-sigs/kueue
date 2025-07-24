@@ -20,7 +20,7 @@ MiniCluster 时，如何利用 Kueue 的调度和资源管理能力。
 
 查阅 [Flux Operator 安装指南](https://flux-framework.org/flux-operator/getting_started/user-guide.html#install)。
 
-## MiniCluster 定义  {#miniCluster-definition}
+## MiniCluster 定义  {#minicluster-definition}
 
 由于 Flux MiniCluster 作为 [`batch/Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
 运行，Kueue 不需要额外的组件来管理 Flux MiniCluster。
@@ -50,7 +50,7 @@ spec:
           memory: "200Mi"
 ```
 
-## MiniCluster 示例  
+## MiniCluster 示例  {#sample-minicluster}
 
 ```yaml
 apiVersion: flux-framework.org/v1alpha1
