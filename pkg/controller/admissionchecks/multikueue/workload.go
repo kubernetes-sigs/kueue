@@ -420,6 +420,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				group.local.Status.NominatedClusterNames = nil
 			}
 			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
+				log.V(2).Error(err, "Failed to patch workload", "workload", klog.KObj(group.local))
 				return reconcile.Result{}, err
 			}
 			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
