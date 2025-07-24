@@ -452,7 +452,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 		groupedTASRequests[groupKey] = append(groupedTASRequests[groupKey], tr)
 	}
 
-	for _, trs := range groupedTASRequests {
+	for _, groupKey := range groupsOrder {
+		trs := groupedTASRequests[groupKey]
 		if workload.HasNodeToReplace(opts.workload) {
 			for _, tr := range trs {
 				// In case of looking for Node replacement, TopologyRequest has only
