@@ -1312,7 +1312,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 			minStateWithLeaderDifference = addChildrenCapacity - addChildrenCapacityWithLeader
 		}
 		if addChildrenSliceCapacity-addChildrenSliceCapacityWithLeader < minSliceStateWithLeaderDifference {
-			minSliceStateWithLeaderDifference = addChildrenSliceCapacity - addChildrenCapacityWithLeader
+			minSliceStateWithLeaderDifference = addChildrenSliceCapacity - addChildrenSliceCapacityWithLeader
 		}
 		if childLeaderState > leaderState {
 			leaderState = childLeaderState
