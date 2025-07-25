@@ -346,6 +346,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 			multikueue.WithAdapters(adapters),
+			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
@@ -357,7 +358,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		}
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
+	if failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
 		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}
 

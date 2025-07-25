@@ -22,8 +22,8 @@ import (
 
 // Setup sets up the webhooks for core controllers. It returns the name of the
 // webhook that failed to create and an error, if any.
-func Setup(mgr ctrl.Manager) (string, error) {
-	if err := setupWebhookForWorkload(mgr); err != nil {
+func Setup(mgr ctrl.Manager, dispatcherName string) (string, error) {
+	if err := setupWebhookForWorkload(mgr, dispatcherName); err != nil {
 		return "Workload", err
 	}
 

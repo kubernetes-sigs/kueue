@@ -273,7 +273,23 @@ type MultiKueue struct {
 	// Defaults to 15 minutes.
 	// +optional
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+
+	// DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.
+	// - If specified, the workload will be handled by the named dispatcher.
+	// - If not specified, the workload will be handled by the default ("kueue.x-k8s.io/multikueue-dispatcher-all-at-once") dispatcher.
+	// +optional
+	DispatcherName *string `json:"dispatcherName,omitempty"`
 }
+
+const (
+	// MultiKueueDispatcherModeAllAtOnce is the name of dispatcher mode where all worker clusters are considered at once
+	// and the first one accepting the workload is selected.
+	MultiKueueDispatcherModeAllAtOnce = "kueue.x-k8s.io/multikueue-dispatcher-all-at-once"
+
+	// MultiKueueDispatcherModeIncremental is the name of dispatcher mode where worker clusters are incrementally added to the pool of nominated clusters.
+	// The process begins with up to 3 initial clusters and expands the pool by up to 3 clusters at a time (if fewer remain, all are added).
+	MultiKueueDispatcherModeIncremental = "kueue.x-k8s.io/multikueue-dispatcher-incremental"
+)
 
 type RequeuingStrategy struct {
 	// Timestamp defines the timestamp used for re-queuing a Workload

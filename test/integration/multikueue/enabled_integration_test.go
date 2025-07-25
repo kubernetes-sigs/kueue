@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
@@ -63,7 +64,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, sets.New("batch/job"))
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, sets.New("batch/job"), config.MultiKueueDispatcherModeAllAtOnce)
 		})
 	})
 

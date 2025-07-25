@@ -127,7 +127,7 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = pod.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr)
+		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		if setupTASControllers {

@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -64,7 +65,7 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 0, defaultEnabledIntegrations)
+			managerAndMultiKueueSetup(ctx, mgr, 0, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
 	})
 

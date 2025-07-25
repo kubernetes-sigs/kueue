@@ -23,14 +23,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+	"golang.org/x/exp/slices"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,12 +44,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+const (
+	incrementalDispatcherRoundTimeout = 5 * time.Minute
 )
 
 var (
@@ -64,6 +73,8 @@ type wlReconciler struct {
 	adapters          map[string]jobframework.MultiKueueAdapter
 	recorder          record.EventRecorder
 	clock             clock.Clock
+	dispatcherName    string
+	roundStartTimes   map[types.NamespacedName]time.Time
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -402,13 +413,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-			wlPatch := workload.BaseSSAWorkload(group.local)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
-			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
-			if err != nil {
+			workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
+			// Set the cluster name to the reserving remote and clear the nominated clusters.
+			group.local.Status.ClusterName = &reservingRemote
+			group.local.Status.NominatedClusterNames = nil
+
+			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
+				log.V(2).Error(err, "Failed to patch workload", "workload", klog.KObj(group.local))
 				return reconcile.Result{}, err
 			}
-			w.recorder.Eventf(wlPatch, corev1.EventTypeNormal, "MultiKueue", acs.Message)
+			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
 		}
 		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
 	} else if acs.State == kueue.CheckStateReady {
@@ -428,20 +442,102 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	// finally - create missing workloads
-	var errs []error
-	for rem, remWl := range group.remotes {
-		if remWl == nil {
-			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
-			err := group.remoteClients[rem].client.Create(ctx, clone)
-			if err != nil {
-				// just log the error for a single remote
-				log.V(2).Error(err, "creating remote object", "remote", rem)
-				errs = append(errs, err)
+	return w.nominateAndSynchronizeWorkers(ctx, group)
+}
+
+func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
+	log.V(3).Info("Nominate and Synchronize Worker Clusters")
+	var nominatedWorkers []string
+	var retryAfter time.Duration
+
+	switch w.dispatcherName {
+	case config.MultiKueueDispatcherModeAllAtOnce:
+		for workerName := range group.remotes {
+			nominatedWorkers = append(nominatedWorkers, workerName)
+		}
+		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+			group.local.Status.NominatedClusterNames = nominatedWorkers
+			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
+				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+				return reconcile.Result{}, err
 			}
 		}
+	case config.MultiKueueDispatcherModeIncremental:
+		key := client.ObjectKeyFromObject(group.local)
+		roundStart, found := w.roundStartTimes[key]
+		now := w.clock.Now()
+
+		if found && now.Sub(roundStart) <= incrementalDispatcherRoundTimeout {
+			remainingWaitTime := incrementalDispatcherRoundTimeout - now.Sub(roundStart)
+			log.V(5).Info("Incremental Dispatcher nomination round still in progress", "remainingWaitTime", remainingWaitTime)
+			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+		}
+
+		nextNominatedWorkers, err := getNextNominatedWorkers(log, group)
+		if err != nil {
+			log.Error(err, "nominating next worker clusters failed")
+			return reconcile.Result{}, err
+		}
+
+		nominatedWorkers = append(group.local.Status.NominatedClusterNames, nextNominatedWorkers...)
+		w.roundStartTimes[key] = now
+		group.local.Status.NominatedClusterNames = nominatedWorkers
+		if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+			return reconcile.Result{}, err
+		}
+	default:
+		log.V(3).Info("External nomination of the worker clusters", "dispatcherName", w.dispatcherName)
+		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
-	return reconcile.Result{}, errors.Join(errs...)
+
+	log.V(4).Info("Synchronize nominated worker clusters", "nominatedWorkerClusterNames", nominatedWorkers)
+
+	var errs []error
+	for rem, remoteWl := range group.remotes {
+		if slices.Contains(nominatedWorkers, rem) {
+			if remoteWl == nil {
+				clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
+				if err := group.remoteClients[rem].client.Create(ctx, clone); err != nil {
+					log.V(2).Error(err, "creating remote object", "remote", rem)
+					errs = append(errs, err)
+				}
+			}
+		} else if remoteWl != nil {
+			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
+				errs = append(errs, err)
+			}
+			group.remotes[rem] = nil
+		}
+	}
+	return reconcile.Result{RequeueAfter: retryAfter}, errors.Join(errs...)
+}
+
+// getNextNominatedWorkers returns the next set of nominated workers for incremental dispatching.
+// It nominates up to 3 remotes that have not yet been nominated, in sorted order.
+func getNextNominatedWorkers(log logr.Logger, group *wlGroup) ([]string, error) {
+	alreadyNominated := sets.New[string](group.local.Status.NominatedClusterNames...)
+
+	workers := make([]string, 0, len(group.remotes))
+	for remoteWorker := range group.remotes {
+		if !alreadyNominated.Has(remoteWorker) {
+			workers = append(workers, remoteWorker)
+		}
+	}
+	slices.Sort(workers)
+
+	log.V(5).Info("getNextNominatedWorkers (incremental)", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)
+
+	if len(workers) == 0 {
+		return nil, errors.New("no more workers to nominate")
+	}
+	batchSize := 3
+	if len(workers) < batchSize {
+		return workers, nil
+	}
+	return workers[:batchSize], nil
 }
 
 func (w *wlReconciler) Create(_ event.CreateEvent) bool {
@@ -463,7 +559,11 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter, options ...Option) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string,
+	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
+	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string,
+	options ...Option,
+) *wlReconciler {
 	r := &wlReconciler{
 		client:            c,
 		helper:            helper,
@@ -475,6 +575,8 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		adapters:          adapters,
 		recorder:          recorder,
 		clock:             realClock,
+		dispatcherName:    dispatcherName,
+		roundStartTimes:   make(map[types.NamespacedName]time.Time),
 	}
 	for _, option := range options {
 		option(r)

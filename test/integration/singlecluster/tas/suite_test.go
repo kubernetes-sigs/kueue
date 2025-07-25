@@ -75,7 +75,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	controllersCfg := &config.Configuration{}

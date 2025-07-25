@@ -251,8 +251,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			wl.Status.RequeueState = nil
 			updated = true
 		}
-		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
+
+		// exception due to complicated logic, not using PrepareForEviction (temporarily)
+		workload.ResetClusterNomination(&wl)
 		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
+		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
 				if apierrors.IsNotFound(err) {
