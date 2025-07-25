@@ -327,11 +327,6 @@ const (
 	fit
 )
 
-func preferToAvoidBorrowing(fungiblityConfig kueue.FlavorFungibility) bool {
-	return (fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.Preempt) ||
-		(fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor && fungiblityConfig.WhenCanPreempt == kueue.TryNextFlavor)
-}
-
 // isPreferred returns true if mode a is better than b according to the selected policy
 func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
@@ -349,7 +344,7 @@ func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bo
 		}
 	}
 
-	if preferToAvoidBorrowing(fungiblityConfig) {
+	if fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor {
 		if a.needsBorrowing != b.needsBorrowing {
 			return !a.needsBorrowing
 		}
