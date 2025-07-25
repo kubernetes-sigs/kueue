@@ -414,11 +414,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 			workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
-			if w.dispatcherName != config.MultiKueueDispatcherModeAllAtOnce {
-				// Set the cluster name to the reserving remote and clear the nominated clusters.
-				group.local.Status.ClusterName = &reservingRemote
-				group.local.Status.NominatedClusterNames = nil
-			}
+			// Set the cluster name to the reserving remote and clear the nominated clusters.
+			group.local.Status.ClusterName = &reservingRemote
+			group.local.Status.NominatedClusterNames = nil
+
 			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
 				log.V(2).Error(err, "Failed to patch workload", "workload", klog.KObj(group.local))
 				return reconcile.Result{}, err
@@ -456,6 +455,13 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	case config.MultiKueueDispatcherModeAllAtOnce:
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
+		}
+		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+			group.local.Status.NominatedClusterNames = nominatedWorkers
+			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
+				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+				return reconcile.Result{}, err
+			}
 		}
 	case config.MultiKueueDispatcherModeIncremental:
 		key := client.ObjectKeyFromObject(group.local)

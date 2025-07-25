@@ -337,6 +337,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					NominatedClusterNames([]string{"worker1", "worker2"}).
 					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
@@ -369,6 +370,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					NominatedClusterNames([]string{"worker1", "worker2"}).
 					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
@@ -1192,10 +1194,7 @@ func TestWlReconcile(t *testing.T) {
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			recorder := &utiltesting.EventRecorder{}
-			mkDispatcherName := config.MultiKueueDispatcherModeAllAtOnce
-			if tc.dispatcherName != nil {
-				mkDispatcherName = *tc.dispatcherName
-			}
+			mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
 			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, WithClock(t, fakeClock))
 
 			for _, val := range tc.managersDeletedWorkloads {
@@ -1317,7 +1316,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			name:           "AllClusters: workloads already created on remotes, do not create again",
 			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:        map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
-			wantCreated:    []string{},
+			wantCreated:    nil,
 			wantRetryAfter: 0,
 		},
 		{
@@ -1340,7 +1339,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
 			remotes:          remotes,
 			nominatedWorkers: remoteNames[:3],
-			wantCreated:      []string{},
+			wantCreated:      nil,
 			advanceClock:     incrementalDispatcherRoundTimeout / 2,
 			wantRetryAfter:   incrementalDispatcherRoundTimeout / 2,
 		},
@@ -1366,7 +1365,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			name:           "External controller: no nominated workers, nothing created",
 			dispatcherMode: externalMultiKueueDispatcherController,
 			remotes:        remotes,
-			wantCreated:    []string{},
+			wantCreated:    nil,
 			wantRetryAfter: 0,
 		},
 		{
@@ -1397,7 +1396,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				},
 			}
 
-			created := []createCall{}
+			var created []createCall
 			makeFakeCreate := func(origin string) func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				return func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 					created = append(created, createCall{
@@ -1451,12 +1450,12 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				fakeClock.SetTime(now.Add(tt.advanceClock))
 			}
 
-			res, err := wlRec.nominateAndSynchronizeWorkers(context.Background(), group)
+			res, err := wlRec.nominateAndSynchronizeWorkers(t.Context(), group)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
 			}
 
-			gotCreated := []string{}
+			var gotCreated []string
 			for _, c := range created {
 				gotCreated = append(gotCreated, c.cluster)
 			}

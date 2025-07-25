@@ -60,8 +60,7 @@ import (
 )
 
 const (
-	testingWorkerLostTimeout      = 3 * time.Second
-	defaultDispatcherRoundTimeout = 5 * time.Second
+	testingWorkerLostTimeout = 3 * time.Second
 )
 
 type cluster struct {
@@ -280,7 +279,6 @@ func managerAndMultiKueueSetup(
 	gcInterval time.Duration,
 	enabledIntegrations sets.Set[string],
 	dispatcherName string,
-	dispatcherRoundTime time.Duration,
 ) {
 	managerSetup(ctx, mgr)
 

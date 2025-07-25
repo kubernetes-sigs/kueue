@@ -253,8 +253,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		// exception due to complicated logic, not using PrepareForEviction (temporarily)
-		wl.Status.ClusterName = nil
-		wl.Status.NominatedClusterNames = nil
+		workload.ResetClusterNomination(&wl)
 		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
 		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
 		if updated {

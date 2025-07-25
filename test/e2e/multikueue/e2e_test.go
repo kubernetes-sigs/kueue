@@ -1094,8 +1094,8 @@ var _ = ginkgo.Describe("MultiKueue with Incremental mode", ginkgo.Ordered, func
 		// Since it requires 2G of memory, this job can only be admitted in worker 2.
 		job := testingjob.MakeJob("job", managerNs.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
-			RequestAndLimit("cpu", "1").
-			RequestAndLimit("memory", "2G").
+			RequestAndLimit(corev1.ResourceCPU, "1").
+			RequestAndLimit(corev1.ResourceMemory, "2G").
 			TerminationGracePeriod(1).
 			// Give it the time to be observed Active in the live status update step.
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).

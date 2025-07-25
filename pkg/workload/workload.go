@@ -1073,7 +1073,13 @@ func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRe
 
 func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) bool {
 	SetEvictedCondition(w, reason, message)
+	ResetClusterNomination(w)
 	return ResetChecksOnEviction(w, now)
+}
+
+func ResetClusterNomination(w *kueue.Workload) {
+	w.Status.ClusterName = nil
+	w.Status.NominatedClusterNames = nil
 }
 
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
