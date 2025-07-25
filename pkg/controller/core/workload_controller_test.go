@@ -667,13 +667,6 @@ func TestReconcile(t *testing.T) {
 						Reason:  "DeactivatedDueToAdmissionCheck",
 						Message: "The workload is deactivated due to Admission check(s): check-1, were rejected",
 					},
-					// In a real cluster this condition would be removed but it cant be in the fake cluster
-					metav1.Condition{
-						Type:    kueue.WorkloadDeactivationTarget,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
-						Message: "Admission check(s): check-1, were rejected",
-					},
 				).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1336,13 +1329,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
-				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadDeactivationTarget,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadRequeuingLimitExceeded,
-					Message: "exceeding the maximum number of re-queuing retries",
-				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{Reason: kueue.WorkloadDeactivated, Count: 1},
 				).
@@ -1398,13 +1384,6 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionTrue,
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
-				}).
-				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadDeactivationTarget,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadRequeuingLimitExceeded,
-					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1466,15 +1445,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
-				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadDeactivationTarget,
-					Status:  metav1.ConditionTrue,
-					Reason:  "RequeuingLimitExceeded",
-					Message: "exceeding the maximum number of re-queuing retries",
-				}).
-				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
@@ -1535,15 +1505,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
-				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadDeactivationTarget,
-					Status:  metav1.ConditionTrue,
-					Reason:  "RequeuingLimitExceeded",
-					Message: "exceeding the maximum number of re-queuing retries",
-				}).
-				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,

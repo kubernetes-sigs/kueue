@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -185,14 +186,22 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
-	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
-	workload.ResetChecksOnEviction(w, p.clock.Now())
-	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(w, kueue.WorkloadEvictedByPreemption, "")
-	workload.SetPreemptedCondition(w, reason, message)
+	reportWorkloadEvictedOnce := false
+	err := clientutil.PatchStatus(ctx, p.client, w, func() (bool, error) {
+		workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
+		workload.ResetChecksOnEviction(w, p.clock.Now())
+		reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(w, kueue.WorkloadEvictedByPreemption, "")
+		workload.SetPreemptedCondition(w, reason, message)
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
 	}
-	return workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
+	return nil
 }
 
 type preemptionAttemptOpts struct {
