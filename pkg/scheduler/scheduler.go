@@ -194,7 +194,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	snapshotOpts := make([]cache.SnapshotOption, 0)
+	var snapshotOpts []cache.SnapshotOption
 	if features.Enabled(features.AdmissionFairSharing) && s.queues.HasAnyEntryPenalty() {
 		s.queues.HeapifyAllClusterQueues()
 		snapshotOpts = append(snapshotOpts, cache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
@@ -623,7 +623,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	log.V(2).Info("Workload assumed in the cache")
 
 	if features.Enabled(features.AdmissionFairSharing) {
-		s.addEntryPenaltyToLq(log, e)
+		s.updateEntryPenalty(log, e, add)
 
 		// Trigger LocalQueue reconciler to apply any pending penalties
 		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, newWorkload)
@@ -642,7 +642,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// by an event.
 		_ = s.cache.ForgetWorkload(log, newWorkload)
 		if features.Enabled(features.AdmissionFairSharing) {
-			s.subEntryPenaltyToLq(log, e)
+			s.updateEntryPenalty(log, e, subtract)
 		}
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
@@ -852,18 +852,25 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	return nil
 }
 
-func (s *Scheduler) addEntryPenaltyToLq(log logr.Logger, e *entry) {
+type usageOp int
+
+const (
+	// add penalty
+	add usageOp = iota
+	// subtract penalty
+	subtract
+)
+
+func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
-	s.queues.PushEntryPenalty(lqKey, penalty)
 
-	log.V(3).Info("Entry penalty added to lq", "lqKey", lqKey, "penalty", penalty)
-}
-
-func (s *Scheduler) subEntryPenaltyToLq(log logr.Logger, e *entry) {
-	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
-	penalty := afs.CalculateEntryPenalty(e.SumTotalRequests(), s.admissionFairSharing)
-	s.queues.SubEntryPenalty(lqKey, penalty)
-
-	log.V(3).Info("Entry penalty subtracted from lq", "lqKey", lqKey, "penalty", penalty)
+	switch op {
+	case add:
+		s.queues.PushEntryPenalty(lqKey, penalty)
+		log.V(3).Info("Entry penalty added to lq", "lqKey", lqKey, "penalty", penalty)
+	case subtract:
+		s.queues.SubEntryPenalty(lqKey, penalty)
+		log.V(3).Info("Entry penalty subtracted from lq", "lqKey", lqKey, "penalty", penalty)
+	}
 }
