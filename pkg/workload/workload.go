@@ -1057,8 +1057,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	SetEvictedCondition(wl, reason, msg)
-	ResetChecksOnEviction(wl, clock.Now())
+	PrepareForEviction(wl, clock.Now(), reason, msg)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
 	}
@@ -1068,6 +1067,11 @@ func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRe
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, "")
 	}
 	return nil
+}
+
+func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) bool {
+	SetEvictedCondition(w, reason, message)
+	return ResetChecksOnEviction(w, now)
 }
 
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
