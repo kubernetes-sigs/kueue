@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -121,6 +122,13 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 
 	// Sort workloads by creation timestamp - oldest first.
 	sort.Slice(list.Items, func(i, j int) bool {
+		// Handle cases when API server timestamps have only second-level precision (integration tests),
+		// which makes it possible for two objects to have equal timestamps.
+		if list.Items[i].CreationTimestamp.Equal(&list.Items[j].CreationTimestamp) {
+			rvI, _ := strconv.ParseInt(list.Items[i].ResourceVersion, 10, 64)
+			rvJ, _ := strconv.ParseInt(list.Items[j].ResourceVersion, 10, 64)
+			return rvI < rvJ
+		}
 		return list.Items[i].CreationTimestamp.Before(&list.Items[j].CreationTimestamp)
 	})
 
