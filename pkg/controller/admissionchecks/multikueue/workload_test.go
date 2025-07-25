@@ -1216,6 +1216,13 @@ func TestWlReconcile(t *testing.T) {
 			if err := managerClient.List(t.Context(), gotManagersWorkloads); err != nil {
 				t.Errorf("unexpected list manager's workloads error: %s", err)
 			} else {
+				// ensure deterministic comparison
+				for i := range gotManagersWorkloads.Items {
+					sort.Strings(gotManagersWorkloads.Items[i].Status.NominatedClusterNames)
+				}
+				for i := range tc.wantManagersWorkloads {
+					sort.Strings(tc.wantManagersWorkloads[i].Status.NominatedClusterNames)
+				}
 				if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
 				}

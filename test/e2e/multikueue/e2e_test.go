@@ -1111,20 +1111,6 @@ var _ = ginkgo.Describe("MultiKueue with Incremental mode", ginkgo.Ordered, func
 		})
 		createdLeaderWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
-
-		ginkgo.By("check workload was created in worker 1", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-				g.Expect(createdLeaderWorkload.Status.NominatedClusterNames).To(gomega.ContainElements(workerCluster1.Name))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-		ginkgo.By("check workload was created in worker 1 and 2", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-				g.Expect(createdLeaderWorkload.Status.NominatedClusterNames).To(gomega.ContainElements(workerCluster1.Name, workerCluster2.Name))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		// the execution should be given to the worker
 		ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
 			gomega.Eventually(func(g gomega.Gomega) {

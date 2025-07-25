@@ -8920,9 +8920,6 @@ spec:
                 type: object
             type: object
             x-kubernetes-validations:
-            - message: when setting clusterName it must be one of the nominatedClusterNames
-              rule: '!has(oldSelf.clusterName) && has(self.clusterName) ? has(oldSelf.nominatedClusterNames)
-                && self.clusterName in oldSelf.nominatedClusterNames : true'
             - message: clusterName is immutable once set
               rule: '!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName
                 == self.clusterName'

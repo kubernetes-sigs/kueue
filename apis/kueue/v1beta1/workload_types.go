@@ -344,7 +344,6 @@ type PodSet struct {
 }
 
 // WorkloadStatus defines the observed state of Workload
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) && has(self.clusterName) ? has(oldSelf.nominatedClusterNames) && self.clusterName in oldSelf.nominatedClusterNames : true", message="when setting clusterName it must be one of the nominatedClusterNames"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
 type WorkloadStatus struct {

@@ -56,24 +56,25 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
-	fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		failedWebhook, err := webhooks.Setup(mgr)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-
-		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache)
-
-		configuration := &config.Configuration{}
-		mgr.GetScheme().Default(configuration)
-
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-	})
 })
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
+
+func managerSetup(ctx context.Context, mgr manager.Manager, dispatcherName string) {
+	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	failedWebhook, err := webhooks.Setup(mgr, dispatcherName)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	cCache := cache.New(mgr.GetClient())
+	queues := queue.NewManager(mgr.GetClient(), cCache)
+
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+}

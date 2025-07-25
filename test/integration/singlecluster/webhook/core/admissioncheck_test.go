@@ -17,6 +17,8 @@ limitations under the License.
 package core
 
 import (
+	"context"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -24,13 +26,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
+var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
 	ginkgo.When("Creating a AdmissionCheck", func() {
 		ginkgo.DescribeTable("Defaulting on creating", func(ac, wantAC kueue.AdmissionCheck) {
 			util.MustCreate(ctx, k8sClient, &ac)
