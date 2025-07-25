@@ -1,38 +1,37 @@
 ---
-title: "Run A RayJob"
+title: "运行 RayJob"
 linkTitle: "RayJobs"
 date: 2024-08-07
 weight: 6
-description: >
-  Run a Kueue scheduled RayJob.
+description: 在启用了 Kueue 的环境里运行 RayJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [KubeRay's](https://github.com/ray-project/kuberay)
-[RayJob](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayjob-quick-start.html).
+本页面展示了如何利用 Kueue 的调度和服务管理能力来运行 [KubeRay](https://github.com/ray-project/kuberay)
+的 [RayJob](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayjob-quick-start.html)。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user) ，他们基本了解 Kueue。
+更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
+1. 请确保你使用 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.1.0 或更高版本。
 
-2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+2. 请参见[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
-3. See [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator) for installation and configuration details of KubeRay.
+3. 请参见 [KubeRay 安装文档](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator)了解
+   KubeRay 的安装和配置详情。
 
-{{% alert title="Note" color="primary" %}}
-In order to use RayJob, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
+{{% alert title="注意" color="primary" %}}
+在 v0.8.1 之前，你需要重启 Kueue 才能使用 RayJob。你可以通过运行 `kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
 {{% /alert %}}
 
-## RayJob definition
+## RayJob 定义 {#rayjob-definition}
 
-When running [RayJobs](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayjob-quick-start.html) on
-Kueue, take into consideration the following aspects:
+当运行 [RayJobs](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayjob-quick-start.html)时，请考虑以下方面：
 
-### a. Queue selection
+### a. 队列选择 {#a-queue-selection}
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the RayJob configuration.
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 RayJob 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:
@@ -40,9 +39,9 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Configure the resource needs
+### b. 配置资源需求 {#b-configure-the-resource-needs}
 
-The resource needs of the workload can be configured in the `spec.rayClusterSpec`.
+工作负载的资源需求可以在 `spec.rayClusterSpec` 中配置。
 
 ```yaml
 spec:
@@ -63,34 +62,33 @@ spec:
                     cpu: "1"
 ```
 
-### c. Limitations
+### c. 限制 {#c-limitations}
 
-- A Kueue managed RayJob cannot use an existing RayCluster.
-- The RayCluster should be deleted at the end of the job execution, `spec.ShutdownAfterJobFinishes` should be `true`.
-- Because Kueue will reserve resources for the RayCluster, `spec.rayClusterSpec.enableInTreeAutoscaling` should be `false`.
-- Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.rayClusterSpec.workerGroupSpecs` is 7.
+- 一个 Kueue 管理的 RayJob 不能使用现有的 RayCluster。
+- RayCluster 应在作业执行结束后删除，`spec.ShutdownAfterJobFinishes` 应为 `true`。
+- 因为 Kueue 会为 RayCluster 预留资源，`spec.rayClusterSpec.enableInTreeAutoscaling` 应为 `false`。
+- 因为一个 Kueue 工作负载最多可以有 8 个 PodSet，`spec.rayClusterSpec.workerGroupSpecs` 的最大数量为 7。
 
-## Example RayJob
+## 示例 {#examples} RayJob
 
-In this example, the code is provided to the Ray framework via a ConfigMap.
+在本例中，代码通过 ConfigMap 提供给 Ray 框架。
 
 {{< include "examples/jobs/ray-job-code-sample.yaml" "yaml" >}}
 
-The RayJob looks like the following:
+RayJob 如下所示：
 
 {{< include "examples/jobs/ray-job-sample.yaml" "yaml" >}}
 
-You can run this RayJob with the following commands:
+你可以使用以下命令运行此 RayJob：
 
 ```sh
-# Create the code ConfigMap (once)
+# 创建代码 ConfigMap（一次）
 kubectl apply -f ray-job-code-sample.yaml
-# Create a RayJob. You can run this command multiple times
-# to observe the queueing and admission of the jobs.
+# 创建 RayJob。你可以多次运行此命令，以观察作业的排队和准入。
 kubectl create -f ray-job-sample.yaml
 ```
 
-{{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-job.sample.yaml) 
-and only has the `queue-name` label added and requests updated.
+{{% alert title="注意" color="primary" %}}
+上述示例来自[这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-job.sample.yaml)
+并且只添加了 `queue-name` 标签和更新了请求。
 {{% /alert %}}
