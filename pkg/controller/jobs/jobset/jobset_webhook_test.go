@@ -48,9 +48,10 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name    string
-		job     *jobset.JobSet
-		wantErr error
+		name                    string
+		job                     *jobset.JobSet
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		{
 			name:    "simple",
@@ -80,6 +81,7 @@ func TestValidateCreate(t *testing.T) {
 					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request",
@@ -98,11 +100,31 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid slice topology request - slice size larger than number of podsets",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+					Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+						kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						kueuealpha.PodSetSliceSizeAnnotation:             "20",
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "replicatedJobs[0]", "template", "metadata", "annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 2"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
 			jsw := &JobSetWebhook{}
 			_, gotErr := jsw.ValidateCreate(t.Context(), tc.job)
 
@@ -115,10 +137,12 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := []struct {
-		name    string
-		oldJob  *jobset.JobSet
-		newJob  *jobset.JobSet
-		wantErr field.ErrorList
+		name                    string
+		oldJob                  *jobset.JobSet
+		newJob                  *jobset.JobSet
+		wantValidationErrs      field.ErrorList
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		{
 			name: "set valid topology request",
@@ -132,6 +156,7 @@ func TestValidateUpdate(t *testing.T) {
 					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "attempt to set invalid topology request",
@@ -146,17 +171,23 @@ func TestValidateUpdate(t *testing.T) {
 					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
+			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
+			topologyAwareScheduling: true,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := new(JobSetWebhook).validateUpdate((*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
+			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate((*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
-				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs, cmpopts.IgnoreFields(field.Error{})); diff != "" {
+				t.Errorf("validateUpdate() validation errors mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

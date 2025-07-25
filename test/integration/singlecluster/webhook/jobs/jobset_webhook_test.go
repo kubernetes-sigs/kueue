@@ -23,28 +23,28 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("JobSet Webhook", func() {
+var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
+	})
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
-		})
-		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
-		})
-
+	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
 			job := testingjob.MakeJobSet("jobset", ns.Name).Queue("indexed_job").
 				ReplicatedJobs(
@@ -56,6 +56,12 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
+		})
+	})
+
+	ginkgo.When("with TopologyAwareScheduling enabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
 		})
 
 		ginkgo.It("shouldn't create JobSet if both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations are set", func() {
@@ -74,6 +80,39 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
+		})
+
+		ginkgo.It("should reject a JobSet whose pod‑slice size exceeds total pod count", func() {
+			replicas := int32(2)
+			parallelism := int32(3)
+			invalidSliceSize := "30"
+
+			js := testingjob.MakeJobSet("bad-slice-jobset", ns.Name).
+				Queue("indexed_job").
+				ReplicatedJobs(testingjob.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Image:       util.GetAgnHostImage(),
+					Args:        util.BehaviorExitFast,
+					Replicas:    replicas,
+					Parallelism: parallelism,
+					Completions: parallelism,
+					PodAnnotations: map[string]string{
+						kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueuealpha.PodSetSliceSizeAnnotation:             invalidSliceSize,
+					},
+				}).
+				RequestAndLimit("replicated-job-1", "example.com/gpu", "1").
+				Obj()
+
+			err := k8sClient.Create(ctx, js)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(
+				gomega.ContainSubstring(
+					"Invalid value: \"%s\": must not be greater than pod set count %d",
+					invalidSliceSize, replicas*parallelism,
+				),
+			)
 		})
 	})
 })
