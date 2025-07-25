@@ -422,19 +422,23 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
+	preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-		considerSamePrio := cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority
-		preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
-
 		for _, candidateWl := range cq.Workloads {
 			candidatePriority := priority.Priority(candidateWl.Obj)
-			if candidatePriority > wlPriority {
-				continue
-			}
-
-			if candidatePriority == wlPriority && (!considerSamePrio || !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj))) {
-				continue
+			switch cq.Preemption.WithinClusterQueue {
+			case kueue.PreemptionPolicyLowerPriority:
+				if candidatePriority >= wlPriority {
+					continue
+				}
+			case kueue.PreemptionPolicyLowerOrNewerEqualPriority:
+				if candidatePriority > wlPriority {
+					continue
+				}
+				if candidatePriority == wlPriority && !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
+					continue
+				}
 			}
 
 			if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
@@ -445,15 +449,25 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
-		onlyLowerPriority := cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyAny
 		for _, cohortCQ := range cq.Parent().Root().SubtreeClusterQueues() {
 			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
 				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
 			}
 			for _, candidateWl := range cohortCQ.Workloads {
-				if onlyLowerPriority && priority.Priority(candidateWl.Obj) >= priority.Priority(wl) {
-					continue
+				candidatePriority := priority.Priority(candidateWl.Obj)
+				switch cq.Preemption.ReclaimWithinCohort {
+				case kueue.PreemptionPolicyLowerPriority:
+					if candidatePriority >= wlPriority {
+						continue
+					}
+				case kueue.PreemptionPolicyLowerOrNewerEqualPriority:
+					if candidatePriority > wlPriority {
+						continue
+					}
+					if candidatePriority == wlPriority && !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
+						continue
+					}
 				}
 				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
 					continue
