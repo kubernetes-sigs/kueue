@@ -193,7 +193,7 @@ type ResourceGroup struct {
 	// The list cannot be empty and it can contain up to 16 flavors.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=16
 	Flavors []FlavorQuotas `json:"flavors"`
 }
