@@ -59,8 +59,7 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 	}
 	revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
 	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-         revertRemoval()
-
+	revertRemoval()
 
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
