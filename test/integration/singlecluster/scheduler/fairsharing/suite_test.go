@@ -76,10 +76,10 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	admissionFairSharing := &config.AdmissionFairSharing{
 		UsageHalfLifeTime: metav1.Duration{
-			Duration: 3 * time.Second,
+			Duration: 10 * time.Second,
 		},
 		UsageSamplingInterval: metav1.Duration{
-			Duration: 3 * time.Second,
+			Duration: 1 * time.Second,
 		},
 	}
 
