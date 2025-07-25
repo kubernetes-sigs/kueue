@@ -181,7 +181,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes
 // references to immutable objects and deep copies of changing ones.
-func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (*ClusterQueueSnapshot, error) {
+func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (*ClusterQueueSnapshot, error) {
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
 		ResourceGroups:                make([]ResourceGroup, len(cq.ResourceGroups)),
@@ -210,7 +210,7 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, pena
 			return cc, nil
 		}
 		for _, wl := range cc.Workloads {
-			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, penalties)
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
 			}

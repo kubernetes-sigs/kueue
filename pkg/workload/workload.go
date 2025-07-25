@@ -302,7 +302,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (float64, error) {
+func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (float64, error) {
 	var lq kueue.LocalQueue
 	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqKey, &lq); err != nil {
@@ -321,8 +321,8 @@ func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWe
 		usage += weight * resVal.AsApproximateFloat64()
 	}
 	penalty := corev1.ResourceList{}
-	if penalties != nil {
-		penalty, _ = penalties.Get(utilqueue.Key(&lq))
+	if afsEntryPenalties != nil {
+		penalty, _ = afsEntryPenalties.Get(utilqueue.Key(&lq))
 	}
 	for resName, penaltyVal := range penalty {
 		weight, found := resWeights[resName]

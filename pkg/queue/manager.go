@@ -181,11 +181,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	var penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
+	var afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
 	if features.Enabled(features.AdmissionFairSharing) {
-		penalties = m.afsEntryPenalties.GetPenalties()
+		afsEntryPenalties = m.afsEntryPenalties.GetPenalties()
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, penalties)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties)
 	if err != nil {
 		return err
 	}

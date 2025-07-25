@@ -96,9 +96,9 @@ func workloadKey(i *workload.Info) workload.Reference {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing, penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (*ClusterQueue, error) {
+func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.ClusterQueue, wo workload.Ordering, afsConfig *config.AdmissionFairSharing, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (*ClusterQueue, error) {
 	enableAdmissionFs, fsResWeights := afs.ResourceWeights(cq.Spec.AdmissionScope, afsConfig)
-	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs, penalties)
+	cqImpl := newClusterQueueImpl(ctx, client, wo, realClock, fsResWeights, enableAdmissionFs, afsEntryPenalties)
 	err := cqImpl.Update(cq)
 	if err != nil {
 		return nil, err
@@ -106,8 +106,8 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) *ClusterQueue {
-	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, penalties)
+func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) *ClusterQueue {
+	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties)
 	return &ClusterQueue{
 		heap:                   *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[workload.Reference]*workload.Info),
@@ -428,12 +428,12 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 // to sort workloads. The function sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
-func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) func(a, b *workload.Info) bool {
+func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) func(a, b *workload.Info) bool {
 	log := ctrl.LoggerFrom(ctx)
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
-			lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, c, fsResWeights, penalties)
-			lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, c, fsResWeights, penalties)
+			lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, c, fsResWeights, afsEntryPenalties)
+			lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, c, fsResWeights, afsEntryPenalties)
 			switch {
 			case errA != nil:
 				log.V(2).Error(errA, "Error determining LocalQueue usage")
