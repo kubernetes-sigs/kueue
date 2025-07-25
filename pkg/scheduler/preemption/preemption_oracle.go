@@ -48,18 +48,19 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.Cluster
 		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 
-	if len(candidates) > 0 {
-		workloadsToPreempt := make([]*workload.Info, len(candidates))
-		for i, c := range candidates {
-			workloadsToPreempt[i] = c.WorkloadInfo
-		}
-		revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
-		defer revertRemoval()
-	}
-	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	if len(candidates) == 0 {
-		return preemptioncommon.NoCandidates, borrowAfterPreemptions
+		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+		return preemptioncommon.NoCandidates, borrow
 	}
+
+	workloadsToPreempt := make([]*workload.Info, len(candidates))
+	for i, c := range candidates {
+		workloadsToPreempt[i] = c.WorkloadInfo
+	}
+	revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
+	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+	revertRemoval()
+
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
 			return preemptioncommon.Preempt, borrowAfterPreemptions
