@@ -147,26 +147,33 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 
 func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.ErrorList, error) {
 	var allErrs field.ErrorList
+
+	podSets, podSetsErr := rayJob.PodSets()
+
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
-	for i := range rayJob.Spec.WorkerGroupSpecs {
-		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+
+	if podSetsErr == nil {
+		headGroupPodSet := podset.FindPodSetByName(podSets, headGroupPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSet)...)
 	}
-	if len(allErrs) > 0 {
-		return allErrs, nil
-	}
-	podSets, err := rayJob.PodSets()
-	if err != nil {
-		return nil, err
-	}
-	headGroupPodSet := podset.FindPodSetByName(podSets, headGroupPodSetName)
-	allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSet)...)
+
 	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
 		podSet := podset.FindPodSetByName(podSets, kueuebeta.NewPodSetReference(wgs.GroupName))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta, podSet)...)
 	}
-	return allErrs, nil
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type

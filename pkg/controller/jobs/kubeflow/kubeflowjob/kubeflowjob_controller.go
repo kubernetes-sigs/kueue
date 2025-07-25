@@ -17,8 +17,6 @@ limitations under the License.
 package kubeflowjob
 
 import (
-	"sort"
-
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -187,40 +185,34 @@ func (j *KubeflowJob) ValidateOnCreate() (field.ErrorList, error) {
 		return nil, nil
 	}
 
+	podSets, podSetsErr := j.PodSets()
+
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()
 	for _, replicaType := range replicaTypes {
 		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
-		validationErrs := jobframework.ValidateTASPodSetRequest(
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
-		)
-		allErrs = append(allErrs, validationErrs...)
+		)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
+		podSet := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(
+			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+			podSet,
+		)...)
 	}
-	sort.Slice(allErrs, func(i, j int) bool {
-		return allErrs[i].Field < allErrs[j].Field
-	})
+
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
 
-	podSets, err := j.PodSets()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, replicaType := range replicaTypes {
-		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
-		podSet := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
-		validationErrs := jobframework.ValidateSliceSizeAnnotationUpperBound(
-			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
-			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
-			podSet,
-		)
-		allErrs = append(allErrs, validationErrs...)
-	}
-
-	return allErrs, nil
+	return nil, podSetsErr
 }
 
 func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) (field.ErrorList, error) {

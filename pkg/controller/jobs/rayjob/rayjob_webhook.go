@@ -159,26 +159,33 @@ func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) (field.Err
 	if rayJob.Spec.RayClusterSpec == nil {
 		return allErrs, nil
 	}
+
+	podSets, podSetsErr := (*RayJob)(rayJob).PodSets()
+
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
-	for i := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+
+	if podSetsErr == nil {
+		headGroupPodSetName := podset.FindPodSetByName(podSets, headGroupPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
 	}
-	if len(allErrs) > 0 {
-		return allErrs, nil
-	}
-	podSets, err := (*RayJob)(rayJob).PodSets()
-	if err != nil {
-		return nil, err
-	}
-	headGroupPodSetName := podset.FindPodSetByName(podSets, headGroupPodSetName)
-	allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
+
 	for i, wgs := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
 		workerPodSetName := podset.FindPodSetByName(podSets, kueuebeta.NewPodSetReference(wgs.GroupName))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
 	}
-	return allErrs, nil
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type

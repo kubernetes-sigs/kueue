@@ -201,35 +201,37 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 
 func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
-	}
-	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
-	if len(allErrs) > 0 {
-		return allErrs, nil
-	}
 
 	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
-	podSets, err := podSets(&lwsv1)
-	if err != nil {
-		return nil, err
-	}
+	podSets, podSetsErr := podSets(&lwsv1)
 
 	defaultPodSetName := kueuebeta.DefaultPodSetName
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		defaultPodSetName = workerPodSetName
 
-		leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
-			&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, leaderPodSet)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+
+		if podSetsErr == nil {
+			leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
+			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(leaderTemplateMetaPath,
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, leaderPodSet)...)
+		}
 	}
 
-	workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
-	allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
-		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workerPodSet)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
 
-	return allErrs, nil
+	if podSetsErr == nil {
+		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
+			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workerPodSet)...)
+	}
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }
 
 func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {

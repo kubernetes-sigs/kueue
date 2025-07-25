@@ -142,29 +142,25 @@ func (w *JobSetWebhook) validateCreate(jobSet *JobSet) (field.ErrorList, error) 
 func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	for i := range jobSet.Spec.ReplicatedJobs {
+	podSets, podSetsErr := jobSet.PodSets()
+
+	for i, rj := range jobSet.Spec.ReplicatedJobs {
 		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
-		validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)
-		allErrs = append(allErrs, validationErrs...)
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
+		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(rj.Name))
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
 	}
 
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
 
-	podSets, err := jobSet.PodSets()
-	if err != nil {
-		return nil, err
-	}
-
-	for i, rj := range jobSet.Spec.ReplicatedJobs {
-		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
-		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(rj.Name))
-		validationErrs := jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)
-		allErrs = append(allErrs, validationErrs...)
-	}
-
-	return allErrs, nil
+	return nil, podSetsErr
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

@@ -103,6 +103,9 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	if err != nil {
 		return nil, err
 	}
+	sort.Slice(validationErrs, func(i, j int) bool {
+		return validationErrs[i].Field < validationErrs[j].Field
+	})
 	return nil, validationErrs.ToAggregate()
 }
 
@@ -118,6 +121,9 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
+	sort.Slice(validationErrs, func(i, j int) bool {
+		return validationErrs[i].Field < validationErrs[j].Field
+	})
 	return nil, allErrs.ToAggregate()
 }
 
@@ -141,26 +147,24 @@ func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) 
 
 func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
+
+	podSets, podSetsErr := mpiJob.PodSets()
+
 	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
 		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &replicaSpec.Template.ObjectMeta)...)
-	}
-	if len(allErrs) > 0 {
-		sort.Slice(allErrs, func(i, j int) bool {
-			return allErrs[i].Field < allErrs[j].Field
-		})
-	}
-	podSets, err := mpiJob.PodSets()
-	if err != nil {
-		return nil, err
-	}
-	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
-		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
+
+		if podSetsErr != nil {
+			continue
+		}
+
 		podSet := podset.FindPodSetByName(podSets, v1beta1.NewPodSetReference(string(replicaType)))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podSet)...)
 	}
-	sort.Slice(allErrs, func(i, j int) bool {
-		return allErrs[i].Field < allErrs[j].Field
-	})
-	return allErrs, nil
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }
