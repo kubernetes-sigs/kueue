@@ -3694,8 +3694,161 @@ func TestFindTopologyAssignmentForTwoPodSets(t *testing.T) {
 		}
 	})
 
-	// TODO Test for checking if we select leader among chidlren with least worker capacity penalty
-	// TODO Better error message
+	t.Run("find topology assignment for two podsets with the same group requesting same resources and nodes in the same rack", func(t *testing.T) {
+		ctx, _ := utiltesting.ContextWithLog(t)
+		//         b1                 b2
+		//        /   \             /    \
+		//      r1     r2         r3     r4
+		//    /  |     |  \     /  |     |  \
+		//  x1  x2    x3  x4  x5   x6   x7   x8
+		//
+		nodes := []corev1.Node{
+			*testingnode.MakeNode("b1-r1-x1").
+				Label(tasBlockLabel, "b1").
+				Label(tasRackLabel, "r1").
+				Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b1-r1-x2").
+				Label(tasBlockLabel, "b1").
+				Label(tasRackLabel, "r1").
+				Label(corev1.LabelHostname, "x2").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b1-r2-x3").
+				Label(tasBlockLabel, "b1").
+				Label(tasRackLabel, "r2").
+				Label(corev1.LabelHostname, "x3").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b1-r2-x4").
+				Label(tasBlockLabel, "b1").
+				Label(tasRackLabel, "r2").
+				Label(corev1.LabelHostname, "x4").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2-r3-x5").
+				Label(tasBlockLabel, "b2").
+				Label(tasRackLabel, "r3").
+				Label(corev1.LabelHostname, "x5").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2-r3-x6").
+				Label(tasBlockLabel, "b2").
+				Label(tasRackLabel, "r3").
+				Label(corev1.LabelHostname, "x6").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2-r4-x7").
+				Label(tasBlockLabel, "b2").
+				Label(tasRackLabel, "r4").
+				Label(corev1.LabelHostname, "x7").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("b2-r4-x8").
+				Label(tasBlockLabel, "b2").
+				Label(tasRackLabel, "r4").
+				Label(corev1.LabelHostname, "x8").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("10"),
+					"example.com/gpu":   resource.MustParse("1"),
+				}).
+				Ready().
+				Obj(),
+		}
+		levels := []string{tasBlockLabel, tasRackLabel, corev1.LabelHostname}
+		leaderRequests := resources.Requests{
+			corev1.ResourceCPU: 1000,
+			"example.com/gpu":  1,
+		}
+		workersRequests := resources.Requests{
+			corev1.ResourceCPU: 1000,
+			"example.com/gpu":  1,
+		}
+		topologyRequest := &kueue.PodSetTopologyRequest{
+			Required: ptr.To(tasBlockLabel),
+		}
+		wantAssignment1 := &kueue.TopologyAssignment{
+			Levels: []string{corev1.LabelHostname},
+			Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 1,
+					Values: []string{
+						"x1",
+					},
+				},
+			},
+		}
+		wantAssignment2 := &kueue.TopologyAssignment{
+			Levels: []string{corev1.LabelHostname},
+			Domains: []kueue.TopologyDomainAssignment{
+				{
+					Count: 1,
+					Values: []string{
+						"x2",
+					},
+				},
+				{
+					Count: 1,
+					Values: []string{
+						"x3",
+					},
+				},
+			},
+		}
+
+		snapshot := buildSnapshot(ctx, t, nodes, levels)
+
+		tasInput1 := buildTASInput("leader", topologyRequest, leaderRequests, 1, "sameGroup")
+		tasInput2 := buildTASInput("workers", topologyRequest, workersRequests, 2, "sameGroup")
+
+		flavorTASRequests := []TASPodSetRequests{tasInput1, tasInput2}
+
+		wantResult := make(TASAssignmentsResult)
+		wantResult["leader"] = buildWantedResult(wantAssignment1, nil)
+		wantResult["workers"] = buildWantedResult(wantAssignment2, nil)
+
+		gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+		if diff := cmp.Diff(wantResult, gotResult); diff != "" {
+			t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+		}
+	})
 }
 
 func buildSnapshot(ctx context.Context, t *testing.T, nodes []corev1.Node, levels []string) *TASFlavorSnapshot {
