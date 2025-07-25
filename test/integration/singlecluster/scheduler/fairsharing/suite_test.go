@@ -76,10 +76,10 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	admissionFairSharing := &config.AdmissionFairSharing{
 		UsageHalfLifeTime: metav1.Duration{
-			Duration: 250 * time.Microsecond,
+			Duration: 3 * time.Second,
 		},
 		UsageSamplingInterval: metav1.Duration{
-			Duration: 250 * time.Millisecond,
+			Duration: 3 * time.Second,
 		},
 	}
 
@@ -104,7 +104,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithFairSharing(fairSharing))
+		scheduler.WithFairSharing(fairSharing), scheduler.WithAdmissionFairSharing(admissionFairSharing))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
