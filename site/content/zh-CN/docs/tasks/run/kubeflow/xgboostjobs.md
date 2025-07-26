@@ -1,36 +1,39 @@
 ---
-title: "Run a XGBoostJob"
+title: "运行 XGBoostJob"
 date: 2023-09-14
 weight: 6
 description: >
-  Run a Kueue scheduled XGBoostJob
+  使用 Kueue 调度 XGBoostJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running 
-[Trainer](https://www.kubeflow.org/docs/components/training/xgboost/) XGBoostJobs.
+此页面展示了在运行 [Trainer](https://www.kubeflow.org/docs/components/training/xgboost/)
+XGBoostJob 时，如何利用 Kueue 的调度和资源管理能力。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。
+欲了解更多信息，请参阅 [Kueue 概述](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前  {#before-you-begin}
 
-Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
+请查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)，
+以了解初始集群设置的详细信息。
 
-Check [the Trainer installation guide](https://www.kubeflow.org/docs/components/training/installation/).
+查阅 [Trainer 安装指南](https://www.kubeflow.org/docs/components/training/installation/)。
 
-Note that the minimum requirement trainer version is v1.7.0.
+请注意，Trainer 的最低要求版本是 v1.7.0。
 
-You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include XGBoostJobs as an allowed workload.
+你可以[修改已安装版本的 Kueue 配置](/zh-CN/docs/installation#install-a-custom-configured-released-version)，以包含 XGBoostJobs 作为允许的工作负载。
 
-{{% alert title="Note" color="primary" %}}
-In order to use Trainer, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
+{{% alert title="Note" color="primary" %}} 
+要 v0.8.1 版本之前使用 Trainer，你需要在安装后重启 Kueue。
+你可以通过运行以下命令来实现：`kubectl delete pods -l control-plane=controller-manager -n kueue-system`。
 {{% /alert %}}
 
-## XGBoostJob definition
+## XGBoostJob 定义  {#xgboostjob-definition}
 
-### a. Queue selection
+### a. 队列选择
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the XGBoostJob configuration.
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 XGBoostJob
+配置的 `metadata.labels` 部分中指定。
 
 ```yaml
 metadata:
@@ -38,7 +41,7 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Optionally set Suspend field in XGBoostJobs
+### b. 可选择在 XGBoostJob 中设置 Suspend 字段
 
 ```yaml
 spec:
@@ -46,10 +49,11 @@ spec:
     suspend: true
 ```
 
-By default, Kueue will set `suspend` to true via webhook and unsuspend it when the XGBoostJob is admitted.
+默认情况下，Kueue 将通过 Webhook 将 `suspend` 设置为 true，
+并在 XGBoostJob 被接受时取消挂起。
 
-## Sample XGBoostJob
+## 示例 XGBoostJob
 
-This example is based on https://github.com/kubeflow/trainer/blob/afba76bc5a168cbcbc8685c7661f36e9b787afd1/examples/xgboost/xgboostjob.yaml.
+此示例基于 https://github.com/kubeflow/trainer/blob/afba76bc5a168cbcbc8685c7661f36e9b787afd1/examples/xgboost/xgboostjob.yaml。
 
 {{< include "examples/jobs/sample-xgboostjob.yaml" "yaml" >}}
