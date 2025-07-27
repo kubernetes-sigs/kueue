@@ -192,6 +192,80 @@ func TestFindTopologyAssignments(t *testing.T) {
 			Ready().
 			Obj(),
 	}
+
+	//		b1                b2
+	//	   /     \           /     \
+	//	 r1      r2        r1      r2
+	//	 |    /  |  \      |        |
+	//	x1  x2  x3  x4    x5       x6
+	multipodNodeset := []corev1.Node{*testingnode.MakeNode("b1-r1-x1").
+		Label(tasBlockLabel, "b1").
+		Label(tasRackLabel, "r1").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("10"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+			corev1.ResourcePods:   resource.MustParse("10"),
+		}).
+		Ready().
+		Obj(),
+		*testingnode.MakeNode("b1-r2-x2").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x3").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x3").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x4").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x4").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x5").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x5").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x6").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("20"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourcePods:   resource.MustParse("40"),
+			}).
+			Ready().
+			Obj(),
+	}
+
 	defaultOneLevel := []string{
 		corev1.LabelHostname,
 	}
@@ -3810,6 +3884,211 @@ func TestFindTopologyAssignments(t *testing.T) {
 									"x3",
 								},
 							},
+						},
+					},
+				},
+			},
+		},
+		"multiple podsets: rack required for both, different resource requests; BestFit": {
+			nodes:  multipodNodeset,
+			levels: defaultTwoLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "podset1",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 2,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count:  2,
+								Values: []string{"b1", "r1"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "podset2",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceMemory: 1024,
+					},
+					count: 1,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"b1", "r1"},
+							},
+						},
+					},
+				},
+			},
+		},
+
+		"multiple podsets: block required for one, unconstrained for another; LeastFreeCapacity": {
+			nodes:              multipodNodeset,
+			levels:             defaultThreeLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "podset1",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasBlockLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 9,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 9, Values: []string{"x5"}},
+						},
+					},
+				},
+				{
+					podSetName: "podset2",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: ptr.To(true),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 2,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+		},
+
+		"multiple podsets: rack required for both, different resource requests; LeastFreeCapacity": {
+			nodes:              multipodNodeset,
+			levels:             defaultTwoLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "podset1",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 1,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"b1", "r1"}},
+						},
+					},
+				},
+				{
+					podSetName: "podset2",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceMemory: 1024,
+						corev1.ResourceCPU:    1000,
+					},
+					count: 1,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"b1", "r1"}},
+						},
+					},
+				},
+			},
+		},
+
+		"multiple podsets: one podset fits, one does not due to insufficient capacity; LeastFreeCapacity": {
+			nodes:              multipodNodeset,
+			levels:             defaultTwoLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileLeastFreeCapacity},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "podset1",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 10,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 10, Values: []string{"b1", "r1"}},
+						},
+					},
+				},
+				{
+					podSetName: "podset2",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 2,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"b2", "r1"}},
+						},
+					},
+				},
+			},
+		},
+
+		"multiple podsets: block required for one, unconstrained for another; TASProfileMixed": {
+			nodes:              multipodNodeset,
+			levels:             defaultThreeLevels,
+			enableFeatureGates: []featuregate.Feature{features.TASProfileMixed},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "podset1",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasBlockLabel),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 8,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 8, Values: []string{"x5"}},
+						},
+					},
+				},
+				{
+					podSetName: "podset2",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: ptr.To(true),
+					},
+					requests: resources.Requests{
+						corev1.ResourceCPU: 1000,
+					},
+					count: 2,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x5"}},
 						},
 					},
 				},
