@@ -290,6 +290,7 @@ spec:
 | `LocalQueueMetrics`                   | `false` | Alpha | 0.10  |       |
 | `HierarchicalCohort`                  | `true`  | Beta  | 0.11  |       |
 | `ObjectRetentionPolicies`             | `false` | Alpha | 0.12  |       |
+| `ObjectRetentionPolicies`             | `true`  | Beta  | 0.13  |       |
 | `TASFailedNodeReplacement`            | `false` | Alpha | 0.12  |       |
 | `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacementFailFast`    | `false` | Alpha | 0.12  |       |
