@@ -129,16 +129,26 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating create")
-	return nil, w.validateCreate(job).ToAggregate()
+	validationErrs, err := w.validateCreate(job)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
+func (w *JobWebhook) validateCreate(job *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
-	allErrs = append(allErrs, w.validateTopologyRequest(job)...)
-	return allErrs
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(job)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, validationErrs...)
+	}
+	return allErrs, nil
 }
 
 func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
@@ -179,10 +189,14 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update")
-	return nil, w.validateUpdate(oldJob, newJob).ToAggregate()
+	validationErrs, err := w.validateUpdate(oldJob, newJob)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
+func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
@@ -191,8 +205,14 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
-	allErrs = append(allErrs, w.validateTopologyRequest(newJob)...)
-	return allErrs
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(newJob)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, validationErrs...)
+	}
+	return allErrs, nil
 }
 
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
@@ -208,8 +228,22 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	return allErrs
 }
 
-func (w *JobWebhook) validateTopologyRequest(job *Job) field.ErrorList {
-	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
+func (w *JobWebhook) validateTopologyRequest(job *Job) (field.ErrorList, error) {
+	validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
+	if validationErrs != nil {
+		return validationErrs, nil
+	}
+
+	podSets, err := job.PodSets()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(podSets) == 0 {
+		return nil, nil
+	}
+
+	return jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &job.Spec.Template.ObjectMeta, &podSets[0]), nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

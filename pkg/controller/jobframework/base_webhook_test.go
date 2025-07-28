@@ -43,8 +43,8 @@ import (
 type testGenericJob struct {
 	*batchv1.Job
 
-	validateOnCreate func() field.ErrorList
-	validateOnUpdate func(jobframework.GenericJob) field.ErrorList
+	validateOnCreate func() (field.ErrorList, error)
+	validateOnUpdate func(jobframework.GenericJob) (field.ErrorList, error)
 }
 
 var _ jobframework.GenericJob = (*testGenericJob)(nil)
@@ -105,26 +105,26 @@ func (j *testGenericJob) GVK() schema.GroupVersionKind {
 	panic("not implemented")
 }
 
-func (j *testGenericJob) ValidateOnCreate() field.ErrorList {
+func (j *testGenericJob) ValidateOnCreate() (field.ErrorList, error) {
 	if j.validateOnCreate != nil {
 		return j.validateOnCreate()
 	}
-	return nil
+	return nil, nil
 }
 
-func (j *testGenericJob) ValidateOnUpdate(oldJob jobframework.GenericJob) field.ErrorList {
+func (j *testGenericJob) ValidateOnUpdate(oldJob jobframework.GenericJob) (field.ErrorList, error) {
 	if j.validateOnUpdate != nil {
 		return j.validateOnUpdate(oldJob)
 	}
-	return nil
+	return nil, nil
 }
 
-func (j *testGenericJob) withValidateOnCreate(validateOnCreate func() field.ErrorList) *testGenericJob {
+func (j *testGenericJob) withValidateOnCreate(validateOnCreate func() (field.ErrorList, error)) *testGenericJob {
 	j.validateOnCreate = validateOnCreate
 	return j
 }
 
-func (j *testGenericJob) withValidateOnUpdate(validateOnUpdate func(jobframework.GenericJob) field.ErrorList) *testGenericJob {
+func (j *testGenericJob) withValidateOnUpdate(validateOnUpdate func(jobframework.GenericJob) (field.ErrorList, error)) *testGenericJob {
 	j.validateOnUpdate = validateOnUpdate
 	return j
 }
@@ -302,7 +302,7 @@ func TestValidateOnCreate(t *testing.T) {
 	testcases := []struct {
 		name             string
 		job              *batchv1.Job
-		validateOnCreate func() field.ErrorList
+		validateOnCreate func() (field.ErrorList, error)
 		wantErr          error
 		wantWarn         admission.Warnings
 	}{
@@ -325,14 +325,14 @@ func TestValidateOnCreate(t *testing.T) {
 					Labels:    map[string]string{constants.QueueLabel: "queue"},
 				},
 			},
-			validateOnCreate: func() field.ErrorList {
+			validateOnCreate: func() (field.ErrorList, error) {
 				return field.ErrorList{
 					field.Invalid(
 						field.NewPath("metadata.annotations"),
 						field.OmitValueType{},
 						`invalid annotation`,
 					),
-				}
+				}, nil
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -365,7 +365,7 @@ func TestValidateOnUpdate(t *testing.T) {
 		name             string
 		oldJob           *batchv1.Job
 		job              *batchv1.Job
-		validateOnUpdate func(jobframework.GenericJob) field.ErrorList
+		validateOnUpdate func(jobframework.GenericJob) (field.ErrorList, error)
 		wantErr          error
 		wantWarn         admission.Warnings
 	}{
@@ -402,14 +402,14 @@ func TestValidateOnUpdate(t *testing.T) {
 					Labels:    map[string]string{constants.QueueLabel: "queue"},
 				},
 			},
-			validateOnUpdate: func(jobframework.GenericJob) field.ErrorList {
+			validateOnUpdate: func(jobframework.GenericJob) (field.ErrorList, error) {
 				return field.ErrorList{
 					field.Invalid(
 						field.NewPath("metadata.annotations"),
 						field.OmitValueType{},
 						`invalid annotation`,
 					),
-				}
+				}, nil
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(

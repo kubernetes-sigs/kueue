@@ -145,10 +145,11 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
-		lws          *leaderworkersetv1.LeaderWorkerSet
-		wantErr      error
-		wantWarns    admission.Warnings
+		integrations            []string
+		lws                     *leaderworkersetv1.LeaderWorkerSet
+		wantErr                 error
+		wantWarns               admission.Warnings
+		topologyAwareScheduling bool
 	}{
 		"without queue": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -192,6 +193,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 				}).
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		"invalid topology request": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -224,12 +226,45 @@ func TestValidateCreate(t *testing.T) {
 					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "2",
+						},
+					},
+				}).
+				Size(4).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 3"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
@@ -250,10 +285,11 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
-		oldObj       *leaderworkersetv1.LeaderWorkerSet
-		newObj       *leaderworkersetv1.LeaderWorkerSet
-		wantErr      error
+		integrations            []string
+		oldObj                  *leaderworkersetv1.LeaderWorkerSet
+		newObj                  *leaderworkersetv1.LeaderWorkerSet
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -643,6 +679,7 @@ func TestValidateUpdate(t *testing.T) {
 				}).
 				Queue("test-queue").
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		"set invalid topology request": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -679,11 +716,14 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations",
 				},
 			}.ToAggregate(),
+			topologyAwareScheduling: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
