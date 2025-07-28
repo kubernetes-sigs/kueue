@@ -219,6 +219,23 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 				*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).Obj(),
 			},
 		},
+		"TwoActiveWorkloadsSelectNotReplaced": {
+			args: args{
+				ctx: t.Context(),
+				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).
+							Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-2"))).Obj(),
+						*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now).Obj(),
+					},
+				}).Build(),
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: []kueue.Workload{
+				*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now).Obj(),
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

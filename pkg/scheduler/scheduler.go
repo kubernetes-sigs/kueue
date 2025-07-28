@@ -328,7 +328,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		// Evict old workload-slice if any. Note: that oldWorkloadSlice is not nil only if
 		// this is a workload-slice enabled workload and there is an old slice to evict.
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
-			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj); err != nil {
+			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
 				log.Error(err, "Failed to aggregate workload slice")
 				continue
 			}
