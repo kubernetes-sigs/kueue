@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -124,9 +125,15 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 		return list.Items[i].CreationTimestamp.Before(&list.Items[j].CreationTimestamp)
 	})
 
+	replacedSlices := sets.New[workload.Reference]()
+	for _, w := range list.Items {
+		if replacedKey := ReplacementForKey(&w); replacedKey != nil {
+			replacedSlices.Insert(*replacedKey)
+		}
+	}
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
-		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) || replacedSlices.Has(workload.Key(&w))
 	}), nil
 }
 
