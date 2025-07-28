@@ -28,7 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apiserver/pkg/storage"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -112,6 +112,21 @@ func Finish(ctx context.Context, clnt client.Client, workloadSlice *kueue.Worklo
 	return nil
 }
 
+// versionHelper is used in the FindNotFinishedWorkloads sort routine as a tiebreaker
+// for workloads with identical creationTimestamp values.
+//
+// Note: Kubernetes documentation explicitly states:
+//
+//	"Clients must not assume that resource versions are numeric or collatable."
+//
+// To comply with this guidance, we rely on the Kubernetes apiserver/storage library
+// (storage.APIObjectVersioner) to perform resourceVersion comparisons.
+//
+// This ensures that if Kubernetes changes its internal resourceVersion format or semantics,
+// the helper will either be updated accordingly or removed entirely, in which case,
+// such changes will surface at compile time, prompting this code to be updated as needed.
+var versionHelper = storage.APIObjectVersioner{}
+
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
 // without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
@@ -120,20 +135,23 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 		return nil, err
 	}
 
-	// Sort workloads by creation timestamp - oldest first.
+	// Sort workloads by creation timestamp, oldest first.
+	// In the rare case that two workload slices have identical creationTimestamp values
+	// (due to RFC3339 second-level precision), fall back to resourceVersion comparison
+	// as a tiebreaker. This edge case is uncommon in production but can occur in
+	// integration or e2e tests where the original and scaled-up workloads are created
+	// in rapid succession.
 	sort.Slice(list.Items, func(i, j int) bool {
-		return list.Items[i].CreationTimestamp.Before(&list.Items[j].CreationTimestamp)
+		a, b := list.Items[i], list.Items[j]
+		if a.CreationTimestamp.Equal(&b.CreationTimestamp) {
+			return versionHelper.CompareResourceVersion(&a, &b) < 0
+		}
+		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	})
 
-	replacedSlices := sets.New[workload.Reference]()
-	for _, w := range list.Items {
-		if replacedKey := ReplacementForKey(&w); replacedKey != nil {
-			replacedSlices.Insert(*replacedKey)
-		}
-	}
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
-		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) || replacedSlices.Has(workload.Key(&w))
+		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
 	}), nil
 }
 
