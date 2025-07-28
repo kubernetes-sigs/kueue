@@ -230,6 +230,31 @@ func TestValidate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
+				JAXReplicaSpecs(
+					testingJAXjob.JAXReplicaSpecRequirement{
+						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						},
+					},
+				).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "jaxReplicaSpecs").
+						Key("Worker").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"20", "must not be greater than pod set count 3",
+				),
+			},
+			topologyAwareScheduling: true,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

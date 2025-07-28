@@ -418,6 +418,47 @@ func TestValidate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
+				PaddleReplicaSpecs(
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
+						ReplicaCount: 5,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "10",
+						},
+					},
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
+						ReplicaCount: 10,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						},
+					},
+				).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "paddleReplicaSpecs").
+						Key("Master").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"10", "must not be greater than pod set count 5",
+				),
+				field.Invalid(
+					field.NewPath("spec", "paddleReplicaSpecs").
+						Key("Worker").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"20", "must not be greater than pod set count 10",
+				),
+			},
+			topologyAwareScheduling: true,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

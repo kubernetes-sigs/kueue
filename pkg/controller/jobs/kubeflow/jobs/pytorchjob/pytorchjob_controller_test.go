@@ -421,6 +421,47 @@ func TestValidate(t *testing.T) {
 			},
 			topologyAwareScheduling: true,
 		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount: 5,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "10",
+						},
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount: 10,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						},
+					},
+				).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "pytorchReplicaSpecs").
+						Key("Master").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"10", "must not be greater than pod set count 5",
+				),
+				field.Invalid(
+					field.NewPath("spec", "pytorchReplicaSpecs").
+						Key("Worker").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"20", "must not be greater than pod set count 10",
+				),
+			},
+			topologyAwareScheduling: true,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

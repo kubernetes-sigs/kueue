@@ -290,7 +290,7 @@ func TestValidateCreate(t *testing.T) {
 							Annotations: map[string]string{
 								kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 								kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-								kueuealpha.PodSetSliceSizeAnnotation:             "20",
+								kueuealpha.PodSetSliceSizeAnnotation:             "2",
 							},
 						},
 					},
@@ -298,6 +298,20 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+									kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+									kueuealpha.PodSetSliceSizeAnnotation:             "10",
+								},
+							},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg2",
+						Replicas:  ptr.To(int32(10)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -311,9 +325,11 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template, metadata.annotations").
-				Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 1"),
+				Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
 				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 1"),
+					Key("kueue.x-k8s.io/podset-slice-size"), "10", "must not be greater than pod set count 5"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[1].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 10"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
