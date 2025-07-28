@@ -17,8 +17,6 @@ limitations under the License.
 package kubeflowjob
 
 import (
-	"sort"
-
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -30,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 )
 
 type KubeflowJob struct {
@@ -108,9 +107,13 @@ func (j *KubeflowJob) PodSets() ([]kueue.PodSet, error) {
 			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			podSets[index].TopologyRequest = jobframework.NewPodSetTopologyRequest(
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta).PodIndexLabel(
 				ptr.To(kftraining.ReplicaIndexLabel)).Build()
+			if err != nil {
+				return nil, err
+			}
+			podSets[index].TopologyRequest = topologyRequest
 		}
 	}
 	return podSets, nil
@@ -177,7 +180,13 @@ func (j *KubeflowJob) OrderedReplicaTypes() []kftraining.ReplicaType {
 	return result
 }
 
-func (j *KubeflowJob) ValidateOnCreate() field.ErrorList {
+func (j *KubeflowJob) ValidateOnCreate() (field.ErrorList, error) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil, nil
+	}
+
+	podSets, podSetsErr := j.PodSets()
+
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()
 	for _, replicaType := range replicaTypes {
@@ -186,14 +195,27 @@ func (j *KubeflowJob) ValidateOnCreate() field.ErrorList {
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
 		)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
+		podSet := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(
+			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+			podSet,
+		)...)
 	}
-	sort.Slice(allErrs, func(i, j int) bool {
-		return allErrs[i].Field < allErrs[j].Field
-	})
-	return allErrs
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }
 
-func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) field.ErrorList {
+func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) (field.ErrorList, error) {
 	return j.ValidateOnCreate()
 }
 

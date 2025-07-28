@@ -251,9 +251,13 @@ func (j *Job) PodSets() ([]kueue.PodSet, error) {
 		MinCount: j.minPodsCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
 			ptr.To(batchv1.JobCompletionIndexAnnotation)).Build()
+		if err != nil {
+			return nil, err
+		}
+		podSet.TopologyRequest = topologyRequest
 	}
 	return []kueue.PodSet{
 		podSet,
@@ -366,6 +370,14 @@ func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 	if err := fieldIndexer.IndexField(ctx, &batchv1.Job{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
 		return err
 	}
+	// Add pod index to be able to list pods for elastic-jobs, needed to remove scheduling gate on
+	// admitted workload slices.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := fieldIndexer.IndexField(ctx, &corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
+			return err
+		}
+	}
+
 	return jobframework.SetupWorkloadOwnerIndex(ctx, fieldIndexer, gvk)
 }
 

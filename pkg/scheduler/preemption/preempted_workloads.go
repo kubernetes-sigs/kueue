@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type PreemptedWorkloads map[string]*workload.Info
+type PreemptedWorkloads map[workload.Reference]*workload.Info
 
 func (p PreemptedWorkloads) HasAny(newTargets []*Target) bool {
 	for _, target := range newTargets {

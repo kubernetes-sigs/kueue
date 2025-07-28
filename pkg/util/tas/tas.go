@@ -63,6 +63,15 @@ func IsNodeStatusConditionTrue(conditions []corev1.NodeCondition, conditionType 
 	return false
 }
 
+func GetNodeCondition(node *corev1.Node, conditionType corev1.NodeConditionType) *corev1.NodeCondition {
+	for i := range node.Status.Conditions {
+		if node.Status.Conditions[i].Type == conditionType {
+			return &node.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
 // IsLowestLevelHostname checks if the lowest (last) level in the provided topology levels is node
 func IsLowestLevelHostname(levels []string) bool {
 	return levels[len(levels)-1] == corev1.LabelHostname

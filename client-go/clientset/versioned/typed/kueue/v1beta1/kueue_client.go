@@ -29,6 +29,7 @@ type KueueV1beta1Interface interface {
 	RESTClient() rest.Interface
 	AdmissionChecksGetter
 	ClusterQueuesGetter
+	CohortsGetter
 	LocalQueuesGetter
 	MultiKueueClustersGetter
 	MultiKueueConfigsGetter
@@ -49,6 +50,10 @@ func (c *KueueV1beta1Client) AdmissionChecks() AdmissionCheckInterface {
 
 func (c *KueueV1beta1Client) ClusterQueues() ClusterQueueInterface {
 	return newClusterQueues(c)
+}
+
+func (c *KueueV1beta1Client) Cohorts(namespace string) CohortInterface {
+	return newCohorts(c, namespace)
 }
 
 func (c *KueueV1beta1Client) LocalQueues(namespace string) LocalQueueInterface {
@@ -84,9 +89,7 @@ func (c *KueueV1beta1Client) WorkloadPriorityClasses() WorkloadPriorityClassInte
 // where httpClient was generated with rest.HTTPClientFor(c).
 func NewForConfig(c *rest.Config) (*KueueV1beta1Client, error) {
 	config := *c
-	if err := setConfigDefaults(&config); err != nil {
-		return nil, err
-	}
+	setConfigDefaults(&config)
 	httpClient, err := rest.HTTPClientFor(&config)
 	if err != nil {
 		return nil, err
@@ -98,9 +101,7 @@ func NewForConfig(c *rest.Config) (*KueueV1beta1Client, error) {
 // Note the http client provided takes precedence over the configured transport values.
 func NewForConfigAndClient(c *rest.Config, h *http.Client) (*KueueV1beta1Client, error) {
 	config := *c
-	if err := setConfigDefaults(&config); err != nil {
-		return nil, err
-	}
+	setConfigDefaults(&config)
 	client, err := rest.RESTClientForConfigAndClient(&config, h)
 	if err != nil {
 		return nil, err
@@ -123,7 +124,7 @@ func New(c rest.Interface) *KueueV1beta1Client {
 	return &KueueV1beta1Client{c}
 }
 
-func setConfigDefaults(config *rest.Config) error {
+func setConfigDefaults(config *rest.Config) {
 	gv := kueuev1beta1.SchemeGroupVersion
 	config.GroupVersion = &gv
 	config.APIPath = "/apis"
@@ -132,8 +133,6 @@ func setConfigDefaults(config *rest.Config) error {
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()
 	}
-
-	return nil
 }
 
 // RESTClient returns a RESTClient that is used to communicate

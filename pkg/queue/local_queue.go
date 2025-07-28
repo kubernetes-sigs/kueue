@@ -17,62 +17,23 @@ limitations under the License.
 package queue
 
 import (
-	"fmt"
-	"strings"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// LocalQueueReference is the full reference to LocalQueue formed as <namespace>/< kueue.LocalQueueName >.
-type LocalQueueReference string
-
-func NewLocalQueueReference(namespace string, name kueue.LocalQueueName) LocalQueueReference {
-	return LocalQueueReference(namespace + "/" + string(name))
-}
-
-func ParseLocalQueueReference(ref LocalQueueReference) (string, kueue.LocalQueueName, error) {
-	parts := strings.Split(string(ref), "/")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid LocalQueueReference %s", ref)
-	}
-	return parts[0], kueue.LocalQueueName(parts[1]), nil
-}
-
-func MustParseLocalQueueReference(ref LocalQueueReference) (string, kueue.LocalQueueName) {
-	namespace, name, err := ParseLocalQueueReference(ref)
-	if err != nil {
-		panic(err)
-	}
-	return namespace, name
-}
-
-// Key is the key used to index the queue.
-func Key(q *kueue.LocalQueue) LocalQueueReference {
-	return NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
-}
-
-func KeyFromWorkload(w *kueue.Workload) LocalQueueReference {
-	return NewLocalQueueReference(w.Namespace, w.Spec.QueueName)
-}
-
-func DefaultQueueKey(namespace string) LocalQueueReference {
-	return NewLocalQueueReference(namespace, constants.DefaultLocalQueueName)
-}
-
 // LocalQueue is the internal implementation of kueue.LocalQueue.
 type LocalQueue struct {
-	Key          LocalQueueReference
+	Key          queue.LocalQueueReference
 	ClusterQueue kueue.ClusterQueueReference
 
-	items map[string]*workload.Info
+	items map[workload.Reference]*workload.Info
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
 	qImpl := &LocalQueue{
-		Key:   Key(q),
-		items: make(map[string]*workload.Info),
+		Key:   queue.Key(q),
+		items: make(map[workload.Reference]*workload.Info),
 	}
 	qImpl.update(q)
 	return qImpl
@@ -94,12 +55,12 @@ func (m *Manager) PendingActiveInLocalQueue(lq *LocalQueue) int {
 		return 0
 	}
 	for _, wl := range c.heap.List() {
-		wlLqKey := KeyFromWorkload(wl.Obj)
+		wlLqKey := queue.KeyFromWorkload(wl.Obj)
 		if wlLqKey == lq.Key {
 			result++
 		}
 	}
-	if c.inflight != nil && workloadKey(c.inflight) == string(lq.Key) {
+	if c.inflight != nil && string(workloadKey(c.inflight)) == string(lq.Key) {
 		result++
 	}
 	return result
@@ -112,7 +73,7 @@ func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
 	}
 	result := 0
 	for _, wl := range c.inadmissibleWorkloads {
-		wlLqKey := KeyFromWorkload(wl.Obj)
+		wlLqKey := queue.KeyFromWorkload(wl.Obj)
 		if wlLqKey == lq.Key {
 			result++
 		}

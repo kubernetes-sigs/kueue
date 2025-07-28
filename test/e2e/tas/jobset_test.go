@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
-						Image:       util.E2eTestAgnHostImage,
+						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
@@ -141,6 +141,135 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 					"1/1": "kind-worker4",
 					"2/0": "kind-worker5",
 					"2/1": "kind-worker6",
+				}
+				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+			})
+		})
+
+		ginkgo.It("Should place pods in podset slices with two-level scheduling based on the ranks-ordering", func() {
+			replicas := 2
+			parallelism := 3
+			numPods := replicas * parallelism
+			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
+				Queue(localQueue.Name).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-1",
+						Image:       util.GetAgnHostImage(),
+						Args:        util.BehaviorExitFast,
+						Replicas:    int32(replicas),
+						Parallelism: int32(parallelism),
+						Completions: int32(parallelism),
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetSliceSizeAnnotation:             "3",
+						},
+					},
+				).
+				RequestAndLimit("replicated-job-1", extraResource, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, sampleJob)
+
+			ginkgo.By("JobSet is unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gotAssignment := readRankAssignmentsFromJobSetPods(pods.Items)
+				wantAssignment := map[string]string{
+					"0/0": "kind-worker",
+					"0/1": "kind-worker2",
+					"0/2": "kind-worker3",
+					"1/0": "kind-worker5",
+					"1/1": "kind-worker6",
+					"1/2": "kind-worker7",
+				}
+				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+			})
+		})
+
+		ginkgo.It("Should place pods in podset slices with slice-only scheduling based on the ranks-ordering", func() {
+			replicas := 2
+			parallelism := 3
+			numPods := replicas * parallelism
+			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
+				Queue(localQueue.Name).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-1",
+						Image:       util.GetAgnHostImage(),
+						Args:        util.BehaviorExitFast,
+						Replicas:    int32(replicas),
+						Parallelism: int32(parallelism),
+						Completions: int32(parallelism),
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueuealpha.PodSetSliceSizeAnnotation:             "3",
+						},
+					},
+				).
+				RequestAndLimit("replicated-job-1", extraResource, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, sampleJob)
+
+			ginkgo.By("JobSet is unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gotAssignment := readRankAssignmentsFromJobSetPods(pods.Items)
+				wantAssignment := map[string]string{
+					"0/0": "kind-worker",
+					"0/1": "kind-worker2",
+					"0/2": "kind-worker3",
+					"1/0": "kind-worker5",
+					"1/1": "kind-worker6",
+					"1/2": "kind-worker7",
 				}
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
 			})

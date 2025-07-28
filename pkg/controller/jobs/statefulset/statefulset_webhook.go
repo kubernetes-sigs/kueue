@@ -76,26 +76,26 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		return err
 	}
 	if suspend {
-		if ss.Spec.Template.Annotations == nil {
-			ss.Spec.Template.Annotations = make(map[string]string, 1)
-		}
-		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
 		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 1)
+			ss.Spec.Template.Labels = make(map[string]string, 4)
 		}
 		ss.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-		queueName := jobframework.QueueNameForObject(ss.Object())
-		if queueName != "" {
+		ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
+		if queueName := jobframework.QueueNameForObject(ss.Object()); queueName != "" {
 			ss.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
-			ss.Spec.Template.Labels[podconstants.GroupNameLabel] = GetWorkloadName(ss.Name)
-			ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
-			ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
-			ss.Spec.Template.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
-			ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 		}
 		if priorityClass := jobframework.WorkloadPriorityClassName(ss.Object()); priorityClass != "" {
 			ss.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
 		}
+
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = make(map[string]string, 5)
+		}
+		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+		ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
+		ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
+		ss.Spec.Template.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
+		ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 	}
 
 	return nil

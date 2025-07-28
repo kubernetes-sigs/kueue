@@ -21,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // LogDump dumps the pending and inadmissible workloads for each ClusterQueue into the log,
@@ -40,14 +41,14 @@ func (m *Manager) LogDump(log logr.Logger) {
 
 // Dump is a dump of the queues and it's elements (unordered).
 // Only use for testing purposes.
-func (m *Manager) Dump() map[kueue.ClusterQueueReference][]string {
+func (m *Manager) Dump() map[kueue.ClusterQueueReference][]workload.Reference {
 	m.Lock()
 	defer m.Unlock()
 	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[kueue.ClusterQueueReference][]string, len(clusterQueues))
+	dump := make(map[kueue.ClusterQueueReference][]workload.Reference, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.Dump(); ok {
 			dump[key] = elements
@@ -61,14 +62,14 @@ func (m *Manager) Dump() map[kueue.ClusterQueueReference][]string {
 
 // DumpInadmissible is a dump of the inadmissible workloads list.
 // Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]string {
+func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]workload.Reference {
 	m.Lock()
 	defer m.Unlock()
 	clusterQueues := m.hm.ClusterQueues()
 	if len(clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[kueue.ClusterQueueReference][]string, len(clusterQueues))
+	dump := make(map[kueue.ClusterQueueReference][]workload.Reference, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements

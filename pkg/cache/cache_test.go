@@ -41,8 +41,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -460,7 +460,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
-					Workloads: map[string]*workload.Info{
+					Workloads: map[workload.Reference]*workload.Info{
 						"/one": {
 							Obj: utiltesting.MakeWorkload("one", "").
 								Request(corev1.ResourceCPU, "5").
@@ -562,8 +562,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"b": {
-					Name:                          "b",
-					AllocatableResourceGeneration: 1,
+					Name: "b",
+					// AllocatableResourceGeneration is 2 because it was incremented:
+					// 1. Once during initial setup when added to cohort "one"
+					// 2. Once during deletion when cohort tree resources were recalculated after "a" was deleted
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -895,7 +898,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							{Flavor: "f1", Resource: corev1.ResourceCPU}: 2000,
 						},
 					},
-					Workloads: map[string]*workload.Info{
+					Workloads: map[workload.Reference]*workload.Info{
 						"ns/reserving": {
 							ClusterQueue: "cq1",
 							TotalRequests: []workload.PodSetResources{
@@ -1195,7 +1198,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		}).Obj())
 
 	type result struct {
-		Workloads     sets.Set[string]
+		Workloads     sets.Set[workload.Reference]
 		UsedResources resources.FlavorResourceQuantities
 	}
 
@@ -1203,7 +1206,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		name                 string
 		operation            func(log logr.Logger, cache *Cache) error
 		wantResults          map[kueue.ClusterQueueReference]result
-		wantAssumedWorkloads map[string]kueue.ClusterQueueReference
+		wantAssumedWorkloads map[workload.Reference]kueue.ClusterQueueReference
 		wantError            string
 		wantLocalQueue       queue.LocalQueueReference
 	}{
@@ -1227,14 +1230,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c", "/d"),
+					Workloads: sets.New[workload.Reference]("/c", "/d"),
 				},
 			},
 		},
@@ -1252,14 +1255,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "failed to add workload",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1276,14 +1279,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1301,14 +1304,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/b"),
+					Workloads: sets.New[workload.Reference]("/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 0,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      0,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/a", "/c"),
+					Workloads: sets.New[workload.Reference]("/a", "/c"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
@@ -1330,14 +1333,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "old ClusterQueue doesn't exist",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1355,14 +1358,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "new ClusterQueue doesn't exist",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1379,14 +1382,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c", "/d"),
+					Workloads: sets.New[workload.Reference]("/c", "/d"),
 				},
 			},
 		},
@@ -1400,14 +1403,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/b"),
+					Workloads: sets.New[workload.Reference]("/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 0,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      0,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1419,14 +1422,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/b"),
+					Workloads: sets.New[workload.Reference]("/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 0,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      0,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1439,14 +1442,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1461,14 +1464,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1482,14 +1485,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1515,21 +1518,21 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b", "/d"),
+					Workloads: sets.New[workload.Reference]("/a", "/b", "/d"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 20,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      30,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c", "/e"),
+					Workloads: sets.New[workload.Reference]("/c", "/e"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 			},
-			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{
+			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{
 				"/d": "one",
 				"/e": "two",
 			},
@@ -1548,17 +1551,17 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
-			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{},
+			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{},
 		},
 		{
 			name: "forget",
@@ -1584,21 +1587,21 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c", "/e"),
+					Workloads: sets.New[workload.Reference]("/c", "/e"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 			},
-			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{
+			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{
 				"/e": "two",
 			},
 		},
@@ -1616,14 +1619,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "the workload is not assumed",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b"),
+					Workloads: sets.New[workload.Reference]("/a", "/b"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c"),
+					Workloads: sets.New[workload.Reference]("/c"),
 				},
 			},
 		},
@@ -1654,21 +1657,21 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
-					Workloads: sets.New("/a", "/b", "/d"),
+					Workloads: sets.New[workload.Reference]("/a", "/b", "/d"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 20,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      30,
 					},
 				},
 				"two": {
-					Workloads: sets.New("/c", "/e"),
+					Workloads: sets.New[workload.Reference]("/c", "/e"),
 					UsedResources: resources.FlavorResourceQuantities{
 						{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10,
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:      15,
 					},
 				},
 			},
-			wantAssumedWorkloads: map[string]kueue.ClusterQueueReference{
+			wantAssumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{
 				"/e": "two",
 			},
 		},
@@ -1699,7 +1702,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 			if step.wantAssumedWorkloads == nil {
-				step.wantAssumedWorkloads = map[string]kueue.ClusterQueueReference{}
+				step.wantAssumedWorkloads = map[workload.Reference]kueue.ClusterQueueReference{}
 			}
 			if diff := cmp.Diff(step.wantAssumedWorkloads, cache.assumedWorkloads); diff != "" {
 				t.Errorf("Unexpected assumed workloads (-want,+got):\n%s", diff)
@@ -3204,13 +3207,13 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 	tests := []struct {
 		name             string
 		clusterQueues    map[string]*clusterQueue
-		assumedWorkloads map[string]kueue.ClusterQueueReference
+		assumedWorkloads map[workload.Reference]kueue.ClusterQueueReference
 		workload         workload.Info
 		expected         bool
 	}{
 		{
 			name:             "Workload Is Assumed and not Admitted",
-			assumedWorkloads: map[string]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
+			assumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -3227,7 +3230,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 			clusterQueues: map[string]*clusterQueue{
 				"ClusterQueue1": {
 					Name: "ClusterQueue1",
-					Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
+					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
 						Obj: &kueue.Workload{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      "workload_name",
@@ -3253,7 +3256,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 			clusterQueues: map[string]*clusterQueue{
 				"ClusterQueue1": {
 					Name: "ClusterQueue1",
-					Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
+					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
 						Obj: &kueue.Workload{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      "workload_name",
@@ -3262,7 +3265,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 						},
 					}},
 				}},
-			assumedWorkloads: map[string]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
+			assumedWorkloads: map[workload.Reference]kueue.ClusterQueueReference{"workload_namespace/workload_name": "test", "test2": "test2"},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -3279,7 +3282,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 			clusterQueues: map[string]*clusterQueue{
 				"ClusterQueue1": {
 					Name: "ClusterQueue1",
-					Workloads: map[string]*workload.Info{"workload_namespace2/workload_name2": {
+					Workloads: map[workload.Reference]*workload.Info{"workload_namespace2/workload_name2": {
 						Obj: &kueue.Workload{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      "workload_name2",
@@ -3734,7 +3737,7 @@ func TestCohortCycles(t *testing.T) {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
-		cohort.Spec.Parent = "root2"
+		cohort.Spec.ParentName = "root2"
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3778,7 +3781,7 @@ func TestCohortCycles(t *testing.T) {
 			t.Fatal("Expected failure")
 		}
 
-		cohort.Spec.Parent = "root"
+		cohort.Spec.ParentName = "root"
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3825,7 +3828,7 @@ func TestCohortCycles(t *testing.T) {
 			}
 		}
 
-		cohort.Spec.Parent = "cycle-root"
+		cohort.Spec.ParentName = "cycle-root"
 		if err := cache.AddOrUpdateCohort(cohort); err == nil {
 			t.Fatal("Expected failure")
 		}
@@ -3910,7 +3913,7 @@ func TestSnapshotError(t *testing.T) {
 
 func TestClusterQueueAncestors(t *testing.T) {
 	testCases := map[string]struct {
-		cohorts       []*kueuealpha.Cohort
+		cohorts       []*kueue.Cohort
 		cq            *kueue.ClusterQueue
 		wantAncestors []kueue.CohortReference
 		wantErr       error
@@ -3922,14 +3925,14 @@ func TestClusterQueueAncestors(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
 		},
 		"one level": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 			},
 			cq:            utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
 			wantAncestors: []kueue.CohortReference{},
 		},
 		"two level": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 				utiltesting.MakeCohort("left").Parent("root").Obj(),
 				utiltesting.MakeCohort("right").Parent("root").Obj(),
@@ -3938,7 +3941,7 @@ func TestClusterQueueAncestors(t *testing.T) {
 			wantAncestors: []kueue.CohortReference{"left"},
 		},
 		"three levels": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Obj(),
 				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
 				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
@@ -3949,7 +3952,7 @@ func TestClusterQueueAncestors(t *testing.T) {
 			wantAncestors: []kueue.CohortReference{"second-left", "first-left"},
 		},
 		"with cycle": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("root").Parent("second-right").Obj(),
 				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
 				utiltesting.MakeCohort("first-right").Parent("root").Obj(),

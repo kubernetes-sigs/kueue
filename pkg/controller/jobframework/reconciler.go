@@ -61,6 +61,7 @@ import (
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -284,8 +285,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{}, err
 			}
 		} else {
-			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace),
-				client.MatchingFields{GetOwnerKey(job.GVK()): req.Name}); err != nil {
+			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace), OwnerReferenceIndexFieldMatcher(job.GVK(), req.Name)); err != nil {
 				log.Error(err, "Unable to list child workloads")
 				return ctrl.Result{}, err
 			}
@@ -309,6 +309,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if features.Enabled(features.ManagedJobsNamespaceSelectorAlwaysRespected) {
+		ns := corev1.Namespace{}
+		if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
+			log.Error(err, "failed to get namespace for selector check")
+			return ctrl.Result{}, err
+		}
+		if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+			log.V(2).Info("Namespace not opted in for Kueue management", "namespace", ns.Name)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	var (
@@ -368,7 +380,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// when manageJobsWithoutQueueName is enabled, standalone jobs without queue names
 	// are still not managed if they don't match the namespace selector.
-	if features.Enabled(features.ManagedJobsNamespaceSelector) && r.manageJobsWithoutQueueName && QueueName(job) == "" {
+	if r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		ns := corev1.Namespace{}
 		err := r.client.Get(ctx, client.ObjectKey{Name: job.Object().GetNamespace()}, &ns)
 		if err != nil {
@@ -383,8 +395,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	log.V(2).Info("Reconciling Job")
 
-	// 1. make sure there is only a single existing instance of the workload.
-	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
+	// 1. Attempt to retrieve an existing workload (if any) for this job.
 	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -590,13 +601,24 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 8. handle job is unsuspended.
 	if !workload.IsAdmitted(wl) {
-		// the job must be suspended if the workload is not yet admitted.
+		// The job must be suspended if the workload is not yet admitted,
+		// unless this job is workload-slicing enabled. In workload-slicing we rely
+		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
+		if workloadSliceEnabled(job) {
+			return ctrl.Result{}, nil
+		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
 		return ctrl.Result{}, err
+	}
+
+	if workloadSliceEnabled(job) {
+		// Start workload-slice schedule-gated pods (if any).
+		log.V(3).Info("Job running with admitted workload slice, start pods.")
+		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
 	}
 
 	// workload is admitted and job is running, nothing to do.
@@ -662,20 +684,25 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 
 // getWorkloadForObject returns the Workload associated with the given job.
 func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	wlList := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wlList, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
+	wls := kueue.WorkloadList{}
+	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
-	if len(wlList.Items) > 0 {
-		// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
-		ctrl.LoggerFrom(ctx).V(2).Info(
-			"WARNING: The job has multiple associated Workloads.",
-			"job", jobObj.GetName(),
-			"workloads", klog.KObjSlice(wlList.Items),
-		)
-		return &wlList.Items[0], nil
+
+	if len(wls.Items) == 0 {
+		return nil, nil
 	}
-	return nil, nil
+
+	// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
+	if len(wls.Items) > 1 {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"WARNING: The job has multiple associated Workloads",
+			"job", klog.KObj(jobObj),
+			"workloads", klog.KObjSlice(wls.Items),
+		)
+	}
+
+	return &wls.Items[0], nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
@@ -707,7 +734,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 		if seen.Has(currentObj.GetUID()) {
 			log.Error(ErrCyclicOwnership,
 				"Terminated search for Kueue-managed Job because of cyclic ownership",
-				"owner", currentObj,
+				"currentObj", currentObj,
 			)
 			return nil, ErrCyclicOwnership
 		}
@@ -715,12 +742,16 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 
 		owner := metav1.GetControllerOf(currentObj)
 		if owner == nil {
-			log.V(3).Info("stop walking up as the owner is not found", "owner", klog.KObj(currentObj))
+			log.V(3).Info("stop walking up as the owner is not found", "currentObj", klog.KObj(currentObj))
 			return topLevelJob, nil
 		}
 
 		if !manager.isKnownOwner(owner) {
-			log.V(3).Info("stop walking up as the owner is not known", "owner", klog.KObj(currentObj))
+			log.V(3).Info(
+				"stop walking up as the owner is not known",
+				"currentObj", klog.KObj(currentObj),
+				"owner", klog.KRef(jobObj.GetNamespace(), owner.Name),
+			)
 			return topLevelJob, nil
 		}
 		parentObj := getEmptyOwnerObject(owner)
@@ -751,6 +782,26 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 // The returned workload could be nil.
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// If workload slicing is enabled for this job, use the slice-based processing path.
+	if workloadSliceEnabled(job) {
+		podSets, err := job.PodSets()
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
+		}
+
+		// Workload slices allow modifications only to PodSet.Count.
+		// Any other changes will result in the slice being marked as incompatible,
+		// and the workload will fall back to being processed by the original ensureOneWorkload function.
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, object, job.GVK())
+		if err != nil {
+			return nil, err
+		}
+		if compatible {
+			return wl, nil
+		}
+		// Fallback.
+	}
 
 	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
 		wl := &kueue.Workload{}
@@ -870,8 +921,7 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	object := job.Object()
 
 	workloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{GetOwnerKey(job.GVK()): object.GetName()}); err != nil {
+	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()), OwnerReferenceIndexFieldMatcher(job.GVK(), object.GetName())); err != nil {
 		return nil, nil, err
 	}
 
@@ -1113,6 +1163,17 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy)
 }
 
+// newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
+// and GroupVersionKind (GVK). If workload slicing is enabled, it includes the job's generation
+// in the generated workload name.
+func newWorkloadName(job GenericJob) string {
+	object := job.Object()
+	if workloadSliceEnabled(job) {
+		return GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration())
+	}
+	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
+}
+
 func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy []string) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
@@ -1122,8 +1183,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
-	wl := NewWorkload(GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()), object, podSets, labelKeysToCopy)
-
+	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
@@ -1144,6 +1204,33 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	return wl, nil
 }
 
+// prepareWorkloadSlice adds necessary workload slice annotations.
+func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+	// Lookup existing slice for a given job.
+	workloadSlices, err := workloadslicing.FindNotFinishedWorkloads(ctx, clnt, job.Object(), job.GVK())
+	if err != nil {
+		return fmt.Errorf("failure looking up workload slices: %w", err)
+	}
+
+	switch len(workloadSlices) {
+	case 0:
+		// No active workloads found for this job - noop.
+		return nil
+	case 1:
+		// One active workload found for this job - typically, we are in a scale-up event, where previous
+		// workload is the "old" slice.
+		oldSlice := workloadSlices[0]
+		// Annotate new workload slice with the preemptible (old) workload slice.
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
+		return nil
+	default:
+		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
+		// Failing here, would trigger job re-processing, and hopefully giving a chance to clear up (preempt/deactivate)
+		// old slice.
+		return fmt.Errorf("unexpected workload-slices count: %d", len(workloadSlices))
+	}
+}
+
 // prepareWorkload adds the priority information for the constructed workload
 func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
 	priorityClassName, source, p, err := r.extractPriority(ctx, wl.Spec.PodSets, job)
@@ -1154,9 +1241,11 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	wl.Spec.PriorityClassName = priorityClassName
 	wl.Spec.Priority = &p
 	wl.Spec.PriorityClassSource = source
-
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
+	if workloadSliceEnabled(job) {
+		return prepareWorkloadSlice(ctx, r.client, job, wl)
+	}
 	return nil
 }
 
@@ -1233,8 +1322,10 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		}
 	}
 
-	// Wait until there are no active pods.
-	if job.IsActive() {
+	// Wait until there are no active pods, unless this is a workload-slice job.
+	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
+	// the scale-up case, where the new workload slice replaces the old workload slice.
+	if job.IsActive() && !workloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}
@@ -1381,4 +1472,20 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 		in[i].MinCount = nil
 	}
 	return in
+}
+
+// workloadSliceEnabled returns true if all the following conditions are met:
+//   - The ElasticJobsViaWorkloadSlices feature is enabled.
+//   - The provided job is not nil.
+//   - The job's underlying object is not nil.
+//   - The job's object has opted in for WorkloadSlice processing.
+func workloadSliceEnabled(job GenericJob) bool {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || job == nil {
+		return false
+	}
+	jobObject := job.Object()
+	if jobObject == nil {
+		return false
+	}
+	return workloadslicing.Enabled(jobObject)
 }

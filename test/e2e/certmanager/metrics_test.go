@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -64,7 +63,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: config.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -75,13 +74,13 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		}
 		gomega.Expect(k8sClient.Create(ctx, metricsReaderClusterRoleBinding)).Should(gomega.Succeed())
 
-		curlPod = testingjobspod.MakePod("curl-metrics", config.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		curlPod.Spec.Volumes = []corev1.Volume{
-			corev1.Volume{
+			{
 				Name: "metrics-certs",
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
@@ -106,7 +105,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				secret := &corev1.Secret{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{
-					Namespace: config.DefaultNamespace,
+					Namespace: kueueNS,
 					Name:      certSecretName,
 				}, secret)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -186,14 +185,14 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 })
 
 func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error) {
-	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, config.DefaultNamespace, curlPodName, curlContainerName,
+	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName,
 		[]string{
 			"/bin/sh", "-c",
 			fmt.Sprintf(
 				"curl -s --cacert %s/ca.crt -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
 				certMountPath,
 				metricsServiceName,
-				config.DefaultNamespace,
+				kueueNS,
 			),
 		})
 

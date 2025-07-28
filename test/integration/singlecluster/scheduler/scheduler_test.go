@@ -29,7 +29,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -51,13 +50,33 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		spotTaintedFlavor   *kueue.ResourceFlavor
 		spotUntaintedFlavor *kueue.ResourceFlavor
 		spotToleration      corev1.Toleration
+		cqs                 []*kueue.ClusterQueue
 	)
+
+	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
+		util.MustCreate(ctx, k8sClient, cq)
+		cqs = append(cqs, cq)
+
+		lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+		return cq
+	}
+
+	var createWorkloadWithPriority = func(queue kueue.LocalQueueName, cpuRequests string, priority int32) *kueue.Workload {
+		wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+			Priority(priority).
+			Queue(queue).
+			Request(corev1.ResourceCPU, cpuRequests).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		return wl
+	}
 
 	ginkgo.BeforeEach(func() {
 		_ = features.SetEnable(features.FlavorFungibility, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
 		spotTaintedFlavor = testing.MakeResourceFlavor("spot-tainted").
 			NodeLabel(instanceKey, "spot-tainted").
@@ -75,6 +94,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		}
 
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
+	})
+	ginkgo.JustAfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+	ginkgo.AfterEach(func() {
+		for _, cq := range cqs {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		}
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 	})
 
 	ginkgo.When("Scheduling workloads on clusterQueues", func() {
@@ -98,7 +126,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, spotTaintedFlavor)
 			util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 			cqsStopPolicy := ptr.Deref(cqsStopPolicy, kueue.None)
@@ -219,7 +246,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheckClusterQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		})
@@ -474,7 +500,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("checking the first workload gets created and gets quota reserved", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, nil)
+				wl1Admission := testing.MakeAdmission(admissionCheckClusterQ.Name).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name), "2").
+					AssignmentPodCount(1).
+					Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(admissionCheckClusterQ, 1)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(admissionCheckClusterQ, 1)
@@ -641,7 +671,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, spotTaintedFlavor)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
@@ -656,9 +685,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 		})
 
@@ -762,8 +789,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
@@ -773,9 +798,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 		ginkgo.It("Should re-enqueue by the update event of ClusterQueue", func() {
 			metrics.AdmissionAttemptsTotal.Reset()
@@ -821,8 +844,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-
 			cq = testing.MakeClusterQueue("cluster-queue-with-selector").
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -846,9 +867,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should admit workloads from the selected namespaces", func() {
@@ -891,7 +910,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, fooCQ, true)
 		})
 
@@ -928,7 +946,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, spotTaintedFlavor)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
@@ -946,9 +963,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 		})
 
@@ -993,7 +1008,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
@@ -1008,9 +1022,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		})
 
@@ -1056,13 +1068,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should admit workload when creating ResourceFlavor->LocalQueue->Workload->ClusterQueue", func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, q)
 			util.MustCreate(ctx, k8sClient, w)
 			util.MustCreate(ctx, k8sClient, cq)
@@ -1071,7 +1080,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Should admit workload when creating Workload->ResourceFlavor->LocalQueue->ClusterQueue", func() {
 			util.MustCreate(ctx, k8sClient, w)
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, q)
 			util.MustCreate(ctx, k8sClient, cq)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, w)
@@ -1079,7 +1087,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Should admit workload when creating Workload->ResourceFlavor->ClusterQueue->LocalQueue", func() {
 			util.MustCreate(ctx, k8sClient, w)
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, cq)
 			util.MustCreate(ctx, k8sClient, q)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, w)
@@ -1089,7 +1096,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, w)
 			util.MustCreate(ctx, k8sClient, cq)
 			util.MustCreate(ctx, k8sClient, q)
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, w)
 		})
 	})
@@ -1101,18 +1107,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			util.MustCreate(ctx, k8sClient, spotTaintedFlavor)
 			util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
 			if devCQ != nil {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
 			}
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		})
@@ -1394,20 +1397,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Cohort provides resources directly", func() {
 		var (
 			cq     *kueue.ClusterQueue
-			cohort *kueuealpha.Cohort
+			cohort *kueue.Cohort
 			wl     *kueue.Workload
 		)
 
-		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		})
-
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should admit workload using resources borrowed from cohort", func() {
@@ -1533,17 +1530,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			devCQ  *kueue.ClusterQueue
 		)
 
-		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		})
-
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
 			if devCQ != nil {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
 			}
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should admit workloads using borrowed ClusterQueue", func() {
@@ -1654,7 +1645,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.BeforeEach(func() {
 			chName = "cohort"
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			strictFIFOClusterQ = testing.MakeClusterQueue("strict-fifo-cq").
 				QueueingStrategy(kueue.StrictFIFO).
 				NamespaceSelector(&metav1.LabelSelector{
@@ -1675,9 +1665,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, matchingNS)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, strictFIFOClusterQ, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should schedule workloads by their priority strictly", func() {
@@ -1704,7 +1692,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				lookupKey := types.NamespacedName{Name: wl3.Name, Namespace: wl3.Namespace}
 				g.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(wl3)).Should(gomega.BeFalse())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
 			util.ExpectReservingActiveWorkloadsMetric(strictFIFOClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(strictFIFOClusterQ, 1)
@@ -1817,7 +1805,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
 		})
 
@@ -1844,7 +1831,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				var newCQ kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
 				g.Expect(newCQ.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("New created workloads should be frozen")
 			wl2 := testing.MakeWorkload("workload2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).Obj()
@@ -1866,7 +1853,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -1878,9 +1864,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		type testParams struct {
@@ -1949,7 +1933,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").
@@ -1964,7 +1947,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should evict workloads when stop policy is drain", func() {
@@ -2033,8 +2015,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-
 			cq = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("on-demand").
@@ -2050,7 +2030,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should evict workloads when stop policy is drain", func() {
@@ -2164,7 +2143,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 			clusterQueue = testing.MakeClusterQueue("cq").
 				QueueingStrategy(kueue.StrictFIFO).
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).
@@ -2176,9 +2154,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should report pending workloads properly when blocked", func() {
@@ -2327,8 +2303,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-
 			cq1 = testing.MakeClusterQueue("cq1").
 				Cohort("cohort").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
@@ -2355,10 +2329,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("shouldn't admit second workload on over admission", func() {
@@ -2451,50 +2423,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 	ginkgo.When("Reserving Resources in Cohort", func() {
-		var (
-			cqs []*kueue.ClusterQueue
-			lqs []*kueue.LocalQueue
-			wls []*kueue.Workload
-		)
-
-		var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
-			util.MustCreate(ctx, k8sClient, cq)
-			cqs = append(cqs, cq)
-
-			lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
-			lqs = append(lqs, lq)
-			return cq
-		}
-
-		var createWorkloadWithPriority = func(queue kueue.LocalQueueName, cpuRequests string, priority int32) *kueue.Workload {
-			wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
-				Priority(priority).
-				Queue(queue).
-				Request(corev1.ResourceCPU, cpuRequests).Obj()
-			wls = append(wls, wl)
-			util.MustCreate(ctx, k8sClient, wl)
-			return wl
-		}
-
-		ginkgo.BeforeEach(func() {
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		})
-
-		ginkgo.AfterEach(func() {
-			for _, wl := range wls {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			}
-			for _, lq := range lqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			}
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			for _, cq := range cqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			}
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		})
-
 		ginkgo.It("foundation-queue allows best-effort queue to use capacity until it is ready to admit next workload", func() {
 			cq1 := createQueue(testing.MakeClusterQueue("foundation-queue").
 				Cohort("cohort").
@@ -2597,6 +2525,187 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("second foundation workload admitted")
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
+		})
+	})
+	ginkgo.When("Multiple flavors can be considered for preemption", func() {
+		ginkgo.BeforeEach(func() {
+			f1 := testing.MakeResourceFlavor("f1").Obj()
+			util.MustCreate(ctx, k8sClient, f1)
+
+			f2 := testing.MakeResourceFlavor("f2").Obj()
+			util.MustCreate(ctx, k8sClient, f2)
+		})
+
+		ginkgo.It("finds correct flavor by discarding the first one in which preemption is not possible", func() {
+			fungibility := kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}
+			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+			createQueue(testing.MakeClusterQueue("cq1").
+				FlavorFungibility(fungibility).Cohort("cohort").
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").FlavorQuotas).Obj())
+
+			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").FlavorQuotas).Obj())
+
+			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			}
+
+			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+
+			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+
+				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+			}
+
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+		})
+	})
+	ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
+		ginkgo.BeforeEach(func() {
+			f1 := testing.MakeResourceFlavor("f1").Obj()
+			util.MustCreate(ctx, k8sClient, f1)
+
+			f2 := testing.MakeResourceFlavor("f2").Obj()
+			util.MustCreate(ctx, k8sClient, f2)
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
+		})
+		ginkgo.AfterEach(func() {
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+		})
+		ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
+			fungibility := kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.Preempt}
+			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+			createQueue(testing.MakeClusterQueue("cq1").
+				FlavorFungibility(fungibility).Cohort("cohort").
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").FlavorQuotas).Obj())
+
+			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").FlavorQuotas).Obj())
+
+			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			}
+
+			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+
+				admission = testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			}
+
+			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+			}
+		})
+		ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
+			fungibility := kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.TryNextFlavor}
+			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+			createQueue(testing.MakeClusterQueue("cq1").
+				FlavorFungibility(fungibility).Cohort("cohort").
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").FlavorQuotas).Obj())
+
+			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").FlavorQuotas).Obj())
+
+			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			}
+
+			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+			{
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+
+			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+
+				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+			}
+
+			{
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+			}
+		})
+	})
+	ginkgo.When("Deleting ClusterQueue should update cohort borrowable resources", func() {
+		ginkgo.It("Should prevent incorrect admission through borrowing after ClusterQueue deletion", func() {
+			ginkgo.By("Creating two ClusterQueues in the same cohort")
+			// ClusterQueue with 8 CPU nominal quota - this will be the lender
+			cq1 := createQueue(testing.MakeClusterQueue("queue-1").
+				Cohort("bug-test").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "8").Obj()).
+				Obj())
+
+			// ClusterQueue with 0 CPU nominal quota - this will need to borrow
+			cq2 := createQueue(testing.MakeClusterQueue("queue-2").
+				Cohort("bug-test").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj())
+
+			ginkgo.By("Deleting cluster-queue-1 which has 8 CPU nominal quota")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+
+			ginkgo.By("Creating a workload that requests 8 CPU - should not be admitted due to no borrowable resources")
+			createWorkloadWithPriority("queue-2", "8", 1000)
+
+			ginkgo.By("Verifying metrics reflect the correct state")
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, 0)
 		})
 	})
 })

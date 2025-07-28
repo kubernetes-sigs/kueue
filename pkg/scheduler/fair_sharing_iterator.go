@@ -156,7 +156,7 @@ func runTournament(cohort *cache.CohortSnapshot, ec entryComparer, cqToEntry map
 
 type drsKey struct {
 	parentCohort kueue.CohortReference
-	workloadKey  string
+	workloadKey  workload.Reference
 }
 
 type entryComparer struct {

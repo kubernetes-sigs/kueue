@@ -21,6 +21,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -37,6 +38,7 @@ type SetupOptions struct {
 	workerLostTimeout time.Duration
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
+	dispatcherName    string
 }
 
 type SetupOption func(o *SetupOptions)
@@ -80,6 +82,13 @@ func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOptio
 	}
 }
 
+// WithDispatcherName sets or updates the dispatcher of the MultiKueue workload.
+func WithDispatcherName(dispatcherName string) SetupOption {
+	return func(o *SetupOptions) {
+		o.dispatcherName = dispatcherName
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -87,6 +96,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
 		adapters:          make(map[string]jobframework.MultiKueueAdapter),
+		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
 	}
 
 	for _, o := range opts {
@@ -116,6 +126,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName), options.workerLostTimeout, options.eventsBatchPeriod, options.adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorderFor(constants.WorkloadControllerName),
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName)
 	return wlRec.setupWithManager(mgr)
 }

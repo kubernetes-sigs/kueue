@@ -17,6 +17,8 @@ limitations under the License.
 package core
 
 import (
+	"context"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -24,16 +26,25 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Cohort Webhook", func() {
+var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
 	ginkgo.When("Creating a Cohort", func() {
-		ginkgo.DescribeTable("Validate Cohort on creation", func(cohort *kueuealpha.Cohort, matcher types.GomegaMatcher) {
+		ginkgo.DescribeTable("Validate Cohort on creation", func(cohort *kueue.Cohort, matcher types.GomegaMatcher) {
 			err := k8sClient.Create(ctx, cohort)
 			if err == nil {
 				defer func() {
@@ -235,11 +246,11 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should reject resources in a flavor in different order",
-				&kueuealpha.Cohort{
+				&kueue.Cohort{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cohort",
 					},
-					Spec: kueuealpha.CohortSpec{
+					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
 								CoveredResources: []corev1.ResourceName{"cpu", "memory"},
@@ -259,11 +270,11 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				},
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should reject missing resources in a flavor",
-				&kueuealpha.Cohort{
+				&kueue.Cohort{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cohort",
 					},
-					Spec: kueuealpha.CohortSpec{
+					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
 								CoveredResources: []corev1.ResourceName{"cpu", "memory"},
@@ -278,11 +289,11 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				},
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should reject resource not defined in resource group",
-				&kueuealpha.Cohort{
+				&kueue.Cohort{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cohort",
 					},
-					Spec: kueuealpha.CohortSpec{
+					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
 								CoveredResources: []corev1.ResourceName{"cpu"},
@@ -340,7 +351,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 
 	ginkgo.When("Updating a Cohort", func() {
 		var (
-			cohort *kueuealpha.Cohort
+			cohort *kueue.Cohort
 		)
 
 		ginkgo.AfterEach(func() {
@@ -352,9 +363,9 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			util.MustCreate(ctx, k8sClient, cohort)
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createCohort := &kueuealpha.Cohort{}
+				createCohort := &kueue.Cohort{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), createCohort)).Should(gomega.Succeed())
-				createCohort.Spec.Parent = "cohort2"
+				createCohort.Spec.ParentName = "cohort2"
 				g.Expect(k8sClient.Update(ctx, createCohort)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -363,9 +374,9 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			util.MustCreate(ctx, k8sClient, cohort)
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				createCohort := &kueuealpha.Cohort{}
+				createCohort := &kueue.Cohort{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), createCohort)).Should(gomega.Succeed())
-				createCohort.Spec.Parent = "@cohort2"
+				createCohort.Spec.ParentName = "@cohort2"
 				gomega.Expect(k8sClient.Update(ctx, createCohort)).ShouldNot(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

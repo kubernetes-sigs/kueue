@@ -9,6 +9,7 @@ reviewers:
   - "@tenzen-y"
 approvers:
   - "@mimowo"
+  - "@tenzen-y"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: beta
@@ -24,4 +25,5 @@ milestone:
 
 feature-gates:
   - name: ManagedJobsNamespaceSelector
+  - name: ManagedJobsNamespaceSelectorAlwaysRespected
 disable-supported: true

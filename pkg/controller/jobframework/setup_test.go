@@ -238,7 +238,7 @@ func TestSetupIndexes(t *testing.T) {
 			opts: []Option{
 				WithEnabledFrameworks([]string{"batch/job"}),
 			},
-			filter:        client.MatchingFields{GetOwnerKey(batchv1.SchemeGroupVersion.WithKind("Job")): "alpha"},
+			filter:        OwnerReferenceIndexFieldMatcher(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha"),
 			wantWorkloads: []string{"alpha-wl"},
 		},
 		"kubeflow.org/mpijob is disabled in the configAPI": {
@@ -253,7 +253,7 @@ func TestSetupIndexes(t *testing.T) {
 			opts: []Option{
 				WithEnabledFrameworks([]string{"batch/job"}),
 			},
-			filter:                client.MatchingFields{GetOwnerKey(kfmpi.SchemeGroupVersionKind): "alpha"},
+			filter:                OwnerReferenceIndexFieldMatcher(kfmpi.SchemeGroupVersionKind, "alpha"),
 			wantFieldMatcherError: true,
 		},
 	}

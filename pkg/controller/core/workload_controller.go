@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -79,37 +80,29 @@ type workloadRetentionConfig struct {
 	afterFinished *time.Duration
 }
 
-type options struct {
-	watchers                []WorkloadUpdateWatcher
-	waitForPodsReadyConfig  *waitForPodsReadyConfig
-	workloadRetentionConfig *workloadRetentionConfig
-}
-
 // Option configures the reconciler.
-type Option func(*options)
+type Option func(*WorkloadReconciler)
 
 // WithWaitForPodsReady indicates the configuration for the WaitForPodsReady feature.
 func WithWaitForPodsReady(value *waitForPodsReadyConfig) Option {
-	return func(o *options) {
-		o.waitForPodsReadyConfig = value
+	return func(r *WorkloadReconciler) {
+		r.waitForPodsReady = value
 	}
 }
 
 // WithWorkloadUpdateWatchers allows to specify the workload update watchers
 func WithWorkloadUpdateWatchers(value ...WorkloadUpdateWatcher) Option {
-	return func(o *options) {
-		o.watchers = value
+	return func(r *WorkloadReconciler) {
+		r.watchers = value
 	}
 }
 
 // WithWorkloadRetention allows to specify retention for workload resources
 func WithWorkloadRetention(value *workloadRetentionConfig) Option {
-	return func(o *options) {
-		o.workloadRetentionConfig = value
+	return func(r *WorkloadReconciler) {
+		r.workloadRetention = value
 	}
 }
-
-var defaultOptions = options{}
 
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
@@ -131,23 +124,19 @@ type WorkloadReconciler struct {
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
 
-func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
+func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, options ...Option) *WorkloadReconciler {
+	r := &WorkloadReconciler{
+		log:      ctrl.Log.WithName("workload-reconciler"),
+		client:   client,
+		queues:   queues,
+		cache:    cache,
+		recorder: recorder,
+		clock:    realClock,
 	}
-
-	return &WorkloadReconciler{
-		log:               ctrl.Log.WithName("workload-reconciler"),
-		client:            client,
-		queues:            queues,
-		cache:             cache,
-		watchers:          options.watchers,
-		waitForPodsReady:  options.waitForPodsReadyConfig,
-		recorder:          recorder,
-		clock:             realClock,
-		workloadRetention: options.workloadRetentionConfig,
+	for _, option := range options {
+		option(r)
 	}
+	return r
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
@@ -169,7 +158,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
-		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
+		err := workload.RemoveFinalizer(ctx, r.client, &wl)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
@@ -200,7 +190,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				annotations := wl.GetAnnotations()
 				delete(annotations, kueuealpha.NodeToReplaceAnnotation)
 				wl.SetAnnotations(annotations)
-				r.log.V(3).Info("Deleting %v annotation from Workload", "annotation", kueuealpha.NodeToReplaceAnnotation)
+				r.log.V(3).Info("Deleting annotation from Workload", "annotation", kueuealpha.NodeToReplaceAnnotation)
 				return true, nil
 			}); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -238,7 +228,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if updated {
-			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
 		}
 	} else {
 		var updated, evicted bool
@@ -261,10 +251,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			wl.Status.RequeueState = nil
 			updated = true
 		}
-		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
+
+		// exception due to complicated logic, not using PrepareForEviction (temporarily)
+		workload.ResetClusterNomination(&wl)
 		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
+		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+				if apierrors.IsNotFound(err) {
+					return ctrl.Result{}, nil
+				}
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
@@ -287,7 +283,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	lqActive := ptr.Deref(lq.Spec.StopPolicy, kueue.None) == kueue.None
 	if lqExists && lqActive && isDisabledRequeuedByLocalQueueStopped(&wl) {
 		workload.SetRequeuedCondition(&wl, kueue.WorkloadLocalQueueRestarted, "The LocalQueue was restarted after being stopped", true)
-		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+		return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
@@ -295,12 +291,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
 		cq := kueue.ClusterQueue{}
 		if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
 		if isDisabledRequeuedByClusterQueueStopped(&wl) && ptr.Deref(cq.Spec.StopPolicy, kueue.None) == kueue.None {
 			workload.SetRequeuedCondition(&wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
-			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
 		}
 		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, &cq); updated || err != nil {
 			return ctrl.Result{}, err
@@ -311,7 +307,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) && workload.SyncAdmittedCondition(&wl, r.clock.Now()) {
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if workload.IsAdmitted(&wl) {
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
@@ -330,24 +326,24 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if workload.HasQuotaReservation(&wl) {
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		if updated, err := r.reconcileOnLocalQueueActiveState(ctx, &wl, lqExists, &lq); updated || err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, cqName); updated || err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		podsReadyRecheckAfter, err := r.reconcileNotReadyTimeout(ctx, req, &wl)
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		maxExecRecheckAfter, err := r.reconcileMaxExecutionTime(ctx, &wl)
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		// get the minimun non-zero value
@@ -427,7 +423,8 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 	return 0, nil
 }
 
-// reconcileCheckBasedEviction returns true if Workload has been deactivated or evicted
+// reconcileCheckBasedEviction evicts or deactivates the given Workload if any admission checks have failed.
+// Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
 		return false, nil
@@ -441,7 +438,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		}
 		workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", stringsutils.Join(rejectedCheckNames, ",")))
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
-			return false, client.IgnoreNotFound(err)
+			return false, err
 		}
 		log.V(3).Info("Workload is evicted due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedCheckNames)
 		rejectedCheck := workload.RejectedChecks(wl)[0]
@@ -450,11 +447,10 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
 	message := "At least one admission check is false"
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
-	workload.ResetChecksOnEviction(wl, r.clock.Now())
+	workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByAdmissionCheck, message)
 	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByAdmissionCheck, "")
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
-		return false, client.IgnoreNotFound(err)
+		return false, err
 	}
 	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
@@ -491,19 +487,15 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 			return false, nil
 		}
 		log.V(3).Info("Workload is evicted because the LocalQueue is stopped", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
-		workload.ResetChecksOnEviction(wl, r.clock.Now())
+		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 		if err == nil {
 			cqName := lq.Spec.ClusterQueue
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
-				metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByLocalQueueStopped)
-				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), kueue.WorkloadEvictedByLocalQueueStopped)
-				}
+				workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
 			}
 		}
-		return true, client.IgnoreNotFound(err)
+		return true, err
 	}
 
 	if !lqExists || !lq.DeletionTimestamp.IsZero() {
@@ -542,9 +534,8 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", string(cqName)))
 		message := "The ClusterQueue is stopped"
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, message)
+		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByClusterQueueStopped, message)
 		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByClusterQueueStopped, "")
-		workload.ResetChecksOnEviction(wl, r.clock.Now())
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 		if err == nil {
 			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message)
@@ -552,7 +543,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 				metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByClusterQueueStopped, "")
 			}
 		}
-		return true, client.IgnoreNotFound(err)
+		return true, err
 	}
 
 	if !cqExists || !cq.DeletionTimestamp.IsZero() {
@@ -623,11 +614,10 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	}
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
-		return 0, client.IgnoreNotFound(err)
+		return 0, err
 	}
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
-	workload.ResetChecksOnEviction(wl, r.clock.Now())
+	workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByPodsReadyTimeout, message)
 	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByPodsReadyTimeout, underlyingCause)
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	if err == nil {
@@ -637,7 +627,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 			metrics.ReportEvictedWorkloadsOnce(cqName, kueue.WorkloadEvictedByPodsReadyTimeout, underlyingCause)
 		}
 	}
-	return 0, client.IgnoreNotFound(err)
+	return 0, err
 }
 
 // triggerDeactivationOrBackoffRequeue trigger deactivation of workload
@@ -675,7 +665,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if !workload.HasQuotaReservation(e.Object) {
+	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -861,7 +851,10 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+		}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).

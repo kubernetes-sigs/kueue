@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -69,7 +68,6 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
-	utilnode "sigs.k8s.io/kueue/pkg/util/node"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -79,16 +77,8 @@ const (
 	defaultLogLevel = -3
 )
 
-func logLevel() int {
-	level, err := strconv.Atoi(os.Getenv("TEST_LOG_LEVEL"))
-	if err != nil {
-		return defaultLogLevel
-	}
-	return level
-}
-
 var SetupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, logLevel()))
+	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, testing.LogLevelWithDefault(defaultLogLevel)))
 })
 
 type objAsPtr[T any] interface {
@@ -374,6 +364,14 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
 	if sleep > 0 {
 		time.Sleep(sleep)
@@ -527,18 +525,18 @@ func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, value int) {
 }
 
 func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus) {
-	for i, s := range metrics.ConditionStatusValues {
-		var wantV float64
-		if metrics.ConditionStatusValues[i] == status {
-			wantV = 1
-		}
-		metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		for i, s := range metrics.ConditionStatusValues {
+			var wantV float64
+			if metrics.ConditionStatusValues[i] == status {
+				wantV = 1
+			}
+			metric := metrics.LocalQueueByStatus.WithLabelValues(lq.Name, lq.Namespace, string(s))
 			v, err := testutil.GetGaugeMetricValue(metric)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
 			g.Expect(v).Should(gomega.Equal(wantV), "local_queue_status with status=%s", s)
-		}, Timeout, Interval).Should(gomega.Succeed())
-	}
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
@@ -572,6 +570,11 @@ func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	expectCounterMetric(metric, v)
 }
 
+func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason string, v int) {
+	metric := metrics.PodsReadyToEvictedTimeSeconds
+	expectHistogramMetric(metric, cqName, reason, v)
+}
+
 func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause string, v int) {
 	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause)
 	expectCounterMetric(metric, v)
@@ -590,6 +593,14 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionReason string, count int) {
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -1072,23 +1083,41 @@ func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectK
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-// conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus, time time.Time
 func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, newCondition *corev1.NodeCondition) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var updatedNode corev1.Node
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
-		condition := utilnode.GetNodeCondition(&updatedNode, newCondition.Type)
+		condition := utiltas.GetNodeCondition(&updatedNode, newCondition.Type)
 		changed := false
 		if condition == nil {
 			updatedNode.Status.Conditions = append(updatedNode.Status.Conditions, *newCondition)
 			changed = true
-		} else if condition.Status != newCondition.Status {
-			condition.Status = newCondition.Status
+		}
+		if newCondition.LastTransitionTime.IsZero() {
+			condition.LastTransitionTime = metav1.Now()
+			changed = true
+		} else if condition.LastTransitionTime != newCondition.LastTransitionTime {
 			condition.LastTransitionTime = newCondition.LastTransitionTime
+			changed = true
+		}
+		if condition.Status != newCondition.Status {
+			condition.Status = newCondition.Status
 			changed = true
 		}
 		if changed {
 			g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), "Failed to set node condition %s to %s for node %s", newCondition.Type, newCondition.Status, node.Name)
+}
+
+func ExpectLocalQueueUsageToBe(ctx context.Context, k8sClient client.Client, lqKey client.ObjectKey, comparator string, compareTo any) {
+	lq := &kueue.LocalQueue{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, lqKey, lq)).Should(gomega.Succeed())
+		g.Expect(lq.Status.FairSharing).ShouldNot(gomega.BeNil())
+		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
+		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
+		usage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+		g.Expect(usage.MilliValue()).To(gomega.BeNumerically(comparator, compareTo))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }

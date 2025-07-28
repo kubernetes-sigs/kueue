@@ -22,6 +22,8 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -34,24 +36,35 @@ type PreemptionOracle struct {
 	snapshot  *cache.Snapshot
 }
 
-// IsReclaimPossible determines if a ClusterQueue can fit this
-// FlavorResource by reclaiming its nominal quota which it lent to its
-// Cohort.
-func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) bool {
-	if cq.BorrowingWith(fr, quantity) {
-		return false
-	}
-	for _, candidate := range p.preemptor.getTargets(&preemptionCtx{
+// SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
+// preemption and reclaim are possible in this flavor resource.
+func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
+	candidates := p.preemptor.getTargets(&preemptionCtx{
 		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
 		frsNeedPreemption: sets.New(fr),
 		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
-	}) {
+	})
+
+	if len(candidates) == 0 {
+		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+		return preemptioncommon.NoCandidates, borrow
+	}
+
+	workloadsToPreempt := make([]*workload.Info, len(candidates))
+	for i, c := range candidates {
+		workloadsToPreempt[i] = c.WorkloadInfo
+	}
+	revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
+	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+	revertRemoval()
+
+	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return false
+			return preemptioncommon.Preempt, borrowAfterPreemptions
 		}
 	}
-	return true
+	return preemptioncommon.Reclaim, borrowAfterPreemptions
 }

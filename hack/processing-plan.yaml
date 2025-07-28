@@ -1,6 +1,7 @@
 files:
   - path: ./config/components/crd/bases/*.yaml
     outputDir: ./charts/kueue/templates/crd/
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -34,6 +35,7 @@ files:
         indentation: 2
   - path: ./config/components/rbac/*.yaml
     outputDir: ./charts/kueue/templates/rbac
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -68,6 +70,7 @@ files:
         onFileCondition: '.metadata.labels == null'
   - path: ./config/components/visibility/*.yaml
     outputDir: ./charts/kueue/templates/visibility
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
@@ -103,8 +106,48 @@ files:
           {{- include "kueue.selectorLabels" . | nindent 4 }}
         indentation: 2
         onFileCondition: '.kind == "Service"'
+  - path: ./config/components/visibility-apf/*.yaml
+    outputDir: ./charts/kueue/templates/visibility-apf
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.metadata.name != "v1beta*"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+        onFileCondition: '.metadata.namespace != "kube-system"'
+      - type: APPEND
+        key: .spec.service.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .spec.service.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableVisibilityAPF }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
   - path: ./config/components/webhook/service.yaml
     outputDir: ./charts/kueue/templates/webhook
+    removeComments: true
     continueOnError: true
     operations:
       - type: APPEND
@@ -139,6 +182,7 @@ files:
           {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
   - path: ./config/components/webhook/manifests.yaml
     outputDir: ./charts/kueue/templates/webhook/
+    removeComments: true
     continueOnError: true
     operations:
       - type: APPEND
@@ -323,225 +367,254 @@ files:
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-batch-v1-job"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-jobset-x-k8s-io-v1alpha2-jobset"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-jaxjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-paddlejob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-pytorchjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-tfjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v1-xgboostjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-leaderworkerset-x-k8s-io-v1-leaderworkerset"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-kubeflow-org-v2beta1-mpijob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-ray-io-v1-raycluster"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-ray-io-v1-rayjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-workload-codeflare-dev-v1beta2-appwrapper"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-batch-v1-job"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-jobset-x-k8s-io-v1alpha2-jobset"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-jaxjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-paddlejob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-pytorchjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-tfjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v1-xgboostjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-kubeflow-org-v2beta1-mpijob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-ray-io-v1-raycluster"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-ray-io-v1-rayjob"'
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
-            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") -}}
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
             namespaceSelector:
-              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 -}}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
             {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-workload-codeflare-dev-v1beta2-appwrapper"'
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
+    removeComments: true
     excludes:
       - kustomization.yaml
     continueOnError: true
     operations:
+      - type: UPDATE
+        key: .spec.tls.[].secretName
+        value: '"{{ .Values.kueueViz.backend.ingress.tlsSecretName | default \"kueueviz-backend-tls\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
+      - type: UPDATE
+        key: .spec.tls.[].secretName
+        value: '"{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default \"kueueviz-frontend-tls\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
+      - type: UPDATE
+        key: .spec.tls.[].hosts
+        value: '["{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"]'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+        onItemCondition: '.spec.tls.[].hosts.[] == "backend.kueueviz.local"'
+      - type: UPDATE
+        key: .spec.tls.[].hosts
+        value: '["{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"]'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+        onItemCondition: '.spec.tls.[].hosts.[] == "frontend.kueueviz.local"'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
         value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
@@ -566,10 +639,6 @@ files:
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Ingress"'
       - type: APPEND
-        key: .spec.tls.[].secretName
-        value: '"{{ include \"kueue.fullname\" . }}-"'
-        onFileCondition: '.kind == "Ingress"'
-      - type: APPEND
         key: .roleRef.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "ClusterRoleBinding"'
@@ -579,11 +648,159 @@ files:
       - type: UPDATE
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .spec.template.spec.containers.[].env.[].value
+        value: '"wss://{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+        onItemCondition: '.spec.template.spec.containers.[].env.[].name == "REACT_APP_WEBSOCKET_URL"'
     postOperations:
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.frontend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
+          imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with  .Values.kueueViz.frontend.priorityClassName }}
+          priorityClassName: {{ . }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.backend.imagePullSecrets  }}
+          imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with  .Values.kueueViz.backend.priorityClassName }}
+          priorityClassName: {{ . }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")' 
       - type: INSERT_TEXT
         position: START
         value: |
           {{- if .Values.enableKueueViz }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/internalcert/*.yaml
+    outputDir: ./charts/kueue/templates/internalcert
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if not .Values.enableCertManager }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/prometheus/*.yaml
+    outputDir: ./charts/kueue/templates/prometheus
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+      - monitor_tls_patch.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .roleRef.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "RoleBinding"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: DELETE
+        key: .spec.endpoints.[].tlsConfig
+        onFileCondition: '.kind == "ServiceMonitor"'
+        onItemCondition: '.spec.endpoints.[].path == "/metrics"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Values.metrics.prometheusNamespace }}"'
+        onFileCondition: '.kind == "RoleBinding"'
+      - type: DELETE
+        key: .spec.selector
+        onFileCondition: '.kind == "ServiceMonitor"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          selector:
+            matchLabels:
+            {{- include "kueue.metricsService.labels" . | nindent 6 }}
+        indentation: 2
+        onFileCondition: '.kind == "ServiceMonitor"'
+      - type: INSERT_TEXT
+        key: .spec.endpoints.[].bearerTokenFile
+        value: |
+          tlsConfig:
+          {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 8 }}
+        onFileCondition: '.kind == "ServiceMonitor"'
+        onItemCondition: '.spec.endpoints.[].path == "/metrics"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enablePrometheus }}
       - type: INSERT_TEXT
         position: END
         value: |

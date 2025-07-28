@@ -36,10 +36,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -53,8 +53,8 @@ var (
 type clusterQueue struct {
 	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
-	Workloads         map[string]*workload.Info
-	WorkloadsNotReady sets.Set[string]
+	Workloads         map[workload.Reference]*workload.Info
+	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FairWeight        resource.Quantity
@@ -88,7 +88,8 @@ type clusterQueue struct {
 
 	tasCache *tasCache
 
-	workloadsNotAccountedForTAS sets.Set[string]
+	workloadsNotAccountedForTAS sets.Set[workload.Reference]
+	AdmissionScope              *kueue.AdmissionScope
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -119,8 +120,7 @@ var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borr
 func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
-			// ignore error when old Cohort has cycle.
-			_ = updateCohortTreeResources(oldParent)
+			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
@@ -166,7 +166,7 @@ func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueu
 	}
 
 	c.FairWeight = parseFairWeight(in.Spec.FairSharing)
-
+	c.AdmissionScope = in.Spec.AdmissionScope
 	return nil
 }
 
@@ -592,10 +592,8 @@ func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 
 func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 	for _, rg := range c.ResourceGroups {
-		for _, fName := range rg.Flavors {
-			if flavor == fName {
-				return true
-			}
+		if slices.Contains(rg.Flavors, flavor) {
+			return true
 		}
 	}
 	return false
@@ -638,6 +636,20 @@ func (c *clusterQueue) isTASOnly() bool {
 	return true
 }
 
-func (c *clusterQueue) hasProvRequestAdmissionCheck() bool {
-	return len(c.provisioningAdmissionChecks) > 0
+func (c *clusterQueue) flavorsWithProvReqAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
+	flvs := sets.New[kueue.ResourceFlavorReference]()
+	for _, ac := range c.provisioningAdmissionChecks {
+		flvs.Insert(c.flavorsForAdmissionCheck(ac).UnsortedList()...)
+	}
+	return flvs
+}
+
+func (c *clusterQueue) flavorsForAdmissionCheck(ac kueue.AdmissionCheckReference) sets.Set[kueue.ResourceFlavorReference] {
+	flvs := sets.New(c.AdmissionChecks[ac].UnsortedList()...)
+	if len(c.AdmissionChecks[ac]) == 0 {
+		for _, rg := range c.ResourceGroups {
+			flvs.Insert(rg.Flavors...)
+		}
+	}
+	return flvs
 }

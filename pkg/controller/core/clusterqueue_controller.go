@@ -559,10 +559,7 @@ func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q w
 	}
 	remainingTime := constants.UpdatesBatchPeriod
 	if cq.Status.PendingWorkloadsStatus != nil {
-		remainingTime = h.queueVisibilityUpdateInterval - time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time)
-		if remainingTime <= constants.UpdatesBatchPeriod {
-			remainingTime = constants.UpdatesBatchPeriod
-		}
+		remainingTime = max(h.queueVisibilityUpdateInterval-time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time), constants.UpdatesBatchPeriod)
 	}
 	q.AddAfter(reconcile.Request{
 		NamespacedName: types.NamespacedName{
@@ -587,7 +584,10 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 			&handler.TypedEnqueueRequestForObject[*kueue.ClusterQueue]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String()],
+		}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(source.Channel(r.snapUpdateCh, &snapHandler)).
 		WatchesRawSource(source.Channel(r.nonCQObjectUpdateCh, &nonCQObjectHandler{})).
@@ -671,7 +671,7 @@ func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
 
 	defer r.snapshotsQueue.ShutDown()
 
-	for i := 0; i < snapshotWorkers; i++ {
+	for range snapshotWorkers {
 		go wait.UntilWithContext(ctx, r.takeSnapshot, r.queueVisibilityUpdateInterval)
 	}
 

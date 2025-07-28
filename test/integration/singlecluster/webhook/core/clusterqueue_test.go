@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -28,7 +29,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
@@ -39,7 +42,15 @@ const (
 	flavorsMaxItems   = 16
 )
 
-var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
+var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
 	var ns *corev1.Namespace
 	defaultFlavorFungibility := &kueue.FlavorFungibility{
 		WhenCanBorrow:  kueue.Borrow,
@@ -248,7 +259,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			ginkgo.Entry("Should have valid resources quantity",
 				func() *kueue.ClusterQueue {
 					flvQuotas := testing.MakeFlavorQuotas("flavor")
-					for i := 0; i < resourcesMaxItems+1; i++ {
+					for i := range resourcesMaxItems + 1 {
 						flvQuotas = flvQuotas.Resource(corev1.ResourceName(fmt.Sprintf("r%d", i)))
 					}
 					return testing.MakeClusterQueue("cluster-queue").ResourceGroup(*flvQuotas.Obj()).Obj()

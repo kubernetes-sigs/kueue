@@ -18,6 +18,7 @@ export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
+export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
 
@@ -62,40 +63,46 @@ if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
 fi
 
 # agnhost image to use for testing.
-export E2E_TEST_AGNHOST_IMAGE_OLD=registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
-E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_AGNHOST_IMAGE_OLD%%@*}
-export E2E_TEST_AGNHOST_IMAGE=registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
-E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA=${E2E_TEST_AGNHOST_IMAGE%%@*}
+E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA=registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+export E2E_TEST_AGNHOST_IMAGE_OLD=${E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA%%@*}
+E2E_TEST_AGNHOST_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/agnhost/Dockerfile" | awk '{print $2}')
+export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 
 
-# $1 - cluster name
+# $1 cluster name
+# $2 kubeconfig
 function cluster_cleanup {
-	kubectl config use-context "kind-$1"
-        $KIND export logs "$ARTIFACTS" --name "$1" || true
-        kubectl describe pods -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
-        kubectl describe pods > "$ARTIFACTS/$1-default-pods.log" || true
-        $KIND delete cluster --name "$1"
+    kubectl config --kubeconfig="$2" use-context "kind-$1"
+    
+    $KIND export logs "$ARTIFACTS" --name "$1" || true
+    kubectl describe pods --kubeconfig="$2" -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
+    kubectl describe pods --kubeconfig="$2" > "$ARTIFACTS/$1-default-pods.log" || true
+    $KIND delete cluster --name "$1"
 }
 
 # $1 cluster name
 # $2 cluster kind config
+# $3 kubeconfig
 function cluster_create {
-        $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
-		||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
-	kubectl config use-context "kind-$1"
-        kubectl get nodes > "$ARTIFACTS/$1-nodes.log" || true
-        kubectl describe pods -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
+    prepare_kubeconfig "$1" "$3"
+
+    $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --kubeconfig="$3" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
+    ||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
+ 
+    kubectl config --kubeconfig="$3" use-context "kind-$1"
+    kubectl get nodes --kubeconfig="$3" > "$ARTIFACTS/$1-nodes.log" || true
+    kubectl describe pods --kubeconfig="$3" -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
 }
 
 function prepare_docker_images {
-    docker pull "$E2E_TEST_AGNHOST_IMAGE_OLD"
-    docker pull "$E2E_TEST_AGNHOST_IMAGE"
+    docker pull "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA"
+    docker pull "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA"
 
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
     # Manually create tag for image with digest which is already pulled
-    docker tag $E2E_TEST_AGNHOST_IMAGE_OLD "$E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA"
-    docker tag $E2E_TEST_AGNHOST_IMAGE "$E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
     if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
@@ -123,9 +130,43 @@ function prepare_docker_images {
 
 # $1 cluster
 function cluster_kind_load {
-    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD_WITHOUT_SHA}"
-    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_WITHOUT_SHA}"
+    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE_OLD}"
+    cluster_kind_load_image "$1" "${E2E_TEST_AGNHOST_IMAGE}"
     cluster_kind_load_image "$1" "$IMAGE_TAG"
+}
+
+# $1 cluster
+# $2 kubeconfig
+function kind_load {
+    kubectl config --kubeconfig="$2" use-context "kind-$1"
+
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]; then
+	    cluster_kind_load "$1"
+    fi
+    if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
+        install_appwrapper "$1" "$2"
+    fi
+    if [[ -n ${JOBSET_VERSION:-} ]]; then
+        install_jobset "$1" "$2"
+    fi
+    if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
+        # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
+        # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
+        # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
+        install_kubeflow "$1" "$2"
+    fi
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+        install_mpi "$1" "$2"
+    fi
+    if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+        install_lws "$1" "$2"
+    fi
+    if [[ -n ${KUBERAY_VERSION:-} ]]; then
+        install_kuberay "$1" "$2"
+    fi
+    if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
+        install_cert_manager "$2"
+    fi
 }
 
 # $1 cluster
@@ -144,6 +185,7 @@ function cluster_kind_load_image {
     fi
 }
 
+# $1 kubeconfig
 function deploy_with_certmanager() {
     local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
     local default_kust="${ROOT_DIR}/config/default/kustomization.yaml"
@@ -166,82 +208,103 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
         
-        $KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/certmanager" | \
-            kubectl apply --server-side -f -
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
     )
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
     printf "%s\n" "$default_backup" > "$default_kust"
 }
 
-# $1 cluster
+# $1 kubeconfig
 function cluster_kueue_deploy {
-    kubectl config use-context "kind-${1}"
-    
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
             --timeout=5m
         
-        deploy_with_certmanager
+        deploy_with_certmanager "$1"
     else
-        kubectl apply --server-side -k test/e2e/config/default
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
 }
 
-#$1 - cluster name
+# $1 kubeconfig 
+# $2 kustomization config
+function build_and_apply_kueue_manifests {
+    local build_output
+    build_output=$($KUSTOMIZE build "$2")
+    # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
+    build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
+    echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side -f -
+}
+
+# $1 cluster name
+# $2 kubeconfig option
 function install_appwrapper {
     cluster_kind_load_image "${1}" "${APPWRAPPER_IMAGE}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply -k "${APPWRAPPER_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side -k "${APPWRAPPER_MANIFEST}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig option
 function install_jobset {
     cluster_kind_load_image "${1}" "${JOBSET_IMAGE}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${JOBSET_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side -f "${JOBSET_MANIFEST}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig option
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig option
 function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
 }
 
-#$1 - cluster name
+# $1 cluster name
+# $2 kubeconfig option
 function install_kuberay {
     cluster_kind_load_image "${1}" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "${1}" "${KUBERAY_IMAGE}"
-    kubectl config use-context "kind-${1}"
     # create used instead of apply - https://github.com/ray-project/kuberay/issues/504
-    kubectl create -k "${KUBERAY_MANIFEST}"
+    kubectl create --kubeconfig="$2" -k "${KUBERAY_MANIFEST}"
 }
 
+# $1 cluster name
+# $2 kubeconfig option
 function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    kubectl apply --kubeconfig="$2" --server-side -f "${LEADERWORKERSET_MANIFEST}"
 }
 
+# $1 kubeconfig option
 function install_cert_manager {
-    kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -f "${CERTMANAGER_MANIFEST}"
+    kubectl apply --kubeconfig="$1" --server-side -f "${CERTMANAGER_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 export INITIAL_IMAGE
 
+function set_managers_image {
+    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+}
+
 function restore_managers_image {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+}
+
+function kueue_deploy {
+    # We use a subshell to avoid overwriting the global cleanup trap, which also uses the EXIT signal.
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        cluster_kueue_deploy ""
+    )
 }
 
 function determine_kuberay_ray_image {
@@ -263,4 +326,21 @@ function determine_kuberay_ray_image {
     fi
 
     export KUBERAY_RAY_IMAGE="${ray_image_to_use}"
+}
+
+# $1 cluster name
+# $2 kubeconfig file path
+function prepare_kubeconfig {
+    local kind_name=$1
+    local kubeconfig=$2
+    if [[ "$kubeconfig" != "" ]]; then
+        cat <<EOF > "$kubeconfig"
+        apiVersion: v1
+        kind: Config
+        preferences: {}
+EOF
+        kubectl config --kubeconfig="$kubeconfig" set-context "kind-$kind_name" \
+        --cluster="$kind_name" \
+        --user="$kind_name"
+    fi
 }

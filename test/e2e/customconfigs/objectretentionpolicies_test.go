@@ -35,6 +35,102 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		rf *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+
+		rf = testing.MakeResourceFlavor("default").Obj()
+		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())
+
+		cq = testing.MakeClusterQueue("cq").
+			ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+
+		lq = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+	})
+
+	ginkgo.It("should delete the Workload after enabling the ObjectRetentionPolicies feature gate", func() {
+		waitForPodsReady := &configapi.WaitForPodsReady{
+			Enable:          true,
+			BlockAdmission:  ptr.To(true),
+			Timeout:         &metav1.Duration{Duration: util.TinyTimeout},
+			RecoveryTimeout: nil,
+			RequeuingStrategy: &configapi.RequeuingStrategy{
+				Timestamp:          ptr.To(configapi.EvictionTimestamp),
+				BackoffBaseSeconds: ptr.To(int32(1)),
+				BackoffLimitCount:  ptr.To(int32(1)),
+			},
+		}
+
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			cfg.FeatureGates = nil
+			cfg.ObjectRetentionPolicies = nil
+			cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
+		})
+
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			RequestAndLimit(corev1.ResourceCPU, "1").
+			Obj()
+		ginkgo.By("Creating a Job", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		wlKey := types.NamespacedName{
+			Namespace: job.Namespace,
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+		}
+		wl := &kueue.Workload{}
+
+		ginkgo.By("Waiting for the Workload to be deactivated", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.Active).To(gomega.Equal(ptr.To(false)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Enable ObjectRetentionPolicies feature gate", func() {
+			util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+				cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
+				cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterDeactivatedByKueue: &metav1.Duration{Duration: util.TinyTimeout},
+					},
+				}
+				cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
+			})
+		})
+
+		ginkgo.By("Checking that the Job is deleted", func() {
+			createdJob := &batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(testing.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the Workload is deleted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(testing.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+})
+
 var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
@@ -44,7 +140,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
@@ -79,7 +175,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	ginkgo.When("workload has finished", func() {
 		ginkgo.It("should delete the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -109,7 +205,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -117,7 +213,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	ginkgo.When("manually deactivating a Workload", func() {
 		ginkgo.It("shouldn't delete the Job or the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -151,13 +247,13 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the Workload is not deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -172,7 +268,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	)
 
 	ginkgo.BeforeAll(func() {
-		updateKueueConfiguration(func(cfg *configapi.Configuration) {
+		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{

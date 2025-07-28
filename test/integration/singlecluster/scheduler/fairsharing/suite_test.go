@@ -76,10 +76,10 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	admissionFairSharing := &config.AdmissionFairSharing{
 		UsageHalfLifeTime: metav1.Duration{
-			Duration: 250 * time.Microsecond,
+			Duration: 10 * time.Second,
 		},
 		UsageSamplingInterval: metav1.Duration{
-			Duration: 250 * time.Millisecond,
+			Duration: 1 * time.Second,
 		},
 	}
 
@@ -87,7 +87,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	_ = features.SetEnable(features.AdmissionFairSharing, true)
-	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable))
+	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable), cache.WithAdmissionFairSharing(admissionFairSharing))
 	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithAdmissionFairSharing(admissionFairSharing))
 
 	configuration := &config.Configuration{FairSharing: fairSharing, AdmissionFairSharing: admissionFairSharing}
@@ -97,14 +97,14 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithFairSharing(fairSharing))
+		scheduler.WithFairSharing(fairSharing), scheduler.WithAdmissionFairSharing(admissionFairSharing))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

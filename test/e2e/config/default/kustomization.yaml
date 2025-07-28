@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
 - ../../../../config/dev
+- ../../../../config/visibility-apf
 
 replicas:
 - name: kueue-controller-manager

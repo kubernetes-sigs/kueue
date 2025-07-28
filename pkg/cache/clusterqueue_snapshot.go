@@ -18,6 +18,7 @@ package cache
 
 import (
 	"iter"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,12 +37,13 @@ import (
 type ClusterQueueSnapshot struct {
 	Name              kueue.ClusterQueueReference
 	ResourceGroups    []ResourceGroup
-	Workloads         map[string]*workload.Info
-	WorkloadsNotReady sets.Set[string]
+	Workloads         map[workload.Reference]*workload.Info
+	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FairWeight        resource.Quantity
 	FlavorFungibility kueue.FlavorFungibility
+	AdmissionScope    kueue.AdmissionScope
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
@@ -57,7 +59,7 @@ type ClusterQueueSnapshot struct {
 	TASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 	tasOnly    bool
 
-	hasProvRequestAdmissionCheck bool
+	flavorsForProvReqACs sets.Set[kueue.ResourceFlavorReference]
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
@@ -207,17 +209,21 @@ type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
 
 func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	tasRequestsByFlavor WorkloadTASRequests,
-	simulateEmpty bool, wl *kueue.Workload) TASAssignmentsResult {
+	options ...FindTopologyAssignmentsOption,
+) TASAssignmentsResult {
+	opts := &findTopologyAssignmentsOption{}
+	for _, option := range options {
+		option(opts)
+	}
+
 	result := make(TASAssignmentsResult)
 	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor {
 		// We assume the `tasFlavor` is already in the snapshot as this was
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, simulateEmpty, wl)
-		for psName, psAssignment := range flvResult {
-			result[psName] = psAssignment
-		}
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, options...)
+		maps.Copy(result, flvResult)
 	}
 	return result
 }
@@ -226,8 +232,8 @@ func (c *ClusterQueueSnapshot) IsTASOnly() bool {
 	return c.tasOnly
 }
 
-func (c *ClusterQueueSnapshot) HasProvRequestAdmissionCheck() bool {
-	return c.hasProvRequestAdmissionCheck
+func (c *ClusterQueueSnapshot) HasProvRequestAdmissionCheck(rf kueue.ResourceFlavorReference) bool {
+	return c.flavorsForProvReqACs.Has(rf)
 }
 
 // Returns all ancestors starting with parent and ending with root

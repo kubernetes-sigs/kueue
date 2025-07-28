@@ -17,10 +17,14 @@ limitations under the License.
 package util
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -54,19 +58,80 @@ import (
 )
 
 const (
-	// E2eTestAgnHostImageOld is the image used for testing rolling update.
-	E2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
-	// E2eTestAgnHostImage is the image used for testing.
-	E2eTestAgnHostImage = "registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
+	defaultE2eTestAgnHostImageOld = "registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6"
 
 	defaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
 
-func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
+func GetKueueNamespace() string {
+	if ns := os.Getenv("KUEUE_NAMESPACE"); ns != "" {
+		return ns
+	}
+	return configapi.DefaultNamespace
+}
+
+func GetAgnHostImageOld() string {
+	if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE_OLD"); image != "" {
+		return image
+	}
+
+	return defaultE2eTestAgnHostImageOld
+}
+
+func GetAgnHostImage() string {
+	if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE"); image != "" {
+		return image
+	}
+
+	agnhostDockerfilePath := filepath.Join(GetProjectBaseDir(), "hack", "agnhost", "Dockerfile")
+	agnhostImage, err := getDockerImageFromDockerfile(agnhostDockerfilePath)
+	if err != nil {
+		panic(fmt.Errorf("failed to get agnhost image: %v", err))
+	}
+
+	return agnhostImage
+}
+
+func getDockerImageFromDockerfile(filePath string) (string, error) {
+	// Open the Dockerfile
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open Dockerfile: %w", err)
+	}
+	defer file.Close()
+
+	// Read the file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip empty lines or comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Check for FROM instruction
+		if strings.HasPrefix(strings.ToUpper(line), "FROM ") {
+			// Extract the part after "FROM "
+			parts := strings.Fields(line)
+			if len(parts) < 2 {
+				return "", fmt.Errorf("invalid FROM instruction: %s", line)
+			}
+			// The image name is the second field (parts[1])
+			return parts[1], nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading Dockerfile: %w", err)
+	}
+
+	return "", errors.New("no FROM instruction found in Dockerfile")
+}
+
+func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, error) {
 	cfg, err := config.GetConfigWithContext(kContext)
 	if err != nil {
-		fmt.Printf("unable to get kubeconfig for context %q: %s", kContext, err)
-		os.Exit(1)
+		return nil, nil, fmt.Errorf("unable to get kubeconfig for context %q: %w", kContext, err)
 	}
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
@@ -106,7 +171,7 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	return client, cfg
+	return client, cfg, nil
 }
 
 // CreateRestClient creates a *rest.RESTClient using the provided config.
@@ -118,11 +183,10 @@ func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
 	return restClient
 }
 
-func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Interface {
+func CreateVisibilityClient(user string) (visibilityv1beta1.VisibilityV1beta1Interface, error) {
 	cfg, err := config.GetConfigWithContext("")
 	if err != nil {
-		fmt.Printf("unable to get kubeconfig: %s", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to get kubeconfig: %w", err)
 	}
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
@@ -132,16 +196,15 @@ func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Inte
 
 	kueueClient, err := kueueclientset.NewForConfig(cfg)
 	if err != nil {
-		fmt.Printf("unable to create kueue clientset: %s", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to create kueue clientset: %w", err)
 	}
 	visibilityClient := kueueClient.VisibilityV1beta1()
-	return visibilityClient
+	return visibilityClient, nil
 }
 
-func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName, kindClusterName string) {
 	// Export logs before the rollout to preserve logs from the previous version.
-	exportKindLogs(ctx)
+	exportKindLogs(ctx, kindClusterName)
 
 	deployment := &appsv1.Deployment{}
 	var deploymentCondition *appsv1.DeploymentCondition
@@ -172,14 +235,14 @@ func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 }
 
-func exportKindLogs(ctx context.Context) {
+func exportKindLogs(ctx context.Context, kindClusterName string) {
 	// Path to the kind binary
 	kind := os.Getenv("KIND")
 	// Path to the artifacts
 	artifacts := os.Getenv("ARTIFACTS")
 
 	if kind != "" && artifacts != "" {
-		cmd := exec.CommandContext(ctx, kind, "export", "logs", artifacts)
+		cmd := exec.CommandContext(ctx, kind, "export", "logs", "-n", kindClusterName, artifacts)
 		cmd.Stdout = ginkgo.GinkgoWriter
 		cmd.Stderr = ginkgo.GinkgoWriter
 		gomega.Expect(cmd.Run()).To(gomega.Succeed())
@@ -215,7 +278,8 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 }
 
 func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
-	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-controller-manager"}
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	waitForOperatorAvailability(ctx, k8sClient, kcmKey)
 }
 
@@ -254,7 +318,8 @@ func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Cl
 
 func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
 	var kueueCfg configapi.Configuration
-	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-manager-config"}
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
 	configMap := &corev1.ConfigMap{}
 
 	gomega.Expect(k8sClient.Get(ctx, kcmKey, configMap)).To(gomega.Succeed())
@@ -264,7 +329,8 @@ func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *config
 
 func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
 	configMap := &corev1.ConfigMap{}
-	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-manager-config"}
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
 	config, err := yaml.Marshal(kueueCfg)
 
 	gomega.Expect(err).ToNot(gomega.HaveOccurred())
@@ -275,9 +341,10 @@ func ApplyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueue
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func RestartKueueController(ctx context.Context, k8sClient client.Client) {
-	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-controller-manager"}
-	rolloutOperatorDeployment(ctx, k8sClient, kcmKey)
+func RestartKueueController(ctx context.Context, k8sClient client.Client, kindClusterName string) {
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	rolloutOperatorDeployment(ctx, k8sClient, kcmKey, kindClusterName)
 }
 
 func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, activePodsCount, exitCode int, opts ...client.ListOption) {
@@ -338,11 +405,12 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 }
 
 func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string) (string, error) {
-	metricsOutput, _, err := KExecute(ctx, cfg, restClient, configapi.DefaultNamespace, curlPodName, curlContainerName, []string{
+	kueueNS := GetKueueNamespace()
+	metricsOutput, _, err := KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
 		"/bin/sh", "-c",
 		fmt.Sprintf(
 			"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
-			defaultMetricsServiceName, configapi.DefaultNamespace,
+			defaultMetricsServiceName, kueueNS,
 		),
 	})
 	return string(metricsOutput), err
@@ -373,4 +441,13 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, kindClusterName string, applyChanges func(cfg *configapi.Configuration)) {
+	configurationUpdate := time.Now()
+	config = config.DeepCopy()
+	applyChanges(config)
+	ApplyKueueConfiguration(ctx, k8sClient, config)
+	RestartKueueController(ctx, k8sClient, kindClusterName)
+	ginkgo.GinkgoLogr.Info("Kueue configuration updated", "took", time.Since(configurationUpdate))
 }

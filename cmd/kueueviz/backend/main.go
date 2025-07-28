@@ -17,42 +17,37 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"log"
-	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
+	"kueueviz/config"
 	"kueueviz/handlers"
-
-	_ "net/http/pprof"
 )
 
 func main() {
-	viper.AutomaticEnv()
-	// Start pprof server for profiling
-	go func() {
-		log.Println("Starting pprof server on :6060")
-		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
-			log.Fatalf("Error starting pprof server: %v", err)
-		}
-	}()
+	// Initialize server configuration
+	serverConfig := config.NewServerConfig()
 
+	// Setup pprof for development
+	config.SetupPprof()
+
+	// Create Kubernetes client
 	_, dynamicClient, err := createK8sClient()
 	if err != nil {
 		log.Fatalf("Error creating Kubernetes client: %v", err)
 	}
-	r := gin.New()
-	r.Use(gin.Logger())
 
-	if err := r.SetTrustedProxies(nil); err != nil {
-		log.Fatalf("Error setting trusted proxies: %v", err)
+	// Setup Gin engine with middleware
+	r, err := config.SetupGinEngine()
+	if err != nil {
+		log.Fatalf("Error setting up Gin engine: %v", err)
 	}
 
+	// Initialize routes
 	handlers.InitializeWebSocketRoutes(r, dynamicClient)
+	handlers.InitializeAPIRoutes(r, dynamicClient)
 
-	viper.SetDefault("KUEUEVIZ_PORT", "8080")
-	if err := r.Run(fmt.Sprintf(":%s", viper.GetString("KUEUEVIZ_PORT"))); err != nil {
+	// Start server
+	if err := r.Run(serverConfig.GetServerAddress()); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

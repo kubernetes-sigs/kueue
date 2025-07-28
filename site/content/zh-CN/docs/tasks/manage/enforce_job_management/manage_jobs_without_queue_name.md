@@ -42,15 +42,6 @@ managedJobsNamespaceSelector:
     kueue.x-k8s.io/managed-namespace: true
 ```
 
-{{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="Note" color="primary" %}}
-
-`managedJobsNamespaceSelector` 是一个默认启用的 Beta 特性。
-
-你可以通过设置 `ManagedJobsNamespaceSelector` 特性门控来禁用它。
-查看[安装](/zh-CN/docs/installation/#change-the-feature-gates-configuration)指南以获取关于特性门控配置的详细信息。
-{{% /alert %}}
-
 ## 预期行为
 
 在所有匹配命名空间选择器的命名空间中，任何未带有 `kueue.x-k8s.io/queue-name`

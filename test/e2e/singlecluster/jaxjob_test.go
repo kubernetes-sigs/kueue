@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("JAX integration", func() {
 				SetTypeMeta().
 				JAXReplicaSpecsDefault().
 				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
-				Image(kftraining.JAXJobReplicaTypeWorker, util.E2eTestAgnHostImage, util.BehaviorWaitForDeletion).
+				Image(kftraining.JAXJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
@@ -108,14 +109,12 @@ var _ = ginkgo.Describe("JAX integration", func() {
 					g.Expect(workerReplicaStatus.Active).To(gomega.Equal(int32(2)), "Unexpected number of active worker replicas")
 
 					// Ensure JAX job has "Running" condition with status "True"
-					runningConditionFound := false
-					for _, condition := range createdJAX.Status.Conditions {
-						if condition.Type == kftraining.JobRunning && condition.Status == corev1.ConditionTrue {
-							runningConditionFound = true
-							break
-						}
-					}
-					g.Expect(runningConditionFound).To(gomega.BeTrue(), "Running condition with status True not found")
+					g.Expect(createdJAX.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(kftraining.JobCondition{
+							Type:   kftraining.JobRunning,
+							Status: corev1.ConditionTrue,
+						}, cmpopts.IgnoreFields(kftraining.JobCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
+					))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -130,6 +129,13 @@ var _ = ginkgo.Describe("JAX integration", func() {
 
 			ginkgo.By("Check workload is admitted", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("Check workload is finished", func() {
+				// Wait for active pods and terminate them
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
+
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
 			})
 
 			ginkgo.By("Delete the JAX", func() {

@@ -260,14 +260,14 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		return
 	}
 
-	lst := &kueue.WorkloadList{}
-	err := rc.client.List(ctx, lst, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
+	wls := &kueue.WorkloadList{}
+	err := rc.client.List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		log.Error(err, "Listing remote workloads")
 		return
 	}
 
-	for _, remoteWl := range lst.Items {
+	for _, remoteWl := range wls.Items {
 		localWl := &kueue.Workload{}
 		wlLog := log.WithValues("remoteWl", klog.KObj(&remoteWl))
 		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
@@ -422,7 +422,8 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
 		}
 	}
-	return reconcile.Result{}, c.updateStatus(ctx, cluster, true, "Active", "Connected")
+
+	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
 }
 
 func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, bool, error) {

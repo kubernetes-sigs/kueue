@@ -13,3 +13,74 @@ tests:
       - equal:
           path: spec.replicas
           value: 2
+  - it: should set the pod priorityClassName when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        manager:
+          priorityClassName: "foo"
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: foo
+  - it: should not render the pod priorityClassName if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        manager:
+          priorityClassName: ""
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+  - it: should set nodeSelector when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        nodeSelector:
+          disktype: ssd
+          environment: production
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            disktype: ssd
+            environment: production
+  - it: should not render nodeSelector if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        nodeSelector: {}
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+  - it: should set tolerations when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        tolerations:
+          - key: "key1"
+            operator: "Equal"
+            value: "value1"
+            effect: "NoSchedule"
+          - key: "key2"
+            operator: "Exists"
+            effect: "NoExecute"
+    asserts:
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: "key1"
+              operator: "Equal"
+              value: "value1"
+              effect: "NoSchedule"
+            - key: "key2"
+              operator: "Exists"
+              effect: "NoExecute"
+  - it: should not render tolerations if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        tolerations: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.tolerations

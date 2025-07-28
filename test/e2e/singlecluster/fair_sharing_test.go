@@ -93,10 +93,10 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	ginkgo.When("the cluster queue starts borrowing", func() {
 		ginkgo.It("should update the ClusterQueue.status.fairSharing.weightedShare", func() {
 			ginkgo.By("create jobs")
-			for i := 0; i < 4; i++ {
+			for i := range 4 {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
 					Queue(v1beta1.LocalQueueName(lq1.Name)).
-					Image(util.E2eTestAgnHostImage, util.BehaviorExitFast).
+					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 					Parallelism(3).
 					Completions(3).
 					RequestAndLimit("cpu", "1").

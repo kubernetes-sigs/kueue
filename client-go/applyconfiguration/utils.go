@@ -83,6 +83,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ClusterQueueSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
 		return &kueuev1beta1.ClusterQueueStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("Cohort"):
+		return &kueuev1beta1.CohortApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("CohortSpec"):
+		return &kueuev1beta1.CohortSpecApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("CohortStatus"):
+		return &kueuev1beta1.CohortStatusApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FairSharing"):
 		return &kueuev1beta1.FairSharingApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FairSharingStatus"):

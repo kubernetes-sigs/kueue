@@ -258,7 +258,7 @@ func ConcurrentProcessPod(ch <-chan corev1.Pod, jobs uint, f func(p *corev1.Pod)
 	resultCh := make(chan Result)
 
 	wg.Add(int(jobs))
-	for i := 0; i < int(jobs); i++ {
+	for range int(jobs) {
 		go func() {
 			defer wg.Done()
 			for pod := range ch {

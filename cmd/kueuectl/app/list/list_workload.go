@@ -430,21 +430,21 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *v1beta1.Workloa
 	return localQueues, nil
 }
 
-func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.WorkloadList, localQueues map[string]*v1beta1.LocalQueue) (map[string]*visibility.PendingWorkload, error) {
+func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.WorkloadList, localQueues map[string]*v1beta1.LocalQueue) (map[workload.Reference]*visibility.PendingWorkload, error) {
 	var err error
 
-	pendingWorkloads := make(map[string]*visibility.PendingWorkload)
-	pendingWorkloadsSummaries := make(map[string]*visibility.PendingWorkloadsSummary)
+	pendingWorkloads := make(map[workload.Reference]*visibility.PendingWorkload)
+	pendingWorkloadsSummaries := make(map[v1beta1.ClusterQueueReference]*visibility.PendingWorkloadsSummary)
 
 	for _, wl := range list.Items {
 		if !workloadPending(&wl) {
 			continue
 		}
-		var clusterQueueName string
+		var clusterQueueName v1beta1.ClusterQueueReference
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
-			clusterQueueName = string(wl.Status.Admission.ClusterQueue)
+			clusterQueueName = wl.Status.Admission.ClusterQueue
 		} else if lq := localQueues[localQueueKeyForWorkload(&wl)]; lq != nil {
-			clusterQueueName = string(lq.Spec.ClusterQueue)
+			clusterQueueName = lq.Spec.ClusterQueue
 		}
 		if len(clusterQueueName) == 0 {
 			continue
@@ -452,7 +452,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 		pendingWorkloadsSummary, ok := pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {
 			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta1().ClusterQueues().
-				GetPendingWorkloadsSummary(ctx, clusterQueueName, metav1.GetOptions{})
+				GetPendingWorkloadsSummary(ctx, string(clusterQueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}

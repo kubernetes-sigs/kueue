@@ -1,17 +1,8 @@
-# Kueue's helm chart
+# kueue
 
-## Table of Contents
+![Version: 0.13.0](https://img.shields.io/badge/Version-0.13.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.13.0](https://img.shields.io/badge/AppVersion-v0.13.0-informational?style=flat-square)
 
-<!-- toc -->
-- [Kueue's helm chart](#kueues-helm-chart)
-  - [Table of Contents](#table-of-contents)
-    - [Installation](#installation)
-      - [Prerequisites](#prerequisites)
-      - [Installing the chart](#installing-the-chart)
-        - [Install chart using Helm v3.0+](#install-chart-using-helm-v30)
-        - [Verify that controller pods are running properly.](#verify-that-controller-pods-are-running-properly)
-    - [Configuration](#configuration)
-<!-- /toc -->
+Kueue is a set of APIs and controller for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
 ### Installation
 
@@ -37,7 +28,40 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.12.4" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" --create-namespace --namespace=kueue-system
+```
+
+For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
+
+```yaml
+controllerManager:
+  featureGates:
+    - name: TopologyAwareScheduling
+      enabled: true
+  replicas: 2
+  manager:
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi
+      requests:
+        cpu: "2"
+        memory: 2Gi
+```
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" \
+  --create-namespace --namespace=kueue-system \
+  --values overrides.yaml
+```
+
+You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
+
+```bash
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" \
+  --create-namespace --namespace=kueue-system \
+  --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
+  --set "controllerManager.featureGates[0].enabled=true"
 ```
 
 ##### Verify that controller pods are running properly.
@@ -67,34 +91,71 @@ for more information on installing kueue with metrics using our Helm chart.
 
 The following table lists the configurable parameters of the kueue chart and their default values.
 
-| Parameter                                              | Description                                            | Default                                     |
-|--------------------------------------------------------|--------------------------------------------------------|---------------------------------------------|
-| `nameOverride`                                         | override the resource name                             | ``                                          |
-| `fullnameOverride`                                     | override the resource name                             | ``                                          |
-| `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
-| `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
-| `enableKueueViz`                                       | enable KueueViz dashboard                              | `false`                                     |
-| `KueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main` |
-| `KueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main` |
-| `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
-| `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
-| `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
-| `controllerManager.replicas`                           | ControllerManager's replicaCount                       | `1`                                         |
-| `controllerManager.imagePullSecrets`                   | ControllerManager's imagePullSecrets                   | `[]`                                        |
-| `controllerManager.readinessProbe.initialDelaySeconds` | ControllerManager's readinessProbe initialDelaySeconds | `5`                                         |
-| `controllerManager.readinessProbe.periodSeconds`       | ControllerManager's readinessProbe periodSeconds       | `10`                                        |
-| `controllerManager.readinessProbe.timeoutSeconds`      | ControllerManager's readinessProbe timeoutSeconds      | `1`                                         |
-| `controllerManager.readinessProbe.failureThreshold`    | ControllerManager's readinessProbe failureThreshold    | `3`                                         |
-| `controllerManager.readinessProbe.successThreshold`    | ControllerManager's readinessProbe successThreshold    | `1`                                         |
-| `controllerManager.livenessProbe.initialDelaySeconds`  | ControllerManager's livenessProbe initialDelaySeconds  | `15`                                        |
-| `controllerManager.livenessProbe.periodSeconds`        | ControllerManager's livenessProbe periodSeconds        | `20`                                        |
-| `controllerManager.livenessProbe.timeoutSeconds`       | ControllerManager's livenessProbe timeoutSeconds       | `1`                                         |
-| `controllerManager.livenessProbe.failureThreshold`     | ControllerManager's livenessProbe failureThreshold     | `3`                                         |
-| `controllerManager.livenessProbe.successThreshold`     | ControllerManager's livenessProbe successThreshold     | `1`                                         |
-| `kubernetesClusterDomain`                              | kubernetesCluster's Domain                             | `cluster.local`                             |
-| `managerConfig.controllerManagerConfigYaml`            | controllerManagerConfigYaml                            | abbr.                                       |
-| `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
-| `webhookService`                                       | webhookService's ports                                 | abbr.                                       |
-| `mutatingWebhook.reinvocationPolicy`                   | Webhook's reinvocation policy                          | `Never`                                     |
-| `metrics.prometheusNamespace`                          | prometheus namespace                                   | `monitoring`                                |
-| `metrics.serviceMonitor.tlsConfig`                     | service monitor for prometheus                         | abbr.                                       |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
+| controllerManager.imagePullSecrets | list | `[]` | ControllerManager's imagePullSecrets |
+| controllerManager.livenessProbe.failureThreshold | int | `3` | ControllerManager's livenessProbe failureThreshold |
+| controllerManager.livenessProbe.initialDelaySeconds | int | `15` | ControllerManager's livenessProbe initialDelaySeconds |
+| controllerManager.livenessProbe.periodSeconds | int | `20` | ControllerManager's livenessProbe periodSeconds |
+| controllerManager.livenessProbe.successThreshold | int | `1` | ControllerManager's livenessProbe successThreshold |
+| controllerManager.livenessProbe.timeoutSeconds | int | `1` | ControllerManager's livenessProbe timeoutSeconds |
+| controllerManager.manager.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | ControllerManager's container securityContext |
+| controllerManager.manager.image.pullPolicy | string | `"Always"` | ControllerManager's image pullPolicy. This should be set to 'IfNotPresent' for released version |
+| controllerManager.manager.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue"` | ControllerManager's image repository |
+| controllerManager.manager.image.tag | string | `"main"` | ControllerManager's image tag |
+| controllerManager.manager.podAnnotations | object | `{}` |  |
+| controllerManager.manager.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | ControllerManager's pod securityContext |
+| controllerManager.manager.priorityClassName | string | `nil` | ControllerManager's pod priorityClassName |
+| controllerManager.manager.resources | object | `{"limits":{"cpu":"2","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | ControllerManager's pod resources |
+| controllerManager.nodeSelector | object | `{}` | ControllerManager's nodeSelector |
+| controllerManager.podDisruptionBudget.enabled | bool | `false` | Enable PodDisruptionBudget |
+| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's topologySpreadConstraints |
+| controllerManager.readinessProbe.failureThreshold | int | `3` | ControllerManager's readinessProbe failureThreshold |
+| controllerManager.readinessProbe.initialDelaySeconds | int | `5` | ControllerManager's readinessProbe initialDelaySeconds |
+| controllerManager.readinessProbe.periodSeconds | int | `10` | ControllerManager's readinessProbe periodSeconds |
+| controllerManager.readinessProbe.successThreshold | int | `1` | ControllerManager's readinessProbe successThreshold |
+| controllerManager.readinessProbe.timeoutSeconds | int | `1` | ControllerManager's readinessProbe timeoutSeconds |
+| controllerManager.replicas | int | `1` | ControllerManager's replicas count |
+| controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
+| controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
+| enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
+| enableKueueViz | bool | `false` | Enable KueueViz dashboard |
+| enablePrometheus | bool | `false` | Enable Prometheus |
+| enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
+| fullnameOverride | string | `""` | Override the resource name |
+| kubernetesClusterDomain | string | `"cluster.local"` | Kubernetes cluster's domain |
+| kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
+| kueueViz.backend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"` | KueueViz dashboard backend image repository |
+| kueueViz.backend.image.tag | string | `"main"` | KueueViz dashboard backend image tag |
+| kueueViz.backend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard backend deployments. This is useful when the images are in a private registry. |
+| kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
+| kueueViz.backend.ingress.ingressClassName | string | `nil` | KueueViz dashboard backend ingress class name |
+| kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
+| kueueViz.backend.nodeSelector | object | `{}` | KueueViz backend nodeSelector |
+| kueueViz.backend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard backend deployments |
+| kueueViz.backend.tolerations | list | `[]` | KueueViz backend tolerations |
+| kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
+| kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
+| kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
+| kueueViz.frontend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard frontend deployments. This is useful when the images are in a private registry. |
+| kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
+| kueueViz.frontend.ingress.ingressClassName | string | `nil` | KueueViz dashboard frontend ingress class name |
+| kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
+| kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
+| kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard frontend deployments |
+| kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
+| managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
+| metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
+| metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
+| metricsService.annotations | object | `{}` | metricsService's annotations |
+| metricsService.labels | object | `{}` | metricsService's labels |
+| metricsService.ports | list | `[{"name":"https","port":8443,"protocol":"TCP","targetPort":8443}]` | metricsService's ports |
+| metricsService.type | string | `"ClusterIP"` | metricsService's type |
+| mutatingWebhook.reinvocationPolicy | string | `"Never"` | MutatingWebhookConfiguration's reinvocationPolicy |
+| nameOverride | string | `""` | Override the resource name |
+| webhookService.ipDualStack.enabled | bool | `false` | webhookService's ipDualStack enabled |
+| webhookService.ipDualStack.ipFamilies | list | `["IPv6","IPv4"]` | webhookService's ipDualStack ipFamilies |
+| webhookService.ipDualStack.ipFamilyPolicy | string | `"PreferDualStack"` | webhookService's ipDualStack ipFamilyPolicy |
+| webhookService.ports | list | `[{"port":443,"protocol":"TCP","targetPort":9443}]` | webhookService's ports |
+| webhookService.type | string | `"ClusterIP"` | webhookService's type |

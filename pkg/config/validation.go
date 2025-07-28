@@ -241,7 +241,7 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 	// At least one namespace selector must be non-nil and enabled.
 	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
 	hasNamespaceSelector := false
-	if features.Enabled(features.ManagedJobsNamespaceSelector) && c.ManagedJobsNamespaceSelector != nil {
+	if c.ManagedJobsNamespaceSelector != nil {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
 		hasNamespaceSelector = true
 	}
@@ -251,11 +251,7 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 	}
 
 	if !hasNamespaceSelector {
-		if features.Enabled(features.ManagedJobsNamespaceSelector) {
-			allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
-		} else {
-			allErrs = append(allErrs, field.Required(podOptionsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
-		}
+		allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 	}
 
 	return allErrs
@@ -354,14 +350,6 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if !features.Enabled(features.ManagedJobsNamespaceSelector) {
-		return allErrs
-	}
-
-	if c.ManagedJobsNamespaceSelector == nil {
-		return field.ErrorList{field.Required(managedJobsNamespaceSelectorPath, "required when feature gate is enabled")}
-	}
-
 	// The namespace selector must exempt every prohibitedNamespace
 	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
 	if c.Namespace != nil && *c.Namespace != "" {
@@ -390,7 +378,6 @@ func ValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool)
 	}
 	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed),
 		features.Enabled(features.TASProfileLeastFreeCapacity),
-		features.Enabled(features.TASProfileMostFreeCapacity),
 	}
 	enabledProfilesCount := 0
 	for _, enabled := range TASProfilesEnabled {

@@ -4,7 +4,7 @@ timeout: 3000s
 # For each build step, cloudbuild executes a docker container.
 steps:
   # see https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing
-  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20240718-5ef92b5c36'
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20250513-9264efb079'
     entrypoint: make
     args:
       - image-push
@@ -13,9 +13,6 @@ steps:
       - helm-chart-push
       - kueueviz-image-push
     env:
-      - IMAGE_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue
-      - GIT_TAG=$_GIT_TAG
-      - EXTRA_TAG=$_PULL_BASE_REF
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
 substitutions:

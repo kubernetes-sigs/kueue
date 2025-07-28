@@ -35,8 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -99,7 +98,10 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 			&handler.TypedEnqueueRequestForObject[*kueue.Cohort]{},
 			r,
 		)).
-		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      ptr.To(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
@@ -137,8 +139,8 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Cohort is being deleted")
-			r.cache.DeleteCohort(v1beta1.CohortReference(req.Name))
-			r.qManager.DeleteCohort(v1beta1.CohortReference(req.Name))
+			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
+			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -150,7 +152,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
-	return ctrl.Result{}, err
+	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
 func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
@@ -167,7 +169,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	if r.fairSharingEnabled {
 		metrics.ReportCohortWeightedShare(cohort.Name, stats.WeightedShare)
 		if cohort.Status.FairSharing == nil {
-			cohort.Status.FairSharing = &v1beta1.FairSharingStatus{}
+			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
 		cohort.Status.FairSharing.WeightedShare = stats.WeightedShare
 	} else {
@@ -181,7 +183,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	return nil
 }
 
-func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *v1beta1.ClusterQueue) {
+func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
 	// if clusterQueue is nil, it's a delete event.
 	if newCQ == nil {
 		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
@@ -205,7 +207,7 @@ func (h *cohortCqHandler) Delete(context.Context, event.DeleteEvent, workqueue.T
 }
 
 func (h *cohortCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	cq, isCQ := e.Object.(*v1beta1.ClusterQueue)
+	cq, isCQ := e.Object.(*kueue.ClusterQueue)
 	if !isCQ {
 		return
 	}

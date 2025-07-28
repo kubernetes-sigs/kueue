@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -420,7 +419,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority", func() {
 			var betaWls []*kueue.Workload
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				wl := testing.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
 					Queue(kueue.LocalQueueName(betaLQ.Name)).
 					Request(corev1.ResourceCPU, "2").
@@ -871,6 +870,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		})
 
 		ginkgo.It("should allow preempting workloads while borrowing", func() {
@@ -913,7 +913,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 	})
 	ginkgo.Context("In a multi-level cohort", func() {
-		var rootCohort, guaranteedCohort *kueuealpha.Cohort
+		var rootCohort, guaranteedCohort *kueue.Cohort
 		var bestEffortCQ, guaranteedCQ *kueue.ClusterQueue
 		var defaultFlavor *kueue.ResourceFlavor
 
@@ -950,6 +950,15 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, guaranteedCQ)).To(gomega.Succeed())
 		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bestEffortCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, guaranteedCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rootCohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		})
+
 		ginkgo.It("workloads in guaranteed cq should have preferential access to the resources", func() {
 			var bestEffortLQ *kueue.LocalQueue
 			var guaranteedLQ *kueue.LocalQueue

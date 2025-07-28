@@ -23,6 +23,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -60,13 +61,12 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if fromObject(&localJob).IsSuspended() {
-			// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
-			log.V(2).Info("Skipping the sync since the local job is still suspended")
-			return nil
-		}
-
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
+			if fromObject(&localJob).IsSuspended() {
+				// Ensure the job is unsuspended before updating its status; otherwise, it will fail when patching the spec.
+				log.V(2).Info("Skipping the sync since the local job is still suspended")
+				return nil
+			}
 			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = remoteJob.Status
 				return true, nil
@@ -122,7 +122,7 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
 func (b *multiKueueAdapter) KeepAdmissionCheckPending() bool {

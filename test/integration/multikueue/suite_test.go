@@ -18,7 +18,6 @@ package multikueue
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -31,6 +30,7 @@ import (
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -126,7 +126,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedWebhook, err := webhooks.Setup(mgr)
+	failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce))
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -274,7 +274,13 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration, enabledIntegrations sets.Set[string]) {
+func managerAndMultiKueueSetup(
+	ctx context.Context,
+	mgr manager.Manager,
+	gcInterval time.Duration,
+	enabledIntegrations sets.Set[string],
+	dispatcherName string,
+) {
 	managerSetup(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
@@ -288,32 +294,31 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 		multikueue.WithAdapters(adapters),
+		multikueue.WithDispatcherName(dispatcherName),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	var managerFeatureGates []string
-	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
-	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
-		managerFeatureGates = []string{"JobManagedBy=true"}
-	}
-
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}
 		wg.Add(3)
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
 			c := createCluster(nil, managerFeatureGates...)
 			managerTestCluster = c
 		}()
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			c := createCluster(managerSetup)
 			worker1TestCluster = c
 		}()
 		go func() {
+			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 			c := createCluster(managerSetup)
 			worker2TestCluster = c

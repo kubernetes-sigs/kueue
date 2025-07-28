@@ -164,39 +164,37 @@ var (
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 )
 
-type options struct {
-	excessPodExpectations *expectations.Store
-	clock                 clock.Clock
-}
+// PodOption is a function type that modifies a Pod. It allows customization of a Pod's
+// properties during its creation.
+type PodOption func(pod *Pod)
 
-type PodOption func(*options)
-
+// WithExcessPodExpectations sets the excessPodExpectations field of the Pod to the given expectations store.
+// This allows customizing the expectations for excess pods that are tracked by the Pod.
 func WithExcessPodExpectations(store *expectations.Store) PodOption {
-	return func(o *options) {
-		o.excessPodExpectations = store
+	return func(pod *Pod) {
+		pod.excessPodExpectations = store
 	}
 }
 
-func WithClock(c clock.Clock) PodOption {
-	return func(o *options) {
-		o.clock = c
+// WithClock sets the clock field of the Pod to the given clock. This allows the Pod to
+// use a custom clock instead of the default one.
+func WithClock(clock clock.Clock) PodOption {
+	return func(pod *Pod) {
+		pod.clock = clock
 	}
 }
 
-var defaultOptions = options{
-	clock: realClock,
-}
-
+// NewPod creates a new Pod with the provided options. It applies all the given PodOptions
+// to customize the Pod's fields. By default, the Pod is created with a real clock, unless
+// overridden by a WithClock option.
 func NewPod(opts ...PodOption) *Pod {
-	options := defaultOptions
+	pod := &Pod{
+		clock: realClock, // Default clock is set to realClock.
+	}
 	for _, opt := range opts {
-		opt(&options)
+		opt(pod) // Apply each option to the pod.
 	}
-
-	return &Pod{
-		excessPodExpectations: options.excessPodExpectations,
-		clock:                 options.clock,
-	}
+	return pod
 }
 
 func FromObject(o runtime.Object) *Pod {
@@ -225,11 +223,9 @@ func (p *Pod) isUnretriableGroup() bool {
 		return *p.unretriableGroup
 	}
 
-	for _, pod := range p.list.Items {
-		if isUnretriablePod(pod) {
-			p.unretriableGroup = ptr.To(true)
-			return true
-		}
+	if slices.ContainsFunc(p.list.Items, isUnretriablePod) {
+		p.unretriableGroup = ptr.To(true)
+		return true
 	}
 
 	p.unretriableGroup = ptr.To(false)
@@ -387,7 +383,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 // PodSets will build workload podSets corresponding to the job.
 func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 	if !p.isGroup {
-		return constructPodSets(&p.pod), nil
+		return constructPodSets(&p.pod)
 	} else {
 		return p.constructGroupPodSets()
 	}
@@ -644,13 +640,17 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	return constructGroupPodSets(p.list.Items)
 }
 
-func constructPodSets(p *corev1.Pod) []kueue.PodSet {
-	return []kueue.PodSet{
-		constructPodSet(p),
+func constructPodSets(p *corev1.Pod) ([]kueue.PodSet, error) {
+	podSet, err := constructPodSet(p)
+	if err != nil {
+		return nil, err
 	}
+	return []kueue.PodSet{
+		podSet,
+	}, nil
 }
 
-func constructPodSet(p *corev1.Pod) kueue.PodSet {
+func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:  kueue.DefaultPodSetName,
 		Count: 1,
@@ -659,11 +659,15 @@ func constructPodSet(p *corev1.Pod) kueue.PodSet {
 		},
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		podSet.TopologyRequest = jobframework.NewPodSetTopologyRequest(
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
 			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
+		if err != nil {
+			return kueue.PodSet{}, err
+		}
+		podSet.TopologyRequest = topologyRequest
 	}
-	return podSet
+	return podSet, nil
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
@@ -675,7 +679,10 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-		podSets := constructPodSets(&podInGroup)
+		podSets, err := constructPodSets(&podInGroup)
+		if err != nil {
+			return nil, err
+		}
 		podSets[0].Name = kueue.NewPodSetReference(roleHash)
 		podSets[0].Count = int32(groupTotalCount)
 		return podSets, nil
@@ -707,7 +714,10 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		}
 
 		if !podRoleFound {
-			podSet := constructPodSet(&podInGroup)
+			podSet, err := constructPodSet(&podInGroup)
+			if err != nil {
+				return nil, err
+			}
 			podSet.Name = kueue.NewPodSetReference(roleHash)
 
 			resultPodSets = append(resultPodSets, podSet)
@@ -1074,7 +1084,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 
 	// List related workloads for the single pod
 	if err := c.List(ctx, workloads, client.InNamespace(key.Namespace),
-		client.MatchingFields{jobframework.GetOwnerKey(gvk): key.Name}); err != nil {
+		client.MatchingFields{jobframework.OwnerReferenceIndexKey(gvk): key.Name}); err != nil {
 		log.Error(err, "Unable to get related workload for the single pod")
 		return nil, err
 	}

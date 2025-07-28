@@ -6,6 +6,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Entry penalty](#entry-penalty)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
@@ -185,6 +186,31 @@ For each of the Admission Scopes Kueue selects one workload to be attempted. And
 workloads are sorted based on their Preemption-based fair share value. If some of them don't fit,
 fair sharing preemption may be executed. So admission-based fair sharing only reshuffles workloads
 within AdmissionScope and then other mechanisms are applied as usual.
+
+*  Since Kueue v0.13, when picking the candidates for preemption, with AdmissionScope equal ClusterQueue, Kueue orders
+workloads based on the LocalQueue resource usage when considering workloads within the same ClusterQueue. 
+Workloads from different ClusterQueues are not compared against each other using the resource usage dimension.
+
+### Entry penalty
+The mechanism as implemented in Kueue 0.12 can be exploited, because a tenant
+can submit thousands of jobs which get scheduled in a short period of time.
+
+E.g. Let's consider:
+```
+Tenant's A FairSharingStatus: 0.1 CPU
+Tenant's B FairSharingStatus: 0.05 CPU
+usageSamplingInterval: 5mins
+```
+
+Here, all Jobs submitted by Tenant B  within the next 5min get scheduled.
+Even if Tenant B submitted a job that consumed 1000 CPUs, consecutive jobs would still be prioritized because of the delay in updating the status.
+
+Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time it admits a Workload. The penalty should be calculated with the formula: `penalty = A * requested_resource`, where `A` is as above:
+
+`A = 1 - 0.5 ^ (sampling/half_life_decay)`. 
+
+This an equivalent of a job's usage that has been admitted `samplingInterval` ago. The value of penalty is an arbitrary decision for now.
+After we collect customers' feedback, we'll consider introducing an API that allows to configure it.
 
 ### User Stories (Optional)
 #### Story 1

@@ -3,15 +3,15 @@
 KueueViz can be installed using `kubectl` with the following command:
 
 ```
-kubectl create -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.12.4/kueueviz.yaml
+kubectl create -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.13.0/kueueviz.yaml
 ```
 If you are using `kind` and that you don't have an `ingress` controller, you can use `port-forward` to 
 configure and run `KueueViz`:
 
 ```
-kubectl port-forward svc/kueue-kueueviz-backend 8080:8080 &
-kubectl set env deployment kueue-kueueviz-frontend REACT_APP_WEBSOCKET_URL=ws://localhost:8080
-kubectl port-forward svc/kueue-kueueviz-frontend 3000:8080
+kubectl -n kueue-system port-forward svc/kueue-kueueviz-backend 8080:8080 &
+kubectl -n kueue-system set env deployment kueue-kueueviz-frontend REACT_APP_WEBSOCKET_URL=ws://localhost:8080
+kubectl -n kueue-system port-forward svc/kueue-kueueviz-frontend 3000:8080
 ```
 
 `KueueViz` will the be reachable on your browser at: http://localhost:3000
@@ -23,7 +23,7 @@ by ensuring that `enableKueueViz` is set to `true`:
 
 ```
 helm upgrade --install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version="0.12.4"
+  --version="0.13.0"
   --namespace kueue-system \
   --set enableKueueViz=true \
   --create-namespace
@@ -44,7 +44,7 @@ kind create cluster
 kind get kubeconfig > kubeconfig
 export KUBECONFIG=$PWD/kubeconfig
 helm install kueue oci://us-central1-docker.pkg.dev/k8s-staging-images/charts/kueue \
-            --version="0.12.4" --create-namespace --namespace=kueue-system
+            --version="0.13.0" --create-namespace --namespace=kueue-system
 ```
 
 ## Build

@@ -12,6 +12,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 
 - [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
 - [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
+- [Cohort](#kueue-x-k8s-io-v1beta1-Cohort)
 - [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
 - [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
 - [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
@@ -80,6 +81,42 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueueStatus"><code>ClusterQueueStatus</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
+## `Cohort`     {#kueue-x-k8s-io-v1beta1-Cohort}
+    
+
+**Appears in:**
+
+
+
+<p>Cohort defines the Cohorts API.</p>
+<p>Hierarchical Cohorts (any Cohort which has a parent) are compatible
+with Fair Sharing as of v0.11. Using these features together in
+V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Cohort</code></td></tr>
+    
+  
+<tr><td><code>spec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-CohortSpec"><code>CohortSpec</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>status</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-CohortStatus"><code>CohortStatus</code></a>
 </td>
 <td>
    <span class="text-muted">No description provided.</span></td>
@@ -1115,6 +1152,8 @@ This is recorded only when Fair Sharing is enabled in the Kueue configuration.</
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
+- [CohortSpec](#kueue-x-k8s-io-v1beta1-CohortSpec)
+
 
 <p>CohortReference is the name of the Cohort.</p>
 <p>Validation of a cohort name is equivalent to that of object names:
@@ -1122,6 +1161,98 @@ subdomain in DNS (RFC 1123).</p>
 
 
 
+
+## `CohortSpec`     {#kueue-x-k8s-io-v1beta1-CohortSpec}
+    
+
+**Appears in:**
+
+- [Cohort](#kueue-x-k8s-io-v1beta1-Cohort)
+
+
+<p>CohortSpec defines the desired state of Cohort</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>parentName</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
+</td>
+<td>
+   <p>ParentName references the name of the Cohort's parent, if
+any. It satisfies one of three cases:</p>
+<ol>
+<li>Unset. This Cohort is the root of its Cohort tree.</li>
+<li>References a non-existent Cohort. We use default Cohort (no borrowing/lending limits).</li>
+<li>References an existent Cohort.</li>
+</ol>
+<p>If a cycle is created, we disable all members of the
+Cohort, including ClusterQueues, until the cycle is
+removed.  We prevent further admission while the cycle
+exists.</p>
+</td>
+</tr>
+<tr><td><code>resourceGroups</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ResourceGroup"><code>[]ResourceGroup</code></a>
+</td>
+<td>
+   <p>ResourceGroups describes groupings of Resources and
+Flavors.  Each ResourceGroup defines a list of Resources
+and a list of Flavors which provide quotas for these
+Resources. Each Resource and each Flavor may only form part
+of one ResourceGroup.  There may be up to 16 ResourceGroups
+within a Cohort.</p>
+<p>BorrowingLimit limits how much members of this Cohort
+subtree can borrow from the parent subtree.</p>
+<p>LendingLimit limits how much members of this Cohort subtree
+can lend to the parent subtree.</p>
+<p>Borrowing and Lending limits must only be set when the
+Cohort has a parent.  Otherwise, the Cohort create/update
+will be rejected by the webhook.</p>
+</td>
+</tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>fairSharing defines the properties of the Cohort when
+participating in FairSharing. The values are only relevant
+if FairSharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `CohortStatus`     {#kueue-x-k8s-io-v1beta1-CohortStatus}
+    
+
+**Appears in:**
+
+- [Cohort](#kueue-x-k8s-io-v1beta1-Cohort)
+
+
+<p>CohortStatus defines the observed state of Cohort.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
+</td>
+<td>
+   <p>fairSharing contains the current state for this Cohort
+when participating in Fair Sharing.
+The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `DelayedTopologyRequestState`     {#kueue-x-k8s-io-v1beta1-DelayedTopologyRequestState}
     
@@ -1143,6 +1274,8 @@ subdomain in DNS (RFC 1123).</p>
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+- [CohortSpec](#kueue-x-k8s-io-v1beta1-CohortSpec)
 
 - [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
@@ -1184,6 +1317,8 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 **Appears in:**
 
 - [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
+
+- [CohortStatus](#kueue-x-k8s-io-v1beta1-CohortStatus)
 
 - [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
 
@@ -2045,6 +2180,31 @@ within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.i
 For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
 </td>
 </tr>
+<tr><td><code>podSetGroupName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+PodSets with the same <code>PodSetGroupName</code> should be assigned the same ResourceFlavor</p>
+</td>
+</tr>
+<tr><td><code>podSetSliceRequiredTopology</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+indicated by the <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
+</td>
+</tr>
+<tr><td><code>podSetSliceSize</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+Kueue finds a requested topology domain on a level defined
+in <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -2488,6 +2648,8 @@ nodes matching to the Resource Flavor node labels.</p>
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+- [CohortSpec](#kueue-x-k8s-io-v1beta1-CohortSpec)
 
 
 
@@ -3003,6 +3165,24 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
 </td>
 <td>
    <p>schedulingStats tracks scheduling statistics</p>
+</td>
+</tr>
+<tr><td><code>nominatedClusterNames</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+This field is mutually exclusive with the <code>.status.clusterName</code> field, and is reset when
+<code>status.clusterName</code> is set.
+This field is optional.</p>
+</td>
+</tr>
+<tr><td><code>clusterName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>clusterName is the name of the cluster where the workload is actually assigned.
+This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
 </tbody>

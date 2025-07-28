@@ -11,6 +11,7 @@ linters:
     - ginkgolinter
     - gocritic
     - goheader
+    - intrange
     - loggercheck
     - makezero
     - misspell
@@ -63,6 +64,7 @@ linters:
       enable-all-rules: false
       rules:
         - name: context-as-argument
+        - name: deep-exit
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
@@ -89,6 +91,10 @@ linters:
       - linters:
           - fatcontext
         path: ^test/*
+      - linters:
+          - revive
+        path: 'util/*'
+        text: 'var-naming: avoid meaningless package names'
     paths:
       - bin
       - vendor

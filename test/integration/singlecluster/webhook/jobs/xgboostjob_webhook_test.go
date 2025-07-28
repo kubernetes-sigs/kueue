@@ -24,6 +24,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobsxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 	"sigs.k8s.io/kueue/test/util"
@@ -46,22 +47,28 @@ var _ = ginkgo.Describe("XGBoostJob Webhook", ginkgo.Ordered, func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("the creation doesn't succeed if job contain both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations", func() {
-		job := testingjobsxgboostjob.MakeXGBoostJob("job", ns.Name).
-			XGBReplicaSpecs(
-				testingjobsxgboostjob.XGBReplicaSpecRequirement{
-					ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
-					ReplicaCount: 1,
-					Annotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-						kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+	ginkgo.When("with TopologyAwareScheduling enabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+		})
+
+		ginkgo.It("the creation doesn't succeed if job contain both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations", func() {
+			job := testingjobsxgboostjob.MakeXGBoostJob("job", ns.Name).
+				XGBReplicaSpecs(
+					testingjobsxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+						},
 					},
-				},
-			).
-			Queue("lq").
-			Obj()
-		err := k8sClient.Create(ctx, job)
-		gomega.Expect(err).Should(gomega.HaveOccurred())
-		gomega.Expect(err).Should(testing.BeForbiddenError(), "error: %v", err)
+				).
+				Queue("lq").
+				Obj()
+			err := k8sClient.Create(ctx, job)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(testing.BeForbiddenError(), "error: %v", err)
+		})
 	})
 })

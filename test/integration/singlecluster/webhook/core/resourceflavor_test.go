@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -25,7 +26,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
@@ -36,7 +39,15 @@ const (
 	taintsMaxItems            = 8
 )
 
-var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
+var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
@@ -84,13 +95,13 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 
 	ginkgo.DescribeTable("invalid number of properties", func(taintsCount int, nodeSelectorCount int, isInvalid bool) {
 		rf := testing.MakeResourceFlavor("resource-flavor")
-		for i := 0; i < taintsCount; i++ {
+		for i := range taintsCount {
 			rf = rf.Taint(corev1.Taint{
 				Key:    fmt.Sprintf("t%d", i),
 				Effect: corev1.TaintEffectNoExecute,
 			})
 		}
-		for i := 0; i < nodeSelectorCount; i++ {
+		for i := range nodeSelectorCount {
 			rf = rf.NodeLabel(fmt.Sprintf("l%d", i), "")
 		}
 		resourceFlavor := rf.Obj()

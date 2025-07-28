@@ -44,15 +44,11 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.Clus
 				// we add it to the list of TASRequests
 				continue
 			}
-			if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck() {
-				psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
-				continue
-			}
 			isTASImplied := isTASImplied(&podSet, cq)
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i)
 			if err != nil {
 				psAssignment.error(err)
-			} else {
+			} else if psTASRequest != nil {
 				tasRequests[psTASRequest.Flavor] = append(tasRequests[psTASRequest.Flavor], *psTASRequest)
 			}
 		}
@@ -88,6 +84,12 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if err != nil {
 		return nil, err
 	}
+	if !workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr) {
+		// We delay TAS as this is the first scheduling pass, and there is a
+		// ProvisioningRequest admission check used for the flavor.
+		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
+		return nil, nil
+	}
 	if cq.TASFlavors[*tasFlvr] == nil {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information for the assigned flavor")
 	}
@@ -102,6 +104,11 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 			}
 		}
 	}
+	var podSetGroupName *string
+	if podSet.TopologyRequest != nil {
+		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
+	}
+
 	return &cache.TASPodSetRequests{
 		Count:             podCount,
 		SinglePodRequests: singlePodRequests,
@@ -109,6 +116,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetUpdates:     podSetUpdates,
 		Flavor:            *tasFlvr,
 		Implied:           isTASImplied,
+		PodSetGroupName:   podSetGroupName,
 	}, nil
 }
 

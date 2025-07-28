@@ -21,6 +21,9 @@ spec:
         {{- toYaml .Values.controllerManager.manager.podAnnotations | nindent 8 }}
         {{- end }}
     spec:
+      {{- with  .Values.controllerManager.manager.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       containers:
       - args:
         - --config=/controller_manager_config.yaml
@@ -85,6 +88,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: 10
+      {{- with .Values.controllerManager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.controllerManager.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}

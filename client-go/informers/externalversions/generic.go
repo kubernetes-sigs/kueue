@@ -64,6 +64,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().AdmissionChecks().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("clusterqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().ClusterQueues().Informer()}, nil
+	case v1beta1.SchemeGroupVersion.WithResource("cohorts"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().Cohorts().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("localqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().LocalQueues().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("multikueueclusters"):

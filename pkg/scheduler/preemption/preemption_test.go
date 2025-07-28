@@ -33,11 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -278,7 +278,7 @@ func TestPreemption(t *testing.T) {
 	}
 	cases := map[string]struct {
 		clusterQueues       []*kueue.ClusterQueue
-		cohorts             []*kueuealpha.Cohort
+		cohorts             []*kueue.Cohort
 		admitted            []kueue.Workload
 		incoming            *kueue.Workload
 		targetCQ            kueue.ClusterQueueReference
@@ -1779,7 +1779,7 @@ func TestPreemption(t *testing.T) {
 					).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("cohort-left").Parent("root").Obj(),
 				utiltesting.MakeCohort("cohort-right").Parent("root").Obj(),
 			},
@@ -1930,7 +1930,7 @@ func TestFairPreemptions(t *testing.T) {
 	unitWl := *utiltesting.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
-		cohorts       []*kueuealpha.Cohort
+		cohorts       []*kueue.Cohort
 		strategies    []config.PreemptionStrategy
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
@@ -2360,7 +2360,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("0")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("right-cohort").
 					FairWeight(resource.MustParse("0")).
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
@@ -2445,7 +2445,7 @@ func TestFairPreemptions(t *testing.T) {
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 						Resource(corev1.ResourceCPU, "5").Obj()).
@@ -2521,7 +2521,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("0.1")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").Obj(),
 				utiltesting.MakeCohort("RIGHT").Parent("ROOT").
 					FairWeight(resource.MustParse("0.1")).
@@ -2569,7 +2569,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("0.1")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").Obj(),
 				utiltesting.MakeCohort("RIGHT").Parent("ROOT").
 					FairWeight(resource.MustParse("0.1")).
@@ -2621,7 +2621,7 @@ func TestFairPreemptions(t *testing.T) {
 						Resource(corev1.ResourceCPU, "0").Obj()).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("ROOT").Obj(),
 				utiltesting.MakeCohort("A").Parent("ROOT").
 					// we are comparing
@@ -2706,7 +2706,7 @@ func TestFairPreemptions(t *testing.T) {
 					FairWeight(resource.MustParse("1.0")).
 					Obj(),
 			},
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("A").
 					Parent("ROOT").
 					FairWeight(resource.MustParse("0.0")).
@@ -2787,51 +2787,126 @@ func TestFairPreemptions(t *testing.T) {
 	}
 }
 
-func targetKeyReason(key, reason string) string {
+func targetKeyReason(key workload.Reference, reason string) string {
 	return fmt.Sprintf("%s:%s", key, reason)
 }
 func TestCandidatesOrdering(t *testing.T) {
 	now := time.Now()
-	candidates := []*workload.Info{
-		workload.NewInfo(utiltesting.MakeWorkload("high", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Priority(10).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("low", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Priority(-10).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("other", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("other").Obj(), now).
-			Priority(10).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
-			SetOrReplaceCondition(metav1.Condition{
-				Type:               kueue.WorkloadEvicted,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now),
-			}).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("old-a", "").
-			UID("old-a").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("old-b", "").
-			UID("old-b").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("current", "").
-			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now.Add(time.Second)).
-			Obj()),
-	}
-	sort.Slice(candidates, CandidatesOrdering(candidates, "self", now))
-	gotNames := make([]string, len(candidates))
-	for i, c := range candidates {
-		gotNames[i] = workload.Key(c.Obj)
-	}
-	wantCandidates := []string{"/evicted", "/other", "/low", "/current", "/old-a", "/old-b", "/high"}
-	if diff := cmp.Diff(wantCandidates, gotNames); diff != "" {
-		t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
+
+	preemptorCq := "preemptor"
+
+	wlLowUsageLq := workload.NewInfo(utiltesting.MakeWorkload("low_lq_usage", "").
+		Queue("low_usage_lq").
+		ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+		Priority(1).
+		Obj())
+	wlLowUsageLq.LocalQueueFSUsage = ptr.To(0.1)
+
+	wlMidUsageLq := workload.NewInfo(utiltesting.MakeWorkload("mid_lq_usage", "").
+		Queue("mid_usage_lq").
+		ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+		Priority(10).
+		Obj())
+	wlMidUsageLq.LocalQueueFSUsage = ptr.To(0.5)
+
+	wlHighUsageLqDifCQ := workload.NewInfo(utiltesting.MakeWorkload("high_lq_usage_different_cq", "").
+		Queue("high_usage_lq_different_cq").
+		ReserveQuotaAt(utiltesting.MakeAdmission("different_cq").Obj(), now).
+		Priority(1).
+		Obj())
+	wlHighUsageLqDifCQ.LocalQueueFSUsage = ptr.To(1.0)
+
+	cases := map[string]struct {
+		candidates         []workload.Info
+		wantCandidates     []workload.Reference
+		enableFeatureGates []featuregate.Feature
+	}{
+		"workloads sorted by priority": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("high", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("low", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(-10).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"low", "high"},
+		},
+		"evicted workload first": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("other", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"evicted", "other"},
+		},
+		"workload from different CQ first": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("preemptorCq", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Priority(10).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("other", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission("other").Obj(), now).
+					Priority(10).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"other", "preemptorCq"},
+		},
+		"old workloads last": {
+			candidates: []workload.Info{
+				*workload.NewInfo(utiltesting.MakeWorkload("older", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now.Add(-time.Second)).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("younger", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now.Add(time.Second)).
+					Obj()),
+				*workload.NewInfo(utiltesting.MakeWorkload("current", "").
+					ReserveQuotaAt(utiltesting.MakeAdmission(preemptorCq).Obj(), now).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"younger", "current", "older"},
+		},
+		"workloads with higher LQ usage first": {
+			candidates: []workload.Info{
+				*wlLowUsageLq,
+				*wlMidUsageLq,
+			},
+			wantCandidates:     []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
+		},
+		"workloads from different CQ are sorted based on priority and timestamp": {
+			candidates: []workload.Info{
+				*wlMidUsageLq,
+				*wlHighUsageLqDifCQ,
+			},
+			wantCandidates:     []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
+			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
+		}}
+
+	for _, tc := range cases {
+		for _, gate := range tc.enableFeatureGates {
+			features.SetFeatureGateDuringTest(t, gate, true)
+		}
+		sort.Slice(tc.candidates, func(i int, j int) bool {
+			return CandidatesOrdering(&tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
+		})
+		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
+			return workload.Reference(c.Obj.Name)
+		})
+		if diff := cmp.Diff(tc.wantCandidates, got); diff != "" {
+			t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
+		}
 	}
 }
 
@@ -2884,7 +2959,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 	}
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
-		cohorts       []*kueuealpha.Cohort
+		cohorts       []*kueue.Cohort
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
 		targetCQ      kueue.ClusterQueueReference
@@ -2898,7 +2973,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q
 		"preempt with hierarchical advantage": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -2950,7 +3025,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q
 		"avoid queues within nominal quota": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3016,7 +3091,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q(0)
 		"preempt multiple with hierarchical advantage": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3076,7 +3151,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /   \
 		// q(0) q_same_cohort(0)
 		"preempt in cohort and own CQ": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3146,7 +3221,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q(0)
 		"prefer to preempt hierarchical candidate": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3205,7 +3280,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /   \
 		// q(0) q_same_cohort(0)
 		"forced to preempt priority candidate": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3278,7 +3353,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(4)  q_same_cohort(0)
 		//
 		"incoming workload fits in CQ nominal quota": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3346,7 +3421,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(0)  q_same_cohort(0)
 		//
 		"preempt hierarchical and priority candidates": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).Obj(),
@@ -3426,7 +3501,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(0)  q_same_cohort(0)
 		//
 		"preempt hierarchical candidates and inside CQ": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).Obj(),
@@ -3505,7 +3580,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /
 		// q(0)
 		"reclaim nominal quota from lowest priority workload, excluding non-borrowing": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3584,7 +3659,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//     /    \                     |
 		//    q(0)  q_same_cohort(0)   q_other(0)
 		"infeasible preemption all available workloads in pruned subtrees": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3660,7 +3735,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//  /    \
 		// q(0)   q_same_cohort(0)
 		"hiearchical preemption with multiple resources": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").
 					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 						Resource(corev1.ResourceCPU, "3").
@@ -3739,7 +3814,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(0)  q_same_cohort(0)
 		//
 		"prefer to preempt evicted workloads": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3814,7 +3889,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		// q(3, lending limit 2)
 		//
 		"respect lending limits": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c").
 					Parent("r").
@@ -3874,7 +3949,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		//	4: c11, c12, c21, c22, c23, c32, c31
 		//	0: q1, q3, q4, q5
 		"reclaim in complex hierarchy": {
-			cohorts: []*kueuealpha.Cohort{
+			cohorts: []*kueue.Cohort{
 				utiltesting.MakeCohort("r").Obj(),
 				utiltesting.MakeCohort("c11").
 					Parent("r").

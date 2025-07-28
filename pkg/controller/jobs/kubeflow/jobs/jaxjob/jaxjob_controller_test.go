@@ -177,8 +177,10 @@ func TestPodSets(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	testCases := map[string]struct {
-		job      *kftraining.JAXJob
-		wantErrs field.ErrorList
+		job                     *kftraining.JAXJob
+		wantValidationErrs      field.ErrorList
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -202,6 +204,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		"invalid TAS request": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
@@ -216,7 +219,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantErrs: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("spec", "jaxReplicaSpecs").
 						Key("Worker").
@@ -225,16 +228,52 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
+				JAXReplicaSpecs(
+					testingJAXjob.JAXReplicaSpecRequirement{
+						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						},
+					},
+				).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "jaxReplicaSpecs").
+						Key("Worker").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"20", "must not be greater than pod set count 3",
+				),
+			},
+			topologyAwareScheduling: true,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnCreate()); diff != "" {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
+			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate()
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
 			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validate create validation errors list mismatch (-want +got):\n%s", diff)
+			}
 
-			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnUpdate(nil)); diff != "" {
+			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(nil)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validate create validation errors list mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

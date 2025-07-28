@@ -149,7 +149,7 @@ func (w *LeaderWorkerSetWrapper) Replicas(n int32) *LeaderWorkerSetWrapper {
 	return w
 }
 
-// Replicas sets the number of ready replicas of the LeaderWorkerSet.
+// ReadyReplicas sets the number of ready replicas of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) ReadyReplicas(n int32) *LeaderWorkerSetWrapper {
 	w.Status.ReadyReplicas = n
 	return w

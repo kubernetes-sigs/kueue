@@ -40,17 +40,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	ErrCohortNotFound      = errors.New("cohort not found")
-	ErrCohortHasCycle      = errors.New("cohort has a cycle")
-	ErrCqNotFound          = errors.New("cluster queue not found")
-	errQNotFound           = errors.New("queue not found")
-	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
+	ErrCohortNotFound           = errors.New("cohort not found")
+	ErrCohortHasCycle           = errors.New("cohort has a cycle")
+	ErrCqNotFound               = errors.New("cluster queue not found")
+	errQNotFound                = errors.New("queue not found")
+	errWorkloadNotQuotaReserved = errors.New("workload does not have quota reservation by a ClusterQueue")
 )
 
 const (
@@ -59,96 +59,92 @@ const (
 	terminating = metrics.CQStatusTerminating
 )
 
-type options struct {
-	workloadInfoOptions []workload.InfoOption
-	podsReadyTracking   bool
-	fairSharingEnabled  bool
-}
-
 // Option configures the reconciler.
-type Option func(*options)
+type Option func(*Cache)
 
 // WithPodsReadyTracking indicates the cache controller tracks the PodsReady
 // condition for admitted workloads, and allows to block admission of new
 // workloads until all admitted workloads are in the PodsReady condition.
 func WithPodsReadyTracking(f bool) Option {
-	return func(o *options) {
-		o.podsReadyTracking = f
+	return func(c *Cache) {
+		c.podsReadyTracking = f
 	}
 }
 
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
-	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
 	}
 }
 
 // WithResourceTransformations sets the resource transformations.
 func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
-	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceTransformations(transforms))
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithResourceTransformations(transforms))
 	}
 }
 
 func WithFairSharing(enabled bool) Option {
-	return func(o *options) {
-		o.fairSharingEnabled = enabled
+	return func(c *Cache) {
+		c.fairSharingEnabled = enabled
 	}
 }
 
-var defaultOptions = options{}
+func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
+	return func(c *Cache) {
+		c.admissionFairSharing = afs
+	}
+}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client              client.Client
-	assumedWorkloads    map[string]kueue.ClusterQueueReference
-	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	podsReadyTracking   bool
-	admissionChecks     map[kueue.AdmissionCheckReference]AdmissionCheck
-	workloadInfoOptions []workload.InfoOption
-	fairSharingEnabled  bool
+	client               client.Client
+	assumedWorkloads     map[workload.Reference]kueue.ClusterQueueReference
+	resourceFlavors      map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	podsReadyTracking    bool
+	admissionChecks      map[kueue.AdmissionCheckReference]AdmissionCheck
+	workloadInfoOptions  []workload.InfoOption
+	fairSharingEnabled   bool
+	admissionFairSharing *config.AdmissionFairSharing
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
 }
 
-func New(client client.Client, opts ...Option) *Cache {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
+func New(client client.Client, options ...Option) *Cache {
+	cache := &Cache{
+		client:           client,
+		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
+		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:         NewTASCache(client),
 	}
-	c := &Cache{
-		client:              client,
-		assumedWorkloads:    make(map[string]kueue.ClusterQueueReference),
-		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:     make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		podsReadyTracking:   options.podsReadyTracking,
-		workloadInfoOptions: options.workloadInfoOptions,
-		fairSharingEnabled:  options.fairSharingEnabled,
-		hm:                  hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
-		tasCache:            NewTASCache(client),
+	for _, option := range options {
+		option(cache)
 	}
-	c.podsReadyCond.L = &c.RWMutex
-	return c
+	cache.podsReadyCond.L = &cache.RWMutex
+	return cache
 }
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
-		Workloads:           make(map[string]*workload.Info),
-		WorkloadsNotReady:   sets.New[string](),
+		Workloads:           make(map[workload.Reference]*workload.Info),
+		WorkloadsNotReady:   sets.New[workload.Reference](),
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
+		AdmissionScope:      cq.Spec.AdmissionScope,
 
-		workloadsNotAccountedForTAS: sets.New[string](),
+		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
@@ -466,18 +462,26 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 			})
 		}
 	}
+
+	parent := curCq.Parent()
+
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
+
+	// Update cohort resources after deletion
+	if parent != nil {
+		updateCohortTreeResourcesIfNoCycle(parent)
+	}
 }
 
-func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
+func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	c.Lock()
 	defer c.Unlock()
 	cohortName := kueue.CohortReference(apiCohort.Name)
 	c.hm.AddCohort(cohortName)
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
-	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.Parent)
+	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 	return cohort.updateCohort(apiCohort, oldParent)
 }
 
@@ -634,7 +638,7 @@ func (c *Cache) AssumeWorkload(log logr.Logger, w *kueue.Workload) error {
 	defer c.Unlock()
 
 	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotAdmitted
+		return errWorkloadNotQuotaReserved
 	}
 
 	k := workload.Key(w)
@@ -663,7 +667,7 @@ func (c *Cache) ForgetWorkload(log logr.Logger, w *kueue.Workload) error {
 	c.cleanupAssumedState(log, w)
 
 	if !workload.HasQuotaReservation(w) {
-		return errWorkloadNotAdmitted
+		return errWorkloadNotQuotaReserved
 	}
 
 	cq := c.hm.ClusterQueue(w.Status.Admission.ClusterQueue)
@@ -714,7 +718,7 @@ type CohortUsageStats struct {
 	WeightedShare int64
 }
 
-func (c *Cache) CohortStats(cohortObj *kueuealpha.Cohort) (*CohortUsageStats, error) {
+func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 
