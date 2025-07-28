@@ -1,3 +1,14 @@
+## v0.12.5
+
+Changes since `v0.12.4`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Emit the Workload event indicating eviction when LocalQueue is stopped (#5994, @amy)
+- Fix incorrect workload admission after CQ is deleted in a cohort reducing the amount of available quota. The culprit of the issue was that the cached amount of quota was not updated on CQ deletion. (#6026, @amy)
+
 ## v0.12.4
 
 Changes since `v0.12.3`:
