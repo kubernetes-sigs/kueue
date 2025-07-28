@@ -1,37 +1,37 @@
 ---
-title: "Run A RayCluster"
+title: "运行 RayCluster"
 linkTitle: "RayClusters"
 date: 2024-08-07
 weight: 6
-description: >
-  Run a RayCluster on Kueue.
+description: 在启用了 Kueue 的环境里运行 RayClusters
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayCluster](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html).
+本页面展示了如何利用 Kueue 的调度和服务管理能力来运行 [RayCluster](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html)。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user)，他们需要对 Kueue 有基本的了解。
+更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
+1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.1.0 或更高版本。
 
-2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+2. 请参见 [Administer cluster quotas](/zh-CN/docs/tasks/manage/administer_cluster_quotas)
+   了解初始 Kueue 设置的详细信息。
 
-3. See [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator) for installation and configuration details of KubeRay.
+3. 请参见 [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator)
+   了解 KubeRay 的安装和配置详情。
 
-{{% alert title="Note" color="primary" %}}
-In order to use RayCluster, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
+{{% alert title="注意" color="primary" %}}
+在 v0.8.1 之前，你需要重启 Kueue 才能使用 RayCluster。你可以通过运行 `kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
 {{% /alert %}}
 
-## RayCluster definition
+## RayCluster 定义 {#raycluster-definition}
 
-When running [RayClusters](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html) on
-Kueue, take into consideration the following aspects:
+当在 Kueue 上运行 [RayClusters](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html)时，请考虑以下方面：
 
-### a. Queue selection
+### a. 队列选择 {#a-queue-selection}
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the RayCluster configuration.
+目标 [本地队列](/zh-CN/docs/concepts/local_queue)应在 RayCluster 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:
@@ -39,9 +39,9 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Configure the resource needs
+### b. 配置资源需求 {#b-configure-the-resource-needs}
 
-The resource needs of the workload can be configured in the `spec`.
+工作负载的资源需求可以在 `spec` 中配置。
 
 ```yaml
 spec:
@@ -61,21 +61,22 @@ spec:
                   cpu: "1"
 ```
 
-Note that a RayCluster will hold resource quotas while it exists. For optimal resource management, you should delete a RayCluster that is no longer in use.
+请注意，RayCluster 在存在期间会占用资源配额。为了优化资源管理，你应该删除不再使用的 RayCluster。
 
-### c. Limitations
-- Limited Worker Groups: Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.workerGroupSpecs` is 7
-- In-Tree Autoscaling Disabled: Kueue manages resource allocation for the RayCluster; therefore, the cluster's internal autoscaling mechanisms need to be disabled
+### c. 限制 {#c-limitations}
+- 有限的 Worker Groups：由于 Kueue 工作负载最多可以有 8 个 PodSets，`spec.workerGroupSpecs` 的最大数量为 7
+- 内建自动扩缩禁用：Kueue 管理 RayCluster 的资源分配；因此，集群的内部自动扩缩机制需要禁用
 
-## Example RayCluster
+## 示例 {#examples} RayCluster
 
-The RayCluster looks like the following:
+RayCluster 如下所示：
 
 {{< include "examples/jobs/ray-cluster-sample.yaml" "yaml" >}}
 
-You can submit a Ray Job using the [CLI](https://docs.ray.io/en/latest/cluster/running-applications/job-submission/quickstart.html) or log into the Ray Head and execute a job following this [example](https://ray-project.github.io/kuberay/deploy/helm-cluster/#end-to-end-example) with kind cluster.
+你可以使用 [CLI](https://docs.ray.io/en/latest/cluster/running-applications/job-submission/quickstart.html)
+提交 Ray Job，或者登录 Ray Head 并按照此 [示例](https://ray-project.github.io/kuberay/deploy/helm-cluster/#end-to-end-example)在 kind 集群中执行作业。
 
-{{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-cluster.complete.yaml)
-and only has the `queue-name` label added and requests updated.
+{{% alert title="注意" color="primary" %}}
+上述示例来自 [这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-cluster.complete.yaml)，
+仅添加了 `queue-name` 标签并更新了请求。
 {{% /alert %}}
