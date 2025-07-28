@@ -17,10 +17,6 @@ enableKueueViz: false
 # -- Kubernetes cluster's domain
 kubernetesClusterDomain: cluster.local
 controllerManager:
-  # -- ControllerManager's feature gates
-  featureGates: []
-  #  - name: PartialAdmission
-  #    enabled: true
   manager:
     # -- ControllerManager's pod priorityClassName
     priorityClassName:
@@ -176,6 +172,8 @@ managerConfig:
     #   outputs:
     #     example.com/accelerator-memory: 5Gi
     #     example.com/accelerator-gpc: 4
+    #featureGates:
+    #  TopologyAwareScheduling: true
     #objectRetentionPolicies:
     #  workloads:
     #    afterFinished: null # null indicates infinite retention, 0s means no retention at all
