@@ -205,35 +205,81 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
 					Items: []kueue.Workload{
-						*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).Obj(),
-						*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).Obj(),
-						*testWorkload("test-0", testJobObject.Name, testJobObject.UID, now.Add(-time.Hour)).Finished().Obj(),
-						*testWorkload("test-4", "some-other-job", uuid.NewUUID(), now).Obj(),
+						*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).ResourceVersion("200").Obj(),
+						*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).ResourceVersion("100").Obj(),
+						*testWorkload("test-0", testJobObject.Name, testJobObject.UID, now.Add(-time.Hour)).ResourceVersion("10").Finished().Obj(),
+						*testWorkload("test-4", "some-other-job", uuid.NewUUID(), now).ResourceVersion("100").Obj(),
 					},
 				}).Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: []kueue.Workload{
-				*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).Obj(),
-				*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).Obj(),
+				*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).ResourceVersion("100").Obj(),
+				*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).ResourceVersion("200").Obj(),
 			},
 		},
-		"TwoActiveWorkloadsSelectNotReplaced": {
+		"TwoActiveWorkloads_WithoutTimestampCollision": {
 			args: args{
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
+					// Note: the workloads names and order is deliberate to assert that workloads are sorted
+					// by creating timestamp and then (on collision) by the tiebreaker.
+					//
+					// Also note: we are deliberately using identical resourceVersion value to emphasize that
+					// resourceVersion comes into play only with creationTimestamp collision.
 					Items: []kueue.Workload{
-						*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).
-							Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-2"))).Obj(),
-						*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now).Obj(),
+						*testWorkload("test-22", testJobObject.Name, testJobObject.UID, now).
+							ResourceVersion("200").
+							Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-21"))).
+							Obj(),
+						*testWorkload("test-21", testJobObject.Name, testJobObject.UID, now.Add(-time.Second)).
+							ResourceVersion("100").
+							Obj(),
 					},
 				}).Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: []kueue.Workload{
-				*testWorkload("test-1", testJobObject.Name, testJobObject.UID, now).Obj(),
+				*testWorkload("test-21", testJobObject.Name, testJobObject.UID, now.Add(-time.Second)).
+					ResourceVersion("100").
+					Obj(),
+				*testWorkload("test-22", testJobObject.Name, testJobObject.UID, now).
+					ResourceVersion("200").
+					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-21"))).
+					Obj(),
+			},
+		},
+		"TwoActiveWorkloads_TimestampCollision": {
+			args: args{
+				ctx: t.Context(),
+				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
+					// Note: the workloads names and order is deliberate to assert that workloads are sorted
+					// by creating timestamp and then (on collision) by the tiebreaker.
+					Items: []kueue.Workload{
+						*testWorkload("test-22", testJobObject.Name, testJobObject.UID, now).
+							ResourceVersion("200").
+							Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-21"))).
+							Obj(),
+						*testWorkload("test-21", testJobObject.Name, testJobObject.UID, now).
+							ResourceVersion("100").
+							Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-20"))).
+							Obj(),
+					},
+				}).Build(),
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: []kueue.Workload{
+				*testWorkload("test-21", testJobObject.Name, testJobObject.UID, now).
+					ResourceVersion("100").
+					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-20"))).
+					Obj(),
+				*testWorkload("test-22", testJobObject.Name, testJobObject.UID, now).
+					ResourceVersion("200").
+					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", "test-21"))).
+					Obj(),
 			},
 		},
 	}
