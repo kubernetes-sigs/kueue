@@ -18,6 +18,7 @@ export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
+export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
@@ -193,7 +194,7 @@ function deploy_with_certmanager() {
     crd_backup="$(<"$crd_kust")"
     local default_backup
     default_backup="$(<"$default_kust")"
-    
+
     (
         cd "${ROOT_DIR}/config/components/crd" || exit
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
@@ -207,9 +208,9 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
     )
+
+    build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
     printf "%s\n" "$default_backup" > "$default_kust"
@@ -221,11 +222,29 @@ function cluster_kueue_deploy {
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
             --timeout=5m
-        
-        deploy_with_certmanager "$1"
+        if [ "$E2E_USE_HELM" == 'true' ]; then
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml"
+        else
+            deploy_with_certmanager "$1"
+        fi
+    elif [ "$E2E_USE_HELM" == 'true' ]; then
+        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
+}
+
+# $1 kubeconfig
+# $2 values file
+function helm_install {
+    $HELM install \
+      -f "$2" \
+      --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
+      --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
+      --create-namespace \
+      --namespace kueue-system \
+      --kubeconfig "$1" \
+      kueue "${ROOT_DIR}/charts/kueue"
 }
 
 # $1 kubeconfig 
