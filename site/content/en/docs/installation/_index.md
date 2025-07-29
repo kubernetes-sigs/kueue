@@ -295,6 +295,7 @@ spec:
 | `AdmissionFairSharing`                | `false` | Alpha | 0.12  |       |
 | `TASFailedNodeReplacementFailFast`    | `false` | Alpha | 0.12  |       |
 | `TASReplaceNodeOnPodTermination`      | `false` | Alpha | 0.13  |       |
+| `RemoveFinalizersWithStrictPatch`     | `true`  | Beta  | 0.14  |       |
 
 ### Feature gates for graduated or deprecated features
 
