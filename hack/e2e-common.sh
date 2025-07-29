@@ -223,29 +223,28 @@ function cluster_kueue_deploy {
             -l app.kubernetes.io/instance=cert-manager \
             --timeout=5m
         if [ "$E2E_USE_HELM" == 'true' ]; then
-            $HELM install \
-              -f "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml" \
-              --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
-              --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
-              --create-namespace \
-              --namespace kueue-system \
-              --kubeconfig "$1" \
-              kueue "${ROOT_DIR}/charts/kueue"
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml"
         else
             deploy_with_certmanager "$1"
         fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
-        $HELM install \
-          -f "${ROOT_DIR}/test/e2e/config/default/values.yaml" \
-          --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
-          --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
-          --create-namespace \
-          --namespace kueue-system \
-          --kubeconfig "$1" \
-          kueue "${ROOT_DIR}/charts/kueue"
+        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
+}
+
+# $1 kubeconfig
+# $2 values file
+function helm_install {
+    $HELM install \
+      -f "$2" \
+      --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
+      --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
+      --create-namespace \
+      --namespace kueue-system \
+      --kubeconfig "$1" \
+      kueue "${ROOT_DIR}/charts/kueue"
 }
 
 # $1 kubeconfig 
