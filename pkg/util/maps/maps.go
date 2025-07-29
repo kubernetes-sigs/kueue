@@ -19,6 +19,7 @@ package maps
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -125,4 +126,10 @@ func (dwc *SyncMap[K, V]) Delete(k K) {
 	dwc.lock.Lock()
 	defer dwc.lock.Unlock()
 	delete(dwc.m, k)
+}
+
+func (dwc *SyncMap[K, V]) Keys() []K {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	return slices.Collect(maps.Keys(dwc.m))
 }
