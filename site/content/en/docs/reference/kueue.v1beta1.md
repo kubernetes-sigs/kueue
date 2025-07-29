@@ -1205,6 +1205,12 @@ and a list of Flavors which provide quotas for these
 Resources. Each Resource and each Flavor may only form part
 of one ResourceGroup.  There may be up to 16 ResourceGroups
 within a Cohort.</p>
+<p>Please note that nominalQuota defined at the Cohort level
+represents additional resources on top of those defined by
+ClusterQueues within the Cohort. The Cohort's nominalQuota
+may be thought of as a shared pool for the ClusterQueues
+within it. Additionally, this quota may also be lent out to
+parent Cohort(s), subject to LendingLimit.</p>
 <p>BorrowingLimit limits how much members of this Cohort
 subtree can borrow from the parent subtree.</p>
 <p>LendingLimit limits how much members of this Cohort subtree
