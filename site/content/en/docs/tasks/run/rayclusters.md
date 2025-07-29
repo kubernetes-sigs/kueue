@@ -64,8 +64,18 @@ spec:
 Note that a RayCluster will hold resource quotas while it exists. For optimal resource management, you should delete a RayCluster that is no longer in use.
 
 ### c. Limitations
-- Limited Worker Groups: Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.workerGroupSpecs` is 7
-- In-Tree Autoscaling Disabled: Kueue manages resource allocation for the RayCluster; therefore, the cluster's internal autoscaling mechanisms need to be disabled
+
+Kueue supports autoscaling for RayCluster objects if you enable the integration of Kueue with [plain pods](/docs/tasks/run/plain_pods/).
+
+- **If you opt in to Kueue managing plain Pods**, you can enable RayCluster’s autoscaling by setting `spec.rayClusterSpec.enableInTreeAutoscaling` to `true`.
+
+  In this configuration, KubeRay handles autoscaling, and Kueue creates one Workload object per worker Pod. You can define **any number** of worker groups in `spec.workerGroupSpecs`.
+
+- **If you do not opt in to Kueue managing plain Pods**, you must disable RayCluster’s autoscaling by setting `spec.rayClusterSpec.enableInTreeAutoscaling` to `false`.
+
+  In this configuration, Kueue manages resource allocation for the entire RayCluster. You must also **limit the number of worker groups**. Since a Kueue Workload supports a maximum of 8 PodSets, your RayCluster can include **at most 7** entries in the `spec.workerGroupSpecs` field.
+
+The default value of `spec.rayClusterSpec.enableInTreeAutoscaling` in RayCluster objects is `false`.
 
 ## Example RayCluster
 
