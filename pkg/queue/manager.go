@@ -808,11 +808,19 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
 	}
 }
 
-func (m *Manager) HeapifyAllClusterQueues() {
+func (m *Manager) HeapifyClusterQueuesWithEntryPenalties() {
 	m.Lock()
 	defer m.Unlock()
-	for _, cq := range m.hm.ClusterQueues() {
-		if cq != nil {
+
+	clusterQueuesWithPenalties := sets.New[kueue.ClusterQueueReference]()
+	for _, lqKey := range m.afsEntryPenalties.GetLocalQueueKeysWithPenalties() {
+		if lq, exists := m.localQueues[lqKey]; exists {
+			clusterQueuesWithPenalties.Insert(lq.ClusterQueue)
+		}
+	}
+
+	for cqName := range clusterQueuesWithPenalties {
+		if cq := m.hm.ClusterQueue(cqName); cq != nil {
 			cq.HeapifyAll()
 		}
 	}
