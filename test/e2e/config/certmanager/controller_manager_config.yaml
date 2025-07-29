@@ -21,17 +21,4 @@ clientConnection:
   burst: 100
 integrations:
   frameworks:
-  - "batch/job"
-  - "kubeflow.org/mpijob"
-  - "ray.io/rayjob"
-  - "ray.io/raycluster"
-  - "jobset.x-k8s.io/jobset"
-  - "kubeflow.org/paddlejob"
-  - "kubeflow.org/pytorchjob"
-  - "kubeflow.org/tfjob"
-  - "kubeflow.org/xgboostjob"
-  - "workload.codeflare.dev/appwrapper"
-  - "pod"
-  - "deployment"
-  - "statefulset"
-  - "leaderworkerset.x-k8s.io/leaderworkerset"
+    - "batch/job"
