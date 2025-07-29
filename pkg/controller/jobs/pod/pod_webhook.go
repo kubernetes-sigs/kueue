@@ -127,6 +127,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
+
 	_, suspend := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
 	if !suspend {
 		// Namespace filtering
