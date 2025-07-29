@@ -1094,6 +1094,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 
 func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
+
 	groupName := podGroupName(p.pod)
 	if groupName == "" {
 		return jobframework.FindMatchingWorkloads(ctx, c, p)
@@ -1122,6 +1123,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
 	var replacedInactivePods []corev1.Pod
+
 	for _, ps := range workload.Spec.PodSets {
 		// Find all the active and inactive pods of the role
 		var roleHashErrors []error
@@ -1183,6 +1185,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	if err := p.removeExcessPods(ctx, c, r, excessActivePods); err != nil {
 		return nil, nil, err
 	}
+
 	if err := p.finalizePods(ctx, c, replacedInactivePods); err != nil {
 		return nil, nil, err
 	}
