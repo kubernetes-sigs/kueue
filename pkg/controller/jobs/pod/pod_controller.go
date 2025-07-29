@@ -1084,26 +1084,15 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 
 func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
-	fmt.Println("looking for matching workloads")
 	groupName := podGroupName(p.pod)
-	fmt.Println("group name is : ", groupName)
 	if groupName == "" {
 		return jobframework.FindMatchingWorkloads(ctx, c, p)
 	}
 
 	// Find a matching workload first if there is one.
 	workload := &kueue.Workload{}
-	allWorkloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, allWorkloads); err != nil {
-		fmt.Println("listing all workloads failed miserably")
-	}
-	fmt.Println("there are total of: ", len(allWorkloads.Items), "items")
-	for _, w := range allWorkloads.Items {
-		fmt.Println("workload exists with name: ", w.Name)
-	}
 	if err := c.Get(ctx, types.NamespacedName{Name: groupName, Namespace: p.pod.GetNamespace()}, workload); err != nil {
 		if apierrors.IsNotFound(err) {
-			fmt.Println("Get returned not found")
 			return nil, nil, nil
 		}
 		log.Error(err, "Unable to get related workload")
@@ -1112,7 +1101,6 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 
 	defaultDuration := int32(-1)
 	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
-		fmt.Println("returning here dupa1")
 		return nil, []*kueue.Workload{workload}, nil
 	}
 
@@ -1124,38 +1112,20 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
 	var replacedInactivePods []corev1.Pod
-	fmt.Println("considering workload: ", workload.Name)
-	// fmt.Println("workload.Spec.PodSets: ", workload.Spec.PodSets)
 	for _, ps := range workload.Spec.PodSets {
-		fmt.Println("iterating through podSets with ps: ", ps.Name, ps.Count)
 		// Find all the active and inactive pods of the role
 		var roleHashErrors []error
 		hasRoleFunc := func(p *corev1.Pod) bool {
-			fmt.Println(p.Annotations)
-			fmt.Println("checking role func for pod: ", p.Name)
 			hash, err := getRoleHash(*p)
 			if err != nil {
 				roleHashErrors = append(roleHashErrors, err)
 				return false
 			}
-			fmt.Println("hash, string(ps.Name) is:", hash, string(ps.Name))
 			return hash == string(ps.Name)
 		}
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
-		// if _, ok := pod.Annotations[podconstants.RoleHashAnnotation]; !ok {
-		// 	p.addRoleHash()
-		// }
-		fmt.Println("role active pods: ", len(roleActivePods))
-		for _, pod := range roleActivePods {
-			fmt.Println("role active pod: ", pod.Name)
-		}
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
-		fmt.Println("role inactive pods: ", len(roleInactivePods))
-		for _, name := range roleInactivePods {
-			fmt.Println("role inactive pod: ", name.Name)
-		}
 		if len(roleHashErrors) > 0 {
-			fmt.Println("role hash error")
 			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
 		}
 
@@ -1182,37 +1152,30 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 
 	jobPodSets, err := constructGroupPodSets(keptPods)
 	if err != nil {
-		fmt.Println("construction of group pod sets failed")
 		return nil, nil, err
 	}
 
 	if len(keptPods) == 0 || !p.equivalentToWorkload(workload, jobPodSets) {
-		fmt.Println("returning here dupa2 with len(keptPods)", len(keptPods))
 		return nil, []*kueue.Workload{workload}, nil
 	}
 
 	// Do not clean up more pods until observing previous operations
 	if !p.satisfiedExcessPods {
-		fmt.Println("returning here dupa3")
 		return nil, nil, errPendingOps
 	}
 
 	p.absentPods = absentPods
 	p.list.Items = keptPods
 	if err := p.EnsureWorkloadOwnedByAllMembers(ctx, c, r, workload); err != nil {
-		fmt.Println("workload not owned by all members")
 		return nil, nil, err
 	}
 
 	if err := p.removeExcessPods(ctx, c, r, excessActivePods); err != nil {
-		fmt.Println("removing excess pods failed")
 		return nil, nil, err
 	}
-	fmt.Println("about to finalize pods")
 	if err := p.finalizePods(ctx, c, replacedInactivePods); err != nil {
 		return nil, nil, err
 	}
-	fmt.Println("completed sucessfulu, workload found: ", workload.Name)
 	return workload, []*kueue.Workload{}, nil
 }
 
