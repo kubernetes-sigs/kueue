@@ -107,6 +107,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -121,6 +122,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -134,6 +136,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -152,6 +155,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -362,6 +366,7 @@ func TestDefault(t *testing.T) {
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
 				ManagedByKueueLabel().
 				KueueFinalizer().
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				Obj(),
@@ -384,6 +389,7 @@ func TestDefault(t *testing.T) {
 				Label("test-label", "test-value").
 				Label(kueuealpha.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				TopologySchedulingGate().
@@ -401,6 +407,7 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -428,6 +435,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -442,6 +450,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -467,6 +476,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("queue").
 				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -494,6 +504,7 @@ func TestDefault(t *testing.T) {
 				Label(corev1.LabelMetadataName, "test-pod").
 				Queue("queue").
 				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
