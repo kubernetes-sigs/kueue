@@ -472,17 +472,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
 		} else {
-			var leader *TASPodSetRequests = nil
-
-			workers := trs[0]
-			if len(trs) > 1 {
-				leader = &trs[1]
-
-				if leader.Count > workers.Count {
-					leader = &trs[0]
-					workers = trs[1]
-				}
-			}
+			leader, workers := findLeaderAndWorkers(trs)
 
 			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "")
 			for _, tr := range trs {
@@ -500,6 +490,21 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 	}
 
 	return result
+}
+
+func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetRequests) {
+	var leader *TASPodSetRequests = nil
+
+	workers := trs[0]
+	if len(trs) > 1 {
+		leader = &trs[1]
+
+		if leader.Count > workers.Count {
+			leader = &trs[0]
+			workers = trs[1]
+		}
+	}
+	return leader, workers
 }
 
 // findReplacementAssignment finds the topology assignment for the replacement node
