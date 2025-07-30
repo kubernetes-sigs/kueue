@@ -245,7 +245,7 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	acs.State = status
 	acs.Message = message
 	acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-	wlPatch := workload.BaseSSAWorkload(wl)
+	wlPatch := workload.BaseSSAWorkload(wl, true)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
 	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 }
@@ -357,7 +357,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		// copy the status to the local one
-		wlPatch := workload.BaseSSAWorkload(group.local)
+		wlPatch := workload.BaseSSAWorkload(group.local, false)
 		apimeta.SetStatusCondition(&wlPatch.Status.Conditions, metav1.Condition{
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
@@ -430,7 +430,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.State = kueue.CheckStateRetry
 			acs.Message = "Reserving remote lost"
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-			wlPatch := workload.BaseSSAWorkload(group.local)
+			wlPatch := workload.BaseSSAWorkload(group.local, true)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
 			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 		}

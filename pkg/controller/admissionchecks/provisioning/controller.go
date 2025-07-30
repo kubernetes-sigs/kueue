@@ -327,7 +327,7 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 	c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 
 	ac.Message = api.TruncateConditionMessage(msg)
-	wlPatch := workload.BaseSSAWorkload(wl)
+	wlPatch := workload.BaseSSAWorkload(wl, true)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *ac, c.clock)
 
 	patchErr := c.client.Status().Patch(
@@ -498,7 +498,7 @@ func (c *Controller) syncCheckStates(
 	log := ctrl.LoggerFrom(ctx)
 	wlInfo.update(wl, c.clock)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
-	wlPatch := workload.BaseSSAWorkload(wl)
+	wlPatch := workload.BaseSSAWorkload(wl, true)
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
 	for check, prc := range checkConfig {
