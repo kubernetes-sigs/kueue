@@ -77,7 +77,7 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		if err := client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 			return info, err
 		}
-		info.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, flv.Spec.NodeLabels)
+		maps.Copy(info.NodeSelector, flv.Spec.NodeLabels)
 		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)
 
 		processedFlvs.Insert(flvRef)
@@ -118,9 +118,18 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	if err := utilmaps.HaveConflict(podSetInfo.NodeSelector, o.NodeSelector); err != nil {
 		return BadPodSetsUpdateError("nodeSelector", err)
 	}
-	podSetInfo.Annotations = utilmaps.MergeKeepFirst(podSetInfo.Annotations, o.Annotations)
-	podSetInfo.Labels = utilmaps.MergeKeepFirst(podSetInfo.Labels, o.Labels)
-	podSetInfo.NodeSelector = utilmaps.MergeKeepFirst(podSetInfo.NodeSelector, o.NodeSelector)
+	if podSetInfo.Annotations == nil && o.Annotations != nil {
+		podSetInfo.Annotations = make(map[string]string, len(o.Annotations))
+	}
+	maps.Copy(podSetInfo.Annotations, o.Annotations)
+	if podSetInfo.Labels == nil && o.Labels != nil {
+		podSetInfo.Labels = make(map[string]string, len(o.Labels))
+	}
+	maps.Copy(podSetInfo.Labels, o.Labels)
+	if podSetInfo.NodeSelector == nil && o.NodeSelector != nil {
+		podSetInfo.NodeSelector = make(map[string]string, len(o.NodeSelector))
+	}
+	maps.Copy(podSetInfo.NodeSelector, o.NodeSelector)
 
 	// make sure we don't duplicate tolerations
 	for _, t := range o.Tolerations {
