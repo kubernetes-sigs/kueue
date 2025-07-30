@@ -917,6 +917,54 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
+		for i := range 300 {
+			ginkgo.FIt(fmt.Sprintf("Admission checks for an evicted workload are Pending %d", i), func() {
+				// Repro for https://github.com/kubernetes-sigs/kueue/issues/5129
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
+						g.Expect(util.SetQuotaReservation(ctx, k8sClient, &updatedWl, admission)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Setting the provision request-1 as Failed", func() {
+					provReqKey := types.NamespacedName{
+						Namespace: wlKey.Namespace,
+						Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+					}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Failed,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the Workload is Evicted", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
+						g.Expect(evicted).To(gomega.BeTrue())
+					}, util.Timeout, time.Millisecond).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the AdmissionChecks are reset to Pending and remain this way", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+						g.Expect(check).NotTo(gomega.BeNil())
+						g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending), fmt.Sprintf("workload status: %v, conditions: %v", updatedWl.Status, updatedWl.Status.Conditions))
+						check = workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(readyAC.Name))
+						g.Expect(check).NotTo(gomega.BeNil())
+						g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+		}
+
 		ginkgo.It("Should retry if a ProvisioningRequest fails, then succeed if the second Provisioning request succeeds", func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
