@@ -546,7 +546,7 @@ func UpdateStatus(ctx context.Context,
 		ObservedGeneration: wl.Generation,
 	}
 
-	newWl := BaseSSAWorkload(wl)
+	newWl := BaseSSAWorkload(wl, false)
 	newWl.Status.Conditions = []metav1.Condition{condition}
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
@@ -650,7 +650,7 @@ func workloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
 // BaseSSAWorkload creates a new object based on the input workload that
 // only contains the fields necessary to identify the original object.
 // The object can be used in as a base for Server-Side-Apply.
-func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
+func BaseSSAWorkload(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:         w.UID,
@@ -667,6 +667,9 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	}
 	if wlCopy.Kind == "" {
 		wlCopy.Kind = "Workload"
+	}
+	if strict {
+		wlCopy.ResourceVersion = w.ResourceVersion
 	}
 	return wlCopy
 }
@@ -794,10 +797,10 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 	return true
 }
 
-// AdmissionStatusPatch creates a new object based on the input workload that contains
+// admissionStatusPatch creates a new object based on the input workload that contains
 // the admission and related conditions. The object can be used in Server-Side-Apply.
 // If strict is true, resourceVersion will be part of the patch.
-func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool) {
+func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	if wlCopy.Status.Admission != nil {
@@ -812,9 +815,6 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
 		}
-	}
-	if strict {
-		wlCopy.ResourceVersion = w.ResourceVersion
 	}
 	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
 	if w.Status.SchedulingStats != nil {
@@ -845,8 +845,8 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 }
 
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
-	wlCopy := BaseSSAWorkload(w)
-	AdmissionStatusPatch(w, wlCopy, strict)
+	wlCopy := BaseSSAWorkload(w, strict)
+	admissionStatusPatch(w, wlCopy)
 	AdmissionChecksStatusPatch(w, wlCopy, clk)
 	return wlCopy
 }
@@ -890,7 +890,7 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
 func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	patch := BaseSSAWorkload(w)
+	patch := BaseSSAWorkload(w, false)
 	patch.Status.ReclaimablePods = reclaimablePods
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
 }
