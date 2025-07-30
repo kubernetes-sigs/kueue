@@ -259,14 +259,14 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	return nil
 }
 
-func (m *Manager) HeapifyClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
+func (m *Manager) RebuildClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
 	m.Lock()
 	defer m.Unlock()
 	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 	if cqImpl == nil {
 		return ErrClusterQueueDoesNotExist
 	}
-	cqImpl.Heapify(lqName)
+	cqImpl.RebuildLocalQueue(lqName)
 	return nil
 }
 
@@ -808,7 +808,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
 	}
 }
 
-func (m *Manager) HeapifyClusterQueuesWithEntryPenalties() {
+func (m *Manager) RebuildClusterQueuesWithEntryPenalties() {
 	m.Lock()
 	defer m.Unlock()
 
@@ -821,7 +821,7 @@ func (m *Manager) HeapifyClusterQueuesWithEntryPenalties() {
 
 	for cqName := range clusterQueuesWithPenalties {
 		if cq := m.hm.ClusterQueue(cqName); cq != nil {
-			cq.HeapifyAll()
+			cq.RebuildAll()
 		}
 	}
 }

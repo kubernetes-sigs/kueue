@@ -196,7 +196,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	var snapshotOpts []cache.SnapshotOption
 	if features.Enabled(features.AdmissionFairSharing) {
-		s.queues.HeapifyClusterQueuesWithEntryPenalties()
+		s.queues.RebuildClusterQueuesWithEntryPenalties()
 		snapshotOpts = append(snapshotOpts, cache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
 	}
 
