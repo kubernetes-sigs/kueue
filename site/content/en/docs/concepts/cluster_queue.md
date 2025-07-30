@@ -477,8 +477,8 @@ the heuristics that Kueue implements to preempt as few Workloads as possible.
 
 When there is not enough nominal quota of resources in a ResourceFlavor, the
 incoming Workload can borrow quota or preempt running Workloads in the
-ClusterQueue or Cohort. In the cluster queue there can be multiple ResourceFlavor
-for each resource, and there might be different amount of available quota in each
+ClusterQueue or Cohort. In the cluster queue there can be multiple ResourceFlavors
+for each resource, and there might be different amounts of available quota in each
 of them. Kueue evaluates the flavors in a ClusterQueue in order and for each it
 checks if the required resource of the workload fit in this ResourceFlavor and
 if borrowing or preemption is required. You can influence how many flavors to
@@ -512,15 +512,15 @@ If during the search, the workload finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected
 (regardless of the above configuration). Otherwise, out of the considered
 ResourceFlavors, Kueue selects a one that fits the workload using borrowing
-(without preemptions). If there is no such ResourceFlavor, Kueue selects any
-flavor that fits the workload.
+(without preemptions). If there is no such ResourceFlavor, Kueue selects a flavor
+that uses preemption and is preferably not using borrowing.
 
 As explained above, when assigning flavors, by default Kueue avoids preemptions
 and prefers to borrow. Borrowing is not disruptive to other workloads but a
 workload that borrows risks being prempted (since it is using nominal quota
 from some other Cluster Queue). If you prefer to sometimes preempt rather than borrow,
-you can enable feature gate `FlavorFungibilityImplicitPreferenceDefault`.
-It changes the default preference as follows. If `whenCanBorrow = TryNextFlavor`
+you can enable feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
+changes the default preference as follows. If `whenCanBorrow = TryNextFlavor`
 it assumes that preemption is preferred over borrowing and otherwise it assumes
 that borrowing is preferred over preemption.
 
