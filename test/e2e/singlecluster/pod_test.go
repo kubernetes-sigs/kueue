@@ -552,7 +552,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 		})
 
-		ginkgo.It("should admit a pod after the group labels are added", func() {
+		ginkgo.It("Pod should be admitted after the group labels are added", func() {
 			ginkgo.By("creating a pod", func() {
 				p := podtesting.MakePod("pod-0", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
@@ -562,15 +562,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					Obj()
 				util.MustCreate(ctx, k8sClient, p)
 
-				// The pod should be gated, but not part of a group yet.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var createdPod corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &createdPod)).To(gomega.Succeed())
 					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+					g.Expect(createdPod.Annotations).To(gomega.HaveKey(podconstants.RoleHashAnnotation))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-
-			ginkgo.By("adding the group annotations and labels to the pod", func() {
+			ginkgo.By("Add the group annotations and labels to the pod", func() {
 				var p corev1.Pod
 				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
@@ -578,9 +577,13 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				p.Labels[podconstants.GroupNameLabel] = "test-group"
 				p.Annotations[podconstants.GroupTotalCountAnnotation] = "1"
 				gomega.Expect(k8sClient.Update(ctx, &p)).To(gomega.Succeed())
+				var podWithHash corev1.Pod
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), &podWithHash)).To(gomega.Succeed())
+				initialRoleHash := podWithHash.Annotations[podconstants.RoleHashAnnotation]
+				gomega.Expect(initialRoleHash).NotTo(gomega.BeEmpty())
 			})
 
-			ginkgo.By("verifying the pod is scheduled and runs", func() {
+			ginkgo.By("Verify the pod is scheduled and runs", func() {
 				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Eventually(func(g gomega.Gomega) {
 					var runningPod corev1.Pod
@@ -592,7 +595,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				util.ExpectWorkloadToFinish(ctx, k8sClient, gKey)
 			})
 
-			ginkgo.By("deleting the pod", func() {
+			ginkgo.By("Ensure the pod is deleted", func() {
 				var p corev1.Pod
 				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
 				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
