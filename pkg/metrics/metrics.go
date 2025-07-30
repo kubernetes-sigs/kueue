@@ -251,7 +251,12 @@ The label 'reason' can have the following values:
 - "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
 - "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
-- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+- "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
+- "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
+- "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
+- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
+- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
 		}, []string{"cluster_queue", "reason"},
 	)
 
@@ -265,7 +270,12 @@ The label 'reason' can have the following values:
 - "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
 - "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
-- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+- "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
+- "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
+- "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
+- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
+- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
 		}, []string{"name", "namespace", "reason"},
 	)
 
@@ -279,7 +289,12 @@ The label 'reason' can have the following values:
 - "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
 - "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
-- "Deactivated" means that the workload was evicted because spec.active is set to false`,
+- "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
+- "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
+- "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
+- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
+- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
 		}, []string{"cluster_queue", "reason", "detailed_reason"},
 	)
 
@@ -410,8 +425,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_weighted_share",
-			Help: `Reports a value that representing the maximum of the ratios of usage above nominal 
-quota to the lendable resources in the cohort, among all the resources provided by 
+			Help: `Reports a value that representing the maximum of the ratios of usage above nominal
+quota to the lendable resources in the cohort, among all the resources provided by
 the ClusterQueue, and divided by the weight.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 If the ClusterQueue has a weight of zero and is borrowing, this will return 9223372036854775807,
@@ -423,8 +438,8 @@ the maximum possible share value.`,
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cohort_weighted_share",
-			Help: `Reports a value that representing the maximum of the ratios of usage above nominal 
-quota to the lendable resources in the Cohort, among all the resources provided by 
+			Help: `Reports a value that representing the maximum of the ratios of usage above nominal
+quota to the lendable resources in the Cohort, among all the resources provided by
 the Cohort, and divided by the weight.
 If zero, it means that the usage of the Cohort is below the nominal quota.
 If the Cohort has a weight of zero and is borrowing, this will return 9223372036854775807,
