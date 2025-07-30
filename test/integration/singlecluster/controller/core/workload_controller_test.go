@@ -311,7 +311,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
 					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "DeactivatedDueToAdmissionCheck", 1)
-					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, kueue.WorkloadDeactivated, "", 1)
+					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "DeactivatedDueToAdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -396,7 +396,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
 					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "DeactivatedDueToAdmissionCheck", 1)
-					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, kueue.WorkloadDeactivated, "", 1)
+					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "DeactivatedDueToAdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

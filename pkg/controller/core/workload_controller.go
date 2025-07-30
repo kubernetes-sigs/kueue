@@ -255,7 +255,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// exception due to complicated logic, not using PrepareForEviction (temporarily)
 		workload.ResetClusterNomination(&wl)
 		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
-		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
+		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, reason, "")
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
 				if apierrors.IsNotFound(err) {
@@ -266,7 +266,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if evicted && wl.Status.Admission != nil {
 				workload.ReportEvictedWorkload(r.recorder, &wl, wl.Status.Admission.ClusterQueue, reason, message)
 				if reportWorkloadEvictedOnce {
-					metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, kueue.WorkloadDeactivated, "")
+					metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, "")
 				}
 			}
 			return ctrl.Result{}, nil
@@ -488,11 +488,15 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 		}
 		log.V(3).Info("Workload is evicted because the LocalQueue is stopped", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
 		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
+		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByLocalQueueStopped, "")
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 		if err == nil {
 			cqName := lq.Spec.ClusterQueue
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
 				workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
+			}
+			if reportWorkloadEvictedOnce {
+				metrics.ReportEvictedWorkloadsOnce(cqName, kueue.WorkloadEvictedByLocalQueueStopped, "")
 			}
 		}
 		return true, err
