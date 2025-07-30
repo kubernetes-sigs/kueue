@@ -41,8 +41,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -562,8 +562,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
 				"b": {
-					Name:                          "b",
-					AllocatableResourceGeneration: 1,
+					Name: "b",
+					// AllocatableResourceGeneration is 2 because it was incremented:
+					// 1. Once during initial setup when added to cohort "one"
+					// 2. Once during deletion when cohort tree resources were recalculated after "a" was deleted
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,

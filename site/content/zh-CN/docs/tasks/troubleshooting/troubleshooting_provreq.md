@@ -1,47 +1,60 @@
 ---
-title: "Troubleshooting Provisioning Request in Kueue"
+title: "Kueue 中的 Provisioning Request 故障排除"
 date: 2024-05-20
 weight: 3
 description: >
-  Troubleshooting the status of a Provisioning Request in Kueue
+  Kueue 中 Provisioning Request 状态的故障排除
 ---
 
-This document helps you troubleshoot ProvisioningRequests, an API defined by [ClusterAutoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
+本文档帮助你排除 ProvisioningRequest 的故障，这是由
+[ClusterAutoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41)
+定义的 API。
 
-Kueue creates ProvisioningRequests via the [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/), and treats them like an [Admission Check](/docs/concepts/admission_check/). In order for Kueue to admit a Workload, the ProvisioningRequest created for it needs to succeed.
+Kueue 通过 [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/)
+创建 ProvisioningRequest，并将其视为[准入检查](/docs/concepts/admission_check/)。
+为了让 Kueue 准入 Workload，为其创建的 ProvisioningRequest 需要成功。
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-Before you begin troubleshooting, make sure your cluster meets the following requirements:
-- Your cluster has ClusterAutoscaler enabled and ClusterAutoscaler supports ProvisioningRequest API.
-Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster should be running version `1.28.3-gke.1098000` or newer.
-- You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
-- Kueue's version is `v0.5.3` or newer.
-- You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration). This feature gate is enabled by default for Kueue `v0.7.0` or newer.
+在开始故障排除之前，请确保你的集群满足以下要求：
 
-## Identifying the Provisioning Request for your job
+- 你的集群已启用 ClusterAutoscaler，且 ClusterAutoscaler 支持 ProvisioningRequest API。
+  检查你的云提供商文档以确定支持 ProvisioningRequest 的最低版本。
+  如果你使用 GKE，你的集群应该运行版本 `1.28.3-gke.1098000` 或更新版本。
+- 你使用支持 ProvisioningRequest 的节点类型。这可能因云提供商而异。
+- Kueue 的版本是 `v0.5.3` 或更新版本。
+- 你已在[特性门控配置](/docs/installation/#change-the-feature-gates-configuration)中启用了 `ProvisioningACC`。
+  对于 Kueue `v0.7.0` 或更新版本，此特性门控默认启用。
 
-See the [Troubleshooting Jobs guide](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job), to learn how to identify the Workload for your job.
+## 识别你的作业对应的 Provisioning Request {#identifying-the-provisioning-request-for-your-job}
 
-You can run the following command to see a brief state of a Provisioning Request (and other Admission Checks) in the `admissionChecks` field of the Workload's Status.
+请参阅 [Job 故障排除指南](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job)，
+了解如何识别你的作业对应的 Workload。
+
+你可以运行以下命令在 Workload 状态的 `admissionChecks` 字段中查看
+Provisioning Request（和其他准入检查）的简要状态。
 
 ```bash
 kubectl describe workload WORKLOAD_NAME
 ```
 
-Kueue creates ProvisioningRequests using a naming pattern that helps you identify the request corresponding to your workload.
+Kueue 使用有助于识别与你的 workload 对应的请求的命名模式创建 ProvisioningRequest。
 
+```text
+[YOUR WORKLOAD NAME]-[ADMISSION CHECK NAME]-[RETRY NUMBER]
 ```
-[NAME OF YOUR WORKLOAD]-[NAME OF THE ADMISSION CHECK]-[NUMBER OF RETRY]
-```
-e.g.
+
+例如：
+
 ```bash
 sample-job-2zcsb-57864-sample-admissioncheck-1
 ```
 
-When nodes for your job are provisioned, Kueue will also add the annotation `cluster-autoscaler.kubernetes.io/consume-provisioning-request` to the `.admissionChecks[*].podSetUpdate[*]` field in Workload's status. The value of this annotation is the Provisioning Request's name.
+当为你的作业配置节点时，Kueue 还会在 Workload 状态的 `.admissionChecks[*].podSetUpdate[*]` 字段中
+添加注解 `cluster-autoscaler.kubernetes.io/consume-provisioning-request`。
+此注解的值是 Provisioning Request 的名称。
 
-The output of the `kubectl describe workload` command should look similar to the following:
+`kubectl describe workload` 命令的输出应该类似于以下内容：
 
 ```bash
 [...]
@@ -58,29 +71,30 @@ Status:
     State:                                                              Ready
 ```
 
-## What is the current state of my Provisioning Request?
+## 我的 Provisioning Request 当前状态是什么？ {#what-is-the-current-state-of-my-provisioning-request}
 
-One possible reason your job is not running might be that ProvisioningRequest is waiting to be provisioned.
-To find out if this is the case you can view Provisioning Request's state by running the following command:
+你的作业未运行的一个可能原因是 ProvisioningRequest 正在等待配置。
+要确定是否是这种情况，你可以通过运行以下命令查看 Provisioning Request 的状态：
 
 ```bash
 kubectl get provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-If this is the case, the output should look similar to the following:
+如果是这种情况，输出应该类似于以下内容：
 
 ```bash
 NAME                                                 ACCEPTED   PROVISIONED   FAILED   AGE
 sample-job-2zcsb-57864-sample-admissioncheck-1       True       False         False    20s
 ```
 
-You can also view more detailed status of your ProvisioningRequest by running the following command:
+你也可以通过运行以下命令查看 ProvisioningRequest 的更详细状态：
 
 ```bash
 kubectl describe provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-If your ProvisioningRequest fails to provision nodes, the error output may look similar to the following:
+如果你的 ProvisioningRequest 未能配置节点，错误输出可能类似于以下内容：
+
 ```bash
 [...]
 Status:
@@ -105,35 +119,40 @@ Status:
     Type:                  Failed
 ```
 
-Note that the `Reason` and `Message` values for `Failed` condition may differ from your output, depending on the
-reason that prevented the provisioning.
+请注意，`Failed` 条件的 `Reason` 和 `Message` 值可能与你的输出不同，
+这取决于阻止配置的原因。
 
-The Provisioning Request state is described in the `.conditions[*].status` field.
-An empty field means ProvisinongRequest is still being processed by the ClusterAutoscaler.
-Otherwise, it falls into one of the states listed below:
-- `Accepted` - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
-- `Provisioned` - indicates that all of the requested resources were created and are available in the cluster. ClusterAutoscaler will set this condition when the VM creation finishes successfully.
-- `Failed` - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest. Condition Reason and Message will contain more details about what failed.
-- `BookingExpired` - indicates that the ProvisioningRequest had Provisioned condition before and capacity reservation time is expired.
-- `CapacityRevoked` - indicates that requested resources are not longer valid.
+Provisioning Request 状态在 `.conditions[*].status` 字段中描述。
+空字段意味着 ProvisioningRequest 仍在被 ClusterAutoscaler 处理。
+否则，它属于以下状态之一：
 
-The states transitions are as follow:
+- `Accepted` - 表示 ProvisioningRequest 被 ClusterAutoscaler 接受，
+  因此 ClusterAutoscaler 将尝试为其配置节点。
+- `Provisioned` - 表示所有请求的资源都已创建并在集群中可用。
+  当 VM 创建成功完成时，ClusterAutoscaler 将设置此条件。
+- `Failed` - 表示无法获取资源来满足此 ProvisioningRequest。
+  条件 Reason 和 Message 将包含有关失败原因的更多详细信息。
+- `BookingExpired` - 表示 ProvisioningRequest 之前有 Provisioned 条件，
+  但容量预留时间已过期。
+- `CapacityRevoked` - 表示请求的资源不再有效。
+
+状态转换如下：
 
 ![Provisioning Request's states](/images/prov-req-states.svg)
 
-## Why a Provisioning Request is not created?
+## 为什么没有创建 Provisioning Request？ {#why-a-provisioning-request-is-not-created}
 
-If Kueue did not create a Provisioning Request for your job, try checking the following requirements:
+如果 Kueue 没有为你的作业创建 Provisioning Request，请尝试检查以下要求：
 
-### a. Ensure the Kueue's controller manager enables the `ProvisioningACC` feature gate
+### a. 确保 Kueue 的控制器管理器启用了 `ProvisioningACC` 特性门控 {#a-ensure-the-kueues-controller-manager-enables-the-provisioningacc-feature-gate}
 
-Run the following command to check whether your Kueue's controller manager has enabled the `ProvisioningACC` feature gate:
+运行以下命令检查你的 Kueue 控制器管理器是否启用了 `ProvisioningACC` 特性门控：
 
 ```bash
 kubectl describe pod -n kueue-system kueue-controller-manager-
 ```
 
-The arguments for Kueue container should be similar to the following:
+Kueue 容器的参数应该类似于以下内容：
 
 ```bash
     ...
@@ -143,17 +162,17 @@ The arguments for Kueue container should be similar to the following:
       --feature-gates=ProvisioningACC=true
 ```
 
-Note for Kueue `v0.7.0` or newer the feature is enabled by default, so you may see different output.
+请注意，对于 Kueue `v0.7.0` 或更新版本，该特性默认启用，因此你可能会看到不同的输出。
 
-### b. Ensure your Workload has reserved quota
+### b. 确保你的 Workload 已预留配额 {#b-ensure-your-workload-has-reserved-quota}
 
-To check if your Workload has reserved quota in a ClusterQueue check your Workload's status by running the following command:
+要检查你的 Workload 是否在 ClusterQueue 中预留了配额，请运行以下命令检查你的 Workload 状态：
 
 ```bash
 kubectl describe workload WORKLOAD_NAME
 ```
 
-The output should be similar to the following:
+输出应该类似于以下内容：
 
 ```bash
 [...]
@@ -167,7 +186,7 @@ Status:
     Type:                  QuotaReserved
 ```
 
-If the output you get is similar to the following:
+如果你得到的输出类似于以下内容：
 
 ```bash
   Conditions:
@@ -179,9 +198,9 @@ If the output you get is similar to the following:
     Type:                  QuotaReserved
 ```
 
-This means you do not have sufficient free quota in your ClusterQueue.
+这意味着你的 ClusterQueue 中没有足够的可用配额。
 
-Other reasons why your Workload has not reserved quota may relate to LocalQueue/ClusterQueue misconfiguration, e.g.:
+你的 Workload 没有预留配额的其他原因可能与 LocalQueue/ClusterQueue 配置错误有关，例如：
 
 ```bash
 Status:
@@ -194,21 +213,21 @@ Status:
     Type:                  QuotaReserved
 ```
 
-You can check if ClusterQueues and LocalQueues are ready to admit your Workloads.
-See the [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues/) for more details.
+你可以检查 ClusterQueue 和 LocalQueue 是否准备好准入你的 Workload。
+有关更多详细信息，请参阅[队列故障排除](/docs/tasks/troubleshooting/troubleshooting_queues/)。
 
+### c. 确保准入检查处于活跃状态 {#c-ensure-the-admission-check-is-active}
 
-### c. Ensure the Admission Check is active
-
-To check if the Admission Check that your job uses is active run the following command:
+要检查你的作业使用的准入检查是否处于活跃状态，请运行以下命令：
 
 ```bash
 kubectl describe admissionchecks ADMISSIONCHECK_NAME
 ```
 
-Where `ADMISSIONCHECK_NAME` is a name configured in your ClusterQueue spec. See the [Admission Check documentation](/docs/concepts/admission_check/) for more details.
+其中 `ADMISSIONCHECK_NAME` 是在你的 ClusterQueue 规范中配置的名称。
+有关更多详细信息，请参阅[准入检查文档](/docs/concepts/admission_check/)。
 
-The status of the Admission Check should be similar to:
+准入检查的状态应该类似于：
 
 ```bash
 ...
@@ -221,4 +240,5 @@ Status:
     Type:                  Active
 ```
 
-If none of the above steps resolves your problem, contact us at the [Slack `wg-batch` channel](https://kubernetes.slack.com/archives/C032ZE66A2X)
+如果上述步骤都无法解决你的问题，请通过
+[Slack `wg-batch` 频道](https://kubernetes.slack.com/archives/C032ZE66A2X)联系我们。

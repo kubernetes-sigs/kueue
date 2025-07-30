@@ -15,14 +15,12 @@ limitations under the License.
 */
 
 import { useEffect, useState } from 'react';
-import { env } from './env'
-
-const websocketURL = env.REACT_APP_WEBSOCKET_URL;
+import { buildWebSocketUrl } from './utils/urlHelper';
 
 const useWebSocket = (url) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const fullUrl = `${websocketURL}${url}`;
+  const fullUrl = buildWebSocketUrl(url);
   useEffect(() => {
     const ws = new WebSocket(fullUrl);
 
@@ -40,8 +38,6 @@ const useWebSocket = (url) => {
       console.error("WebSocket error:", err);
       // Log environment variables to the console
       console.log(`Backend URL: ${fullUrl}`);
-      console.log(`REACT_APP_WEBSOCKET_URL: ${env.REACT_APP_WEBSOCKET_URL}`);
-      console.log(`VITE_WEBSOCKET_URL: ${env.VITE_WEBSOCKET_URL}`);
 
       // Function to get all properties, including inherited ones
       const getAllProperties = (obj) => {

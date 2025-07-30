@@ -69,9 +69,11 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 		lq = testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -356,7 +358,7 @@ var _ = ginkgo.Describe("StatefulSet integration", func() {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Update queue name", func() {

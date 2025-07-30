@@ -25,7 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"

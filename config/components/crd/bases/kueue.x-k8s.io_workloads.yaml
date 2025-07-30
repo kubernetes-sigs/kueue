@@ -8299,6 +8299,11 @@ spec:
                             - JobSet: kubernetes.io/job-completion-index (inherited from Job)
                             - Kubeflow: training.kubeflow.org/replica-index
                           type: string
+                        podSetGroupName:
+                          description: |-
+                            PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+                            PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
+                          type: string
                         podSetSliceRequiredTopology:
                           description: |-
                             PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
@@ -8708,6 +8713,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              clusterName:
+                description: |-
+                  clusterName is the name of the cluster where the workload is actually assigned.
+                  This field is reset after the Workload is evicted.
+                type: string
               conditions:
                 description: |-
                   conditions hold the latest available observations of the Workload
@@ -8777,6 +8787,17 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              nominatedClusterNames:
+                description: |-
+                  nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+                  This field is mutually exclusive with the `.status.clusterName` field, and is reset when
+                  `status.clusterName` is set.
+                  This field is optional.
+                items:
+                  type: string
+                maxItems: 10
+                type: array
+                x-kubernetes-list-type: atomic
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which
@@ -8898,6 +8919,14 @@ spec:
                     x-kubernetes-list-type: map
                 type: object
             type: object
+            x-kubernetes-validations:
+            - message: clusterName is immutable once set
+              rule: '!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName
+                == self.clusterName'
+            - message: clusterName and nominatedClusterNames are mutually exclusive
+              rule: '!has(self.clusterName) || (!has(self.nominatedClusterNames) ||
+                (has(self.nominatedClusterNames) && size(self.nominatedClusterNames)
+                == 0))'
         type: object
         x-kubernetes-validations:
         - message: podSetAssignments must have the same number of podSets as the spec

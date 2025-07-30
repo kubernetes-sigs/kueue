@@ -49,7 +49,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -300,7 +302,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64) (float64, error) {
+func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWeights map[corev1.ResourceName]float64, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) (float64, error) {
 	var lq kueue.LocalQueue
 	lqKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqKey, &lq); err != nil {
@@ -318,6 +320,18 @@ func (i *Info) CalcLocalQueueFSUsage(ctx context.Context, c client.Client, resWe
 		}
 		usage += weight * resVal.AsApproximateFloat64()
 	}
+	penalty := corev1.ResourceList{}
+	if afsEntryPenalties != nil {
+		penalty, _ = afsEntryPenalties.Get(utilqueue.Key(&lq))
+	}
+	for resName, penaltyVal := range penalty {
+		weight, found := resWeights[resName]
+		if !found {
+			weight = 1
+		}
+		usage += weight * penaltyVal.AsApproximateFloat64()
+	}
+
 	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
 		// if no weight for lq was defined, use default weight of 1
 		usage /= lq.Spec.FairSharing.Weight.AsApproximateFloat64()
@@ -359,6 +373,14 @@ func (i *Info) TASUsage() TASUsage {
 		}
 	}
 	return result
+}
+
+func (i *Info) SumTotalRequests() corev1.ResourceList {
+	reqs := make(resources.Requests)
+	for _, psReqs := range i.TotalRequests {
+		reqs.Add(psReqs.Requests)
+	}
+	return reqs.ToResourceList()
 }
 
 func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
@@ -604,6 +626,27 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	return clock.Since(queuedTime)
 }
 
+// workloadsWithPodsReadyToEvictedTime is the amount of time it takes a workload's pods running to getting evicted.
+// This measures runtime of workloads that do not run to completion (ie are evicted).
+func workloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
+	var podsReady *time.Time
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); c != nil && c.Status == metav1.ConditionTrue {
+		podsReady = &c.LastTransitionTime.Time
+	} else {
+		return nil
+	}
+	c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+
+	var evicted *time.Time
+	if c != nil && c.Status == metav1.ConditionTrue {
+		evicted = &c.LastTransitionTime.Time
+	} else {
+		return nil
+	}
+
+	return ptr.To(evicted.Sub(*podsReady))
+}
+
 // BaseSSAWorkload creates a new object based on the input workload that
 // only contains the fields necessary to identify the original object.
 // The object can be used in as a base for Server-Side-Apply.
@@ -780,6 +823,8 @@ func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool
 		}
 		wlCopy.Status.SchedulingStats.Evictions = append(wlCopy.Status.SchedulingStats.Evictions, w.Status.SchedulingStats.Evictions...)
 	}
+	wlCopy.Status.ClusterName = w.Status.ClusterName
+	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
 }
 
 func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -1036,8 +1081,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	SetEvictedCondition(wl, reason, msg)
-	ResetChecksOnEviction(wl, clock.Now())
+	PrepareForEviction(wl, clock.Now(), reason, msg)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
 	}
@@ -1049,12 +1093,29 @@ func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRe
 	return nil
 }
 
+func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) bool {
+	SetEvictedCondition(w, reason, message)
+	ResetClusterNomination(w)
+	return ResetChecksOnEviction(w, now)
+}
+
+func ResetClusterNomination(w *kueue.Workload) {
+	w.Status.ClusterName = nil
+	w.Status.NominatedClusterNames = nil
+}
+
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
-	metrics.ReportEvictedWorkloads(cqName, reason)
+	durationToPreemption := workloadsWithPodsReadyToEvictedTime(wl)
+	metrics.ReportEvictedWorkloads(cqName, reason, durationToPreemption)
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
+}
+
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, wl *kueue.Workload) {
+	durationToPreemption := workloadsWithPodsReadyToEvictedTime(wl)
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, durationToPreemption)
 }
 
 func References(wls []*Info) []klog.ObjectRef {

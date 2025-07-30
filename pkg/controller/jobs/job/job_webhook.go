@@ -19,9 +19,11 @@ package job
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,10 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -42,6 +47,31 @@ var (
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
 	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
 )
+
+// applyWorkloadSliceSchedulingGate ensures that the workload slice-specific
+// PodSchedulingGate is present in the Workload-slice enabled Job's pod template.
+// If the scheduling gate is not already included, it appends it to the list of scheduling gates.
+//
+// This function is essential for enabling workload slice-aware scheduling
+// behavior in Kueue-managed Jobs, allowing for fine-grained control over
+// resource allocation and scheduling decisions.
+//
+// Parameters:
+//   - job: Pointer to the Job object to be modified.
+//
+// Note: This function modifies the Job's pod template in-place.
+func applyWorkloadSliceSchedulingGate(job *Job) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
+		return
+	}
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+	if slices.Contains(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+		return
+	}
+	job.Spec.Template.Spec.SchedulingGates = append(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
+}
 
 type JobWebhook struct {
 	client                       client.Client
@@ -85,6 +115,8 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
+	applyWorkloadSliceSchedulingGate(job)
+
 	return nil
 }
 
@@ -97,16 +129,26 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating create")
-	return nil, w.validateCreate(job).ToAggregate()
+	validationErrs, err := w.validateCreate(job)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
+func (w *JobWebhook) validateCreate(job *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
-	allErrs = append(allErrs, w.validateTopologyRequest(job)...)
-	return allErrs
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(job)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, validationErrs...)
+	}
+	return allErrs, nil
 }
 
 func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
@@ -147,10 +189,14 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update")
-	return nil, w.validateUpdate(oldJob, newJob).ToAggregate()
+	validationErrs, err := w.validateUpdate(oldJob, newJob)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
+func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
@@ -159,8 +205,14 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
-	allErrs = append(allErrs, w.validateTopologyRequest(newJob)...)
-	return allErrs
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(newJob)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, validationErrs...)
+	}
+	return allErrs, nil
 }
 
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
@@ -176,8 +228,22 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	return allErrs
 }
 
-func (w *JobWebhook) validateTopologyRequest(job *Job) field.ErrorList {
-	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
+func (w *JobWebhook) validateTopologyRequest(job *Job) (field.ErrorList, error) {
+	validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
+	if validationErrs != nil {
+		return validationErrs, nil
+	}
+
+	podSets, err := job.PodSets()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(podSets) == 0 {
+		return nil, nil
+	}
+
+	return jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &job.Spec.Template.ObjectMeta, &podSets[0]), nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

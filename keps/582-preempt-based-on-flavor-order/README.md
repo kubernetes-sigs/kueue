@@ -24,6 +24,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -122,7 +123,13 @@ in my cluster. In this case I prefer my high priority jobs not running on spot
 instances. If high priority jobs can preempt jobs in standard instances before trying spot instances,
 stability can be achieved.
 
-My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to `Preempt`  in the ClusterQueue's spec.
+My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to `Preempt` in the ClusterQueue's spec.
+
+#### Story 2
+
+As an admin of system managed by Kueue I would like to minimize the risk that admitted workloads get preempted soon after admission. Since every borrowing workload is a preemption (reclaim) candidate, to minimize the risk, I would like to prioritize selecting flavors which are preempting rather than borrowing.
+
+My use case can be supported by setting `Spec.FlavorFungibility.WhenCanPreempt: Preempt`.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -164,15 +171,33 @@ For each type of resource in each podSet, Kueue will traverse all resource group
 
 ```
 const (
-	Borrow FlavorFungibilityPolicy = "Borrow"
-	Preempt  FlavorFungibilityPolicy = "Preempt"
+  Borrow FlavorFungibilityPolicy = "Borrow"
+  Preempt  FlavorFungibilityPolicy = "Preempt"
   TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
 type FlavorFungibility struct {
-  // +kubebuilder:validation:Enum="Borrow,TryNextFlavor"
+  // whenCanBorrow determines whether a workload should try the next flavor
+  // or stop the search. The possible values are:
+  //
+  // - `Borrow` (default): stop searching and use the best flavor found so far
+  //   according to the selection strategy
+  // - `TryNextFlavor`: try next flavor even if the current
+  //   flavor has enough resources to borrow.
+  //
+  // +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
+  // +kubebuilder:default="Borrow"
   WhenCanBorrow FlavorFungibilityPolicy  `json:"whenCanBorrow"`
-  // +kubebuilder:validation:Enum="Preempt,TryNextFlavor"
+  // whenCanPreempt determines whether a workload should try the next flavor
+  // or stop the search. The possible values are:
+  //
+  // - `Preempt`: stop searching and use the best flavor found so far 
+  //   according to the selection strategy
+  // - `TryNextFlavor` (default): try next flavor even if there are enough
+  //   candidates for preemption in the current flavor.
+  //
+  // +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
+  // +kubebuilder:default="TryNextFlavor"
   WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
 }
 
@@ -187,11 +212,28 @@ If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to
 
 ### Behavior Changes
 
-We will not change the behavior to judge whether a podset can get enough resource in certain resource flavor. Preemption and admission will not be influenced also. We only change the order these flavors were considered.
+We will not change the behavior to judge whether a podset can get enough resource in certain resource flavor. Preemption and admission will not be influenced also. We don't change the order these flavors are considered, but `WhenCanBorrow` and `WhenCanPreempt` control how many flavors are considered.
 
-After we try to schedule a podset in a resource flavor, we decide whether to traverse to the next flavor base on the `flavorFungibility`. If the assignment mode is `NoFit`, we will always try the next flavor until the last one. When the assignment mode is `Preempt`, we can return the current assignment if `WhenCanPreempt` is `Preempt`. Otherwise if the assignment mode is `Fit`, we try the next flavor only when we need borrowing in the current flavor and `WhenCanBorrow` is `TryNextFlavor`.
+We try to schedule a podset in succesive resource flavors in a loop and we decide whether to traverse to the next flavor or break from the loop based on the `flavorFungibility`. The behavior depending on the simulated scheduling result and the configuration is as follows:
 
-We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastScheduledFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
+| Simulation result  |Configuration  | Behavior |
+|------ | -------- | ------- |
+| `NoFit` | any | continue |
+| `Preempt`, `NoBorrow` | `WhenCanPreempt = TryNextFlavor` | continue |
+| `Preempt`, `NoBorrow` | `WhenCanPreempt = Preempt` | break |
+| `Fit`, `Borrow` | `WhenCanBorrow = TryNextFlavor` | continue |
+| `Fit`, `Borrow` | `WhenCanBorrow = Borrow` | break |
+| `Fit`, `NoBorrow`| any| break| 
+
+By `Borrow`/`NoBorrow` we mean whether borrowing is required or not to fit the considered podset in the sumulation result. After we complete the loop, either by trying all the flavors or by breaking out of it, we end up with a list of possible flavors containing all the considered flavors that yielded a result different than `NoFit`. We choose the flavor to assign based on the following default preference order: (`Fit`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `NoBorrow`), (`Preempt`, `Borrow`).
+
+An alternative order of preference can be set by enabling the feature gate `FlavorFungibilityImplicitPreferenceDefault`.
+The alternative order prioritizes assignments that don't borrow: (`Fit`, `NoBorrow`),(`Preempt`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `Borrow`). It is used in two cases:
+
+1. If `WhenCanPreempt = Preempt` and `WhenCanBorrow = TryNextFlavor`
+2. If `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor`
+
+We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastTriedFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
 
 `ClusterQueueGeneration` and `CohortGeneration` mark record the resource consumption of the CQs and Cohort. Any time the available resources of the CQs or Cohort increase, we will increase the generation. So that if the Generation in scheduling context is lower, we should retry from the first flavor. Note that increasing after decreasing of the available resource will also make the generation increased, but I think this is acceptable since we can save the memory by just storing the generation instead of the usage state for each scheduling attempt.
 
@@ -365,6 +407,11 @@ milestones with these graduation criteria:
 [maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
+
+The feature gate `FlavorFungibilityImplicitPreferenceDefault` is a temporary measure
+until a new shape of the API, that allows to explicitely define the preference
+is implemented. The feature gate will be removed once the API is updated
+(planned for kueue v0.14).
 
 ## Implementation History
 

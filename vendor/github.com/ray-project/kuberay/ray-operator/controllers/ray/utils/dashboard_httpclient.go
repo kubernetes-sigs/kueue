@@ -8,16 +8,13 @@ import (
 	"net/http"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/yaml"
-
 	fmtErrors "github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"k8s.io/apimachinery/pkg/api/errors"
-
-	"k8s.io/apimachinery/pkg/util/json"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )

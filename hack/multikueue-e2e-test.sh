@@ -42,8 +42,6 @@ function cleanup {
         cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME" "$WORKER1_KUBECONFIG" &
         cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME" "$WORKER2_KUBECONFIG" &
     fi
-    #do the image restore here for the case when an error happened during deploy
-    restore_managers_image
     wait
 }
 
@@ -57,10 +55,11 @@ function startup {
 
         cp "${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml" "$ARTIFACTS"
 
-        #Enable the JobManagedBy feature gates for k8s 1.30+ versions 
+        # Enable the JobManagedBy feature gate for Kubernetes 1.31.
+        # In newer versions, this feature is in Beta and enabled by default.
         IFS=. read -r -a varr <<< "$KIND_VERSION"
         minor=$(( varr[1] ))        
-        if [ "$minor" -ge 30 ]; then
+        if [ "$minor" -eq 31 ]; then
             echo "Enable JobManagedBy feature in manager's kind config"
             $YQ e -i '.featureGates.JobManagedBy = true' "${ARTIFACTS}/manager-cluster.kind.yaml"
         fi
@@ -72,11 +71,14 @@ function startup {
 }
 
 function kueue_deploy {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
-
-    cluster_kueue_deploy "$MANAGER_KUBECONFIG"
-    cluster_kueue_deploy "$WORKER1_KUBECONFIG"
-    cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+    # We use a subshell to avoid overwriting the global cleanup trap, which also uses the EXIT signal.
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        cluster_kueue_deploy "$MANAGER_KUBECONFIG"
+        cluster_kueue_deploy "$WORKER1_KUBECONFIG"
+        cluster_kueue_deploy "$WORKER2_KUBECONFIG"
+    )
 }
 
 trap cleanup EXIT

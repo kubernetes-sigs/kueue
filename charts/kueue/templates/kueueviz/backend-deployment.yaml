@@ -16,6 +16,13 @@ spec:
       labels:
         app: kueueviz-backend
     spec:
+      {{- with .Values.kueueViz.backend.imagePullSecrets  }}
+      imagePullSecrets:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with  .Values.kueueViz.backend.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       {{- with .Values.kueueViz.backend.nodeSelector }}
       nodeSelector:
       {{- toYaml . | nindent 8 }}

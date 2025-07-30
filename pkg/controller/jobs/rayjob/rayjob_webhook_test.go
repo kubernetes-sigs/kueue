@@ -100,7 +100,6 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, false)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
@@ -134,10 +133,11 @@ func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job                  *rayv1.RayJob
-		manageAll            bool
-		wantErr              error
-		localQueueDefaulting bool
+		job                     *rayv1.RayJob
+		manageAll               bool
+		wantErr                 error
+		localQueueDefaulting    bool
+		topologyAwareScheduling bool
 	}{
 		"invalid unmanaged": {
 			job: testingrayutil.MakeJob("job", "ns").
@@ -240,6 +240,7 @@ func TestValidateCreate(t *testing.T) {
 					rayv1.WorkerGroupSpec{GroupName: "wg3"},
 				).
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		"invalid topology request": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -279,6 +280,58 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+								kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+								kueuealpha.PodSetSliceSizeAnnotation:             "2",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+									kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+									kueuealpha.PodSetSliceSizeAnnotation:             "10",
+								},
+							},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg2",
+						Replicas:  ptr.To(int32(10)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+									kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+									kueuealpha.PodSetSliceSizeAnnotation:             "20",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template, metadata.annotations").
+				Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "10", "must not be greater than pod set count 5"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[1].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 10"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
 		},
 	}
 
@@ -288,6 +341,7 @@ func TestValidateCreate(t *testing.T) {
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 			_, result := wh.ValidateCreate(t.Context(), tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)

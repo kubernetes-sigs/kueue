@@ -30,6 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -350,8 +351,10 @@ func TestPodSets(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	testCases := map[string]struct {
-		job      *kftraining.PaddleJob
-		wantErrs field.ErrorList
+		job                     *kftraining.PaddleJob
+		wantValidationErrs      field.ErrorList
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		"no annotations": {
 			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Obj(),
@@ -375,6 +378,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		"invalid TAS request": {
 			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
@@ -397,7 +401,7 @@ func TestValidate(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantErrs: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("spec", "paddleReplicaSpecs").
 						Key("Master").
@@ -413,16 +417,68 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - slice size larger than number of podsets": {
+			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
+				PaddleReplicaSpecs(
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
+						ReplicaCount: 5,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "10",
+						},
+					},
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
+						ReplicaCount: 10,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						},
+					},
+				).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "paddleReplicaSpecs").
+						Key("Master").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"10", "must not be greater than pod set count 5",
+				),
+				field.Invalid(
+					field.NewPath("spec", "paddleReplicaSpecs").
+						Key("Worker").
+						Child("template", "metadata", "annotations").
+						Key("kueue.x-k8s.io/podset-slice-size"),
+					"20", "must not be greater than pod set count 10",
+				),
+			},
+			topologyAwareScheduling: true,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnCreate()); diff != "" {
-				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
+			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate()
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validate create error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validate create validation errors list mismatch (-want +got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnUpdate(nil)); diff != "" {
-				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
+			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(nil)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validate create error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validate create validation errors list mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -569,7 +625,7 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			kcBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme)
+			kcBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(kcBuilder)); err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}

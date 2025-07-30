@@ -1205,6 +1205,12 @@ and a list of Flavors which provide quotas for these
 Resources. Each Resource and each Flavor may only form part
 of one ResourceGroup.  There may be up to 16 ResourceGroups
 within a Cohort.</p>
+<p>Please note that nominalQuota defined at the Cohort level
+represents additional resources on top of those defined by
+ClusterQueues within the Cohort. The Cohort's nominalQuota
+may be thought of as a shared pool for the ClusterQueues
+within it. Additionally, this quota may also be lent out to
+parent Cohort(s), subject to LendingLimit.</p>
 <p>BorrowingLimit limits how much members of this Cohort
 subtree can borrow from the parent subtree.</p>
 <p>LendingLimit limits how much members of this Cohort subtree
@@ -2178,6 +2184,14 @@ within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.i
 <td>
    <p>SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
 For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
+</td>
+</tr>
+<tr><td><code>podSetGroupName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+PodSets with the same <code>PodSetGroupName</code> should be assigned the same ResourceFlavor</p>
 </td>
 </tr>
 <tr><td><code>podSetSliceRequiredTopology</code><br/>
@@ -3157,6 +3171,24 @@ in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycle
 </td>
 <td>
    <p>schedulingStats tracks scheduling statistics</p>
+</td>
+</tr>
+<tr><td><code>nominatedClusterNames</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
+This field is mutually exclusive with the <code>.status.clusterName</code> field, and is reset when
+<code>status.clusterName</code> is set.
+This field is optional.</p>
+</td>
+</tr>
+<tr><td><code>clusterName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>clusterName is the name of the cluster where the workload is actually assigned.
+This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
 </tbody>

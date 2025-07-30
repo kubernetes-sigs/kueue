@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
@@ -33,7 +34,7 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	preferredValue, preferredFound := replicaMetadata.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	_, unconstrainedFound := replicaMetadata.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
 	sliceRequiredValue, sliceRequiredFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
-	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
+	_, sliceSizeFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
 
 	// validate no more than 1 annotation
 	asInt := func(b bool) int {
@@ -64,15 +65,11 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueuealpha.PodSetSliceRequiredTopologyAnnotation))...)
 	}
 
-	// validate slice size annotation
-	if sliceSizeFound {
-		val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
-		if err != nil {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value"))
-		} else if int32(val) < 1 {
-			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be greater than or equal to 1"))
-		}
-	}
+	unconstrainedErrs := validateTASUnconstrained(annotationsPath, replicaMetadata)
+	allErrs = append(allErrs, unconstrainedErrs...)
+
+	sliceSizeAnnotationErr := validateSliceSizeAnnotation(annotationsPath, replicaMetadata)
+	allErrs = append(allErrs, sliceSizeAnnotationErr...)
 
 	// validate slice annotations
 	if sliceRequiredFound {
@@ -86,4 +83,73 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	}
 
 	return allErrs
+}
+
+func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
+	if val, ok := replicaMetadata.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]; ok {
+		if _, err := strconv.ParseBool(val); err != nil {
+			return field.ErrorList{
+				field.Invalid(
+					annotationsPath.Key(kueuealpha.PodSetUnconstrainedTopologyAnnotation), val, "must be a boolean value",
+				),
+			}
+		}
+	}
+	return nil
+}
+
+func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
+	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
+	if !sliceSizeFound {
+		return nil
+	}
+
+	val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
+	if err != nil {
+		return field.ErrorList{
+			field.Invalid(
+				annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
+			),
+		}
+	}
+
+	if int32(val) < 1 {
+		return field.ErrorList{
+			field.Invalid(
+				annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue,
+				"must be greater than or equal to 1",
+			),
+		}
+	}
+
+	return nil
+}
+
+func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSet *kueuebeta.PodSet) field.ErrorList {
+	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
+	if !sliceSizeFound || podSet == nil {
+		return nil
+	}
+
+	annotationsPath := replicaPath.Child("annotations")
+
+	val, err := strconv.ParseInt(sliceSizeValue, 10, 32)
+	if err != nil {
+		return field.ErrorList{
+			field.Invalid(
+				annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
+			),
+		}
+	}
+
+	if int32(val) > podSet.Count {
+		return field.ErrorList{
+			field.Invalid(
+				annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue,
+				fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
+			),
+		}
+	}
+
+	return nil
 }

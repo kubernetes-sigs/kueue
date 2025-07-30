@@ -1,26 +1,24 @@
 ---
-title: "Workload"
+title: "工作负载(Workload)"
 date: 2022-02-14
 weight: 5
 description: >
-  An application that will run to completion. It is the unit of admission in Kueue. Sometimes referred to as job.
+  将运行至完成的应用程序。它是 Kueue 中的准入单位。有时也称为作业。
 ---
 
-A _workload_ is an application that will run to completion. It can be composed
-by one or multiple Pods that, loosely or tightly coupled, as a whole,
-complete a task. A workload is the unit of [admission](/docs/concepts#admission) in Kueue.
+_工作负载(Workload)_ 是将运行至完成的应用程序。它可以由一个或多个 Pod 组成，
+这些 Pod 松散或紧密耦合，作为一个整体完成任务。工作负载是 Kueue 中的
+[准入(admission)](/docs/concepts#admission)单位。
 
-The prototypical workload can be represented with a
-[Kubernetes `batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/).
-For this reason, we sometimes use the word _job_ to refer to any workload, and
-Job when we refer specifically to the Kubernetes API.
+典型的工作负载可以用
+[Kubernetes `batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
+来表示。因此，我们有时使用_作业(job)_一词来指代任何工作负载，而 Job 则专门指
+Kubernetes API。
 
-However, Kueue does not directly manipulate Job objects. Instead, Kueue manages
-Workload objects that represent the resource requirements of an arbitrary
-workload. Kueue automatically creates a Workload for each Job object and syncs
-the decisions and statuses.
+但是，Kueue 不直接操作 Job 对象。相反，Kueue 管理代表任意工作负载资源需求的
+Workload 对象。Kueue 自动为每个 Job 对象创建一个 Workload，并同步决策和状态。
 
-The manifest for a Workload looks like the following:
+Workload 的清单如下所示：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -47,75 +45,86 @@ spec:
               memory: 200Mi
         restartPolicy: Never
 ```
-## Active
 
-You can stop or resume a running workload by setting the [Active](/docs/reference/kueue.v1beta1#kueue-x-k8s-io-v1beta1-WorkloadSpec) field. The active field determines if a workload can be admitted into a queue or continue running, if already admitted.
-Changing `.spec.Active` from true to false will cause a running workload to be evicted and not be requeued.
+## 活跃状态 {#active}
 
-## Queue name
+您可以通过设置 [Active](/docs/reference/kueue.v1beta1#kueue-x-k8s-io-v1beta1-WorkloadSpec)
+字段来停止或恢复正在运行的工作负载。active 字段决定工作负载是否可以被准入到队列中
+或继续运行（如果已经被准入）。
+将 `.spec.Active` 从 true 更改为 false 将导致正在运行的工作负载被驱逐且不会
+重新排队。
 
-To indicate in which [LocalQueue](/docs/concepts/local_queue) you want your Workload to be
-enqueued, set the name of the LocalQueue in the `.spec.queueName` field.
+## 队列名称 {#queue-name}
 
-## Pod sets
+要指示您希望将工作负载排入哪个[本地队列(LocalQueue)](/docs/concepts/local_queue)，
+请在 `.spec.queueName` 字段中设置本地队列的名称。
 
-A Workload might be composed of multiple Pods with different pod specs.
+## Pod 集合 {#pod-sets}
 
-Each item of the `.spec.podSets` list represents a set of homogeneous Pods and has
-the following fields:
+工作负载可能由具有不同 Pod 规格的多个 Pod 组成。
 
-- `spec` describes the pods using a [`v1/core.PodSpec`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodSpec).
-- `count` is the number of pods that use the same `spec`.
-- `name` is a human-readable identifier for the pod set. You can use the role of
-  the Pods in the Workload, like `driver`, `worker`, `parameter-server`, etc.
+`.spec.podSets` 列表的每个项目代表一组同质 Pod，并具有以下字段：
 
-### Resource requests
+- `spec` 使用 [`v1/core.PodSpec`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodSpec)
+  描述 Pod。
+- `count` 是使用相同 `spec` 的 Pod 数量。
+- `name` 是 Pod 集合的人类可读标识符。您可以使用 Pod 在工作负载中的角色，
+  如 `driver`、`worker`、`parameter-server` 等。
 
-Kueue uses the `podSets` resources requests to calculate the quota used by a Workload and decide if and when to admit a Workload.
+### 资源请求 {#resource-requests}
 
-Kueue calculates the total resources usage for a Workload as the sum of the resource requests for each `podSet`. The resource usage of a `podSet` is equal to the resource requests of the pod spec multiplied by the `count`.
+Kueue 使用 `podSets` 资源请求来计算工作负载使用的配额，并决定是否以及何时准入
+工作负载。
 
-#### Requests values adjustment
+Kueue 将工作负载的总资源使用量计算为每个 `podSet` 资源请求的总和。`podSet` 的
+资源使用量等于 Pod 规格的资源请求乘以 `count`。
 
-Depending on the cluster setup, Kueue will adjust the resource usage of a Workload based on:
+#### 请求值调整 {#request-value-adjustment}
 
-- The cluster defines default values in [Limit Ranges](https://kubernetes.io/docs/concepts/policy/limit-range/), the default values will be used if not provided in the `spec`.
-- The created pods are subject of a [Runtime Class Overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/).
-- The spec defines only resource limits, case in which the limit values will be treated as requests.
+根据集群设置，Kueue 将基于以下因素调整工作负载的资源使用量：
 
-#### Requests values validation
+- 集群在[限制范围(Limit Ranges)](https://kubernetes.io/docs/concepts/policy/limit-range/)
+  中定义默认值，如果 `spec` 中未提供，将使用默认值。
+- 创建的 Pod 受到[运行时类开销(Runtime Class Overhead)](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/)
+  的影响。
+- 规格仅定义资源限制，这种情况下限制值将被视为请求。
 
-In cases when the cluster defines Limit Ranges, the values resulting from the adjustment above will be validated against the ranges.
-Kueue will mark the workload as `Inadmissible` if the range validation fails.
+#### 请求值验证 {#request-value-validation}
 
-#### Reserved resource names
+在集群定义限制范围的情况下，上述调整后的值将根据范围进行验证。
+如果范围验证失败，Kueue 会将工作负载标记为 `Inadmissible`。
 
-In addition to the usual resource naming restrictions, you cannot use the `pods` resource name in a Pod spec, as it is reserved for internal Kueue use. You can use the `pods` resource name in a [ClusterQueue](/docs/concepts/cluster_queue#resources) to set quotas on the maximum number of pods.
+#### 保留的资源名称 {#reserved-resource-names}
 
-## Priority
+除了通常的资源命名限制外，您不能在 Pod 规格中使用 `pods` 资源名称，因为它是为
+Kueue 内部使用而保留的。您可以在[集群队列(ClusterQueue)](/docs/concepts/cluster_queue#resources)
+中使用 `pods` 资源名称来设置 Pod 最大数量的配额。
 
-Workloads have a priority that influences the [order in which they are admitted by a ClusterQueue](/docs/concepts/cluster_queue#queueing-strategy).
-There are two ways to set the Workload priority:
+## 优先级 {#priority}
 
-- **Pod Priority**: You can see the priority of the Workload in the field `.spec.priority`.
-For a `batch/v1.Job`, Kueue sets the priority of the Workload based on the
-[pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/) of the Job's pod template.
+工作负载具有影响[集群队列准入顺序](/docs/concepts/cluster_queue#queueing-strategy)的
+优先级。有两种设置工作负载优先级的方法：
 
-- **WorkloadPriority**: Sometimes developers would like to control workload's priority without affecting pod's priority.
-By using [`WorkloadPriority`](/docs/concepts/workload_priority_class),
-you can independently manage the priority of workloads for queuing and preemption, separate from pod's priority.
+- **Pod 优先级**：您可以在 `.spec.priority` 字段中查看工作负载的优先级。
+  对于 `batch/v1.Job`，Kueue 根据 Job 的 Pod 模板的
+  [Pod 优先级](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)
+  设置工作负载的优先级。
 
-## Custom Workloads
+- **WorkloadPriority**：有时开发人员希望控制工作负载的优先级而不影响 Pod 的优先级。
+  通过使用 [`WorkloadPriority`](/docs/concepts/workload_priority_class)，
+  您可以独立管理工作负载的排队和抢占优先级，与 Pod 的优先级分离。
 
-As described previously, Kueue has built-in support for workloads created with
-the Job API. But any custom workload API can integrate with Kueue by
-creating a corresponding Workload object for it.
+## 自定义工作负载 {#custom-workload}
 
-## Dynamic Reclaim
+如前所述，Kueue 内置支持使用 Job API 创建的工作负载。但是任何自定义工作负载 API
+都可以通过为其创建相应的 Workload 对象来与 Kueue 集成。
 
-It's a mechanism allowing a currently Admitted workload to release a part of it's Quota Reservation that is no longer needed.
+## 动态回收 {#dynamic-reclaim}
 
-Job integrations communicate this information by setting the `reclaimablePods` status field, enumerating the number of pods per podset for which the Quota Reservation is no longer needed.
+这是一种允许当前已准入工作负载释放不再需要的部分配额预留的机制。
+
+作业集成通过设置 `reclaimablePods` 状态字段来传达此信息，枚举每个 Pod 集合中
+不再需要配额预留的 Pod 数量。
 
 ```yaml
 
@@ -127,20 +136,23 @@ status:
     count: 2
 
 ```
-The `count` can only increase while the workload holds a Quota Reservation.
 
-## All-or-nothing semantics for Job Resource Assignment
+只有当工作负载持有配额预留时，`count` 才能增加。
 
-This mechanism allows a Job to be evicted and re-queued if the job doesn't become ready.
-Please refer to the [All-or-nothing with ready Pods](/docs/tasks/manage/setup_wait_for_pods_ready/) for more details.
+## 作业资源分配的全有或全无语义 {#all-or-nothing-semantics-for-job-resource-assignment}
 
-### Exponential Backoff Requeueing
+此机制允许在作业未准备就绪时被驱逐并重新排队。
+请参考[全有或全无与就绪 Pod](/docs/tasks/manage/setup_wait_for_pods_ready/)
+了解更多详情。
 
-Once evictions with `PodsReadyTimeout` reasons occur, a Workload will be re-queued with backoff.
-The Workload status allows you to know the following:
+### 指数退避重新排队 {#exponential-backoff-requeueing}
 
-- `.status.requeueState.count` indicates the numbers of times a Workload has already been backoff re-queued by Eviction with PodsReadyTimeout reason
-- `.status.requeueState.requeueAt` indicates the time when a Workload will be re-queued the next time
+一旦发生 `PodsReadyTimeout` 原因的驱逐，工作负载将以退避方式重新排队。
+工作负载状态允许您了解以下信息：
+
+- `.status.requeueState.count` 指示工作负载因 PodsReadyTimeout 原因驱逐而已
+  退避重新排队的次数
+- `.status.requeueState.requeueAt` 指示工作负载下次重新排队的时间
 
 ```yaml
 status:
@@ -149,33 +161,37 @@ status:
     requeueAt: 2024-02-11T04:51:03Z
 ```
 
-When a Workload deactivated by All-or-nothing with ready Pods is re-activated,
-the requeueState (`.status.requeueState`) will be reset to null.
+当由于全有或全无与就绪 Pod 而被停用的工作负载重新激活时，
+requeueState (`.status.requeueState`) 将重置为 null。
 
-## Replicate labels from Jobs into Workloads
-You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
-You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload. 
+## 从作业复制标签到工作负载 {#replicate-labels-from-jobs-into-workloads}
 
-## Maximum execution time
+您可以配置 Kueue 在工作负载创建时，从底层 Job 或 Pod 对象将标签复制到新的
+工作负载中。这对于工作负载识别和调试很有用。
+您可以通过在配置 API 中设置 `labelKeysToCopy` 字段（在 `integrations` 下）
+来指定应该复制哪些标签。默认情况下，Kueue 不会将任何 Job 或 Pod 标签复制到
+工作负载中。
 
-You can configure a Workload's maximum execution time by specifying the expected maximum number of seconds for it to run in:
+## 最大执行时间 {#maximum-execution-time}
+
+您可以通过指定工作负载预期运行的最大秒数来配置其最大执行时间：
 
 ```yaml
 spec:
   maximumExecutionTimeSeconds: n
 ```
 
-If the workload spends more then `n` seconds in `Admitted` state, including the time spent as `Admitted` in previous "Admit/Evict" cycles, it gets automatically deactivated.
-Once deactivated, the accumulated time spent as active in previous "Admit/Evict" cycles is set to 0.
+如果工作负载在 `Admitted` 状态下花费超过 `n` 秒，包括在之前的"准入/驱逐"循环中
+作为 `Admitted` 状态花费的时间，它会自动被停用。
+一旦停用，在之前的"准入/驱逐"循环中作为活跃状态累积的时间将设置为 0。
 
-If `maximumExecutionTimeSeconds` is not specified, the workload has no execution time limit.
+如果未指定 `maximumExecutionTimeSeconds`，则工作负载没有执行时间限制。
 
-You can configure the `maximumExecutionTimeSeconds` of the Workload associated with any supported Kueue Job by specifying the desired value as `kueue.x-k8s.io/max-exec-time-seconds` label of the job. 
+您可以通过在作业的 `kueue.x-k8s.io/max-exec-time-seconds` 标签中指定所需值
+来配置任何支持的 Kueue 作业关联的工作负载的 `maximumExecutionTimeSeconds`。
 
+## 下一步 {#whats-next}
 
-
-## What's next
-
-- Learn about [workload priority class](/docs/concepts/workload_priority_class).
-- Learn how to [run jobs](/docs/tasks/run/jobs)
-- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-Workload) for `Workload`
+- 了解[工作负载优先级类](/docs/concepts/workload_priority_class)。
+- 了解如何[运行作业](/docs/tasks/run/jobs)
+- 阅读 `Workload` 的 [API 参考](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-Workload)

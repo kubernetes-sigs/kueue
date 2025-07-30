@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
@@ -61,7 +62,7 @@ func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sCli
 
 	// Logic for managing jobs without queue names.
 	if manageJobsWithoutQueueName {
-		if features.Enabled(features.ManagedJobsNamespaceSelector) && managedJobsNamespaceSelector != nil {
+		if managedJobsNamespaceSelector != nil {
 			// Default suspend the job if the namespace selector matches
 			ns := corev1.Namespace{}
 			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
@@ -102,7 +103,7 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *queue.Manager, cache *cach
 			if !found {
 				return
 			}
-			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(queue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
+			clusterQueueName, ok := queues.ClusterQueueFromLocalQueue(utilqueue.NewLocalQueueReference(job.Object().GetNamespace(), kueue.LocalQueueName(localQueueName)))
 			if !ok {
 				log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
 				return

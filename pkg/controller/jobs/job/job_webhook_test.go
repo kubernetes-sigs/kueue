@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -42,6 +43,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
@@ -64,24 +66,26 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name    string
-		job     *batchv1.Job
-		wantErr field.ErrorList
+		name                    string
+		job                     *batchv1.Job
+		wantValidationErrs      field.ErrorList
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		{
-			name:    "simple",
-			job:     testingutil.MakeJob("job", "default").Queue("queue").Obj(),
-			wantErr: nil,
+			name:               "simple",
+			job:                testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			wantValidationErrs: nil,
 		},
 		{
-			name:    "invalid queue-name label",
-			job:     testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
+			name:               "invalid queue-name label",
+			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
 		},
 		{
-			name:    "invalid queue-name annotation (deprecated)",
-			job:     testingutil.MakeJob("job", "default").QueueNameAnnotation("queue name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameAnnotationsPath, "queue name", invalidRFC1123Message)},
+			name:               "invalid queue-name annotation (deprecated)",
+			job:                testingutil.MakeJob("job", "default").QueueNameAnnotation("queue name").Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameAnnotationsPath, "queue name", invalidRFC1123Message)},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
@@ -90,7 +94,7 @@ func TestValidateCreate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "NaN").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
 			},
 		},
@@ -101,7 +105,7 @@ func TestValidateCreate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
 			},
 		},
@@ -112,7 +116,7 @@ func TestValidateCreate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name: "invalid sync completions annotation (format)",
@@ -122,7 +126,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "-").
 				Indexed(true).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(syncCompletionAnnotationsPath, "-", "strconv.ParseBool: parsing \"-\": invalid syntax"),
 			},
 		},
@@ -134,7 +138,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
 				Indexed(true).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "completions"), ptr.To[int32](6), fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)),
 			},
 		},
@@ -145,7 +149,7 @@ func TestValidateCreate(t *testing.T) {
 				Completions(4).
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
 			},
 		},
@@ -157,7 +161,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
 				Indexed(false).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
 			},
 		},
@@ -169,7 +173,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
 				Indexed(true).
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name: "invalid prebuilt workload",
@@ -179,7 +183,7 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.PrebuiltWorkloadLabel, "workload name").
 				Indexed(true).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
 			},
 		},
@@ -191,7 +195,7 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.PrebuiltWorkloadLabel, "workload-name").
 				Indexed(true).
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name: "invalid maximum execution time",
@@ -201,7 +205,7 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.MaxExecTimeSecondsLabel, "NaN").
 				Indexed(true).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, "NaN", `strconv.Atoi: parsing "NaN": invalid syntax`),
 			},
 		},
@@ -213,7 +217,7 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.MaxExecTimeSecondsLabel, "0").
 				Indexed(true).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, 0, "should be greater than 0"),
 			},
 		},
@@ -225,7 +229,7 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.MaxExecTimeSecondsLabel, "-10").
 				Indexed(true).
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, -10, "should be greater than 0"),
 			},
 		},
@@ -243,7 +247,8 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs:      nil,
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - both annotations",
@@ -251,31 +256,34 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - invalid required",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "some required value").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
 					invalidLabelKeyMessage).WithOrigin("labelKey"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - invalid preferred",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "some preferred value").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
 					invalidLabelKeyMessage).WithOrigin("labelKey"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "valid slice topology request",
@@ -284,7 +292,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs:      nil,
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "valid topology request - slice-only topology - unconstrained with slices defined",
@@ -293,7 +302,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs:      nil,
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - slice requested without slice size",
@@ -301,9 +311,10 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "slice size is required if slice topology is requested"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - slice size is not a number",
@@ -312,9 +323,10 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "not a number").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "not a number", "must be a numeric value"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - slice size is negative",
@@ -323,9 +335,10 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "-1").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "-1", "must be greater than or equal to 1"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - slice size is zero",
@@ -334,9 +347,10 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "0").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "0", "must be greater than or equal to 1"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "invalid topology request - slice size provided without slice topology",
@@ -344,9 +358,10 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "cannot be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not present"),
 			},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "valid topology request - slice-only topology",
@@ -354,18 +369,39 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs:      nil,
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid slice topology request - slice size larger than number of podsets",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "20").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 4"),
+			},
+			topologyAwareScheduling: true,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
 			jw := &JobWebhook{}
 
-			gotErr := jw.validateCreate((*Job)(tc.job))
+			gotValidationErrs, gotErr := jw.validateCreate((*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateCreate() error mismatch (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validateCreate() validation errors mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -373,50 +409,52 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := []struct {
-		name    string
-		oldJob  *batchv1.Job
-		newJob  *batchv1.Job
-		wantErr field.ErrorList
+		name                    string
+		oldJob                  *batchv1.Job
+		newJob                  *batchv1.Job
+		wantValidationErrs      field.ErrorList
+		wantErr                 error
+		topologyAwareScheduling bool
 	}{
 		{
-			name:    "normal update",
-			oldJob:  testingutil.MakeJob("job", "default").Queue("queue").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			wantErr: nil,
+			name:               "normal update",
+			oldJob:             testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			wantValidationErrs: nil,
 		},
 		{
 			name:   "add queue name with suspend is false",
 			oldJob: testingutil.MakeJob("job", "default").Obj(),
 			newJob: testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue"), apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
-			name:    "add queue name with suspend is true",
-			oldJob:  testingutil.MakeJob("job", "default").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
-			wantErr: nil,
+			name:               "add queue name with suspend is true",
+			oldJob:             testingutil.MakeJob("job", "default").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
+			wantValidationErrs: nil,
 		},
 		{
 			name:   "change queue name with suspend is false",
 			oldJob: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 			newJob: testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
-			name:    "change queue name with suspend is true",
-			oldJob:  testingutil.MakeJob("job", "default").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
-			wantErr: nil,
+			name:               "change queue name with suspend is true",
+			oldJob:             testingutil.MakeJob("job", "default").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
+			wantValidationErrs: nil,
 		},
 		{
-			name:    "change queue name with suspend is true, but invalid value",
-			oldJob:  testingutil.MakeJob("job", "default").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
+			name:               "change queue name with suspend is true, but invalid value",
+			oldJob:             testingutil.MakeJob("job", "default").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",
@@ -432,7 +470,7 @@ func TestValidateUpdate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"),
 			},
 		},
@@ -449,7 +487,7 @@ func TestValidateUpdate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name: "immutable sync completion annotation while unsuspended",
@@ -465,7 +503,7 @@ func TestValidateUpdate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)),
 			},
 		},
@@ -483,7 +521,7 @@ func TestValidateUpdate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name:   "workloadPriorityClassName is mutable when job is suspended",
@@ -494,7 +532,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:   "workloadPriorityClassName is immutable when job is running",
 			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Suspend(false).Obj(),
 			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Suspend(false).Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
@@ -508,7 +546,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Label(constants.PrebuiltWorkloadLabel, "new-workload").
 				Obj(),
-			wantErr: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWlNameLabelPath),
+			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWlNameLabelPath),
 		},
 		{
 			name: "immutable queue name not suspend",
@@ -520,7 +558,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Label(constants.QueueLabel, "new-queue").
 				Obj(),
-			wantErr: apivalidation.ValidateImmutableField(kueue.LocalQueueName("new-queue"), "old-queue", queueNameLabelPath),
+			wantValidationErrs: apivalidation.ValidateImmutableField(kueue.LocalQueueName("new-queue"), "old-queue", queueNameLabelPath),
 		},
 		{
 			name: "queue name can changes when it is  suspend",
@@ -532,7 +570,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(true).
 				Label(constants.QueueLabel, "new-queue").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name: "can update the kueue.x-k8s.io/job-min-parallelism  annotation",
@@ -546,7 +584,7 @@ func TestValidateUpdate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Obj(),
-			wantErr: nil,
+			wantValidationErrs: nil,
 		},
 		{
 			name: "validates kueue.x-k8s.io/job-min-parallelism annotation value (bad format)",
@@ -560,7 +598,7 @@ func TestValidateUpdate(t *testing.T) {
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "NaN").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
 			},
 		},
@@ -574,7 +612,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Label(constants.MaxExecTimeSecondsLabel, "20").
 				Obj(),
-			wantErr: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
+			wantValidationErrs: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
 		},
 		{
 			name: "immutable max exec time while transitioning to unsuspended",
@@ -586,7 +624,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Label(constants.MaxExecTimeSecondsLabel, "20").
 				Obj(),
-			wantErr: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
+			wantValidationErrs: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
 		},
 		{
 			name: "mutable max exec time while suspended",
@@ -606,6 +644,7 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "attempt to set invalid TAS request",
@@ -615,10 +654,11 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "valid slice topology request",
@@ -629,6 +669,7 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
 				Obj(),
+			topologyAwareScheduling: true,
 		},
 		{
 			name: "attempt to set invalid slice topology request",
@@ -638,17 +679,23 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			wantErr: field.ErrorList{
+			wantValidationErrs: field.ErrorList{
 				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "slice size is required if slice topology is requested"),
 			},
+			topologyAwareScheduling: true,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := new(JobWebhook).validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
+
+			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
-				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs, cmpopts.IgnoreFields(field.Error{})); diff != "" {
+				t.Errorf("validateUpdate() validation errors mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -854,6 +901,100 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
+	type args struct {
+		job *Job
+	}
+	// Test case matrix covers combinations of:
+	//   - WorkloadSlice feature enabled: true or false
+	//   - Job opt-in via annotation: present or absent
+	tests := map[string]struct {
+		featureEnabled bool
+		args           args
+		want           []corev1.PodSchedulingGate
+	}{
+		"FeatureDisabledAndNotOptIn": {
+			args: args{job: &Job{}},
+		},
+		"FeatureDisabledAndOptIn": {
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+				},
+			},
+		},
+		"FeatureEnabledButNotOptIn": {
+			featureEnabled: true,
+			args:           args{job: &Job{}},
+		},
+		"FeatureEnabledAndOptIn": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									// To assert that other gates are not removed as a side effect.
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
+			featureEnabled: true,
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: kueue.ElasticJobSchedulingGate},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, tt.featureEnabled); err != nil {
+				t.Errorf("applyWorkloadSliceSchedulingGate() unexpcted error enabling feature: %v", err)
+			}
+			applyWorkloadSliceSchedulingGate(tt.args.job)
+			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
+				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)
 			}
 		})
 	}

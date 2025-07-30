@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -59,51 +59,42 @@ const (
 	terminating = metrics.CQStatusTerminating
 )
 
-type options struct {
-	workloadInfoOptions  []workload.InfoOption
-	podsReadyTracking    bool
-	fairSharingEnabled   bool
-	admissionFairSharing *config.AdmissionFairSharing
-}
-
 // Option configures the reconciler.
-type Option func(*options)
+type Option func(*Cache)
 
 // WithPodsReadyTracking indicates the cache controller tracks the PodsReady
 // condition for admitted workloads, and allows to block admission of new
 // workloads until all admitted workloads are in the PodsReady condition.
 func WithPodsReadyTracking(f bool) Option {
-	return func(o *options) {
-		o.podsReadyTracking = f
+	return func(c *Cache) {
+		c.podsReadyTracking = f
 	}
 }
 
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
-	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
 	}
 }
 
 // WithResourceTransformations sets the resource transformations.
 func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
-	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceTransformations(transforms))
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithResourceTransformations(transforms))
 	}
 }
 
 func WithFairSharing(enabled bool) Option {
-	return func(o *options) {
-		o.fairSharingEnabled = enabled
+	return func(c *Cache) {
+		c.fairSharingEnabled = enabled
 	}
 }
 
 func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
-	return func(o *options) {
-		o.admissionFairSharing = afs
+	return func(c *Cache) {
+		c.admissionFairSharing = afs
 	}
 }
-
-var defaultOptions = options{}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
@@ -124,25 +115,20 @@ type Cache struct {
 	tasCache tasCache
 }
 
-func New(client client.Client, opts ...Option) *Cache {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
+func New(client client.Client, options ...Option) *Cache {
+	cache := &Cache{
+		client:           client,
+		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
+		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:         NewTASCache(client),
 	}
-	c := &Cache{
-		client:               client,
-		assumedWorkloads:     make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:      make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:      make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		podsReadyTracking:    options.podsReadyTracking,
-		workloadInfoOptions:  options.workloadInfoOptions,
-		fairSharingEnabled:   options.fairSharingEnabled,
-		admissionFairSharing: options.admissionFairSharing,
-		hm:                   hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
-		tasCache:             NewTASCache(client),
+	for _, option := range options {
+		option(cache)
 	}
-	c.podsReadyCond.L = &c.RWMutex
-	return c
+	cache.podsReadyCond.L = &cache.RWMutex
+	return cache
 }
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
@@ -476,8 +462,16 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 			})
 		}
 	}
+
+	parent := curCq.Parent()
+
 	c.hm.DeleteClusterQueue(cqName)
 	metrics.ClearCacheMetrics(cq.Name)
+
+	// Update cohort resources after deletion
+	if parent != nil {
+		updateCohortTreeResourcesIfNoCycle(parent)
+	}
 }
 
 func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {

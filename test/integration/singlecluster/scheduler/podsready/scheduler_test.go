@@ -170,6 +170,35 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
+		ginkgo.It("Should emit the PodsReadyToEvictedTimeSeconds metric", func() {
+			ginkgo.By("create a workload and await its admission")
+			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			util.MustCreate(ctx, k8sClient, prodWl)
+
+			ginkgo.By("update the workload with PodsReady=True")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&prodWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadStarted,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, prodWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+
+			ginkgo.By("manually evict the workload by suspending, which sets WorkloadEvicted condition reason to Deactivated")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				prodWl.Spec.Active = ptr.To(false)
+				g.Expect(k8sClient.Update(ctx, prodWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+
+			ginkgo.By("check for PodsReadyToEvictedTimeSeconds metric existence")
+			util.ExpectPodsReadyToEvictedTimeSeconds(prodClusterQ.Name, kueue.WorkloadDeactivated, 1)
+		})
+
 		ginkgo.It("Should unblock admission of new workloads once the admitted workload is deleted", func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()

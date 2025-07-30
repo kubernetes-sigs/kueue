@@ -18,6 +18,7 @@ export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
+export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
@@ -65,7 +66,7 @@ fi
 # agnhost image to use for testing.
 E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA=registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
 export E2E_TEST_AGNHOST_IMAGE_OLD=${E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA%%@*}
-E2E_TEST_AGNHOST_IMAGE_WITH_SHA=registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
+E2E_TEST_AGNHOST_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/agnhost/Dockerfile" | awk '{print $2}')
 export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 
 
@@ -101,8 +102,8 @@ function prepare_docker_images {
     # We can load image by a digest but we cannot reference it by the digest that we pulled.
     # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
     # Manually create tag for image with digest which is already pulled
-    docker tag $E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA "$E2E_TEST_AGNHOST_IMAGE_OLD"
-    docker tag $E2E_TEST_AGNHOST_IMAGE_WITH_SHA "$E2E_TEST_AGNHOST_IMAGE"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE_OLD"
+    docker tag "$E2E_TEST_AGNHOST_IMAGE_WITH_SHA" "$E2E_TEST_AGNHOST_IMAGE"
 
     if [[ -n ${APPWRAPPER_VERSION:-} ]]; then
         docker pull "${APPWRAPPER_IMAGE}"
@@ -193,7 +194,7 @@ function deploy_with_certmanager() {
     crd_backup="$(<"$crd_kust")"
     local default_backup
     default_backup="$(<"$default_kust")"
-    
+
     (
         cd "${ROOT_DIR}/config/components/crd" || exit
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
@@ -207,9 +208,9 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
     )
+
+    build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
     printf "%s\n" "$default_backup" > "$default_kust"
@@ -221,11 +222,29 @@ function cluster_kueue_deploy {
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
             --timeout=5m
-        
-        deploy_with_certmanager "$1"
+        if [ "$E2E_USE_HELM" == 'true' ]; then
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml"
+        else
+            deploy_with_certmanager "$1"
+        fi
+    elif [ "$E2E_USE_HELM" == 'true' ]; then
+        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
+}
+
+# $1 kubeconfig
+# $2 values file
+function helm_install {
+    $HELM install \
+      -f "$2" \
+      --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
+      --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
+      --create-namespace \
+      --namespace kueue-system \
+      --kubeconfig "$1" \
+      kueue "${ROOT_DIR}/charts/kueue"
 }
 
 # $1 kubeconfig 
@@ -290,8 +309,21 @@ function install_cert_manager {
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 export INITIAL_IMAGE
 
+function set_managers_image {
+    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+}
+
 function restore_managers_image {
     (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+}
+
+function kueue_deploy {
+    # We use a subshell to avoid overwriting the global cleanup trap, which also uses the EXIT signal.
+    (
+        set_managers_image
+        trap restore_managers_image EXIT
+        cluster_kueue_deploy ""
+    )
 }
 
 function determine_kuberay_ray_image {

@@ -19,6 +19,8 @@ package webhooks
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -31,20 +33,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type WorkloadWebhook struct{}
+type WorkloadWebhook struct {
+	dispatcherName string
+}
 
-func setupWebhookForWorkload(mgr ctrl.Manager) error {
+func setupWebhookForWorkload(mgr ctrl.Manager, dispatcherName string) error {
+	wh := &WorkloadWebhook{
+		dispatcherName: dispatcherName,
+	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.Workload{}).
-		WithDefaulter(&WorkloadWebhook{}).
-		WithValidator(&WorkloadWebhook{}).
+		WithDefaulter(wh).
+		WithValidator(wh).
 		Complete()
 }
 
@@ -86,7 +94,7 @@ func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj run
 	oldWL := oldObj.(*kueue.Workload)
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
-	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
+	return nil, ValidateWorkloadUpdate(newWL, oldWL, w.dispatcherName).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -164,7 +172,7 @@ func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.Er
 func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	knowPodSets := sets.New(slices.Map(obj.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference {
+	knowPodSets := sets.New(utilslices.Map(obj.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference {
 		return ps.Name
 	})...)
 
@@ -184,7 +192,7 @@ func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, 
 
 func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	newAcs := slices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return f.Name })
+	newAcs := utilslices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return f.Name })
 	for i := range oldObj.Status.AdmissionChecks {
 		oldAc := &oldObj.Status.AdmissionChecks[i]
 		newAc, found := newAcs[oldAc.Name]
@@ -265,21 +273,21 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 	return ret
 }
 
-func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
+func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload, dispatcherName string) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
-
+	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, dispatcherName, statusPath)...)
 	return allErrs
 }
 
@@ -341,4 +349,39 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		}
 	}
 	return ret
+}
+
+// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
+func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
+		// Allow scale-down for elastic jobs.
+		new.Count = old.Count
+	}
+	return apivalidation.ValidateImmutableField(new, old, path)
+}
+
+// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
+func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+	if len(new) != len(old) {
+		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
+	}
+	allErrs := make(field.ErrorList, 0, len(new))
+	for i := range new {
+		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+		}
+	}
+	return allErrs
+}
+
+func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, dispatcherName string, statusPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if oldObj.Status.ClusterName == nil && newObj.Status.ClusterName != nil && dispatcherName != configapi.MultiKueueDispatcherModeAllAtOnce {
+		found := slices.Contains(oldObj.Status.NominatedClusterNames, *newObj.Status.ClusterName)
+		if !found {
+			allErrs = append(allErrs, field.Invalid(statusPath.Child("clusterName"), newObj.Status.ClusterName, "when setting clusterName it must be one of the nominatedClusterNames"))
+		}
+	}
+
+	return allErrs
 }

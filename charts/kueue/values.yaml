@@ -217,6 +217,18 @@ kueueViz:
     nodeSelector: {}
     # -- KueueViz backend tolerations
     tolerations: []
+    # -- Sets ImagePullSecrets for KueueViz dashboard backend deployments.
+    # This is useful when the images are in a private registry.
+    imagePullSecrets: []
+    # -- Enable PriorityClass for KueueViz dashboard backend deployments
+    priorityClassName:
+    ingress:
+      # -- KueueViz dashboard backend ingress class name
+      ingressClassName:
+      # -- KueueViz dashboard backend ingress host
+      host: "backend.kueueviz.local"
+      # -- KueueViz dashboard backend ingress tls secret name
+      tlsSecretName: "kueueviz-backend-tls"
     image:
       # -- KueueViz dashboard backend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"
@@ -230,6 +242,18 @@ kueueViz:
     nodeSelector: {}
     # -- KueueViz frontend tolerations
     tolerations: []
+    # -- Sets ImagePullSecrets for KueueViz dashboard frontend deployments.
+    # This is useful when the images are in a private registry.
+    imagePullSecrets: []
+    # -- Enable PriorityClass for KueueViz dashboard frontend deployments
+    priorityClassName:
+    ingress:
+      # -- KueueViz dashboard frontend ingress class name
+      ingressClassName:
+      # -- KueueViz dashboard frontend ingress host
+      host: "frontend.kueueviz.local"
+      # -- KueueViz dashboard frontend ingress tls secret name
+      tlsSecretName: "kueueviz-frontend-tls"
     image:
       # -- KueueViz dashboard frontend image repository
       repository: "us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"

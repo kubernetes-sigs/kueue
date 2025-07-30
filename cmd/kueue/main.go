@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -143,7 +144,7 @@ func main() {
 		}
 	}
 
-	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
+	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit, "buildDate", version.BuildDate)
 
 	features.LogFeatureGates(setupLog)
 
@@ -232,22 +233,43 @@ func main() {
 	}
 	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
 
-	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
+	serverVersionFetcher, err := setupServerVersionFetcher(mgr, kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to setup server version fetcher")
+		os.Exit(1)
+	}
 
-	setupProbeEndpoints(mgr, certsReady)
+	if err := setupProbeEndpoints(mgr, certsReady); err != nil {
+		setupLog.Error(err, "Unable to setup probe endpoints")
+		os.Exit(1)
+	}
+
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
+	go func() {
+		if err := setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher); err != nil {
+			setupLog.Error(err, "Unable to setup controllers")
+			os.Exit(1)
+		}
+	}()
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
 
 	if features.Enabled(features.VisibilityOnDemand) {
-		go visibility.CreateAndStartVisibilityServer(ctx, queues)
+		go func() {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues); err != nil {
+				setupLog.Error(err, "Unable to create and start visibility server")
+				os.Exit(1)
+			}
+		}()
 	}
 
-	setupScheduler(mgr, cCache, queues, &cfg)
+	if err := setupScheduler(mgr, cCache, queues, &cfg); err != nil {
+		setupLog.Error(err, "Could not setup scheduler")
+		os.Exit(1)
+	}
 
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
@@ -267,22 +289,19 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
 			setupLog.Error(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
-			setupLog.Error(err, "Could not setup provisioning indexer")
-			os.Exit(1)
+			return fmt.Errorf("could not setup provisioning indexer: %w", err)
 		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if err := tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-			setupLog.Error(err, "Could not setup TAS indexer")
-			os.Exit(1)
+			return fmt.Errorf("could not setup TAX indexer: %w", err)
 		}
 	}
 
 	if features.Enabled(features.MultiKueue) {
 		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), *cfg.Namespace); err != nil {
-			setupLog.Error(err, "Could not setup multikueue indexer")
-			os.Exit(1)
+			return fmt.Errorf("could not setup multikueue indexer: %w", err)
 		}
 	}
 
@@ -292,14 +311,13 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
-		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
-		os.Exit(1)
+		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 
 	// setup provision admission check controller
@@ -309,13 +327,11 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		} else {
 			ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
 			if err != nil {
-				setupLog.Error(err, "Could not create the provisioning controller")
-				os.Exit(1)
+				return fmt.Errorf("could not create the provisioning controller: %w", err)
 			}
 
 			if err := ctrl.SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "Could not setup provisioning controller")
-				os.Exit(1)
+				return fmt.Errorf("could not setup provisioning controller: %w", err)
 			}
 		}
 	}
@@ -323,30 +339,27 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	if features.Enabled(features.MultiKueue) {
 		adapters, err := jobframework.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
 		if err != nil {
-			setupLog.Error(err, "Could not get the enabled multikueue adapters")
-			os.Exit(1)
+			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 			multikueue.WithAdapters(adapters),
+			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 		); err != nil {
-			setupLog.Error(err, "Could not setup MultiKueue controller")
-			os.Exit(1)
+			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
-			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
-			os.Exit(1)
+			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
-		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
-		os.Exit(1)
+	if failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}
 
 	opts := []jobframework.Option{
@@ -364,28 +377,25 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	if cfg.Integrations.PodOptions != nil {
 		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))
 	}
-	if features.Enabled(features.ManagedJobsNamespaceSelector) {
-		nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
-		if err != nil {
-			setupLog.Error(err, "Failed to parse managedJobsNamespaceSelector")
-			os.Exit(1)
-		}
-		opts = append(opts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
+	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
+	if err != nil {
+		return fmt.Errorf("failed to parse managedJobsNamespaceSelector: %w", err)
 	}
+	opts = append(opts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
 
 	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
-		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
-		os.Exit(1)
+		return fmt.Errorf("unable to create controller or webhook for kubernetesVersion %v: %w", serverVersionFetcher.GetServerVersion(), err)
 	}
+
+	return nil
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) {
+func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
+		return fmt.Errorf("unable to set up health check: %w", err)
 	}
 
 	// Wait for the webhook server to be listening before advertising the
@@ -403,12 +413,13 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) {
 			return errors.New("certificates are not ready")
 		}
 	}); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
+		return fmt.Errorf("unable to set up ready check: %w", err)
 	}
+
+	return nil
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) error {
 	sched := scheduler.New(
 		queues,
 		cCache,
@@ -416,33 +427,31 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		mgr.GetEventRecorderFor(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
+		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 	)
 	if err := mgr.Add(sched); err != nil {
-		setupLog.Error(err, "Unable to add scheduler to manager")
-		os.Exit(1)
+		return fmt.Errorf("unable to add scheduler to manager: %w", err)
 	}
+	return nil
 }
 
-func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubeversion.ServerVersionFetcher {
+func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) (*kubeversion.ServerVersionFetcher, error) {
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(kubeConfig)
 	if err != nil {
-		setupLog.Error(err, "Unable to create the discovery client")
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to create the discovery client: %w", err)
 	}
 
 	serverVersionFetcher := kubeversion.NewServerVersionFetcher(discoveryClient)
 
 	if err := mgr.Add(serverVersionFetcher); err != nil {
-		setupLog.Error(err, "Unable to add server version fetcher to manager")
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to add server version fetcher to manager: %w", err)
 	}
 
 	if err := serverVersionFetcher.FetchServerVersion(); err != nil {
-		setupLog.Error(err, "failed to fetch kubernetes server version")
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to fetch kubernetes server version: %w", err)
 	}
 
-	return serverVersionFetcher
+	return serverVersionFetcher, nil
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {

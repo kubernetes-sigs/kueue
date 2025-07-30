@@ -91,6 +91,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "Workload", err
 	}
 	qManager.AddTopologyUpdateWatcher(cqRec)
+	qManager.AddWorkloadUpdateWatcher(qRec)
 	return "", nil
 }
 

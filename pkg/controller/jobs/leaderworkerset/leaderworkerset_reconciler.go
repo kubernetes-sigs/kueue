@@ -145,7 +145,7 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		replicas = ptr.Deref(lws.Spec.Replicas, 1)
 	)
 
-	for i := int32(0); i < replicas; i++ {
+	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
 		if _, ok := toFinalize[workloadName]; ok {
 			delete(toFinalize, workloadName)
@@ -184,7 +184,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 }
 
 func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) (*kueue.Workload, error) {
-	podSets, err := r.podSets(lws)
+	podSets, err := podSets(lws)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
-func (r *Reconciler) podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
+func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0, 2)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {

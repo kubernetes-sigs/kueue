@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -29,9 +30,12 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -52,7 +56,16 @@ var _ = ginkgo.AfterEach(func() {
 	gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 })
 
-var _ = ginkgo.Describe("Workload defaulting webhook", func() {
+var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
 	ginkgo.Context("When creating a Workload", func() {
 		ginkgo.It("Should set default podSet name", func() {
 			ginkgo.By("Creating a new Workload")
@@ -99,7 +112,16 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 	})
 })
 
-var _ = ginkgo.Describe("Workload validating webhook", func() {
+var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
 	var realClock = clock.RealClock{}
 
 	ginkgo.Context("When creating a Workload", func() {
@@ -444,7 +466,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
-
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
@@ -966,5 +987,300 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should not allow workload podSets count increase even when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			ginkgo.By("Creating a new Workload")
+			wl := testing.MakeWorkload(workloadName, ns.Name).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Admitting the Workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("default").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					AssignmentPodCount(1).
+					Obj()
+				workload.SetQuotaReservation(wl, admission, realClock)
+				wl.Status.Admission = admission
+
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating PodSets count")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.PodSets[0].Count++ // Increase from 1 -> 2.
+				g.Expect(k8sClient.Update(ctx, wl)).Should(testing.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.It("Should allow workload podSets count decrease when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			ginkgo.By("Creating a new Workload")
+			wl := testing.MakeWorkload(workloadName, ns.Name).
+				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 10).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Admitting the Workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("default").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					AssignmentPodCount(10).
+					Obj()
+				workload.SetQuotaReservation(wl, admission, realClock)
+				wl.Status.Admission = admission
+
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating PodSets count")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.PodSets[0].Count = 5 // Decrease from 10 -> 5.
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+	ginkgo.Context("When updating a Workload", func() {
+		var (
+			workloadPriorityClass *kueue.WorkloadPriorityClass
+			priorityClass         *schedulingv1.PriorityClass
+		)
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
+			util.MustCreate(ctx, k8sClient, priorityClass)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
+		})
+
+		ginkgo.DescribeTable("Validate Workload status on update",
+			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomega.OmegaMatcher) {
+				ginkgo.By("Creating a new Workload")
+				workload := testing.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
+				util.MustCreate(ctx, k8sClient, workload)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					setupWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(setupMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					updateWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(updateMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Valid: ClusterName is in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Valid: ClusterName is not in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker3")
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is changed",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker1")
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				gomega.Succeed(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Valid: ClusterName is set when NominatedClusters is empty",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+				},
+				gomega.Succeed(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Valid: neither ClusterName nor NominatedClusters is set",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = nil
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+		)
+	})
+})
+
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeIncremental)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+	ginkgo.Context("When updating a Workload", func() {
+		var (
+			workloadPriorityClass *kueue.WorkloadPriorityClass
+			priorityClass         *schedulingv1.PriorityClass
+		)
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
+			util.MustCreate(ctx, k8sClient, priorityClass)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
+		})
+
+		ginkgo.DescribeTable("Validate Workload status on update",
+			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomega.OmegaMatcher) {
+				ginkgo.By("Creating a new Workload")
+				workload := testing.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
+				util.MustCreate(ctx, k8sClient, workload)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					setupWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(setupMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					updateWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(updateMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Valid: ClusterName is in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is not in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker3")
+				},
+				gomega.Succeed(),
+				testing.BeForbiddenError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is changed",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker1")
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				testing.BeForbiddenError(),
+				testing.BeForbiddenError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is set when NominatedClusters is empty",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				testing.BeForbiddenError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+				},
+				gomega.Succeed(),
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("Valid: neither ClusterName nor NominatedClusters is set",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = nil
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+		)
 	})
 })

@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -48,31 +47,26 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	cases := map[string]struct {
 		obj                        client.Object
 		manageJobsWithoutQueueName bool
-		featureGateEnabled         bool
 		wantSuspend                bool
 	}{
 		"job with queue name ": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("default").Obj(),
 			manageJobsWithoutQueueName: false,
-			featureGateEnabled:         true,
 			wantSuspend:                true,
 		},
 		"job with queue name manageJobs": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("default").Obj(),
 			manageJobsWithoutQueueName: true,
-			featureGateEnabled:         true,
 			wantSuspend:                true,
 		},
 		"job without queue name": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: false,
-			featureGateEnabled:         true,
 			wantSuspend:                false,
 		},
 		"job without queue name with manageJobs": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
-			featureGateEnabled:         true,
 			wantSuspend:                true,
 		},
 		"job without queue name but with managed parent with manageJobs": {
@@ -80,26 +74,17 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 				OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			manageJobsWithoutQueueName: true,
-			featureGateEnabled:         true,
 			wantSuspend:                false,
 		},
 		"job without queue name with manageJobs with feature disabled": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
-			featureGateEnabled:         false,
 			wantSuspend:                true,
 		},
 		"job without queue name with manageJobs in unmanaged ns": {
 			obj:                        utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
-			featureGateEnabled:         true,
 			wantSuspend:                false,
-		},
-		"job without queue name with manageJobs in unmanaged ns with feature disabled": {
-			obj:                        utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
-			manageJobsWithoutQueueName: true,
-			featureGateEnabled:         false,
-			wantSuspend:                true,
 		},
 	}
 
@@ -110,7 +95,6 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelector, tc.featureGateEnabled)
 			suspend, err := WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector)
 			if err != nil {
 				t.Errorf("Got error: %v", err)

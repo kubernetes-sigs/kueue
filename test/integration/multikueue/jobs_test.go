@@ -34,12 +34,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations)
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
 	})
 
@@ -308,9 +308,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	})
 
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
-		if managerK8sVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
-			ginkgo.Skip("the managers kubernetes version is less then 1.30")
-		}
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).

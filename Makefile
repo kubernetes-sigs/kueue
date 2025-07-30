@@ -81,10 +81,11 @@ endif
 version_pkg = sigs.k8s.io/kueue/pkg/version
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
 LD_FLAGS += -X '$(version_pkg).GitCommit=$(GIT_COMMIT)'
+LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.12.4
+RELEASE_VERSION=v0.13.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -186,6 +187,29 @@ helm-verify: helm helm-lint ## run helm template and detect any rendering failur
 	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
 # test kueueViz frontend nodeSelector and tolerations
 	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
+# test kueueViz priorityClassName options for backend
+	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+# test kueueViz priorityClassName options for frontend
+	$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+
+.PHONY: i18n-verify
+i18n-verify: ## Verify all localized docs are in sync with English version. Usage: make i18n-verify [TARGET_LANG=zh-CN]
+	@if [ -n "$(TARGET_LANG)" ]; then \
+		if [ ! -d "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs" ]; then \
+			echo "Error: $(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs does not exist"; \
+			exit 1; \
+		fi; \
+		echo "Checking $(TARGET_LANG) docs sync status..."; \
+		$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs/"; \
+	else \
+		for lang_dir in $(PROJECT_DIR)/site/content/*/; do \
+			lang_code=$$(basename "$$lang_dir"); \
+			if [ "$$lang_code" != "en" ] && [ -d "$$lang_dir/docs" ]; then \
+				echo "Checking $$lang_code docs sync status..."; \
+				$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$$lang_code/docs/"; \
+			fi; \
+		done; \
+	fi
 
 # test
 .PHONY: helm-unit-test

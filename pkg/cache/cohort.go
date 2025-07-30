@@ -48,8 +48,7 @@ func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error 
 
 	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
 	if oldParent != nil && oldParent != c.Parent() {
-		// ignore error when old Cohort has cycle.
-		_ = updateCohortTreeResources(oldParent)
+		updateCohortTreeResourcesIfNoCycle(oldParent)
 	}
 	return updateCohortTreeResources(c)
 }

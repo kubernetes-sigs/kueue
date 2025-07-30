@@ -16,10 +16,11 @@ limitations under the License.
 
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from '@mui/material';
+import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Box } from '@mui/material';
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import ViewYamlButton from './ViewYamlButton';
 
 const ResourceFlavors = () => {
   const { data: flavors, error } = useWebSocket('/ws/resource-flavors');
@@ -45,6 +46,7 @@ const ResourceFlavors = () => {
               <TableRow>
                 <TableCell>Name</TableCell>
                 <TableCell>Details</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -54,6 +56,14 @@ const ResourceFlavors = () => {
                     <Link to={`/resource-flavor/${flavor.name}`}>{flavor.name}</Link>
                   </TableCell>
                   <TableCell>{JSON.stringify(flavor.details)}</TableCell>
+                  <TableCell align="right">
+                    <Box display="flex" justifyContent="flex-end">
+                      <ViewYamlButton 
+                        resourceType="resourceflavor"
+                        resourceName={flavor.name}
+                      />
+                    </Box>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

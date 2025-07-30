@@ -27,7 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -230,6 +232,7 @@ func TestValidateWorkload(t *testing.T) {
 func TestValidateWorkloadUpdate(t *testing.T) {
 	testCases := map[string]struct {
 		enableTopologyAwareScheduling bool
+		enableElasticJobsFeature      bool
 
 		before, after *kueue.Workload
 		wantErr       field.ErrorList
@@ -575,10 +578,48 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),
 			},
 		},
+
+		"workload.podSets[].count is immutable": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 4).Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
+					kueue.PodSetAssignment{Name: "ps1"},
+					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
+					kueue.PodSetAssignment{Name: "ps1"},
+					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets", "1"), nil, ""),
+			},
+		},
+		"workload.podSets[].count is mutable with ElasticJobs feature gate": {
+			enableElasticJobsFeature: true,
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 4).Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
+					kueue.PodSetAssignment{Name: "ps1"},
+					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
+					kueue.PodSetAssignment{Name: "ps1"},
+					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errList := ValidateWorkloadUpdate(tc.after, tc.before)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsFeature)
+			errList := ValidateWorkloadUpdate(tc.after, tc.before, configapi.MultiKueueDispatcherModeAllAtOnce)
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkloadUpdate() mismatch (-want +got):\n%s", diff)
 			}

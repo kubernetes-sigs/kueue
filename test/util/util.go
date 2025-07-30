@@ -364,6 +364,14 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
 	if sleep > 0 {
 		time.Sleep(sleep)
@@ -562,6 +570,11 @@ func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	expectCounterMetric(metric, v)
 }
 
+func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason string, v int) {
+	metric := metrics.PodsReadyToEvictedTimeSeconds
+	expectHistogramMetric(metric, cqName, reason, v)
+}
+
 func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause string, v int) {
 	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause)
 	expectCounterMetric(metric, v)
@@ -580,6 +593,14 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionReason string, count int) {
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -1087,4 +1108,16 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 			g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), "Failed to set node condition %s to %s for node %s", newCondition.Type, newCondition.Status, node.Name)
+}
+
+func ExpectLocalQueueUsageToBe(ctx context.Context, k8sClient client.Client, lqKey client.ObjectKey, comparator string, compareTo any) {
+	lq := &kueue.LocalQueue{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, lqKey, lq)).Should(gomega.Succeed())
+		g.Expect(lq.Status.FairSharing).ShouldNot(gomega.BeNil())
+		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus).ShouldNot(gomega.BeNil())
+		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
+		usage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+		g.Expect(usage.MilliValue()).To(gomega.BeNumerically(comparator, compareTo))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }

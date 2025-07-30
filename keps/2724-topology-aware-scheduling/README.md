@@ -12,10 +12,12 @@
     - [Story 3](#story-3)
     - [Story 4](#story-4)
     - [Story 5](#story-5)
+    - [Story 6](#story-6)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
       - [JobSet](#jobset)
+      - [LeaderWorkerSet](#leaderworkerset)
     - [Support for the &quot;auto&quot; mode](#support-for-the-auto-mode)
     - [PodSetAssignment is per lowest-topology level](#podsetassignment-is-per-lowest-topology-level)
     - [Provisioning request and required mode](#provisioning-request-and-required-mode)
@@ -36,6 +38,8 @@
     - [Example](#example)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
+  - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
+    - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
@@ -172,11 +176,16 @@ Extension: support for indicating the order of pods for external Jobs.
 Similar to [Story 2](#story-2), but I want all the Jobs in ReplicatedJob to run 
 within a "block", but each Job should also run within a "host" within that "block".
 
+#### Story 6
+
+Similar to [Story 1](#story-1), but I want Leader and its Workers within a single replica
+in LeaderWorkerSet to run within a "rack".
+
 ### Notes/Constraints/Caveats (Optional)
 
 #### Integration support
 
-In the alpha iteration we aim to support Job & JobSet. If other integrations
+In the alpha iteration we aim to support Job, JobSet, and LeaderWorkerSet. If other integrations
 follow naturally we may as well support them in alpha.
 
 ##### Job
@@ -398,6 +407,64 @@ Since slice size is equal to `parallelism` for the Job, the end result
 is that each Job will be placed within a "host". It is also possible
 to omit the annotation `kueue.x-k8s.io/podset-slice-size`, as the default
 value for it in case of JobSet is `parallelism`.
+
+##### LeaderWorkerSet
+
+According to [Story 6](#story-6) we noticed that some users would like to
+co-locate Leader with Workers within the same replica in LeaderWorkerSet.
+
+To allow user to request topology for the group of pods consisting of leader
+and workers we are adding a new `kueue.x-k8s.io/podset-group-name` annotation.
+It specifies the name of the group for each PodSet, so if user specifies the
+same group in two or more PodSets, Kueue will:
+- find a common flavor for them
+- find a common topology domain
+
+Finding topology domain for PodSet Group comes with extra constraints that are
+described in [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
+section.
+
+User has to also request one of `kueue.x-k8s.io/podset-required-topology` or
+`kueue.x-k8s.io/podset-preferred-topology` to specify a requested topology for
+the PodSet Group.
+
+**Example**:
+
+```yaml
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: tas-example-lws
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicas: 2
+  leaderWorkerTemplate:
+    leaderTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-group-name: lws-group
+          kueue.x-k8s.io/podset-group-required-topology: cloud.provider.com/topology-host
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+    size: 3
+    workerTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-group-name: lws-group
+          kueue.x-k8s.io/podset-group-required-topology: cloud.provider.com/topology-host
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+```
+
+In this example there are 2 replicas with 2 workers and 1 leader each.
+Each group of leader and 2 workers should be placed in a rack.
 
 #### Support for the "auto" mode
 
@@ -651,6 +718,9 @@ the rules is deactivated):
   specified its own default. See [Slice size validation](#slice-size-validation))
 - The value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
+- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology` 
+  or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
+  PodTemplates included in the PodSet Group and it has to have the same value.
 
 #### PodSet Slice size validation
 
@@ -715,6 +785,12 @@ type PodSetTopologyRequest struct {
   // For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
   SubGroupCount *int32
 
+  // PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+  // PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
+  //
+  // +optional
+  PodSetGroupName *string `json:"podSetGroupName,omitempty"`
+  
   // PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
   // indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
@@ -870,6 +946,18 @@ const (
 )
 ```
 
+Sometimes node failures are only transient and the node might recover, and so reacting
+immediately to NotReady condition could result in unnecessary node replacements.
+
+For that reason we introduce two heuristics for marking nodes to replace for a given workload:
+1. when the node is NotReady for over 30s (used by default)
+2. when the node is NotReady and all of the workload's Pods scheduled on that node are terminated
+or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
+available starting with Kueue v0.13)
+
+For the future releases we are going to consider API configuration for the approach, but first we 
+would like to collect more user feedback using the feature gates while in Alpha.
+
 Kueue tries to find a replacement for a failed node until success (or until it gets
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
@@ -976,6 +1064,35 @@ Explanation:
 - `LeastFreeCapacity` - We prioritized 3rd node, because it is a tight fit among all domains that could fit 2 slices.
 
 It is worth noting that the tight fit mentioned above does not guarantee that no free capacity will be left within the assigned domains.
+
+### Cross-PodSet Topology Aware scheduling
+
+In consideration of a [Story 6](#story-6) a cross-podset topology aware scheduling
+is required, due to the fact that leader and workers are separate PodSets. To be able 
+to co-locate leaders with its workers in the same topology domain, we divide the
+problem into subproblems:
+
+- Ensure leader and workers end up on the same flavor
+- Find topology domain to co-locate leader and workers
+
+#### Ensure leader and workers end up on the same flavor
+
+To ensure leader and workers are assigned the same flavor a notion of `PodSet Group` is 
+introduced, indicated by the PodSetTopologyRequest's PodSetGroupName field (see [Internal APIs](#internal-apis)):
+
+This field specifies the name of a group of PodSets that should be placed on the same flavor.
+This field is optional and if a PodSet does not define it, it will be placed on a flavor 
+independently of any other PodSets.
+
+If two or more PodSets use the same value in `PodSetGroup`, they will be grouped together.
+Their resource requests will be summed together and the result will be used to find a flavor
+with proper resources and enough quota to fit the whole group.
+
+It is important to mention, that the introduction of `PodSet Group` changes the flavor 
+assignment unit to `PodSet Group`.
+
+User can influence the value of `PodSetGroup` by setting `kueue.x-k8s.io/podset-group-name`
+annotation.
 
 ### Enforcing the assignment
 

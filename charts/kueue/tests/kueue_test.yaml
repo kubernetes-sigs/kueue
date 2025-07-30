@@ -1,0 +1,129 @@
+suite: test kueueviz deployment
+templates:
+  - kueueviz/backend-deployment.yaml
+  - kueueviz/frontend-deployment.yaml
+  - kueueviz/backend-ingress.yaml
+  - kueueviz/frontend-ingress.yaml
+tests:
+  - it: should set the pod priorityClassName when provided for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          priorityClassName: "foo"
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: foo
+  - it: should not render the pod priorityClassName if not set for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          priorityClassName:
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+  - it: should set the pod priorityClassName when provided for frontend deployment 
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          priorityClassName: "foo"
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: foo
+  - it: should not render the pod priorityClassName if not set for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          priorityClassName:       
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+  - it: should render the ingress value of backend ingress in frontend deployment as ENV variables
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            ingressClassName: "ingress-external"
+            host: "backend.kueueviz.fr"
+            tlsSecretName: "kueueviz-frontend-tls"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: "wss://backend.kueueviz.fr"
+  - it: Should Render Ingress for Backend Component
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:  
+        backend:
+          ingress:
+            ingressClassName: "nginx-external-ingress"
+            host: "backend.kueueviz.in"
+            tlsSecretName: "kueueviz-backend-tls-secret"
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: "nginx-external-ingress"
+      - equal:
+          path: spec.rules[0].host
+          value: "backend.kueueviz.in"
+      - equal:
+          path: spec.tls[0].secretName
+          value: "kueueviz-backend-tls-secret"
+
+  - it: Should Render Ingress for Frontend Component
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingressClassName: "nginx-external"
+        frontend:
+          ingress:
+            ingressClassName: "nginx-external"
+            host: "frontend.kueueviz.in"
+            tlsSecretName: "frontend-tls"
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: "nginx-external"
+      - equal:
+          path: spec.rules[0].host
+          value: "frontend.kueueviz.in"
+      - equal:
+          path: spec.tls[0].secretName
+          value: "frontend-tls"
+  - it: should set the imagePullSecrets for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          imagePullSecrets:
+            - name: "my-secret"
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: "my-secret"
+  - it: should set the imagePullSecrets for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          imagePullSecrets:
+            - name: "my-secret"
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: "my-secret"

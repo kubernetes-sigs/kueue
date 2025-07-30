@@ -394,6 +394,16 @@ func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSc
 	return w
 }
 
+func (w *WorkloadWrapper) ClusterName(clusterName string) *WorkloadWrapper {
+	w.Status.ClusterName = &clusterName
+	return w
+}
+
+func (w *WorkloadWrapper) NominatedClusterNames(nominatedClusterNames []string) *WorkloadWrapper {
+	w.Status.NominatedClusterNames = nominatedClusterNames
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name kueue.PodSetReference, count int) *PodSetWrapper {
@@ -443,6 +453,14 @@ func (p *PodSetWrapper) RequiredTopologyRequest(level string) *PodSetWrapper {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
 	p.TopologyRequest.Required = &level
+	return p
+}
+
+func (p *PodSetWrapper) PodSetGroup(name string) *PodSetWrapper {
+	if p.TopologyRequest == nil {
+		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
+	}
+	p.TopologyRequest.PodSetGroupName = &name
 	return p
 }
 

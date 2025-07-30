@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 
 	validatingadmissionpolicy "k8s.io/apiserver/pkg/admission/plugin/policy/validating"
@@ -32,7 +31,6 @@ import (
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
@@ -43,7 +41,6 @@ import (
 )
 
 var (
-	setupLog = ctrl.Log.WithName("visibility-server")
 	// Admission plugins that are enabled by default in the kubeapi server
 	// but are not required for the visibility server.
 	disabledPlugins = []string{
@@ -60,28 +57,26 @@ var (
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) error {
 	config := newVisibilityServerConfig()
 	if err := applyVisibilityServerOptions(config); err != nil {
-		setupLog.Error(err, "Unable to apply VisibilityServerOptions")
-		os.Exit(1)
+		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
 	visibilityServer, err := config.Complete().New("visibility-server", genericapiserver.NewEmptyDelegate())
 	if err != nil {
-		setupLog.Error(err, "Unable to create visibility server")
-		os.Exit(1)
+		return fmt.Errorf("unable to create visibility server: %w", err)
 	}
 
 	if err := api.Install(visibilityServer, kueueMgr); err != nil {
-		setupLog.Error(err, "Unable to install visibility.kueue.x-k8s.io API")
-		os.Exit(1)
+		return fmt.Errorf("unable to install visibility.kueue.x-k8s.io API: %w", err)
 	}
 
 	if err := visibilityServer.PrepareRun().RunWithContext(ctx); err != nil {
-		setupLog.Error(err, "Error running visibility server")
-		os.Exit(1)
+		return fmt.Errorf("running visibility server: %w", err)
 	}
+
+	return nil
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) error {
