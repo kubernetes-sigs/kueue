@@ -188,7 +188,11 @@ func main() {
 
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
-	kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
+	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
+	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
+	if *cfg.ClientConnection.QPS >= 0.0 {
+		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
+	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
