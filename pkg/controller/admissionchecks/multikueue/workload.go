@@ -410,7 +410,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-			wlPatch := workload.BaseSSAWorkload(group.local)
+			wlPatch := workload.BaseSSAWorkload(group.local, true)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
 			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 			if err != nil {
