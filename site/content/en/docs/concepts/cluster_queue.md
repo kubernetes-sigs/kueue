@@ -475,12 +475,14 @@ the heuristics that Kueue implements to preempt as few Workloads as possible.
 
 ## FlavorFungibility
 
-When there is not enough nominal quota of resources in a ResourceFlavor, the incoming Workload can borrow
-quota or preempt running Workloads in the ClusterQueue or Cohort.
-
-Kueue evaluates the flavors in a ClusterQueue in order. You can influence whether to prioritize
-preemptions or borrowing in a flavor before trying to accommodate the Workload in the next flavor, by
-setting the `flavorFungibility` field.
+When there is not enough nominal quota of resources in a ResourceFlavor, the
+incoming Workload can borrow quota or preempt running Workloads in the
+ClusterQueue or Cohort. In the cluster queue there can be multiple ResourceFlavor
+for each resource, and there might be different amount of available quota in each
+of them. Kueue evaluates the flavors in a ClusterQueue in order and for each it
+checks if the required resource of the workload fit in this ResourceFlavor and
+if borrowing or preemption is required. You can influence how many flavors to
+consider by setting the `flavorFungibility` field.
 
 A configuration for a ClusterQueue that configures this behavior looks like the following:
 
@@ -497,17 +499,30 @@ spec:
 
 The fields above do the following:
 
-- `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
-  - `Borrow` (default): ClusterQueue stops finding a better assignment.
-  - `TryNextFlavor`: ClusterQueue tries the next ResourceFlavor to see if the workload can get a better assignment.
-- `whenCanPreempt` determines whether a workload should try preemption in current ResourceFlavor before try the next one. The possible values are:
-  - `Preempt`: ClusterQueue stops trying preemption in current ResourceFlavor and starts from the next one if preempting failed.
-  - `TryNextFlavor` (default): ClusterQueue tries the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
+- `whenCanBorrow` what should happen if a workload can get enough resource by
+borrowing in current ResourceFlavor. The possible values are:
+  - `Borrow` (default): workload stops looking for a better assignment.
+  - `TryNextFlavor`: workload tries the next ResourceFlavor.
+- `whenCanPreempt` what should happen if a workload can get enough resource by
+preempting in current ResourceFlavor. The possible values are:
+  - `Preempt`: workload stops looking for a better assignment.
+  - `TryNextFlavor` (default): workload tries the next ResourceFlavor.
 
-By default, the incoming workload stops trying the next flavor if the workload can get enough borrowed resources.
-And Kueue triggers preemption only after Kueue determines that the remaining ResourceFlavors can't fit the workload.
+If during the search, the workload finds some ResourceFlavor in which it can fit
+without preemption or borrowing, such ResourceFlavor is immediately selected
+(regardless of the above configuration). Otherwise, out of the considered
+ResourceFlavors, Kueue selects a one that fits the workload using borrowing
+(without preemptions). If there is no such ResourceFlavor, Kueue selects any
+flavor that fits the workload.
 
-Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
+As explained above, when assigning flavors, by default Kueue avoids preemptions
+and prefers to borrow. Borrowing is not disruptive to other workloads but a
+workload that borrows risks being prempted (since it is using nominal quota
+from some other Cluster Queue). If you prefer to sometimes preempt rather than borrow,
+you can enable feature gate `FlavorFungibilityImplicitPreferenceDefault`.
+It changes the default preference as follows. If `whenCanBorrow = TryNextFlavor`
+it assumes that preemption is preferred over borrowing and otherwise it assumes
+that borrowing is preferred over preemption.
 
 ## StopPolicy
 
