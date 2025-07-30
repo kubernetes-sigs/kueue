@@ -1,18 +1,17 @@
----
-title: "Run Jobs Using Python"
+title: "使用 Python 运行 Job"
 linkTitle: "Python"
 date: 2023-07-05
 weight: 7
-description: >
-  Run Kueue jobs programmatically with Python
+description: 在启用了 Kueue 的环境里运行 Job
 ---
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of interacting with Kubernetes from Python. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user)他们具有基本的 Python 与 Kubernetes 交互经验。
+更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
-You'll also need kubernetes python installed. We recommend a virtual environment.
+检查[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)
+了解初始集群设置的详细信息。你还需要安装 kubernetes python。我们建议使用虚拟环境。
 
 ```bash
 python -m venv env
@@ -20,33 +19,33 @@ source env/bin/activate
 pip install kubernetes requests
 ```
 
-Note that the following versions were used for developing these examples:
+请注意，以下版本用于开发这些示例：
 
  - **Python**: 3.9.12
  - **kubernetes**: 26.1.0
  - **requests**: 2.31.0
 
-You can either follow the [install instructions](https://github.com/kubernetes-sigs/kueue#installation) for Kueue, or use the install example, below.
+你可以按照 [Kueue 安装说明](https://github.com/kubernetes-sigs/kueue#installation)安装 Kueue，或者使用下面的安装示例。
 
-## Kueue in Python
+## Kueue 在 Python 中 {#kueue-in-python}
 
-Kueue at the core is a controller for a [Custom Resource](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/), and so to interact with it from Python we don't need a custom SDK, but rather we can use the generic functions provided by the
-[Kubernetes Python](https://github.com/kubernetes-client/python) library. In this guide, we provide several examples
-for interacting with Kueue in this fashion. If you would like to request a new example or would like help for a specific use
-case, please [open an issue](https://github.com/kubernetes-sigs/kueue/issues).
+Kueue 的核心是一个控制器，用于管理[自定义资源](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)。
+因此，要使用 Python 与其交互，我们不需要一个专门的 SDK，而是可以使用 Kubernetes Python 库提供的通用函数。
+在本指南中，我们提供了几个示例，用于以这种风格与 Kueue 交互。
+如果你希望请求新的示例或需要帮助解决特定用例，请[提交 Issue](https://github.com/kubernetes-sigs/kueue/issues)。
 
-## Examples
+## 示例 {#examples}
 
-The following examples demonstrate different use cases for using Kueue in Python.
+以下示例演示了使用 Python 与 Kueue 交互的不同用例。
 
-### Install Kueue
+### 安装 Kueue {#install-kueue}
 
-This example demonstrates installing Kueue to an existing cluster. You can save this
-script to your local machine as `install-kueue-queues.py`. 
+此示例演示如何将 Kueue 安装到现有集群。
+你可以将此脚本保存到本地机器，例如 `install-kueue-queues.py`。
 
 {{< include file="examples/python/install-kueue-queues.py" lang="python" >}}
 
-And then run as follows:
+然后运行如下：
 
 ```bash
 python install-kueue-queues.py 
@@ -57,19 +56,19 @@ python install-kueue-queues.py
 ⭐️ Applying queues from single-clusterqueue-setup.yaml...
 ```
 
-You can also target a specific version:
+你也可以指定版本：
 
 ```bash
 python install-kueue-queues.py --version {{< param "version" >}}
 ```
 
-### Sample Job
+### 示例作业 {#sample-job}
 
-For the next example, let's start with a cluster with Kueue installed, and first create our queues:
+对于下一个示例，让我们从一个已安装 Kueue 的集群开始，首先创建我们的队列：
 
 {{< include file="examples/python/sample-job.py" code="true" lang="python" >}}
 
-And run as follows:
+然后运行如下：
 
 ```bash
 python sample-job.py
@@ -82,7 +81,7 @@ Use:
 "kubectl get jobs" to see jobs
 ```
 
-or try changing the name (`generateName`) of the job:
+或者尝试更改作业名称 (`generateName`)：
 
 ```bash
 python sample-job.py --job-name sleep-job-
@@ -96,19 +95,18 @@ Use:
 "kubectl get jobs" to see jobs
 ```
 
-You can also change the container image with `--image` and args with `--args`.
-For more customization, you can edit the example script.
+你也可以通过 `--image` 和 `--args` 更改容器镜像和参数。
+你可以通过编辑示例脚本来配置更多定制化参数。
 
-### Interact with Queues and Jobs
+### 与队列和作业交互 {#interact-with-queues-and-jobs}
 
-If you are developing an application that submits jobs and needs to interact
-with and check on them, you likely want to interact with queues or jobs directly.
-After running the example above, you can test the following example to interact
-with the results. Write the following to a script called `sample-queue-control.py`.
+如果你正在开发一个提交作业并需要与之交互的应用程序，你可能希望直接与队列或作业交互。
+在运行上述示例后，你可以测试以下示例以与结果交互。
+将以下内容写入一个名为 `sample-queue-control.py` 的脚本。
 
 {{< include file="examples/python/sample-queue-control.py" lang="python" >}}
 
-To make the output more interesting, we can run a few random jobs first:
+为了使输出更有趣，我们可以先运行几个随机作业：
 
 ```bash
 python sample-job.py
@@ -116,7 +114,7 @@ python sample-job.py
 python sample-job.py --job-name tacos
 ```
 
-And then run the script to see your queue and sample job that you submit previously.
+然后运行脚本来查看你之前提交的队列和作业。
 
 ```bash
 python sample-queue-control.py
@@ -140,9 +138,8 @@ Found job tacos46bqw
   Ready: 1
 ```
 
-If you wanted to filter jobs to a specific queue, you can do this via the job labels
-under `job["metadata"]["labels"]["kueue.x-k8s.io/queue-name"]'. To list a specific job by
-name, you can do:
+如果你想按作业标签过滤作业，可以通过`job["metadata"]["labels"]["kueue.x-k8s.io/queue-name"]` 来实现。
+要按名称列出特定作业，你可以执行：
 
 ```python
 from kubernetes import client, config
@@ -156,30 +153,32 @@ job = batch_api.read_namespaced_job("tacos46bqw", "default")
 print(job)
 ```
 
-See the [BatchV1](https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/BatchV1Api.md)
-API documentation for more calls.
+请参见 [BatchV1](https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/BatchV1Api.md)
+API 文档了解更多调用。
 
 
-### Flux Operator Job
+### Flux Operator 作业 {#flux-operator-job}
 
-For this example, we will be using the [Flux Operator](https://github.com/flux-framework/flux-operator)
-to submit a job, and specifically using the [Python SDK](https://github.com/flux-framework/flux-operator/tree/main/sdk/python/v1alpha1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
+对于此示例，我们将使用 [Flux Operator](https://github.com/flux-framework/flux-operator)
+提交作业，并特别使用 [Python SDK](https://github.com/flux-framework/flux-operator/tree/main/sdk/python/v1alpha1)
+来轻松完成此操作。鉴于我们在[设置](#开始之前)中创建的 Python 环境，
+我们可以直接将其安装到其中，如下所示：
 
 ```bash
 pip install fluxoperator
 ```
 
-We will also need to [install the Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install). 
+我们还需要[安装 Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install)。
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/flux-framework/flux-operator/main/examples/dist/flux-operator.yaml
 ```
 
-Write the following script to `sample-flux-operator-job.py`:
+将以下内容写入 `sample-flux-operator-job.py`：
 
 {{< include file="examples/python/sample-flux-operator-job.py" lang="python" >}}
 
-Now try running the example:
+现在尝试运行示例：
 
 ```bash
 python sample-flux-operator-job.py
@@ -192,7 +191,7 @@ Use:
 "kubectl get pods" to see pods
 ```
 
-You'll be able to almost immediately see the MiniCluster job admitted to the local queue:
+你将能够几乎立即看到 MiniCluster 作业被本地队列接纳：
 
 ```bash
 kubectl get queue
@@ -202,7 +201,7 @@ NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
 user-queue   cluster-queue   0                   1
 ```
 
-And the 4 pods running (we are creating a networked cluster with 4 nodes):
+并且 4 个 pods 正在运行（我们创建了一个具有 4 个节点的联网集群）：
 
 ```bash
 kubectl get pods
@@ -215,8 +214,8 @@ hello-world7qgqd-2-rfn4t   1/1     Running     0          7s
 hello-world7qgqd-3-blvtn   1/1     Running     0          7s
 ```
 
-If you look at logs of the main broker pod (index 0 of the job above), there is a lot of
-output for debugging, and you can see "hello world" running at the end:
+如果你查看主 broker Pod 的日志（上述作业中的索引 0），你会看到很多
+调试输出，并且你可以看到最后运行的是 "hello world"：
 
 ```bash
 kubectl logs hello-world7qgqd-0-wp596 
@@ -224,7 +223,7 @@ kubectl logs hello-world7qgqd-0-wp596
 
 <details>
 
-<summary>Flux Operator Lead Broker Output</summary>
+<summary>Flux Operator Lead Broker 输出</summary>
 
 ```console
 🌀 Submit Mode: flux start -o --config /etc/flux/config -Scron.directory=/etc/flux/system/cron.d   -Stbon.fanout=256   -Srundir=/run/flux    -Sstatedir=/var/lib/flux   -Slocal-uri=local:///run/flux/local     -Slog-stderr-level=6    -Slog-stderr-mode=local  flux submit  -n 1 --quiet  --watch echo hello world
@@ -261,7 +260,7 @@ broker.info[0]: goodbye: goodbye->exit 0.06917ms
 
 </details>
 
-If you submit and ask for four tasks, you'll see "hello world" four times:
+如果你提交并请求四个任务，你将看到 "hello world" 四次：
 
 ```bash
 python sample-flux-operator-job.py --tasks 4
@@ -275,13 +274,15 @@ hello world
 hello world
 ```
 
-You can further customize the job, and can ask questions on the [Flux Operator issues board](https://github.com/flux-framework/flux-operator/issues).
-Finally, for instructions for how to do this with YAML outside of Python, see [Run A Flux MiniCluster](/docs/tasks/run_flux_minicluster/).
+你可以进一步自定义作业，并可以在 [Flux Operator 问题板](https://github.com/flux-framework/flux-operator/issues)上提问。
+最后，有关如何使用 YAML 在 Python 之外完成此操作的说明，请参见[运行 Flux MiniCluster](/zh-CN/docs/tasks/run_flux_minicluster/)。
 
-### MPI Operator Job
+### MPI Operator  {#mpi-operator-job}
 
-For this example, we will be using the [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/)
-to submit a job, and specifically using the [Python SDK](https://github.com/kubeflow/mpi-operator/tree/master/sdk/python/v2beta1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
+对于此示例，我们将使用 [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/)
+提交作业，并特别使用 [Python SDK](https://github.com/kubeflow/mpi-operator/tree/master/sdk/python/v2beta1)
+来轻松完成此操作。鉴于我们在[设置](#开始之前)中创建的 Python 环境，
+我们可以直接将其安装到其中，如下所示：
 
 ```bash
 git clone --depth 1 https://github.com/kubeflow/mpi-operator /tmp/mpijob
@@ -290,45 +291,46 @@ python setup.py install
 cd -
 ```
 
-Importantly, the MPI Operator *must be installed before Kueue* for this to work! Let's start from scratch with a new Kind cluster.
-We will also need to [install the MPI operator](https://github.com/kubeflow/mpi-operator/tree/master#installation) and Kueue. Here we install
-the exact versions tested with this example:
+重要的是，MPI Operator **必须在 Kueue 之前安装**才能正常工作！让我们从头开始，使用一个新的 Kind 集群。
+我们还需要[安装 MPI operator](https://github.com/kubeflow/mpi-operator/tree/master#installation)和 Kueue。
+在这里我们安装确切版本测试此示例：
 
 ```bash
 kubectl apply -f https://github.com/kubeflow/mpi-operator/releases/download/v0.4.0/mpi-operator.yaml
 kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.0/manifests.yaml
 ```
 
-Check the [mpi-operator release page](https://github.com/kubeflow/mpi-operator/releases) and [Kueue release page](https://github.com/kubernetes-sigs/kueue/releases) for alternate versions.
-You need to wait until Kueue is ready. You can determine this as follows:
+请检查 [mpi-operator 发布页面](https://github.com/kubeflow/mpi-operator/releases)和
+[Kueue 发布页面](https://github.com/kubernetes-sigs/kueue/releases)获取其他版本。
+你需要等待 Kueue 准备就绪。你可以通过以下方式确定：
 
 ```bash
-# Wait until you see all pods in the kueue-system are Running
+# 等待直到你看到 kueue-system 中的所有 Pod 都在运行
 kubectl get pods -n kueue-system
 ```
 
-When Kueue is ready:
+当 Kueue 准备就绪时：
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/admin/single-clusterqueue-setup.yaml
 ```
 
-Now try running the example MPIJob.
+现在尝试运行示例 MPIJob。
 
 ```bash
 python sample-mpijob.py
 ```
 ```console
-📦️ Container image selected is mpioperator/mpi-pi:openmpi...
-⭐️ Creating sample job with prefix pi...
-Use:
-"kubectl get queue" to see queue assignment
-"kubectl get jobs" to see jobs
+📦️ 容器镜像已选择为 mpioperator/mpi-pi:openmpi...
+⭐️ 正在创建示例作业，前缀为 pi...
+使用：
+"kubectl get queue" 查看队列分配
+"kubectl get jobs" 查看作业
 ```
 
 {{< include "examples/python/sample-mpijob.py" "python" >}}
 
-After submit, you can see that the queue has an admitted workload!
+提交后，你可以看到队列具有一个接纳的作业！
 
 ```bash
 $ kubectl get queue
@@ -338,7 +340,7 @@ NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
 user-queue   cluster-queue   0                   1
 ```
 
-And that the job "pi-launcher" has started:
+并且作业 "pi-launcher" 已启动：
 
 ```bash
 $ kubectl get jobs
@@ -346,8 +348,8 @@ NAME          COMPLETIONS   DURATION   AGE
 pi-launcher   0/1           9s         9s
 ```
 
-The MPI Operator works by way of a central launcher interacting with nodes via ssh. We can inspect
-a worker and the launcher to get a glimpse of how both work:
+MPI Operator 通过中央 launcher 与节点通过 ssh 交互。我们可以检查
+一个 worker 和 launcher 来了解两者的工作原理：
 
 ```bash
 $ kubectl logs pods/pi-worker-1 
@@ -361,7 +363,7 @@ Disconnected from user mpiuser 10.244.0.8 port 51694
 Received signal 15; terminating.
 ```
 
-The job is fairly quick, and we can see the output of pi in the launcher:
+作业运行较快，我们可以看到 launcher 的输出：
 
 ```bash
 $ kubectl logs pods/pi-launcher-f4gqv 
@@ -375,6 +377,6 @@ Rank 0 on host pi-worker-0
 pi is approximately 3.1410376000000002
 ```
 
-That looks like pi! 🎉️🥧️
-If you are interested in running this same example with YAML outside of Python, see [Run an MPIJob](/docs/tasks/run_kubeflow_jobs/run_mpijobs/).
+看起来像是 pi！🎉️🥧️
+如果你有兴趣在 Python 之外使用 YAML 运行此示例，请参见[运行 MPIJob](/zh-CN/docs/tasks/run_kubeflow_jobs/run_mpijobs/)。
 
