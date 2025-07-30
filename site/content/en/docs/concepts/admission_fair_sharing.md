@@ -27,6 +27,16 @@ When multiple workloads compete for resources within a ClusterQueue:
 2. Workloads from LocalQueues with lower historical usage get admitted before those from high-usage queues
 3. Usage values decay over time based on configurable parameters
 
+### Entry Penalty
+
+{{% alert title="Note" color="primary" %}}
+Entry Penalty is available since Kueue v0.13.0.
+{{% /alert %}}
+
+To prevent exploitation where tenants could submit many workloads quickly before usage statistics are updated, Kueue applies an entry penalty to each admitted workload. This penalty is immediately added to the LocalQueue's usage statistics. This ensures that even if a tenant submits multiple workloads rapidly, subsequent workloads will be properly prioritized based on the updated usage including the penalty.
+
+For example, if Tenant A has low historical usage and Tenant B has high usage, but Tenant B submits 100 workloads simultaneously, without the entry penalty all 100 workloads might be admitted before the usage statistics update. With the entry penalty, each admitted workload immediately increases Tenant B's usage statistics, so subsequent workloads from Tenant B will be properly deprioritized in favor of workloads from Tenant A.
+
 ## Configuration
 
 ### Kueue's configuration
