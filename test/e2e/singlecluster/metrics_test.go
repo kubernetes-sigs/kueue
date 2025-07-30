@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			ginkgo.By("setting the check as successful", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-					patch := workload.BaseSSAWorkload(createdWorkload)
+					patch := util.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, v1beta1.AdmissionCheckState{
 						Name:  v1beta1.AdmissionCheckReference(admissionCheck.Name),
 						State: v1beta1.CheckStateReady,
