@@ -477,10 +477,10 @@ the heuristics that Kueue implements to preempt as few Workloads as possible.
 
 When there is not enough nominal quota of resources in a ResourceFlavor, the
 incoming Workload can borrow quota or preempt running Workloads in the
-ClusterQueue or Cohort. In the cluster queue there can be multiple ResourceFlavors
+ClusterQueue or Cohort. In the ClusterQueue there can be multiple ResourceFlavors
 for each resource, and there might be different amounts of available quota in each
 of them. Kueue evaluates the flavors in a ClusterQueue in order and for each it
-checks if the required resource of the workload fit in this ResourceFlavor and
+checks if the required resource of the workload fits in this ResourceFlavor and
 if borrowing or preemption is required. You can influence how many flavors to
 consider by setting the `flavorFungibility` field.
 
