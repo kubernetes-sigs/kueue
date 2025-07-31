@@ -87,7 +87,12 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
 	if readyCondition.Status == corev1.ConditionTrue {
-		return ctrl.Result{}, nil
+		affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		patchErr := r.removeNodeToReplaceAnnotation(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, patchErr
 	}
 	if features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return r.reconcileForReplaceNodeOnPodTermination(ctx, req.Name)
@@ -123,13 +128,20 @@ func (r *nodeFailureReconciler) Create(e event.TypedCreateEvent[*corev1.Node]) b
 }
 
 func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
-	newNode := e.ObjectNew
-	if !utiltas.IsNodeStatusConditionTrue(newNode.Status.Conditions, corev1.NodeReady) {
-		r.log.V(4).Info("NodeReady is not true", "node", klog.KObj(newNode))
+	newReady := utiltas.IsNodeStatusConditionTrue(e.ObjectNew.Status.Conditions, corev1.NodeReady)
+	oldReady := utiltas.IsNodeStatusConditionTrue(e.ObjectOld.Status.Conditions, corev1.NodeReady)
+
+	if oldReady == newReady {
+		if newReady {
+			r.log.V(5).Info("Node remains ready, update does not warrant reconcile for failure detection", "node", klog.KObj(e.ObjectNew))
+			return false
+		}
+		r.log.V(5).Info("Node remains not ready, triggering reconcile", "node", klog.KObj(e.ObjectNew))
 		return true
 	}
-	r.log.V(5).Info("Node update does not warrant reconcile for failure detection", "node", klog.KObj(newNode))
-	return false
+
+	r.log.V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
+	return true
 }
 
 func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
@@ -322,4 +334,44 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 		patchErr := r.patchWorkloadsForNodeToReplace(ctx, nodeName, workloads)
 		return ctrl.Result{}, patchErr
 	}
+}
+
+// removeNodeToReplaceAnnotation finds workloads with the specified node in the NodeToReplaceAnnotation
+// and removes the annotation
+func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+	var workloadProcessingErrors []error
+	for wlKey := range affectedWorkloads {
+		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
+		// fetch workload.
+		var wl kueue.Workload
+		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.V(4).Info("Workload not found, skipping")
+			} else {
+				log.V(2).Error(err, "Failed to get workload")
+				workloadProcessingErrors = append(workloadProcessingErrors, err)
+			}
+			continue
+		}
+
+		if wl.Annotations[kueuealpha.NodeToReplaceAnnotation] != nodeName {
+			continue
+		}
+
+		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
+			log.V(4).Info(fmt.Sprintf("Removing node from %s annotation", kueuealpha.NodeToReplaceAnnotation), "failedNode", nodeName)
+			delete(wl.Annotations, kueuealpha.NodeToReplaceAnnotation)
+			return true, nil
+		})
+		if err != nil {
+			log.V(2).Error(err, "Failed to patch workload annotation")
+			workloadProcessingErrors = append(workloadProcessingErrors, err)
+			continue
+		}
+		log.V(3).Info("Successfully cleared the NodeToReplace annotation")
+	}
+	if len(workloadProcessingErrors) > 0 {
+		return errors.Join(workloadProcessingErrors...)
+	}
+	return nil
 }
