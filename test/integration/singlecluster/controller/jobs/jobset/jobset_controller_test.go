@@ -1229,8 +1229,8 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					Args:  util.BehaviorExitFast,
 				},
 			).
-			Request("rj1", "cpu", "100m").
-			Request("rj2", "cpu", "100m").
+			Request("rj1", corev1.ResourceCPU, "100m").
+			Request("rj2", corev1.ResourceCPU, "100m").
 			Obj()
 		ginkgo.By("creating a JobSet", func() {
 			util.MustCreate(ctx, k8sClient, jobSet)
