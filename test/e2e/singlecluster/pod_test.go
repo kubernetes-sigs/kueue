@@ -19,6 +19,9 @@ package e2e
 import (
 	"fmt"
 
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -556,9 +559,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			ginkgo.By("creating a pod", func() {
 				p := podtesting.MakePod("pod-0", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-					Queue(lq.Name).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					Label("app-role", "worker").
+					Annotation(podconstants.SuspendedByParentAnnotation, "OtherController").
+					KueueSchedulingGate().
 					Obj()
 				util.MustCreate(ctx, k8sClient, p)
 
@@ -576,7 +580,11 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 				p.Labels[podconstants.GroupNameLabel] = "test-group"
 				p.Annotations[podconstants.GroupTotalCountAnnotation] = "1"
+				p.Annotations[podconstants.SuspendedByParentAnnotation] = "OtherController"
+				p.Labels[controllerconsts.QueueLabel] = lq.Name
+				p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 				gomega.Expect(k8sClient.Update(ctx, &p)).To(gomega.Succeed())
+
 				var podWithHash corev1.Pod
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), &podWithHash)).To(gomega.Succeed())
 				initialRoleHash := podWithHash.Annotations[podconstants.RoleHashAnnotation]
