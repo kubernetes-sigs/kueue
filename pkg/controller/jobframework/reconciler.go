@@ -404,7 +404,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.
 	if jobCond, ok := job.(JobWithCustomWorkloadConditions); wl != nil && ok {
 		if conditions, updated := jobCond.CustomWorkloadConditions(wl); updated {
-			wlPatch := workload.BaseSSAWorkload(wl)
+			wlPatch := workload.BaseSSAWorkload(wl, false)
 			wlPatch.Status.Conditions = conditions
 			return reconcile.Result{}, r.client.Status().Patch(ctx, wlPatch, client.Apply,
 				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))))

@@ -92,3 +92,10 @@ func (m *AfsEntryPenalties) HasAny() bool {
 func (m *AfsEntryPenalties) GetPenalties() *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList] {
 	return m.penalties
 }
+
+func (m *AfsEntryPenalties) GetLocalQueueKeysWithPenalties() []utilqueue.LocalQueueReference {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.penalties.Keys()
+}

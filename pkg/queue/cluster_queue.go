@@ -179,7 +179,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	c.heap.PushOrUpdate(wInfo)
 }
 
-func (c *ClusterQueue) Heapify(lqName string) {
+func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, wl := range c.heap.List() {
@@ -460,7 +460,7 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 	}
 }
 
-func (c *ClusterQueue) HeapifyAll() {
+func (c *ClusterQueue) RebuildAll() {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, wl := range c.heap.List() {
