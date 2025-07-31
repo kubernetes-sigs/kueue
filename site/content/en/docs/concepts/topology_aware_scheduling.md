@@ -85,10 +85,15 @@ following annotations set at the PodTemplate level:
 	then the next topology level up is considered. If the PodSet cannot fit
 	at the highest topology level, then it gets admitted as distributed
 	among multiple topology domains.
-- `kueue.x-k8s.io/podset-required-topology` - indicates indicates that a PodSet
+- `kueue.x-k8s.io/podset-required-topology` - indicates that a PodSet
   requires Topology Aware Scheduling, and requires scheduling all pods on nodes
 	within the same topology domain corresponding to the topology level
 	indicated by the annotation value (e.g. within a rack or within a block).
+- `kueue.x-k8s.io/podset-unconstrained-topology` - indicates that a PodSet requires
+    Topology Aware Scheduling, and requires scheduling all pods on any nodes without
+    topology considerations. In other words, this considers if all pods could be accommodated 
+    within any nodes which helps to minimize fragmentation by filling the small gaps
+    on nodes across the cluster.
 
 #### Example
 
