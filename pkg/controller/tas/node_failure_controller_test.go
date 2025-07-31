@@ -85,9 +85,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Obj()
 
 	workloadWithAnnotation := baseWorkload.DeepCopy()
-	if workloadWithAnnotation.Annotations == nil {
 		workloadWithAnnotation.Annotations = make(map[string]string)
-	}
 	workloadWithAnnotation.Annotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
 
 	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
