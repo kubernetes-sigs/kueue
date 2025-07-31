@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(v1beta1.LocalQueueName(localQueue.Name)).
-				RequestAndLimit("cpu", "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
 
@@ -403,7 +403,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
-				RequestAndLimit("cpu", "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
 
@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
-				RequestAndLimit("cpu", "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
 

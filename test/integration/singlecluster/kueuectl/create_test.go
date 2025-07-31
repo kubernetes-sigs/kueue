@@ -212,11 +212,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta1.PreemptionPolicyLowerPriority))
 					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
 						{
-							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []v1beta1.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
-									Resource("cpu", "0").
-									Resource("memory", "0").
+									Resource(corev1.ResourceCPU, "0").
+									Resource(corev1.ResourceMemory, "0").
 									Obj(),
 							},
 						},
@@ -249,15 +249,15 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
 					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
 						{
-							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []v1beta1.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
-									Resource("cpu", "0").
-									Resource("memory", "0").
+									Resource(corev1.ResourceCPU, "0").
+									Resource(corev1.ResourceMemory, "0").
 									Obj(),
 								*testing.MakeFlavorQuotas("beta").
-									Resource("cpu", "0").
-									Resource("memory", "0").
+									Resource(corev1.ResourceCPU, "0").
+									Resource(corev1.ResourceMemory, "0").
 									Obj(),
 							},
 						},
@@ -290,15 +290,15 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
 					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
 						{
-							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []v1beta1.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
-									Resource("cpu", "0").
-									Resource("memory", "0").
+									Resource(corev1.ResourceCPU, "0").
+									Resource(corev1.ResourceMemory, "0").
 									Obj(),
 								*testing.MakeFlavorQuotas("gamma").
-									Resource("cpu", "0").
-									Resource("memory", "0").
+									Resource(corev1.ResourceCPU, "0").
+									Resource(corev1.ResourceMemory, "0").
 									Obj(),
 							},
 						},
@@ -346,11 +346,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
 					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
 						{
-							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []v1beta1.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
-									Resource("cpu", "0", "0", "0").
-									Resource("memory", "0", "0", "0").
+									Resource(corev1.ResourceCPU, "0", "0", "0").
+									Resource(corev1.ResourceMemory, "0", "0", "0").
 									Obj(),
 							},
 						},
@@ -400,15 +400,15 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta1.PreemptionPolicyLowerPriority))
 					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
 						{
-							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []v1beta1.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
-									Resource("cpu", "2", "1", "0").
-									Resource("memory", "2", "1", "0").
+									Resource(corev1.ResourceCPU, "2", "1", "0").
+									Resource(corev1.ResourceMemory, "2", "1", "0").
 									Obj(),
 								*testing.MakeFlavorQuotas("gamma").
-									Resource("cpu", "2", "1", "0").
-									Resource("memory", "2", "1", "0").
+									Resource(corev1.ResourceCPU, "2", "1", "0").
+									Resource(corev1.ResourceMemory, "2", "1", "0").
 									Obj(),
 							},
 						},
