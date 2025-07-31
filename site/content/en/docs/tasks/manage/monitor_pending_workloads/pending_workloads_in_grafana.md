@@ -82,8 +82,8 @@ Grafana is now available at [http://localhost:3000](http://localhost:3000).
 ### Step 6: Import the Pending Workloads Dashboard
 
 1. Download the appropriate dashboard JSON:
-   - [ClusterQueue Visibility](examples/visibility/pending-workloads-for-cluster-queue-visibility-dashboard.json).
-   - [LocalQueue Visibility](examples/visibility/pending-workloads-for-local-queue-visibility-dashboard.json).
+   - [ClusterQueue Visibility](/examples/visibility/pending-workloads-for-cluster-queue-visibility-dashboard.json).
+   - [LocalQueue Visibility](/examples/visibility/pending-workloads-for-local-queue-visibility-dashboard.json).
 2. In Grafana, go to `Dashboards` > `New` > `Import`.
 3. Select `Upload dashboard JSON` file and choose the downloaded file.
 4. Select the Infinity data source configured in Step 5.
