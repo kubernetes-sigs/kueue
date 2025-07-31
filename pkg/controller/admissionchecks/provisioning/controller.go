@@ -499,6 +499,7 @@ func (c *Controller) syncCheckStates(
 	wlInfo.update(wl, c.clock)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl, true)
+	wlPatch.Status.RequeueState = wl.Status.RequeueState.DeepCopy()
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
 	for check, prc := range checkConfig {
