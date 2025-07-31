@@ -1372,7 +1372,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.FIt("Should retry twice if a ProvisioningRequest fails twice", func() {
+		ginkgo.It("Should retry twice if a ProvisioningRequest fails twice", func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1393,6 +1393,14 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Reason: autoscaling.Failed,
 					})
 					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck is set to Retry, and the workload has requeueState set", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
+					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1434,6 +1442,14 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Reason: autoscaling.Failed,
 					})
 					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck is set to Retry, and the workload has requeueState set", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
+					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(2)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
