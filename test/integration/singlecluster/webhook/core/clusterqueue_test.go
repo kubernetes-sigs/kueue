@@ -293,7 +293,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with built-in resources with qualified names",
 				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("default").Resource("cpu").Obj()).
+					ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with invalid resource name",
@@ -314,7 +314,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with flavor with qualified names",
 				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource("cpu").Obj()).
+					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU).Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor with unqualified names",
@@ -325,33 +325,33 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor quota with negative value",
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource("cpu", "-1").Obj()).
+						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should allow to create clusterQueue with flavor quota with zero values",
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource("cpu", "0").Obj()).
+						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "0").Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with flavor quota with borrowingLimit 0",
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource("cpu", "1", "0").Obj()).
+						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "0").Obj()).
 					Cohort("cohort").
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor quota with negative borrowingLimit",
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource("cpu", "1", "-1").Obj()).
+						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "-1").Obj()).
 					Cohort("cohort").
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor quota with borrowingLimit and empty cohort",
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource("cpu", "1", "1").Obj()).
+						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "1").Obj()).
 					Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with empty queueing strategy",
@@ -378,12 +378,12 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
 						*testing.MakeFlavorQuotas("alpha").
-							Resource("cpu", "0").
-							Resource("memory", "0").
+							Resource(corev1.ResourceCPU, "0").
+							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 						*testing.MakeFlavorQuotas("beta").
-							Resource("cpu", "0").
-							Resource("memory", "0").
+							Resource(corev1.ResourceCPU, "0").
+							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 					).
 					ResourceGroup(
@@ -404,15 +404,15 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
-								CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 								Flavors: []kueue.FlavorQuotas{
 									*testing.MakeFlavorQuotas("alpha").
-										Resource("cpu", "0").
-										Resource("memory", "0").
+										Resource(corev1.ResourceCPU, "0").
+										Resource(corev1.ResourceMemory, "0").
 										Obj(),
 									*testing.MakeFlavorQuotas("beta").
-										Resource("memory", "0").
-										Resource("cpu", "0").
+										Resource(corev1.ResourceMemory, "0").
+										Resource(corev1.ResourceCPU, "0").
 										Obj(),
 								},
 							},
@@ -428,10 +428,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
-								CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 								Flavors: []kueue.FlavorQuotas{
 									*testing.MakeFlavorQuotas("alpha").
-										Resource("cpu", "0").
+										Resource(corev1.ResourceCPU, "0").
 										Obj(),
 								},
 							},
@@ -447,11 +447,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
-								CoveredResources: []corev1.ResourceName{"cpu"},
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
 								Flavors: []kueue.FlavorQuotas{
 									*testing.MakeFlavorQuotas("alpha").
-										Resource("cpu", "0").
-										Resource("memory", "0").
+										Resource(corev1.ResourceCPU, "0").
+										Resource(corev1.ResourceMemory, "0").
 										Obj(),
 								},
 							},
@@ -470,8 +470,8 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 								CoveredResources: []corev1.ResourceName{"blah"},
 								Flavors: []kueue.FlavorQuotas{
 									*testing.MakeFlavorQuotas("alpha").
-										Resource("cpu", "0").
-										Resource("memory", "0").
+										Resource(corev1.ResourceCPU, "0").
+										Resource(corev1.ResourceMemory, "0").
 										Obj(),
 								},
 							},
@@ -483,13 +483,13 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
 						*testing.MakeFlavorQuotas("alpha").
-							Resource("cpu", "0").
-							Resource("memory", "0").
+							Resource(corev1.ResourceCPU, "0").
+							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 					).
 					ResourceGroup(
 						*testing.MakeFlavorQuotas("beta").
-							Resource("memory", "0").
+							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 					).
 					Obj(),
@@ -497,11 +497,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor in more than one resource group",
 				testing.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("alpha").Resource("cpu").Obj(),
-						*testing.MakeFlavorQuotas("beta").Resource("cpu").Obj(),
+						*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU).Obj(),
+						*testing.MakeFlavorQuotas("beta").Resource(corev1.ResourceCPU).Obj(),
 					).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("beta").Resource("memory").Obj(),
+						*testing.MakeFlavorQuotas("beta").Resource(corev1.ResourceMemory).Obj(),
 					).
 					Obj(),
 				testing.BeForbiddenError()),

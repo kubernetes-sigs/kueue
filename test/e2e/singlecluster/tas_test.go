@@ -92,8 +92,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a Job via TAS", func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				RequestAndLimit("cpu", "700m").
-				RequestAndLimit("memory", "20Mi").
+				RequestAndLimit(corev1.ResourceCPU, "700m").
+				RequestAndLimit(corev1.ResourceMemory, "20Mi").
 				Obj()
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
@@ -212,10 +212,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						},
 					},
 				).
-				RequestAndLimit("rj1", "cpu", "200m").
-				RequestAndLimit("rj1", "memory", "20Mi").
-				RequestAndLimit("rj2", "cpu", "200m").
-				RequestAndLimit("rj2", "memory", "20Mi").
+				RequestAndLimit("rj1", corev1.ResourceCPU, "200m").
+				RequestAndLimit("rj1", corev1.ResourceMemory, "20Mi").
+				RequestAndLimit("rj2", corev1.ResourceCPU, "200m").
+				RequestAndLimit("rj2", corev1.ResourceMemory, "20Mi").
 				Obj()
 
 			ginkgo.By("Creating the JobSet", func() {
@@ -325,8 +325,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Queue(localQueue.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				RequestAndLimit("cpu", "200m").
-				RequestAndLimit("memory", "200Mi").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Obj()
 
 			ginkgo.By("Creating the Pod", func() {
@@ -383,8 +383,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Queue(localQueue.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				RequestAndLimit("cpu", "200m").
-				RequestAndLimit("memory", "200Mi").
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				MakeGroup(2)
 
 			ginkgo.By("Creating the Pod group", func() {
