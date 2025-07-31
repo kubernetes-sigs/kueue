@@ -19,9 +19,6 @@ package e2e
 import (
 	"fmt"
 
-	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -33,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
