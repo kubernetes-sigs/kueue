@@ -75,6 +75,7 @@ Defaults to 1.</p>
 <td>
    <p>QPS controls the number of queries per second allowed for K8S api server
 connection.</p>
+<p>Setting this to a negative value will disable client-side ratelimiting.</p>
 </td>
 </tr>
 <tr><td><code>burst</code> <B>[Required]</B><br/>

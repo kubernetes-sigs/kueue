@@ -350,6 +350,8 @@ type InternalCertManagement struct {
 type ClientConnection struct {
 	// QPS controls the number of queries per second allowed for K8S api server
 	// connection.
+	//
+	// Setting this to a negative value will disable client-side ratelimiting.
 	QPS *float32 `json:"qps,omitempty"`
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
