@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: kueue-system
 
 resources:
-- ../../../../config/components/certmanager
+- ./dev
 - ../../../../config/dev
 
 transformers:

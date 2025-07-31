@@ -2,6 +2,9 @@ resources:
 - certificate.yaml
 - certificate-metrics.yaml
 
-
 configurations:
 - kustomizeconfig.yaml
+
+transformers:
+- common_name_transformer.yaml
+- secret_name_transformer.yaml

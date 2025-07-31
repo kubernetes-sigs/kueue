@@ -14,7 +14,7 @@
   value:
     name: metrics-certs
     secret:
-      secretName: metrics-server-cert
+      secretName: kueue-metrics-server-cert
       optional: false
       items:
         - key: ca.crt
