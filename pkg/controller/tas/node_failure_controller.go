@@ -118,30 +118,17 @@ func (r *nodeFailureReconciler) Generic(event.TypedGenericEvent[*corev1.Node]) b
 }
 
 func (r *nodeFailureReconciler) Create(e event.TypedCreateEvent[*corev1.Node]) bool {
-	newNode := e.Object
-	if !utiltas.IsNodeStatusConditionTrue(newNode.Status.Conditions, corev1.NodeReady) {
-		r.log.V(4).Info("NodeReady is not true", "node", klog.KObj(newNode))
-		return true
-	}
-	r.log.V(5).Info("Node creation does not warrant reconcile for failure detection", "node", klog.KObj(newNode))
-	return false
+	return true
 }
 
 func (r *nodeFailureReconciler) Update(e event.TypedUpdateEvent[*corev1.Node]) bool {
 	newReady := utiltas.IsNodeStatusConditionTrue(e.ObjectNew.Status.Conditions, corev1.NodeReady)
 	oldReady := utiltas.IsNodeStatusConditionTrue(e.ObjectOld.Status.Conditions, corev1.NodeReady)
-
-	if oldReady == newReady {
-		if newReady {
-			r.log.V(5).Info("Node remains ready, update does not warrant reconcile for failure detection", "node", klog.KObj(e.ObjectNew))
-			return false
-		}
-		r.log.V(5).Info("Node remains not ready, triggering reconcile", "node", klog.KObj(e.ObjectNew))
+	if oldReady != newReady {
+		r.log.V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
 		return true
 	}
-
-	r.log.V(4).Info("Node Ready status changed, triggering reconcile", "node", klog.KObj(e.ObjectNew), "oldReady", oldReady, "newReady", newReady)
-	return true
+	return false
 }
 
 func (r *nodeFailureReconciler) Delete(e event.TypedDeleteEvent[*corev1.Node]) bool {
