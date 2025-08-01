@@ -1,59 +1,59 @@
 ---
-title: "Running and debugging tests"
-linkTitle: "Running tests"
+title: "运行和调试测试"
+linkTitle: "运行测试"
 weight: 25
 description: >
-  Running and debugging tests
+  运行和调试测试
 ---
 
-## Running presubmission verification tests
+## 运行预提交验证测试 {#running-presubmission-verification-tests}
 ```shell
 make verify
 ```
 
-## Running unit tests
-To run all unit tests:
+## 运行单元测试 {#running-unit-tests}
+运行所有单元测试：
 ```shell
 make test
 ```
 
-To run unit tests for webhooks:
+运行 Webhook 的单元测试：
 ```shell
 go test ./pkg/webhooks
 ```
-To run tests that match `TestValidateClusterQueue` regular expression [ref](https://pkg.go.dev/cmd/go#hdr-Testing_flags):
+[参考文档](https://pkg.go.dev/cmd/go#hdr-Testing_flags)运行与 `TestValidateClusterQueue` 正则表达式匹配的测试：
 ```shell
 go test ./pkg/webhooks -run TestValidateClusterQueue
 ```
 
-### Running unit tests with race detection
+### 使用竞态检测运行单元测试 {#running-unit-tests-with-race-detection}
 
-Use `-race` to enable Go's built-in race detector:
+使用 `-race` 启用 Go 内置的竞态检测器：
 ```shell
 go test ./pkg/scheduler/preemption/ -race
 ```
 
-### Running unit tests with stress
+### 使用压力测试运行单元测试 {#running-unit-tests-with-stress}
 
-To run unit tests in a loop and collect failures:
+循环运行单元测试并收集失败情况：
 ```shell
-# install go stress
+# 安装 go stress
 go install golang.org/x/tools/cmd/stress@latest
-# compile tests (you can add -race for race detection)
+# 编译测试（可以添加 -race 进行竞态检测）
 go test ./pkg/scheduler/preemption/ -c
-# it loops and reports failures
+# 循环运行并报告失败
 stress ./preemption.test -test.run TestPreemption
 ```
 
-## Running integration tests
+## 运行集成测试 {#running-integration-tests}
 
 ```shell
 make test-integration
 ```
 
-For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
+关于运行测试子集，请参阅[运行测试子集](#running-subset-of-integration-or-e2e-tests)。
 
-## Running e2e tests using custom build
+## 使用自定义构建运行 e2e 测试 {#running-e2e-tests-using-custom-build}
 ```shell
 make kind-image-build
 make test-e2e
@@ -64,37 +64,37 @@ make test-e2e-kueueviz
 make test-multikueue-e2e
 ```
 
-You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
+你可以通过设置 `E2E_K8S_FULL_VERSION` 变量来指定用于运行 e2e 测试的 Kubernetes 版本：
 ```shell
 E2E_K8S_FULL_VERSION=1.33.1 make test-e2e
 ```
 
-For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
+关于运行测试子集，请参阅 [运行测试子集](#running-subset-of-integration-or-e2e-tests)。
 
-## Increase logging verbosity
-You can change log level (for example, set -5 to increase verbosity) using `TEST_LOG_LEVEL` variables.
-By default, `TEST_LOG_LEVEL=-3`.
+## 增加日志详细程度 {#increase-logging-verbosity}
+你可以使用 `TEST_LOG_LEVEL` 变量更改日志级别（例如，设置 -5 来增加详细程度）。
+默认情况下，`TEST_LOG_LEVEL=-3`。
 
-## Debug tests in VSCode
-It is possible to debug unit and integration tests in VSCode.
-You need to have the [Go extension](https://marketplace.visualstudio.com/items?itemName=golang.Go) installed.
-Now you will have `run test | debug test` text buttons above lines like
+## 在 VSCode 中调试测试 {#debug-tests-in-vscode}
+可以在 VSCode 中调试单元测试和集成测试。
+你需要安装 [Go 扩展](https://marketplace.visualstudio.com/items?itemName=golang.Go)。
+现在你将在如下行上方看到 `run test | debug test` 文本按钮：
 ```go
 func TestValidateClusterQueue(t *testing.T) {
 ```
-You can click on the `debug test` to debug a specific test.
+你可以点击 `debug test` 来调试特定测试。
 
-For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.33 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
-- Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
+对于集成测试，需要额外的步骤。在 settings.json 中，你需要在 `go.testEnvVars` 内添加两个变量：
+- 运行 `ENVTEST_K8S_VERSION=1.33 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` 并将路径分配给 `KUBEBUILDER_ASSETS` 变量
+- 将 `KUEUE_BIN` 设置为你的 Kueue 仓库克隆目录内的 `bin` 目录
 ```json
 "go.testEnvVars": {
-    "KUBEBUILDER_ASSETS": "<path from output above>",
-    "KUEUE_BIN": "<path-to-your-kueue-folder>/bin",
+    "KUBEBUILDER_ASSETS": "<上面输出的路径>",
+    "KUEUE_BIN": "<你的-kueue-文件夹路径>/bin",
   },
 ```
 
-For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visualstudio.com/items?itemName=joselitofilho.ginkgotestexplorer).  You need to add the following variables to settings.json:
+对于 e2e 测试，你也可以使用 [Ginkgo Test Explorer](https://marketplace.visualstudio.com/items?itemName=joselitofilho.ginkgotestexplorer)。你需要在 settings.json 中添加以下变量：
 ```json
  "ginkgotestexplorer.testEnvVars": {
         "KIND_CLUSTER_NAME": "kind",
@@ -104,79 +104,79 @@ For e2e tests, you can also use [Ginkgo Test Explorer](https://marketplace.visua
         "KIND": "<your_kueue_path>/bin/kind",
     },
 ```
-and then you can use GUI of the Ginkgo Test Explorer to run individual tests, provided you started kind clanter (see [here](#attaching-e2e-tests-to-an-existing-kind-cluster) for the instructions).
+然后你可以使用 Ginkgo Test Explorer 的 GUI 来运行单个测试，前提是你已经启动了 kind 集群（有关说明，请参阅[这里](#attaching-e2e-tests-to-an-existing-kind-cluster)）。
 
-## Attaching e2e tests to an existing kind cluster
-You can use the following approach to start up a kind cluster and then run e2e tests from commandline or VSCode,
-attaching them to the existing cluster. For example, suppose you want to test some of the multikueue-e2e tests.
+## 将 e2e 测试附加到现有的 kind 集群 {#attaching-e2e-tests-to-an-existing-kind-cluster}
+你可以使用以下方法来启动 kind 集群，然后从命令行或 VSCode 运行 e2e 测试，
+将它们附加到现有集群。例如，假设你想测试一些 multikueue-e2e 测试。
 
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` and wait for the `Press Enter to cleanup.` to appear.
+运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` 并等待 `Press Enter to cleanup.` 出现。
 
-The cluster is ready, and now you can run tests from another terminal:
+集群已准备就绪，现在你可以从另一个终端运行测试：
 ```shell
 <your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
 ```
-or from VSCode.
+或从 VSCode 运行。
 
-## Running subset of integration or e2e tests
-### Use Ginkgo --focus arg
+## 运行集成或 e2e 测试子集 {#running-subset-of-integration-or-e2e-tests}
+### 使用 Ginkgo --focus 参数 {#use-ginkgo-focus-arg}
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
 GINKGO_ARGS="--focus=Creating a Pod requesting TAS" make test-e2e
 ```
-### Use ginkgo.FIt
-If you want to focus on specific tests, you can change
-`ginkgo.It` to `ginkgo.FIt` for these tests.
-For more details, see [here](https://onsi.github.io/ginkgo/#focused-specs).
-Then the other tests will be skipped.
-For example, you can change
+### 使用 ginkgo.FIt {#use-ginkgo-fit}
+如果你想专注于特定测试，可以将这些测试的
+`ginkgo.It` 更改为 `ginkgo.FIt`。
+有关更多详细信息，请参阅[这里](https://onsi.github.io/ginkgo/#focused-specs)。
+然后其他测试将被跳过。
+例如，你可以将
 ```go
 ginkgo.It("Should place pods based on the ranks-ordering", func() {
 ```
-to
+更改为
 ```go
 ginkgo.FIt("Should place pods based on the ranks-ordering", func() {
 ```
-and then run
+然后运行
 ```shell
-# build and pull image
+# 构建并拉取镜像
 make test-tas-e2e
 ```
-to test a particular TAS e2e test.
+来测试特定的 TAS e2e 测试。
 
-### Use INTEGRATION_TARGET
+### 使用 INTEGRATION_TARGET {#use-integration-target}
 ```shell
 INTEGRATION_TARGET='test/integration/singlecluster/scheduler' make test-integration
 ```
 
-## Flaky integration/e2e tests
-You can use --until-it-fails or --repeat=N arguments to Ginkgo to run tests repeatedly, such as:
+## 不稳定的集成/e2e 测试 {#flaky-integration-e2e-tests}
+你可以使用 --until-it-fails 或 --repeat=N 参数来让 Ginkgo 重复运行测试，例如：
 ```shell
 GINKGO_ARGS="--until-it-fails" make test-integration
 GINKGO_ARGS="--repeat=10" make test-e2e
 ```
-See more [here](https://onsi.github.io/ginkgo/#repeating-spec-runs-and-managing-flaky-specs)
+更多信息请参阅[这里](https://onsi.github.io/ginkgo/#repeating-spec-runs-and-managing-flaky-specs)
 
-### Adding stress
-You can run [stress](https://github.com/resurrecting-open-source-projects/stress) tool to increase CPU load during tests.  For example, if you're on Debian-based Linux:
+### 添加压力 {#adding-stress}
+你可以运行 [stress](https://github.com/resurrecting-open-source-projects/stress) 工具来在测试期间增加 CPU 负载。例如，如果你在基于 Debian 的 Linux 上：
 ```shell
-# install stress:
+# 安装 stress：
 sudo apt install stress
-# run stress alongside tests
+# 与测试一起运行 stress
 /usr/bin/stress --cpu 80
 ```
 
-### Analyzing logs
-Kueue runs as a regular pod on a worker node, and in e2e tests there are 2 replicas running.  The Kueue logs are located in `kind-worker/pods/kueue-system_kueue-controller-manager*/manager` and `kind-worker2/pods/kueue-system_kueue-controller-manager*/manager` folders.
+### 分析日志 {#analyzing-logs}
+Kueue 作为常规 pod 在 worker 节点上运行，在 e2e 测试中有 2 个副本在运行。Kueue 日志位于 `kind-worker/pods/kueue-system_kueue-controller-manager*/manager` 和 `kind-worker2/pods/kueue-system_kueue-controller-manager*/manager` 文件夹中。
 
-For each log message you can from which file and line the message is coming from:
+对于每条日志消息，你可以看到消息来自哪个文件和行：
 ```log
 2025-02-03T15:51:51.502425029Z stderr F 2025-02-03T15:51:51.502117824Z	LEVEL(-2)	cluster-queue-reconciler	core/clusterqueue_controller.go:341	ClusterQueue update event	{"clusterQueue": {"name":"cluster-queue"}}
 ```
-Here, it's `core/clusterqueue_controller.go:341`.
+这里，它是 `core/clusterqueue_controller.go:341`。
 
-### See also
-- [Kubernetes testing guide](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/testing.md)
-- [Integration Testing in Kubernetes](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/integration-tests.md)
-- [End-to-End Testing in Kubernetes](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/e2e-tests.md)
-- [Flaky Tests in Kubernetes](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/flaky-tests.md)
+### 另请参阅 {#see-also}
+- [Kubernetes 测试指南](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/testing.md)
+- [Kubernetes 中的集成测试](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/integration-tests.md)
+- [Kubernetes 中的端到端测试](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/e2e-tests.md)
+- [Kubernetes 中的不稳定测试](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/flaky-tests.md)
