@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -205,12 +204,21 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		var updated bool
+		var (
+			updated bool
+			err     error
+		)
 		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
 			case kueue.WorkloadDeactivated:
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
-				updated = true
+				err = clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+					workload.SetRequeuedCondition(&wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
+					updated = true
+					return true, nil
+				})
+				if err != nil {
+					return ctrl.Result{}, client.IgnoreNotFound(err)
+				}
 			case kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadEvictedByAdmissionCheck:
 				var requeueAfter time.Duration
 				if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
@@ -219,50 +227,58 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if requeueAfter > 0 {
 					return reconcile.Result{RequeueAfter: requeueAfter}, nil
 				}
-				if wl.Status.RequeueState != nil {
-					wl.Status.RequeueState.RequeueAt = nil
+				err = clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+					if wl.Status.RequeueState != nil {
+						wl.Status.RequeueState.RequeueAt = nil
+					}
+					workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
+					updated = true
+					return true, nil
+				})
+				if err != nil {
+					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
-				workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
-				updated = true
 			}
 		}
-
 		if updated {
-			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
+			return ctrl.Result{}, nil
 		}
 	} else {
-		var updated, evicted bool
+		var updated, evicted, reportWorkloadEvictedOnce bool
+		var err error
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
-		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-			if dtCond != nil {
-				reason = fmt.Sprintf("%sDueTo%s", reason, dtCond.Reason)
-				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
-			}
-			workload.SetEvictedCondition(&wl, reason, message)
-			updated = true
-			evicted = true
-		}
-		if dtCond != nil {
-			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-		}
-		if wl.Status.RequeueState != nil {
-			wl.Status.RequeueState = nil
-			updated = true
-		}
 
-		// exception due to complicated logic, not using PrepareForEviction (temporarily)
-		workload.ResetClusterNomination(&wl)
-		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
-		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
-		if updated {
-			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
-				if apierrors.IsNotFound(err) {
-					return ctrl.Result{}, nil
+		err = clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+			if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+				if dtCond != nil {
+					reason = fmt.Sprintf("%sDueTo%s", reason, dtCond.Reason)
+					message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 				}
-				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
+				workload.SetEvictedCondition(&wl, reason, message)
+				updated = true
+				evicted = true
 			}
+			if dtCond != nil {
+				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+			}
+			if wl.Status.RequeueState != nil {
+				wl.Status.RequeueState = nil
+				updated = true
+			}
+
+			// exception due to complicated logic, not using PrepareForEviction (temporarily)
+			workload.ResetClusterNomination(&wl)
+			updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
+			reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(&wl, kueue.WorkloadDeactivated, "")
+
+			return updated, nil
+		})
+		if err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		if updated {
 			if evicted && wl.Status.Admission != nil {
 				workload.ReportEvictedWorkload(r.recorder, &wl, wl.Status.Admission.ClusterQueue, reason, message)
 				if reportWorkloadEvictedOnce {
@@ -282,8 +298,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	lqExists := err == nil
 	lqActive := ptr.Deref(lq.Spec.StopPolicy, kueue.None) == kueue.None
 	if lqExists && lqActive && isDisabledRequeuedByLocalQueueStopped(&wl) {
-		workload.SetRequeuedCondition(&wl, kueue.WorkloadLocalQueueRestarted, "The LocalQueue was restarted after being stopped", true)
-		return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
+		err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			workload.SetRequeuedCondition(&wl, kueue.WorkloadLocalQueueRestarted, "The LocalQueue was restarted after being stopped", true)
+			return true, nil
+		})
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
@@ -295,8 +314,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
 		if isDisabledRequeuedByClusterQueueStopped(&wl) && ptr.Deref(cq.Spec.StopPolicy, kueue.None) == kueue.None {
-			workload.SetRequeuedCondition(&wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
-			return ctrl.Result{}, client.IgnoreNotFound(workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock))
+			err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+				workload.SetRequeuedCondition(&wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
+				return true, nil
+			})
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, &cq); updated || err != nil {
 			return ctrl.Result{}, err
@@ -305,8 +327,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// If the workload is admitted, updating the status here would set the Admitted condition to
 	// false before the workloads eviction.
+	wlCopy := wl.DeepCopy()
 	if !workload.IsAdmitted(&wl) && workload.SyncAdmittedCondition(&wl, r.clock.Now()) {
-		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+		err := clientutil.PatchStatus(ctx, r.client, wlCopy, func() (bool, error) {
+			return workload.SyncAdmittedCondition(wlCopy, r.clock.Now()), nil
+		})
+		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if workload.IsAdmitted(&wl) {
@@ -357,28 +383,28 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch {
 	case !lqExists:
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), r.clock.Now()) {
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+		err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), r.clock.Now()), nil
+		})
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	case !lqActive:
 		log.V(3).Info("Workload is inadmissible because of stopped LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), r.clock.Now()) {
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+		err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), r.clock.Now()), nil
+		})
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	case !cqOk:
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", string(cqName)))
-		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()) {
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+		err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()), nil
+		})
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	case !r.cache.ClusterQueueActive(cqName):
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", string(cqName)))
-		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()) {
-			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+		err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()), nil
+		})
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	return ctrl.Result{}, nil
@@ -436,8 +462,11 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		for _, check := range workload.RejectedChecks(wl) {
 			rejectedCheckNames = append(rejectedCheckNames, check.Name)
 		}
-		workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", stringsutils.Join(rejectedCheckNames, ",")))
-		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
+		err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+			workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", stringsutils.Join(rejectedCheckNames, ",")))
+			return true, nil
+		})
+		if err != nil {
 			return false, err
 		}
 		log.V(3).Info("Workload is evicted due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedCheckNames)
@@ -447,9 +476,13 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
 	message := "At least one admission check is false"
-	workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByAdmissionCheck, message)
-	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByAdmissionCheck, "")
-	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
+	reportWorkloadEvictedOnce := false
+	err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByAdmissionCheck, message)
+		reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByAdmissionCheck, "")
+		return true, nil
+	})
+	if err != nil {
 		return false, err
 	}
 	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
@@ -487,8 +520,10 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 			return false, nil
 		}
 		log.V(3).Info("Workload is evicted because the LocalQueue is stopped", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
-		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
+		err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+			workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
+			return true, nil
+		})
 		if err == nil {
 			cqName := lq.Spec.ClusterQueue
 			if slices.Contains(r.queues.GetClusterQueueNames(), cqName) {
@@ -534,9 +569,12 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", string(cqName)))
 		message := "The ClusterQueue is stopped"
-		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByClusterQueueStopped, message)
-		reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByClusterQueueStopped, "")
-		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
+		reportWorkloadEvictedOnce := false
+		err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+			workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByClusterQueueStopped, message)
+			reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByClusterQueueStopped, "")
+			return true, nil
+		})
 		if err == nil {
 			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message)
 			if reportWorkloadEvictedOnce {
@@ -604,7 +642,14 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return 0, nil
 	}
 
-	underlyingCause, recheckAfter := r.admittedNotReadyWorkload(wl)
+	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
+	var reportWorkloadEvictedOnce bool
+	var recheckAfter time.Duration
+	var underlyingCause string
+	var deactivated bool
+	var err error
+
+	underlyingCause, recheckAfter = r.admittedNotReadyWorkload(wl)
 	if underlyingCause == "" {
 		return 0, nil
 	}
@@ -612,14 +657,22 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		log.V(4).Info("Workload not yet ready and did not exceed its timeout", "recheckAfter", recheckAfter)
 		return recheckAfter, nil
 	}
-	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
-	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
+
+	err = clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		var err error
+		log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
+		if deactivated, err = r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
+			return true, err
+		}
+
+		workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByPodsReadyTimeout, message)
+		reportWorkloadEvictedOnce = workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByPodsReadyTimeout, underlyingCause)
+		return true, nil
+	})
+	if deactivated {
 		return 0, err
 	}
-	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
-	workload.PrepareForEviction(wl, r.clock.Now(), kueue.WorkloadEvictedByPodsReadyTimeout, message)
-	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedByPodsReadyTimeout, underlyingCause)
-	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
+
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
@@ -640,11 +693,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	}
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
 	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && ptr.Deref(wl.Status.RequeueState.Count, 0)+1 > *r.waitForPodsReady.requeuingBackoffLimitCount {
-		workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded,
-			"exceeding the maximum number of re-queuing retries")
-		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
-			return false, err
-		}
+		workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded, "exceeding the maximum number of re-queuing retries")
 		return true, nil
 	}
 	workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
