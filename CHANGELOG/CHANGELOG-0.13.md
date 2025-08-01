@@ -1,3 +1,39 @@
+## v0.13.1
+
+Changes since `v0.13.0`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- Rename kueue-metrics-certs to kueue-metrics-cert cert-manager.io/v1 Certificate name in cert-manager manifests when installing Kueue using the Kustomize configuration.
+
+  If you're using cert-manager and have deployed Kueue using the Kustomize configuration, you must delete the existing kueue-metrics-certs cert-manager.io/v1 Certificate before applying the new changes to avoid conflicts. (#6362, @mbobrovskyi)
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix accounting for the `evicted_workloads_once_total` metric:
+  - the metric wasn't incremented for workloads evicted due to stopped LocalQueue (LocalQueueStopped reason)
+  - the reason used for the metric was "Deactivated" for workloads deactivated by users and Kueue, now the reason label can have the following values: Deactivated, DeactivatedDueToAdmissionCheck, DeactivatedDueToMaximumExecutionTimeExceeded, DeactivatedDueToRequeuingLimitExceeded. This approach aligns the metric with `evicted_workloads_total`.
+  - the metric was incremented during preemption before the preemption request was issued. Thus, it could be incorrectly over-counted in case of the preemption request failure.
+  - the metric was not incremented for workload evicted due to NodeFailures (TAS)
+
+  The existing and introduced DeactivatedDueToXYZ reason label values will be replaced by the single "Deactivated" reason label value and underlying_cause in the future release. (#6360, @mimowo)
+- Fix the bug for the ElasticJobsViaWorkloadSlices feature where in case of Job resize followed by eviction
+  of the "old" workload, the newly created workload could get admitted along with the "old" workload.
+  The two workloads would overcommit the quota. (#6257, @ichekrygin)
+- Fix the bug which could occasionally cause workloads evicted by the built-in AdmissionChecks
+  (ProvisioningRequest and MultiKueue) to get stuck in the evicted state which didn't allow re-scheduling.
+  This could happen when the AdmissionCheck controller would trigger eviction by setting the
+  Admission check state to "Retry". (#6299, @mimowo)
+- Fixed a bug that prevented adding the kueue- prefix to the secretName field in cert-manager manifests when installing Kueue using the Kustomize configuration. (#6343, @mbobrovskyi)
+- ProvisioningRequest: Fix a bug that Kueue didn't recreate the next ProvisioningRequest instance after the
+  second (and consecutive) failed attempt. (#6329, @PBundyra)
+- Support disabling client-side ratelimiting in Config API clientConnection.qps with a negative value (e.g., -1) (#6305, @tenzen-y)
+- TAS: Fix a bug that the node failure controller tries to re-schedule Pods on the failure node even after the Node is recovered and reappears (#6347, @pajakd)
+
 ## v0.13.0
 
 Changes since `v0.12.0`:
