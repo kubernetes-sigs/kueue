@@ -36,7 +36,7 @@ const (
 	serviceAccountName           = "kueue-controller-manager"
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
 	metricsServiceName           = "kueue-controller-manager-metrics-service"
-	certSecretName               = "metrics-server-cert"
+	certSecretName               = "kueue-metrics-server-cert"
 	certMountPath                = "/etc/kueue/metrics/certs"
 )
 
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		}
 		util.MustCreate(ctx, k8sClient, curlPod)
 
-		ginkgo.By("Waiting for metrics-server-cert secret", func() {
+		ginkgo.By("Waiting for kueue-metrics-server-cert secret", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				secret := &corev1.Secret{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{
