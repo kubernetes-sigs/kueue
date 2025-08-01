@@ -479,9 +479,10 @@ When there is not enough nominal quota of resources in a ResourceFlavor, the
 incoming Workload can borrow quota or preempt running Workloads in the
 ClusterQueue or Cohort. In the ClusterQueue there can be multiple Flavors
 for each resource, with potentially different amounts of quota available in each
-Kueue evaluates the flavors in a ClusterQueue in order and for each it
+Kueue evaluates the Flavors in a ClusterQueue in order and for each it
 checks if the required resource of the workload fits in this ResourceFlavor and
-if borrowing or preemption is required. You can influence the Flavor selection process by configuring the `flavorFungibility` field.
+if borrowing or preemption is required. You can influence the Flavor selection
+process by configuring the `flavorFungibility` field.
 
 A configuration for a ClusterQueue that configures this behavior looks like the following:
 
@@ -511,10 +512,11 @@ If during the search, the workload finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected,
 regardless of the above configuration. Otherwise, out of the considered
 ResourceFlavors, Kueue selects a one that fits the workload using borrowing
-(without preemptions). If there is no such ResourceFlavor, Kueue selects a flavor
+(without preemptions). If there is no such ResourceFlavor, Kueue selects a Flavor
 that uses preemption and is preferably not borrowing.
 
-By default Kueue avoids preemptions and prefers borrowing when assigning flavors. Borrowing is not disruptive to other workloads but a
+By default Kueue avoids preemptions and prefers borrowing when assigning Flavors.
+Borrowing is not disruptive to other workloads but a
 workload that borrows risks being prempted (since it is using nominal quota
 from some other Cluster Queue). If you prefer to preempt rather than borrow when possible,
 you can enable the feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
