@@ -102,7 +102,7 @@ Known Limitation:
 {{% alert title="Warning" color="primary" %}}
 For the external controller to patch the `.status.nominatedClusterNames` field, it must use the kueue-admission field manager.
 This is required because the kueue-admission field manager is responsible for managing updates to the `.status.nominatedClusterNames` field.
-Without this, the external controller may encounter conflicts or be unable to update the field.
+Without this, the Kueue is not able to admit the MultiKueue workloads.
 {{% /alert %}}
 
 ## Supported Job Types
