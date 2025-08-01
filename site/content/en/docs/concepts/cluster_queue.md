@@ -475,12 +475,14 @@ the heuristics that Kueue implements to preempt as few Workloads as possible.
 
 ## FlavorFungibility
 
-When there is not enough nominal quota of resources in a ResourceFlavor, the incoming Workload can borrow
-quota or preempt running Workloads in the ClusterQueue or Cohort.
-
-Kueue evaluates the flavors in a ClusterQueue in order. You can influence whether to prioritize
-preemptions or borrowing in a flavor before trying to accommodate the Workload in the next flavor, by
-setting the `flavorFungibility` field.
+When there is not enough nominal quota of resources in a ResourceFlavor, the
+incoming Workload can borrow quota or preempt running Workloads in the
+ClusterQueue or Cohort. In the ClusterQueue, there can be multiple Flavors
+for each resource, with potentially different amounts of quota available in each.
+Kueue evaluates the Flavors in a ClusterQueue in order and for each it
+checks if the required resource of the workload fits in this ResourceFlavor and
+if borrowing or preemption is required. You can influence the Flavor selection
+process by configuring the `flavorFungibility` field.
 
 A configuration for a ClusterQueue that configures this behavior looks like the following:
 
@@ -497,17 +499,40 @@ spec:
 
 The fields above do the following:
 
-- `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
-  - `Borrow` (default): ClusterQueue stops finding a better assignment.
-  - `TryNextFlavor`: ClusterQueue tries the next ResourceFlavor to see if the workload can get a better assignment.
-- `whenCanPreempt` determines whether a workload should try preemption in current ResourceFlavor before try the next one. The possible values are:
-  - `Preempt`: ClusterQueue stops trying preemption in current ResourceFlavor and starts from the next one if preempting failed.
-  - `TryNextFlavor` (default): ClusterQueue tries the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
+- `whenCanBorrow` defines what should happen if a workload can get enough resource by
+borrowing in current ResourceFlavor. The possible values are:
+  - `Borrow` (default): Kueue stops looking for a better assignment.
+  - `TryNextFlavor`: Kueue tries the next ResourceFlavor.
+- `whenCanPreempt` defines what should happen if a workload can get enough resource by
+preempting in current ResourceFlavor. The possible values are:
+  - `Preempt`: Kueue stops looking for a better assignment.
+  - `TryNextFlavor` (default): Kueue tries the next ResourceFlavor.
 
-By default, the incoming workload stops trying the next flavor if the workload can get enough borrowed resources.
-And Kueue triggers preemption only after Kueue determines that the remaining ResourceFlavors can't fit the workload.
+If during the search, Kueue finds some ResourceFlavor in which it can fit
+without preemption or borrowing, such ResourceFlavor is immediately selected,
+regardless of the above configuration. Otherwise, out of the considered
+ResourceFlavors, Kueue selects a one that fits the workload using borrowing
+(without preemptions). If there is no such ResourceFlavor, Kueue selects a Flavor
+that uses preemption and is preferably not borrowing.
 
-Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
+By default Kueue avoids preemptions and prefers borrowing when assigning Flavors.
+Borrowing is not disruptive to other workloads but a
+workload that borrows risks being prempted (since it is using nominal quota
+from some other Cluster Queue). If you prefer to preempt rather than borrow when possible,
+you can enable the feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
+changes the default preference as follows: If `.spec.flavorFungibility.whenCanBorrow` is `TryNextFlavor`,
+it assumes that preemption is preferred over borrowing and otherwise it assumes
+that borrowing is preferred over preemption.
+
+{{% alert title="Note" color="primary" %}}
+`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature,
+introduced to Kueue in version 0.13 and it is not enabled by default.
+
+To enable the feature, you have to set the `FlavorFungibilityImplicitPreferenceDefault`
+feature gate to `true`. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
+guide for details on feature gate configuration.
+{{% /alert %}}
+
 
 ## StopPolicy
 
