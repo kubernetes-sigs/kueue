@@ -2,7 +2,7 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "kueue.fullname" . }}-metrics-cert
+  name: {{ include "kueue.fullname" . }}-metrics-certs
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
