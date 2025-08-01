@@ -341,7 +341,7 @@ func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Contex
 			continue
 		}
 
-		if wl.Annotations != nil &&  wl.Annotations[kueuealpha.NodeToReplaceAnnotation] != nodeName {
+		if wl.Annotations != nil && wl.Annotations[kueuealpha.NodeToReplaceAnnotation] != nodeName {
 			continue
 		}
 
