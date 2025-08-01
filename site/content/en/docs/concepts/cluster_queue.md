@@ -525,11 +525,11 @@ it assumes that preemption is preferred over borrowing and otherwise it assumes
 that borrowing is preferred over preemption.
 
 {{% alert title="Note" color="primary" %}}
-`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature and is
-not enabled by default.
+`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature,
+introduced to Kueue in version 0.13 and it is not enabled by default.
 
 To enable the feature, you have to set the `FlavorFungibilityImplicitPreferenceDefault`
-feature gate to `true`. This feature was introduced to Kueue in version 0.13. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
+feature gate to `true`. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
 guide for details on feature gate configuration.
 {{% /alert %}}
 
