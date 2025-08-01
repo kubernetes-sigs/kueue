@@ -51,9 +51,10 @@ func MakeJob(name, ns string) *JobWrapper {
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
-							Name:      "c",
-							Image:     "pause",
-							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
+							Name:            "c",
+							Image:           "pause",
+							Resources:       corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
+							SecurityContext: testing.UseDefaultSecurityContext(),
 						},
 					},
 					NodeSelector: map[string]string{},
