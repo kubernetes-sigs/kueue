@@ -82,6 +82,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Admitted(true).
 		Obj()
 
+	workloadWithAnnotation := baseWorkload.DeepCopy()
+	workloadWithAnnotation.Annotations = map[string]string{
+		kueuealpha.NodeToReplaceAnnotation: nodeName,
+	}
+
 	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -124,6 +129,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantFailedNode:    "",
 		},
+		"Node becomes healthy, annotation is removed": {
+			initObjs: []client.Object{
+				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
+				workloadWithAnnotation.DeepCopy(),
+				basePod.DeepCopy(),
+			},
+			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantFailedNode:    "",
+		},
+
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			initObjs: []client.Object{
 				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
