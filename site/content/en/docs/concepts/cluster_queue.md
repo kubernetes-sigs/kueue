@@ -520,7 +520,7 @@ Borrowing is not disruptive to other workloads but a
 workload that borrows risks being prempted (since it is using nominal quota
 from some other Cluster Queue). If you prefer to preempt rather than borrow when possible,
 you can enable the feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
-changes the default preference as follows: If `whenCanBorrow = TryNextFlavor`
+changes the default preference as follows: If `.spec.flavorFungibility.whenCanBorrow` is `TryNextFlavor`,
 it assumes that preemption is preferred over borrowing and otherwise it assumes
 that borrowing is preferred over preemption.
 
