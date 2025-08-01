@@ -20,6 +20,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
@@ -73,17 +74,17 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // with and without borrowing. The runs are independent which means that the same candidates
 // might be returned for both, but note that the candidates with borrrowing are a subset of
 // candidates without borrowing.
-func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func(*workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
+func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func(logr.Logger, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 	sort.Slice(sameQueueCandidates, func(i, j int) bool {
-		return ordering(sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+		return ordering(hierarchicalReclaimCtx.Log, sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 	sort.Slice(priorityCandidates, func(i, j int) bool {
-		return ordering(priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+		return ordering(hierarchicalReclaimCtx.Log, priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 	sort.Slice(hierarchyCandidates, func(i, j int) bool {
-		return ordering(hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+		return ordering(hierarchicalReclaimCtx.Log, hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)

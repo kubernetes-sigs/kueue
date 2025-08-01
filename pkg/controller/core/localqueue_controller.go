@@ -307,6 +307,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList) error {
 	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
 	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
+	r.log.V(3).Info("Updated LocalQueue fair sharing status", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", consumedResources)
 	return r.client.Status().Update(ctx, lq)
 }
 

@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -58,6 +59,7 @@ func (m preemptionVariant) PreemptionReason() string {
 }
 
 type HierarchicalPreemptionCtx struct {
+	Log               logr.Logger
 	Wl                *kueue.Workload
 	Cq                *cache.ClusterQueueSnapshot
 	FrsNeedPreemption sets.Set[resources.FlavorResource]

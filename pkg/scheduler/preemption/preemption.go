@@ -208,6 +208,7 @@ type preemptionAttemptOpts struct {
 // fits
 func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target {
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
+		Log:               preemptionCtx.log,
 		Wl:                preemptionCtx.preemptor.Obj,
 		Cq:                preemptionCtx.preemptorCQ,
 		FrsNeedPreemption: preemptionCtx.frsNeedPreemption,
@@ -380,7 +381,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		return nil
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		return CandidatesOrdering(candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
+		return CandidatesOrdering(preemptionCtx.log, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
@@ -542,7 +543,7 @@ func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
 // 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
-func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
+func CandidatesOrdering(log logr.Logger, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
 	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	if aEvicted != bEvicted {
@@ -556,6 +557,9 @@ func CandidatesOrdering(a, b *workload.Info, cq kueue.ClusterQueueReference, now
 
 	if features.Enabled(features.AdmissionFairSharing) && resourceUsagePreemptionEnabled(a, b) {
 		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
+			log.V(3).Info("Comparing workloads by LocalQueue fair sharing usage",
+				"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
+				"workloadB", klog.KObj(b.Obj), "queueB", b.Obj.Spec.QueueName, "usageB", b.LocalQueueFSUsage)
 			return *a.LocalQueueFSUsage > *b.LocalQueueFSUsage
 		}
 	}

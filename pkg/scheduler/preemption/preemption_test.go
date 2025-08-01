@@ -2894,12 +2894,13 @@ func TestCandidatesOrdering(t *testing.T) {
 			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
 		}}
 
+	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
 		for _, gate := range tc.enableFeatureGates {
 			features.SetFeatureGateDuringTest(t, gate, true)
 		}
 		sort.Slice(tc.candidates, func(i int, j int) bool {
-			return CandidatesOrdering(&tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
+			return CandidatesOrdering(log, &tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
