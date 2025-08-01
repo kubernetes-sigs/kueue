@@ -505,8 +505,8 @@ borrowing in current ResourceFlavor. The possible values are:
   - `TryNextFlavor`: workload tries the next ResourceFlavor.
 - `whenCanPreempt` defines what should happen if a workload can get enough resource by
 preempting in current ResourceFlavor. The possible values are:
-  - `Preempt`: workload stops looking for a better assignment.
-  - `TryNextFlavor` (default): workload tries the next ResourceFlavor.
+  - `Preempt`: Kueue stops looking for a better assignment.
+  - `TryNextFlavor` (default): Kueue tries the next ResourceFlavor.
 
 If during the search, the workload finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected,
