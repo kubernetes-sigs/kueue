@@ -177,12 +177,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Flavor, true)
 
-		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerCq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueConfig, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster1, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster2, true)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.LongTimeout)
 
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
@@ -855,21 +855,25 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 	})
 
-	ginkgo.When("MultiKueue with Incremental mode", ginkgo.Ordered, func() {
+	ginkgo.When("Incremental mode", ginkgo.Ordered, func() {
+		var defaultManagerKueueCfg *kueueconfig.Configuration
+
 		ginkgo.BeforeAll(func() {
 			ginkgo.By("setting MultiKueue Dispatcher to Incremental", func() {
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
-					cfg.MultiKueue = &kueueconfig.MultiKueue{}
+				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+				newCfg := defaultManagerKueueCfg.DeepCopy()
+				util.UpdateKueueConfiguration(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					if cfg.MultiKueue == nil {
+						cfg.MultiKueue = &kueueconfig.MultiKueue{}
+					}
 					cfg.MultiKueue.DispatcherName = ptr.To(kueueconfig.MultiKueueDispatcherModeIncremental)
 				})
 			})
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
-				util.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
-					cfg.MultiKueue = &kueueconfig.MultiKueue{}
-					cfg.MultiKueue.DispatcherName = ptr.To(string(kueueconfig.MultiKueueDispatcherModeAllAtOnce))
-				})
+				util.ApplyKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
+				util.RestartKueueController(ctx, k8sManagerClient, managerClusterName)
 			})
 		})
 		ginkgo.It("Should run a job on worker if admitted", func() {
