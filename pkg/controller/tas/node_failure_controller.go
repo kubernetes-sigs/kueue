@@ -91,8 +91,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		patchErr := r.removeNodeToReplaceAnnotation(ctx, req.Name, affectedWorkloads)
-		return ctrl.Result{}, patchErr
+		return ctrl.Result{}, r.removeNodeToReplaceAnnotation(ctx, req.Name, affectedWorkloads)
 	}
 	if features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return r.reconcileForReplaceNodeOnPodTermination(ctx, req.Name)
@@ -335,13 +334,13 @@ func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Contex
 			if apierrors.IsNotFound(err) {
 				log.V(4).Info("Workload not found, skipping")
 			} else {
-				log.V(2).Error(err, "Failed to get workload")
+				log.Error(err, "Failed to get workload")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 			}
 			continue
 		}
 
-		if wl.Annotations[kueuealpha.NodeToReplaceAnnotation] != nodeName {
+		if wl.Annotations != nil &&  wl.Annotations[kueuealpha.NodeToReplaceAnnotation] != nodeName {
 			continue
 		}
 
@@ -351,7 +350,7 @@ func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Contex
 			return true, nil
 		})
 		if err != nil {
-			log.V(2).Error(err, "Failed to patch workload annotation")
+			log.Error(err, "Failed to patch workload annotation")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
