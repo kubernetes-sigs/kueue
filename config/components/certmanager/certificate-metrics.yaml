@@ -3,7 +3,7 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: metrics-certs  # this name should match the one appeared in kustomizeconfig.yaml
+  name: metrics-cert  # this name should match the one appeared in kustomizeconfig.yaml
   namespace: system
 spec:
   commonName: metrics
