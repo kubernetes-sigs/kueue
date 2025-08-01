@@ -25,11 +25,9 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -146,29 +144,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = testing.MakeAdmission(cq.Name).
-				PodSets(
-					kueue.PodSetAssignment{
-						Name: "ps1",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Count: ptr.To[int32](3),
-					},
-					kueue.PodSetAssignment{
-						Name: "ps2",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-						Count: ptr.To[int32](4),
-					},
-				).
+			admission = testing.MakeAdmission(cq.Name, "ps1", "ps2").
+				AssignmentWithIndex(0, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
+				AssignmentPodCountWithIndex(0, 3).
+				AssignmentWithIndex(1, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+				AssignmentPodCountWithIndex(1, 4).
 				Obj()
 		})
 
@@ -882,29 +862,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name).
-				PodSets(
-					kueue.PodSetAssignment{
-						Name: "ps1",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Count: ptr.To[int32](3),
-					},
-					kueue.PodSetAssignment{
-						Name: "ps2",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-						Count: ptr.To[int32](4),
-					},
-				).
+			admission = testing.MakeAdmission(cq.Name, "ps1", "ps2").
+				AssignmentWithIndex(0, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
+				AssignmentPodCountWithIndex(0, 3).
+				AssignmentWithIndex(1, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+				AssignmentPodCountWithIndex(1, 4).
 				Obj()
 		})
 
@@ -1350,18 +1312,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name).
-				PodSets(
-					kueue.PodSetAssignment{
-						Name: "ps1",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Count: ptr.To[int32](3),
-					}).Obj()
+			admission = testing.MakeAdmission(cq.Name, "ps1").
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
+				AssignmentPodCount(3).
+				Obj()
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1557,31 +1511,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = testing.MakeAdmission(cq.Name).
-				PodSets(
-					kueue.PodSetAssignment{
-						Name: "master",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("2Gi"),
-						},
-						Count: ptr.To[int32](1),
-					},
-					kueue.PodSetAssignment{
-						Name: "worker",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("2Gi"),
-						},
-						Count: ptr.To[int32](2),
-					},
-				).
+			admission = testing.MakeAdmission(cq.Name, "master", "worker").
+				AssignmentWithIndex(0, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+				AssignmentWithIndex(0, corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+				AssignmentPodCountWithIndex(0, 1).
+				AssignmentWithIndex(1, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+				AssignmentWithIndex(1, corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+				AssignmentPodCountWithIndex(1, 2).
 				Obj()
 		})
 
