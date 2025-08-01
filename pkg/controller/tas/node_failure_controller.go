@@ -326,8 +326,9 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 // and removes the annotation
 func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
+	log := ctrl.LoggerFrom(ctx)
 	for wlKey := range affectedWorkloads {
-		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
+		log = log.WithValues("workload", wlKey)
 		// fetch workload.
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
