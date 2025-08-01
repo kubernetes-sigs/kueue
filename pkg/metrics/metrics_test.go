@@ -160,15 +160,12 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
-	duration := time.Second
-
-	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1", &duration)
+	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1")
 
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 4, "preempting_cluster_queue", "cluster_queue1")
-	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InClusterQueue")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortFairSharing")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclamation")

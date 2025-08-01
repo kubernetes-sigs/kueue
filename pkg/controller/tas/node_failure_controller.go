@@ -225,7 +225,7 @@ func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logg
 		log = log.WithValues("failedNode", failedNode)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
-		if evictionErr := r.startEviction(ctx, wl, evictionMsg); evictionErr != nil {
+		if evictionErr := workload.EvictWorkload(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", evictionMsg, r.clock); evictionErr != nil {
 			log.V(2).Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {
@@ -297,10 +297,6 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 		return errors.Join(workloadProcessingErrors...)
 	}
 	return nil
-}
-
-func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload, evictionMessage string) error {
-	return workload.EvictWorkload(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage, r.clock)
 }
 
 func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx context.Context, nodeName string) (ctrl.Result, error) {
