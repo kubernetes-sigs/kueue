@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.13.0](https://img.shields.io/badge/Version-0.13.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.13.0](https://img.shields.io/badge/AppVersion-v0.13.0-informational?style=flat-square)
+![Version: 0.13.1](https://img.shields.io/badge/Version-0.13.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.13.1](https://img.shields.io/badge/AppVersion-v0.13.1-informational?style=flat-square)
 
 Kueue is a set of APIs and controller for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.1" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.1" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.0" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.1" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
