@@ -6,7 +6,7 @@ metadata:
   name: metrics-certs  # this name should match the one appeared in kustomizeconfig.yaml
   namespace: system
 spec:
-  commonName: kueue-metrics
+  commonName: metrics
   dnsNames:
   # METRICS_SERVICE_NAME and METRICS_SERVICE_NAMESPACE will be substituted by kustomize
   # replacements in the config/default/kustomization.yaml file.
