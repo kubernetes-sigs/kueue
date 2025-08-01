@@ -57,16 +57,19 @@ network throughput between the Pods.
 ### Quota Reservation
 
 _Quota reservation_ is the process during through which the kueue scheduler locks the resources needed by a workload within the targeted
-[ClusterQueues ResourceGroups](/docs/concepts/cluster_queue/#resource-groups)
+[ClusterQueues ResourceGroups](/docs/concepts/cluster_queue#resource-groups)
 
 Quota reservation is sometimes referred to as _workload scheduling_ or _job scheduling_,
 but it should not to be confused with [pod scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
 
-### Admission
+### [Admission](docs/concepts/admission/)
 
-_Admission_ is the process of allowing a Workload to start (Pods to be created). A Workload
-is admitted when it has a Quota Reservation and all its [AdmissionCheckStates](/docs/concepts/admission_check)
-are `Ready`.
+_Admission_ is the process of allowing a Workload to start (Pods to be created). 
+
+A Workload is admitted when:
+- it has the `Quota Reservation` condition
+- the physical Node capacity allows to run the Workload, when [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling/) is used
+- all(optional) its AdmissionCheckStates are in the`Ready` state. 
 
 ### [Cohort](/docs/concepts/cluster_queue#cohort)
 
