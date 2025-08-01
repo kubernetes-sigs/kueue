@@ -1,22 +1,20 @@
 ---
-title: "Run Jobsets in Multi-Cluster"
+title: "在多集群环境中运行 Jobset"
 linkTitle: "Jobsets"
 weight: 3
 date: 2024-09-25
-description: >
-  Run a MultiKueue scheduled JobSet.
+description: 运行 MultiKueue 调度的 Jobset。
 ---
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-Check the [MultiKueue installation guide](/docs/tasks/manage/setup_multikueue) on how to properly setup MultiKueue clusters.
+请查阅 [MultiKueue 安装指南](/zh-CN/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
 
-For the ease of setup and use we recommend using at least Kueue v0.8.1 and JobSet v0.6.0 (see [JobSet Installation](https://jobset.sigs.k8s.io/docs/installation/) for more details).
+为方便安装和使用，建议至少使用 Kueue v0.8.1 和 JobSet v0.6.0（更多详情见 [JobSet 安装文档](https://jobset.sigs.k8s.io/docs/installation/)）。
 
-## Run Jobsets example
+## 运行 Jobset 示例 {#run-jobsets-example}
 
-Once the setup is complete you can test it by running the [`jobset-sample.yaml`](/docs/tasks/run/jobsets/#example-jobset) Job. 
+完成设置后，你可以通过运行 [`jobset-sample.yaml`](/zh-CN/docs/tasks/run/jobsets/#example-jobset) Job 进行测试。
 
-In that setup, the `spec.managedBy` field is defaulted to `kueue.x-k8s.io/multikueue`
-automatically, if not specified, as long as  the `kueue.x-k8s.io/queue-name` annotation
-is specified and the corresponding Cluster Queue uses the Multi Kueue admission check.
+在该设置中，如果未显式指定 spec.managedBy 字段的取值，则取值自动默认为 `kueue.x-k8s.io/multikueue`。
+前提是已设置了 `kueue.x-k8s.io/queue-name` 注解，并且对应的 ClusterQueue 使用了 MultiKueue 的准入检查。
