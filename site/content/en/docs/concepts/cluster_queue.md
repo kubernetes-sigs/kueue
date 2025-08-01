@@ -524,6 +524,16 @@ changes the default preference as follows: If `.spec.flavorFungibility.whenCanBo
 it assumes that preemption is preferred over borrowing and otherwise it assumes
 that borrowing is preferred over preemption.
 
+{{% alert title="Note" color="primary" %}}
+`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature and is
+not enabled by default.
+
+To enable the feature, you have to set the `FlavorFungibilityImplicitPreferenceDefault`
+feature gate to `true`. This feature was introduced to Kueue in version 0.13. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
+guide for details on feature gate configuration.
+{{% /alert %}}
+
+
 ## StopPolicy
 
 StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:
