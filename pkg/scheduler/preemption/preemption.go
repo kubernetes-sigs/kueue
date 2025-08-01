@@ -188,10 +188,13 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 	workload.PrepareForEviction(w, p.clock.Now(), kueue.WorkloadEvictedByPreemption, message)
 	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(w, kueue.WorkloadEvictedByPreemption, "")
 	workload.SetPreemptedCondition(w, reason, message)
-	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
+	err := workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
+	if err == nil {
+		if reportWorkloadEvictedOnce {
+			metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
+		}
 	}
-	return workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
+	return err
 }
 
 type preemptionAttemptOpts struct {
