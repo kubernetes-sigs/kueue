@@ -45,15 +45,18 @@ const CohortDetail = () => {
     );
   }
 
+  const clusterQueues = cohortDetails.clusterQueues || [];
+  const hasClusterQueues = Array.isArray(clusterQueues) && clusterQueues.length > 0;
+
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Cohort Detail: {cohortName}</Typography>
-      <Typography variant="body1"><strong>Number of Cluster Queues:</strong> {cohortDetails.clusterQueues.length}</Typography>
+      <Typography variant="body1"><strong>Number of Cluster Queues:</strong> {clusterQueues.length}</Typography>
 
       <Typography variant="h5" gutterBottom style={{ marginTop: '20px' }}>
         Cluster Queues in Cohort
       </Typography>
-      {cohortDetails.clusterQueues.length === 0 ? (
+      {!hasClusterQueues ? (
         <Typography>No cluster queues are part of this cohort.</Typography>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
@@ -76,7 +79,7 @@ const CohortDetail = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {cohortDetails.clusterQueues.map((queue) => (
+              {clusterQueues.map((queue) => (
                 <TableRow key={queue.name}>
                   <TableCell><Link to={`/cluster-queue/${queue.name}`}>{queue.name}</Link></TableCell>
                   <TableCell>{queue.spec.flavorFungibility?.whenCanBorrow || "N/A"}</TableCell>
