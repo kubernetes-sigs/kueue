@@ -52,7 +52,7 @@ const Cohorts = () => {
             </TableHead>
             <TableBody>
               {cohortList.map((cohort) => (
-                cohort.clusterQueues && cohort.clusterQueues.length > 0 ? (
+                cohort.clusterQueues && Array.isArray(cohort.clusterQueues) && cohort.clusterQueues.length > 0 ? (
                   cohort.clusterQueues.map((queue, index) => (
                     <TableRow key={`${cohort.name}-${queue.name}`}>
                       {index === 0 && (
