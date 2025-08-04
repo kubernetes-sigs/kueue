@@ -17,7 +17,7 @@ Before you begin troubleshooting, make sure your cluster meets the following req
 Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster should be running version `1.28.3-gke.1098000` or newer.
 - You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
 - Kueue's version is `v0.5.3` or newer.
-- ProvisioningRequest support is enabled. This feature has been enabled by default since Kueue `v0.7.0` and is Generally Available (GA) as of Kueue `v0.13.0`.
+- ProvisioningRequest support is enabled. This feature has been enabled by default since Kueue `v0.7.0` and is Generally Available (GA) as of Kueue `v0.14.0`.
 
 ## Identifying the Provisioning Request for your job
 
@@ -127,7 +127,7 @@ If Kueue did not create a Provisioning Request for your job, try checking the fo
 
 ### a. Verify ProvisioningRequest support is available
 
-Since Kueue v0.13.0, ProvisioningRequest support is Generally Available (GA) and always enabled. For older versions of Kueue (v0.7.0 to v0.12.x), the feature was enabled by default via the `ProvisioningACC` feature gate.
+Since Kueue v0.14.0, ProvisioningRequest support is Generally Available (GA) and always enabled. For older versions of Kueue (v0.7.0 to v0.13.x), the feature was enabled by default via the `ProvisioningACC` feature gate.
 
 If you're using an older version of Kueue, you can verify the feature gate is enabled by running:
 
