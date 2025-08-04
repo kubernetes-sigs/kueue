@@ -60,6 +60,7 @@ func countDevicesPerClass(claimSpec *resourcev1beta1.ResourceClaimSpec) map[core
 		if req.AllocationMode == resourcev1beta1.DeviceAllocationModeExactCount {
 			q = req.Count
 		}
+		// TODO: handle other Allocation modes
 		if existing, found := out[dc]; found {
 			existing.Add(resource.MustParse(strconv.FormatInt(q, 10)))
 			out[dc] = existing

@@ -37,7 +37,7 @@ type claimRefTracker struct {
 }
 
 // addAndCheckWorkLoad adds a claim to the tracker if it is not already present.
-// Returns true if the claim was added for given workload, false otherwise.
+// Returns true if the workload is allowed to use the claim, false if there's a conflict.
 // This function should be used to check if a workload is allowed to use a claim.
 func (t *claimRefTracker) addAndCheckWorkLoad(ck ClaimKey, workloadName string) bool {
 	t.Lock()
@@ -45,10 +45,11 @@ func (t *claimRefTracker) addAndCheckWorkLoad(ck ClaimKey, workloadName string) 
 	wl, ok := t.claims[ck]
 	if !ok {
 		t.claims[ck] = workloadName
-		return false
+		return true
 	}
 	if wl == workloadName {
-		return false
+		// Same workload already using this claim - allow it
+		return true // ✅ FIXED: Allow same workload to reuse its claim
 	}
-	return true
+	return false
 }
