@@ -554,11 +554,8 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason string, durationToPreemption *time.Duration) {
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason string) {
 	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason).Inc()
-	if durationToPreemption != nil {
-		PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), evictionReason).Observe(durationToPreemption.Seconds())
-	}
 }
 
 func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
@@ -573,9 +570,8 @@ func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, unde
 	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause).Inc()
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, durationToPreemption *time.Duration) {
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
-	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption, durationToPreemption)
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
