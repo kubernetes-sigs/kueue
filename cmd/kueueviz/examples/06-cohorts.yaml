@@ -1,0 +1,15 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Cohort
+metadata:
+  name: ai-for-humanity-foundation
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Cohort
+metadata:
+  name: research-cohort
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Cohort
+metadata:
+  name: production-cohort
