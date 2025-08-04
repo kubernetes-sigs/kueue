@@ -41,6 +41,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -66,6 +67,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -1590,6 +1592,196 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should run an elastic job on worker if admitted", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+		job := testingjob.MakeJob("job", managerNs.Name).
+			Parallelism(1).
+			Completions(2).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+		localWorkload := &kueue.Workload{}
+		remoteWorkload := &kueue.Workload{}
+
+		workloadKey := func(j *batchv1.Job) types.NamespacedName {
+			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(j.Name, j.UID, jobGVK, j.GetGeneration()), Namespace: j.Namespace}
+		}
+
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workloadKey(job), localWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, localWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload creation in the worker clusters", func() {
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, workloadKey(job), localWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(gomega.Succeed())
+				g.Expect(remoteWorkload.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(gomega.Succeed())
+				g.Expect(remoteWorkload.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
+			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, remoteWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(gomega.Succeed())
+				acs := admissioncheck.FindAdmissionCheck(remoteWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
+					Reason:  "MultiKueue",
+					Type:    corev1.EventTypeNormal,
+					Message: `The workload got reservation on "worker1"`,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ok).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("scale-up job", func() {
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Spec.Parallelism = ptr.To(int32(2))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		newLocalWorkloadSlice := &kueue.Workload{}
+
+		ginkgo.By("a new workload-slice is created in local cluster", func() {
+			workloadList := &kueue.WorkloadList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloadList, client.InNamespace(job.Namespace))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).To(gomega.HaveLen(2))
+				for i := range workloadList.Items {
+					wl := workloadList.Items[i]
+					if wl.Name != localWorkload.Name {
+						newLocalWorkloadSlice = &wl
+						break
+					}
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("old workload is still admitted in remote clusters", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				util.ExpectWorkloadsToBeAdmitted(worker1TestCluster.ctx, worker1TestCluster.client, remoteWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting new workload slice reservation in the management cluster", func() {
+			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(newLocalWorkloadSlice), newLocalWorkloadSlice)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, newLocalWorkloadSlice, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the new workload slice creation in the single same worker cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				tmpWorkload := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(newLocalWorkloadSlice), tmpWorkload)).To(gomega.Succeed())
+				g.Expect(tmpWorkload.Spec).To(gomega.BeComparableTo(newLocalWorkloadSlice.Spec))
+
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting new workload slice reservation and replacing old workload slice in worker1", func() {
+			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+
+			// On remote cluster: finish old workload slice, and admit new workload slice.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(localWorkload), remoteWorkload)).To(gomega.Succeed())
+				util.FinishWorkloads(worker1TestCluster.ctx, worker1TestCluster.client, remoteWorkload)
+
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(newLocalWorkloadSlice), remoteWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, remoteWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// On local cluster: assert new and old workload slices changes.
+			gomega.Eventually(func(g gomega.Gomega) {
+				// New is not finished.
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(newLocalWorkloadSlice), newLocalWorkloadSlice)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(newLocalWorkloadSlice.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+				// Old is finished.
+				util.ExpectWorkloadToFinish(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(localWorkload))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// There should be still no any workloads on second remote cluster.
+			list := &kueue.WorkloadList{}
+			gomega.Expect(worker2TestCluster.client.List(worker2TestCluster.ctx, list, client.InNamespace(job.Namespace))).To(gomega.Succeed())
+			gomega.Expect(list.Items).To(gomega.BeEmpty())
+		})
+
+		ginkgo.By("finishing the worker job", func() {
+			reachedPodsReason := "Reached expected number of succeeded pods"
+			finishJobReason := "Job finished successfully"
+			now := metav1.Now()
+			// completedJobCondition that we will add to the remote job to indicate job completions,
+			// and the same condition that we expect to see on the local job status.
+			completedJobCondition := batchv1.JobCondition{
+				Type:               batchv1.JobComplete,
+				Status:             corev1.ConditionTrue,
+				LastProbeTime:      now,
+				LastTransitionTime: now,
+				Message:            finishJobReason,
+			}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
+					batchv1.JobCondition{
+						Type:               batchv1.JobSuccessCriteriaMet,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+						Message:            reachedPodsReason,
+					},
+					completedJobCondition)
+				createdJob.Status.Succeeded = 2
+				createdJob.Status.StartTime = ptr.To(now)
+				createdJob.Status.CompletionTime = ptr.To(now)
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(client.ObjectKeyFromObject(newLocalWorkloadSlice), finishJobReason)
+
+			// Assert job complete condition.
+			gomega.Eventually(func(g gomega.Gomega) {
+				localJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), localJob)).To(gomega.Succeed())
+				g.Expect(localJob.Status.Conditions).Should(gomega.ContainElement(gomega.WithTransform(func(condition batchv1.JobCondition) batchv1.JobCondition {
+					// Compare on all condition attributes excluding Time values.
+					condition.LastProbeTime = completedJobCondition.LastProbeTime
+					condition.LastTransitionTime = completedJobCondition.LastTransitionTime
+					return condition
+				}, gomega.Equal(completedJobCondition))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
