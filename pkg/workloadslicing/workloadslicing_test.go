@@ -548,6 +548,36 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				compatible: true,
 			},
 		},
+		"OneWorkloadSlice_ReservedQuota_ScaleUp_MultiplePodSets": {
+			args: args{
+				ctx: t.Context(),
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						PodSets(
+							*utiltesting.MakePodSet("scale-up", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(),
+						).
+						ReserveQuota(utiltesting.MakeAdmission("default", "scaled-up", "scale-down", "stay-the-same").
+							AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
+							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+							Obj()).
+						Obj()).Build(),
+				jobPodSets: []kueue.PodSet{
+					*utiltesting.MakePodSet("scale-up", 4).Request(corev1.ResourceCPU, "1").Obj(),      // <-- scaled-up.
+					*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(), // <-- stayed the same.
+					*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),    // <-- scaled-down.
+				},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+			},
+		},
 		"OneWorkloadSlice_ReservedQuota_ScaleDown": {
 			args: args{
 				ctx: t.Context(),
@@ -569,6 +599,43 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					ResourceVersion("2").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(3).Obj()).
+					Obj(),
+			},
+		},
+		"OneWorkloadSlice_ReservedQuota_ScaleDown_MultiplePodSets": {
+			args: args{
+				ctx: t.Context(),
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						PodSets(
+							*utiltesting.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuota(utiltesting.MakeAdmission("default", "scale-down", "stay-the-same").
+							AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
+							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+							Obj()).
+						Obj()).Build(),
+				jobPodSets: []kueue.PodSet{
+					*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),    // <-- scaled-down.
+					*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(), // <-- stayed the same.
+				},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("2").
+					PodSets(
+						*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("default", "scale-down", "stay-the-same").
+						AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
+						AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+						Obj()).
 					Obj(),
 			},
 		},
@@ -1151,6 +1218,91 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {
 				t.Errorf("ReplacedWorkloadSlice() workload (+want,-got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestScaledDown(t *testing.T) {
+	type args struct {
+		oldCounts workload.PodSetsCounts
+		newCounts workload.PodSetsCounts
+	}
+	tests := map[string]struct {
+		args args
+		want bool
+	}{
+		"EmptyCounts": {},
+		"OnePodSetScaledDown": {
+			args: args{
+				oldCounts: workload.PodSetsCounts{
+					"foo": 3,
+					"bar": 5,
+				},
+				newCounts: workload.PodSetsCounts{
+					"foo": 3,
+					"bar": 4,
+				},
+			},
+			want: true,
+		},
+		"AllPodSetsScaledDown": {
+			args: args{
+				oldCounts: workload.PodSetsCounts{
+					"foo": 3,
+					"bar": 5,
+				},
+				newCounts: workload.PodSetsCounts{
+					"foo": 2,
+					"bar": 4,
+				},
+			},
+			want: true,
+		},
+		"OnePodSetScaledDownAndOnePodSetScaledUp": {
+			args: args{
+				oldCounts: workload.PodSetsCounts{
+					"foo": 3,
+					"bar": 5,
+				},
+				newCounts: workload.PodSetsCounts{
+					"foo": 2,
+					"bar": 6,
+				},
+			},
+		},
+		// Edge cases.
+		"ExtraneousPodSetScaledUp": {
+			args: args{
+				oldCounts: workload.PodSetsCounts{
+					"foo": 3,
+					"bar": 5,
+				},
+				newCounts: workload.PodSetsCounts{
+					"foo": 2,
+					"baz": 6, // <-- extraneous
+				},
+			},
+			want: true,
+		},
+		"ExtraneousPodSetScaledDown": {
+			args: args{
+				oldCounts: workload.PodSetsCounts{
+					"foo": 3,
+					"bar": 5,
+				},
+				newCounts: workload.PodSetsCounts{
+					"foo": 2,
+					"baz": 1, // <-- extraneous
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := ScaledDown(tt.args.oldCounts, tt.args.newCounts); got != tt.want {
+				t.Errorf("ScaledDown() = %v, want %v", got, tt.want)
 			}
 		})
 	}
