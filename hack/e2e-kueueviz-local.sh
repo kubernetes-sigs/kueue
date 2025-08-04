@@ -55,8 +55,13 @@ cd -
 
 cd "${ROOT_DIR}/test/e2e/kueueviz/"
 npm install
-# Run Cypress tests for kueueviz frontend
-npm run cypress:run
-cd -
+
+if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
+  read -rp "Press Enter to cleanup."
+else
+  # Run Cypress tests for kueueviz frontend
+  npm run cypress:run
+  cd -
+fi
 
 # The trap will handle cleanup 
