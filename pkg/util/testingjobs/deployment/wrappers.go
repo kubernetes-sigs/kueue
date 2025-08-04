@@ -36,9 +36,6 @@ type DeploymentWrapper struct {
 
 // MakeDeployment creates a wrapper for a Deployment with a single container.
 func MakeDeployment(name, ns string) *DeploymentWrapper {
-	podLabels := map[string]string{
-		"app": fmt.Sprintf("%s-pod", name),
-	}
 	return &DeploymentWrapper{appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -47,11 +44,15 @@ func MakeDeployment(name, ns string) *DeploymentWrapper {
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
+				MatchLabels: map[string]string{
+					"app": fmt.Sprintf("%s-pod", name),
+				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
+					Labels: map[string]string{
+						"app": fmt.Sprintf("%s-pod", name),
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -71,6 +72,15 @@ func MakeDeployment(name, ns string) *DeploymentWrapper {
 // Obj returns the inner Deployment.
 func (d *DeploymentWrapper) Obj() *appsv1.Deployment {
 	return &d.Deployment
+}
+
+// Annotation sets the annotation on the Deployment.
+func (d *DeploymentWrapper) Annotation(k, v string) *DeploymentWrapper {
+	if d.Annotations == nil {
+		d.Annotations = make(map[string]string)
+	}
+	d.Annotations[k] = v
+	return d
 }
 
 // Label sets the label of the Deployment
@@ -170,6 +180,11 @@ func (d *DeploymentWrapper) PodTemplateSpecManagedByKueue() *DeploymentWrapper {
 
 func (d *DeploymentWrapper) TerminationGracePeriod(seconds int64) *DeploymentWrapper {
 	d.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	return d
+}
+
+func (d *DeploymentWrapper) PodTemplateSchedulingGates(gates ...corev1.PodSchedulingGate) *DeploymentWrapper {
+	d.Spec.Template.Spec.SchedulingGates = gates
 	return d
 }
 
