@@ -31,8 +31,8 @@ import (
 
 // ResourceFlavorsWebSocketHandler streams all resource flavors
 func ResourceFlavorsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (any, error) {
-		return fetchResourceFlavors(dynamicClient)
+	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return fetchResourceFlavors(ctx, dynamicClient)
 	})
 }
 
@@ -40,15 +40,15 @@ func ResourceFlavorsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 func ResourceFlavorDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		flavorName := c.Param("flavor_name")
-		GenericWebSocketHandler(func() (any, error) {
-			return fetchResourceFlavorDetails(dynamicClient, flavorName)
+		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return fetchResourceFlavorDetails(ctx, dynamicClient, flavorName)
 		})(c)
 	}
 }
 
 // Fetch all resource flavors
-func fetchResourceFlavors(dynamicClient dynamic.Interface) (any, error) {
-	result, err := dynamicClient.Resource(ResourceFlavorsGVR()).List(context.TODO(), metav1.ListOptions{})
+func fetchResourceFlavors(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
+	result, err := dynamicClient.Resource(ResourceFlavorsGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching resource flavors: %v", err)
 	}
@@ -66,15 +66,15 @@ func fetchResourceFlavors(dynamicClient dynamic.Interface) (any, error) {
 }
 
 // Fetch details for a specific Resource Flavor
-func fetchResourceFlavorDetails(dynamicClient dynamic.Interface, flavorName string) (map[string]any, error) {
+func fetchResourceFlavorDetails(ctx context.Context, dynamicClient dynamic.Interface, flavorName string) (map[string]any, error) {
 	// Fetch the specified resource flavor details
-	flavor, err := dynamicClient.Resource(ResourceFlavorsGVR()).Get(context.TODO(), flavorName, metav1.GetOptions{})
+	flavor, err := dynamicClient.Resource(ResourceFlavorsGVR()).Get(ctx, flavorName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching resource flavor %s: %v", flavorName, err)
 	}
 
 	// List all cluster queues
-	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
+	clusterQueues, err := dynamicClient.Resource(ClusterQueuesGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error listing cluster queues: %v", err)
 	}
@@ -130,7 +130,7 @@ func fetchResourceFlavorDetails(dynamicClient dynamic.Interface, flavorName stri
 	}
 
 	// Retrieve matching nodes for the flavor (assumes getNodesForFlavor is implemented)
-	matchingNodes, _ := getNodesForFlavor(dynamicClient, flavorName)
+	matchingNodes, _ := getNodesForFlavor(ctx, dynamicClient, flavorName)
 	log.Println(matchingNodes)
 
 	details := map[string]any{
@@ -158,14 +158,14 @@ func fetchResourceFlavorDetails(dynamicClient dynamic.Interface, flavorName stri
 }
 
 // getNodesForFlavor retrieves a list of nodes that match a specific resource flavor.
-func getNodesForFlavor(dynamicClient dynamic.Interface, flavorName string) ([]map[string]any, error) {
-	flavor, err := dynamicClient.Resource(ResourceFlavorsGVR()).Get(context.TODO(), flavorName, metav1.GetOptions{})
+func getNodesForFlavor(ctx context.Context, dynamicClient dynamic.Interface, flavorName string) ([]map[string]any, error) {
+	flavor, err := dynamicClient.Resource(ResourceFlavorsGVR()).Get(ctx, flavorName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching resource flavor %s: %v", flavorName, err)
 	}
 
 	// List all nodes
-	nodeList, err := dynamicClient.Resource(NodesGVR()).List(context.TODO(), metav1.ListOptions{})
+	nodeList, err := dynamicClient.Resource(NodesGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching nodes: %v", err)
 	}

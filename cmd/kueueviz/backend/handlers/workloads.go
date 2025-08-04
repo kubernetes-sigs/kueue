@@ -29,8 +29,8 @@ func WorkloadsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc 
 	return func(c *gin.Context) {
 		// Extract namespace query parameter if provided
 		namespace := c.Query("namespace")
-		GenericWebSocketHandler(func() (any, error) {
-			workloads, err := fetchWorkloads(dynamicClient, namespace)
+		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			workloads, err := fetchWorkloads(ctx, dynamicClient, namespace)
 			result := map[string]any{
 				"workloads": workloads,
 			}
@@ -43,15 +43,15 @@ func WorkloadDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handle
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
-		GenericWebSocketHandler(func() (any, error) {
-			return fetchWorkloadDetails(dynamicClient, namespace, workloadName)
+		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return fetchWorkloadDetails(ctx, dynamicClient, namespace, workloadName)
 		})(c)
 	}
 }
 
-func fetchWorkloads(dynamicClient dynamic.Interface, namespace string) (any, error) {
+func fetchWorkloads(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (any, error) {
 	// Using a single code path with Namespace() method handling empty namespace
-	result, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+	result, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(ctx, metav1.ListOptions{})
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching workloads: %v", err)
@@ -60,9 +60,9 @@ func fetchWorkloads(dynamicClient dynamic.Interface, namespace string) (any, err
 	return result, nil
 }
 
-func fetchWorkloadDetails(dynamicClient dynamic.Interface, namespace, workloadName string) (any, error) {
+func fetchWorkloadDetails(ctx context.Context, dynamicClient dynamic.Interface, namespace, workloadName string) (any, error) {
 	// Fetch the workload details
-	workload, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).Get(context.TODO(), workloadName, metav1.GetOptions{})
+	workload, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).Get(ctx, workloadName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching workload %s: %v", workloadName, err)
 	}
@@ -89,7 +89,7 @@ func fetchWorkloadDetails(dynamicClient dynamic.Interface, namespace, workloadNa
 
 	// If local queue name is found, fetch the local queue and its cluster queue
 	if localQueueName != "" {
-		localQueue, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(context.TODO(), localQueueName, metav1.GetOptions{})
+		localQueue, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(ctx, localQueueName, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("error fetching local queue %s: %v", localQueueName, err)
 		}
@@ -112,14 +112,14 @@ func WorkloadEventsWebSocketHandler(dynamicClient dynamic.Interface) gin.Handler
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
 
-		GenericWebSocketHandler(func() (any, error) {
-			return fetchWorkloadEvents(dynamicClient, namespace, workloadName)
+		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return fetchWorkloadEvents(ctx, dynamicClient, namespace, workloadName)
 		})(c)
 	}
 }
 
-func fetchWorkloadEvents(dynamicClient dynamic.Interface, namespace, workloadName string) (any, error) {
-	result, err := dynamicClient.Resource(EventsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{
+func fetchWorkloadEvents(ctx context.Context, dynamicClient dynamic.Interface, namespace, workloadName string) (any, error) {
+	result, err := dynamicClient.Resource(EventsGVR()).Namespace(namespace).List(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", workloadName),
 	})
 	if err != nil {

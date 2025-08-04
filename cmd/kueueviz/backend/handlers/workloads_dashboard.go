@@ -34,19 +34,19 @@ func WorkloadsDashboardWebSocketHandler(dynamicClient dynamic.Interface) gin.Han
 		namespace := c.Query("namespace")
 
 		// Create a closure that captures the namespace parameter
-		dataFetcher := func() (any, error) {
-			return fetchDashboardData(dynamicClient, namespace)
+		dataFetcher := func(ctx context.Context) (any, error) {
+			return fetchDashboardData(ctx, dynamicClient, namespace)
 		}
 
 		GenericWebSocketHandler(dataFetcher)(c)
 	}
 }
 
-func fetchDashboardData(dynamicClient dynamic.Interface, namespace string) (map[string]any, error) {
-	resourceFlavors, _ := fetchResourceFlavors(dynamicClient)
-	clusterQueues, _ := fetchClusterQueues(dynamicClient)
-	localQueues, _ := fetchLocalQueues(dynamicClient)
-	workloads := fetchWorkloadsDashboardData(dynamicClient, namespace)
+func fetchDashboardData(ctx context.Context, dynamicClient dynamic.Interface, namespace string) (map[string]any, error) {
+	resourceFlavors, _ := fetchResourceFlavors(ctx, dynamicClient)
+	clusterQueues, _ := fetchClusterQueues(ctx, dynamicClient)
+	localQueues, _ := fetchLocalQueues(ctx, dynamicClient)
+	workloads := fetchWorkloadsDashboardData(ctx, dynamicClient, namespace)
 	result := map[string]any{
 		"flavors":       removeManagedFields(resourceFlavors),
 		"clusterQueues": removeManagedFields(clusterQueues),
@@ -56,9 +56,9 @@ func fetchDashboardData(dynamicClient dynamic.Interface, namespace string) (map[
 	return result, nil
 }
 
-func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface, namespace string) any {
+func fetchWorkloadsDashboardData(ctx context.Context, dynamicClient dynamic.Interface, namespace string) any {
 	// Filter workloads by namespace if provided, otherwise fetch all
-	workloadList, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+	workloadList, err := dynamicClient.Resource(WorkloadsGVR()).Namespace(namespace).List(ctx, metav1.ListOptions{})
 
 	if err != nil {
 		fmt.Printf("error fetching workloads: %v", err)
@@ -77,7 +77,7 @@ func fetchWorkloadsDashboardData(dynamicClient dynamic.Interface, namespace stri
 		workloadUID := metadata["uid"].(string)
 		jobUID := labels["kueue.x-k8s.io/job-uid"]
 
-		podList, err := dynamicClient.Resource(PodsGVR()).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+		podList, err := dynamicClient.Resource(PodsGVR()).Namespace(namespace).List(ctx, metav1.ListOptions{})
 		podList = removeManagedFieldsFromUnstructuredList(podList)
 		if err != nil {
 			fmt.Printf("error fetching pods in namespace %s: %v", namespace, err)
