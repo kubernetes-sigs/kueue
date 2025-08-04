@@ -20,6 +20,7 @@ package jobs
 import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/replicaset"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
