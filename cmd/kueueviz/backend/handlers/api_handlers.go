@@ -64,10 +64,7 @@ func GetResource(dynamicClient dynamic.Interface) gin.HandlerFunc {
 		}
 
 		resource, fetchErr := func() (any, error) {
-			if namespace != "" {
-				return dynamicClient.Resource(gvr).Namespace(namespace).Get(c.Request.Context(), name, metav1.GetOptions{})
-			}
-			return dynamicClient.Resource(gvr).Get(c.Request.Context(), name, metav1.GetOptions{})
+			return dynamicClient.Resource(gvr).Namespace(namespace).Get(c.Request.Context(), name, metav1.GetOptions{})
 		}()
 
 		if fetchErr != nil {
