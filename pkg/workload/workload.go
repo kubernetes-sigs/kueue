@@ -36,6 +36,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,6 +44,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -96,9 +98,19 @@ type AssignmentClusterQueueState struct {
 	ClusterQueueGeneration int64
 }
 
+// DRAInfoOptions holds DRA-specific configuration for workload.Info construction.
+// This keeps DRA concerns isolated from the main InfoOptions struct.
+type DRAInfoOptions struct {
+	client       client.Client
+	clusterQueue string
+	lookup       func(dc corev1.ResourceName) (corev1.ResourceName, bool)
+	enabled      bool
+}
+
 type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
+	dra                      *DRAInfoOptions // Optional DRA configuration
 }
 
 type InfoOption func(*InfoOptions)
@@ -116,6 +128,19 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
 	return func(o *InfoOptions) {
 		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
+	}
+}
+
+// WithDRAResources enables DRA resource calculation for workload.Info construction.
+// This follows the same pattern as resource transformations for consistent workload status handling.
+func WithDRAResources(client client.Client, clusterQueue string, lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool)) InfoOption {
+	return func(o *InfoOptions) {
+		o.dra = &DRAInfoOptions{
+			client:       client,
+			clusterQueue: clusterQueue,
+			lookup:       lookup,
+			enabled:      true,
+		}
 	}
 }
 
@@ -234,6 +259,36 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 }
 
 func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
+	// Check if DRA is enabled by detecting DRA options
+	draEnabled := false
+	for _, opt := range opts {
+		testOpts := InfoOptions{}
+		opt(&testOpts)
+		if testOpts.dra != nil {
+			draEnabled = true
+			break
+		}
+	}
+
+	if draEnabled {
+		// DRA is explicitly enabled, use NewInfoWithDRA and fail on error
+		info, err := NewInfoWithDRA(w, opts...)
+		if err != nil {
+			// Log error and return nil - don't fallback when DRA is explicitly enabled
+			ctrl.LoggerFrom(context.Background()).Error(err, "Failed to calculate DRA resources", "workload", w.Name)
+			return nil
+		}
+		return info
+	} else {
+		// DRA not enabled, NewInfoWithDRA will skip DRA processing (no DRA errors expected)
+		info, _ := NewInfoWithDRA(w, opts...)
+		return info
+	}
+}
+
+// NewInfoWithDRA creates a workload.Info with DRA support and error handling.
+// This function should be used when DRA resource calculation is needed and errors must be handled.
+func NewInfoWithDRA(w *kueue.Workload, opts ...InfoOption) (*Info, error) {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -245,9 +300,13 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.ClusterQueue = w.Status.Admission.ClusterQueue
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w, &options)
+		totalRequests, err := totalRequestsFromPodSets(w, &options)
+		if err != nil {
+			return nil, err
+		}
+		info.TotalRequests = totalRequests
 	}
-	return info
+	return info, nil
 }
 
 func (i *Info) Update(wl *kueue.Workload) {
@@ -457,9 +516,28 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 	})
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
+// mergeDRARequests merges DRA logical resources into the per-PodSet resource requests.
+// This follows the same pattern as resource transformations to ensure consistent workload status.
+func mergeDRARequests(podSetResources []PodSetResources, draRequests map[kueue.PodSetReference]corev1.ResourceList) []PodSetResources {
+	for i := range podSetResources {
+		ps := &podSetResources[i]
+		if draRes, exists := draRequests[ps.Name]; exists {
+			// Merge DRA logical resources (e.g., "whole-gpus": 1) into ps.Requests
+			for resName, quantity := range draRes {
+				if ps.Requests == nil {
+					ps.Requests = make(resources.Requests)
+				}
+				// Convert resource.Quantity to int64 (milli-units)
+				ps.Requests[resName] += quantity.MilliValue()
+			}
+		}
+	}
+	return podSetResources
+}
+
+func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetResources, error) {
 	if len(wl.Spec.PodSets) == 0 {
-		return nil
+		return nil, nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
@@ -478,7 +556,60 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
-	return res
+
+	// Apply DRA resources (follows same pattern as resource transformations)
+	if features.Enabled(features.DynamicResourceAllocation) && info.dra != nil && info.dra.enabled {
+		// Calculate DRA resources for ResourceClaimTemplates
+		psRCTReq, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), info.dra.client, wl, info.dra.lookup)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get resource requests for resource claim templates: %w", err)
+		}
+
+		// Calculate DRA resources for ResourceClaims
+		psRCReq, err := dra.GetResourceRequestsForResourceClaims(context.Background(), info.dra.client, wl, info.dra.clusterQueue, info.dra.lookup)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get resource requests for resource claims: %w", err)
+		}
+
+		// Merge both types of DRA resources
+		combinedDRARequests := make(map[kueue.PodSetReference]corev1.ResourceList)
+		for psName, reqs := range psRCTReq {
+			combinedDRARequests[psName] = reqs.DeepCopy()
+		}
+		for psName, reqs := range psRCReq {
+			if existing, ok := combinedDRARequests[psName]; ok {
+				// Merge ResourceClaim requests with ResourceClaimTemplate requests
+				for resName, qty := range reqs {
+					if existingQty, hasRes := existing[resName]; hasRes {
+						existingQty.Add(qty)
+						existing[resName] = existingQty
+					} else {
+						existing[resName] = qty.DeepCopy()
+					}
+				}
+			} else {
+				combinedDRARequests[psName] = reqs.DeepCopy()
+			}
+		}
+
+		// Apply DRA resources to podset requests (matching the count multiplication pattern)
+		for i := range res {
+			ps := &res[i]
+			if draRes, exists := combinedDRARequests[ps.Name]; exists {
+				for resName, quantity := range draRes {
+					if ps.Requests == nil {
+						ps.Requests = make(resources.Requests)
+					}
+					// Apply the same count multiplication as regular resources
+					// Use proper resource value conversion (milli-units for CPU, absolute for others)
+					scaledQuantity := resources.ResourceValue(resName, quantity) * int64(ps.Count)
+					ps.Requests[resName] += scaledQuantity
+				}
+			}
+		}
+	}
+
+	return res, nil
 }
 
 func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {

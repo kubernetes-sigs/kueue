@@ -88,6 +88,15 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// WithDRAResources enables DRA resource calculation in workload.Info construction.
+// This integrates DRA logical resources into the standard workload resource accounting.
+func WithDRAResources(client client.Client, lookup func(corev1.ResourceName) (corev1.ResourceName, bool)) Option {
+	return func(m *Manager) {
+		m.workloadInfoOptions = append(m.workloadInfoOptions,
+			workload.WithDRAResources(client, "", lookup))
+	}
+}
+
 type TopologyUpdateWatcher interface {
 	NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology)
 }

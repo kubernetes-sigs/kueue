@@ -85,6 +85,15 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// WithDRAResources enables DRA resource calculation in workload.Info construction.
+// This integrates DRA logical resources into the standard workload resource accounting.
+func WithDRAResources(client client.Client) Option {
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions,
+			workload.WithDRAResources(client, "", c.GetResourceNameForDeviceClass))
+	}
+}
+
 func WithFairSharing(enabled bool) Option {
 	return func(c *Cache) {
 		c.fairSharingEnabled = enabled
