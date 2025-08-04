@@ -782,26 +782,6 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// If workload slicing is enabled for this job, use the slice-based processing path.
-	if workloadSliceEnabled(job) {
-		podSets, err := job.PodSets()
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
-		}
-
-		// Workload slices allow modifications only to PodSet.Count.
-		// Any other changes will result in the slice being marked as incompatible,
-		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, object, job.GVK())
-		if err != nil {
-			return nil, err
-		}
-		if compatible {
-			return wl, nil
-		}
-		// Fallback.
-	}
-
 	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
 		wl := &kueue.Workload{}
 		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
@@ -831,6 +811,26 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		return wl, nil
+	}
+
+	// If workload slicing is enabled for this job, use the slice-based processing path.
+	if workloadSliceEnabled(job) {
+		podSets, err := job.PodSets()
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
+		}
+
+		// Workload slices allow modifications only to PodSet.Count.
+		// Any other changes will result in the slice being marked as incompatible,
+		// and the workload will fall back to being processed by the original ensureOneWorkload function.
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, object, job.GVK())
+		if err != nil {
+			return nil, err
+		}
+		if compatible {
+			return wl, nil
+		}
+		// Fallback.
 	}
 
 	// Find a matching workload first if there is one.
@@ -1203,11 +1203,17 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 		return nil, err
 	}
+
 	return wl, nil
 }
 
 // prepareWorkloadSlice adds necessary workload slice annotations.
 func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+	// Mark the workload with the elastic-job enabled annotation.
+	// This allows distinguishing whether elastic-job support is enabled
+	// for a given workload at the workload level.
+	metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+
 	// Lookup existing slice for a given job.
 	workloadSlices, err := workloadslicing.FindNotFinishedWorkloads(ctx, clnt, job.Object(), job.GVK())
 	if err != nil {
@@ -1224,6 +1230,9 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 		oldSlice := workloadSlices[0]
 		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
+
+		// Keep the same cluster assignment between slices.
+		wl.Status.ClusterName = oldSlice.Status.ClusterName
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
@@ -1482,7 +1491,7 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
 func workloadSliceEnabled(job GenericJob) bool {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || job == nil {
+	if job == nil {
 		return false
 	}
 	jobObject := job.Object()
