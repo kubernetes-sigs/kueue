@@ -46,7 +46,7 @@ const CohortDetail = () => {
   }
 
   const clusterQueues = cohortDetails.clusterQueues || [];
-  const hasClusterQueues = Array.isArray(clusterQueues) && clusterQueues.length > 0;
+  const hasClusterQueues = clusterQueues.length > 0;
 
   return (
     <Paper className="parentContainer">
