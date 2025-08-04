@@ -155,6 +155,14 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
+// ScaledDown returns true if the new pod sets represent a scale-down operation.
+// This is determined by checking whether at least one new pod set has fewer replicas
+// than its corresponding old pod set, and none of the old pod sets have fewer replicas
+// than their corresponding new pod sets.
+func ScaledDown(oldCounts, newCounts workload.PodSetsCounts) bool {
+	return newCounts.HasFewerReplicasThan(oldCounts) && !oldCounts.HasFewerReplicasThan(newCounts)
+}
+
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
 //
 // Returns:
@@ -192,10 +200,10 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// Allow updating the existing slice if:
 		// a. It hasn't been admitted (no quota reserved), or
 		// b. It's a scale-down event.
-		if !workload.HasQuotaReservation(wl) || jobPodSetsCounts.HasFewerReplicasThan(wlPodSetsCounts) {
+		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
 			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
 			if err := clnt.Update(ctx, wl); err != nil {
-				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
+				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
 			return wl, true, nil
 		}
