@@ -27,15 +27,15 @@ import (
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
 func NamespacesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (any, error) {
-		return fetchNamespaces(dynamicClient)
+	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return fetchNamespaces(ctx, dynamicClient)
 	})
 }
 
 // Fetch namespaces that have LocalQueues (Kueue-related namespaces)
-func fetchNamespaces(dynamicClient dynamic.Interface) (any, error) {
+func fetchNamespaces(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
 	// First, get all LocalQueues to find namespaces that have them
-	localQueues, err := dynamicClient.Resource(LocalQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
+	localQueues, err := dynamicClient.Resource(LocalQueuesGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

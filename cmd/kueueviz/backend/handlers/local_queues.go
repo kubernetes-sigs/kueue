@@ -27,8 +27,8 @@ import (
 
 // LocalQueuesWebSocketHandler streams all local queues
 func LocalQueuesWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (any, error) {
-		return fetchLocalQueues(dynamicClient)
+	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return fetchLocalQueues(ctx, dynamicClient)
 	})
 }
 
@@ -37,15 +37,15 @@ func LocalQueueDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.Hand
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		queueName := c.Param("queue_name")
-		GenericWebSocketHandler(func() (any, error) {
-			return fetchLocalQueueDetails(dynamicClient, namespace, queueName)
+		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return fetchLocalQueueDetails(ctx, dynamicClient, namespace, queueName)
 		})(c)
 	}
 }
 
 // Fetch all local queues
-func fetchLocalQueues(dynamicClient dynamic.Interface) (any, error) {
-	result, err := dynamicClient.Resource(LocalQueuesGVR()).List(context.TODO(), metav1.ListOptions{})
+func fetchLocalQueues(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
+	result, err := dynamicClient.Resource(LocalQueuesGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
@@ -66,8 +66,8 @@ func fetchLocalQueues(dynamicClient dynamic.Interface) (any, error) {
 }
 
 // Fetch details for a specific local queue
-func fetchLocalQueueDetails(dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
-	result, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(context.TODO(), queueName, metav1.GetOptions{})
+func fetchLocalQueueDetails(ctx context.Context, dynamicClient dynamic.Interface, namespace, queueName string) (any, error) {
+	result, err := dynamicClient.Resource(LocalQueuesGVR()).Namespace(namespace).Get(ctx, queueName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching details for local queue %s: %v", queueName, err)
 	}

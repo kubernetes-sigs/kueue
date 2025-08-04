@@ -17,6 +17,7 @@ limitations under the License.
 package handlers
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -25,8 +26,8 @@ import (
 
 // CohortsWebSocketHandler streams all cohorts
 func CohortsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerFunc {
-	return GenericWebSocketHandler(func() (any, error) {
-		return fetchCohorts(dynamicClient)
+	return GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+		return fetchCohorts(ctx, dynamicClient)
 	})
 }
 
@@ -35,15 +36,15 @@ func CohortDetailsWebSocketHandler(dynamicClient dynamic.Interface) gin.HandlerF
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
 
-		GenericWebSocketHandler(func() (any, error) {
-			return fetchCohortDetails(dynamicClient, cohortName)
+		GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return fetchCohortDetails(ctx, dynamicClient, cohortName)
 		})(c)
 	}
 }
 
 // Fetch all cohorts
-func fetchCohorts(dynamicClient dynamic.Interface) (any, error) {
-	clusterQueues, err := fetchClusterQueuesList(dynamicClient)
+func fetchCohorts(ctx context.Context, dynamicClient dynamic.Interface) (any, error) {
+	clusterQueues, err := fetchClusterQueuesList(ctx, dynamicClient)
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cohorts: %v", err)
@@ -97,9 +98,9 @@ func fetchCohorts(dynamicClient dynamic.Interface) (any, error) {
 }
 
 // Fetch details for a specific cohort
-func fetchCohortDetails(dynamicClient dynamic.Interface, cohortName string) (map[string]any, error) {
+func fetchCohortDetails(ctx context.Context, dynamicClient dynamic.Interface, cohortName string) (map[string]any, error) {
 	// Retrieve all cluster queues
-	clusterQueues, err := fetchClusterQueuesList(dynamicClient)
+	clusterQueues, err := fetchClusterQueuesList(ctx, dynamicClient)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cohort details: %v", err)
 	}
