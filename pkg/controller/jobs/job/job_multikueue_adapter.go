@@ -38,11 +38,32 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
+
+// updateLabel helper sets the provided label key/value on the provided job.
+// Returns true, if the job's label was changed.
+func updateLabel(job *batchv1.Job, labelKey, labelValue string) bool {
+	labels := job.Labels
+	if labels == nil {
+		job.Labels = map[string]string{labelKey: labelValue}
+		return true
+	}
+	value, found := labels[labelKey]
+	labels[labelKey] = labelValue
+	return !found || value != labelValue
+}
+
+// updateParallelism helper sets the provided parallelism on the provided Job (spec).
+// Returns true, if the job's parallelism value was changed.
+func updateParallelism(job *batchv1.Job, parallelism *int32) bool {
+	job.Spec.Parallelism, parallelism = parallelism, job.Spec.Parallelism
+	return ptr.Deref(job.Spec.Parallelism, 0) != ptr.Deref(parallelism, 0)
+}
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -85,6 +106,17 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				return true, nil
 			})
 		}
+
+		if workloadslicing.Enabled(&localJob) {
+			// Update remote job's workload slice name and parallelism if needed.
+			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, true, func() (bool, error) {
+				updatedLabels := updateLabel(&remoteJob, constants.PrebuiltWorkloadLabel, workloadName)
+				return updateParallelism(&remoteJob, localJob.Spec.Parallelism) || updatedLabels, nil
+			}); err != nil {
+				return fmt.Errorf("failed to update remote job: %w", err)
+			}
+		}
+
 		return nil
 	}
 
