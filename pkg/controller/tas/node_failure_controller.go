@@ -44,7 +44,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -192,7 +191,7 @@ func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logg
 		log = log.WithValues("failedNode", failedNode)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
-		if evictionErr := r.startEviction(ctx, wl, evictionMsg); evictionErr != nil {
+		if evictionErr := workload.EvictWorkload(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", evictionMsg, r.clock); evictionErr != nil {
 			log.V(2).Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {
@@ -272,20 +271,6 @@ func getAnnotations(wl *kueue.Workload) map[string]string {
 		annotations = make(map[string]string)
 	}
 	return annotations
-}
-
-func (r *nodeFailureReconciler) startEviction(ctx context.Context, wl *kueue.Workload, evictionMessage string) error {
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
-	workload.ResetChecksOnEviction(wl, r.clock.Now())
-	reportWorkloadEvictedOnce := workload.WorkloadEvictionStateInc(wl, kueue.WorkloadEvictedDueToNodeFailures, "")
-	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
-		return err
-	}
-	workload.ReportEvictedWorkload(r.recorder, wl, wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, evictionMessage)
-	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, kueue.WorkloadEvictedDueToNodeFailures, "")
-	}
-	return nil
 }
 
 // removeNodeToReplaceAnnotation finds workloads with the specified node in the NodeToReplaceAnnotation

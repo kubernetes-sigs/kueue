@@ -93,9 +93,8 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.Admi
 }
 
 // ResetChecksOnEviction sets all AdmissionChecks to Pending
-func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
+func ResetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	checks := w.Status.AdmissionChecks
-	updated := false
 	for i := range checks {
 		if checks[i].State == kueue.CheckStatePending {
 			continue
@@ -106,9 +105,7 @@ func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
 			LastTransitionTime: metav1.NewTime(now),
 			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
 		}
-		updated = true
 	}
-	return updated
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
