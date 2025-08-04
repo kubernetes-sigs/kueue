@@ -762,10 +762,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			_ = createWorkloadWithPriority("lq-b", "12", 1)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
-
 			ginkgo.By("Checking that LQs' resource usage is updated")
 			util.ExpectLocalQueueUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 12_000)
-
 
 			ginkgo.By("Creating a workload in CQ2 that reclaims the quota")
 			_ = createWorkload(kueue.LocalQueueName(cq2.Name), "10")
