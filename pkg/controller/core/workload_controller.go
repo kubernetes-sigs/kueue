@@ -19,7 +19,6 @@ package core
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -54,7 +53,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -161,7 +159,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		// manual deletion triggered by the user
-		// Continue with normal finalizer removal
 		err := workload.RemoveFinalizer(ctx, r.client, &wl)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -369,18 +366,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()) {
 			err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	}
-
-	wlCopy := wl.DeepCopy()
-
-	if skip, err := r.handleDRAResources(ctx, &wl, wlCopy, string(cqName)); skip || err != nil {
-		return ctrl.Result{}, err
-	}
-	if features.Enabled(features.DynamicResourceAllocation) {
-		// Enqueue the mutated copy so the scheduler sees the injected resources.
-		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
-			log.V(4).Info("Unable to enqueue workload copy with injected resources", "workload", klog.KObj(wlCopy), "error", err)
 		}
 	}
 
@@ -635,14 +620,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := e.Object.DeepCopy()
-
-	// If DynamicResourceAllocation is enabled, translate deviceClasses into logical
-	// resource requests before the workload is enqueued so that the scheduler
-	// always sees an object with the correct resource footprint.
-	cqName, _ := r.queues.ClusterQueueForWorkload(e.Object)
-	if skip, err := r.handleDRAResources(ctx, e.Object, wlCopy, string(cqName)); skip || err != nil {
-		return true
-	}
+	workload.AdjustResources(ctx, r.client, wlCopy)
 
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
@@ -716,10 +694,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
-	cqName, _ := r.queues.ClusterQueueForWorkload(e.ObjectNew)
-	if skip, err := r.handleDRAResources(ctx, e.ObjectNew, wlCopy, string(cqName)); skip || err != nil {
-		return true
-	}
+	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
+	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -884,35 +860,6 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (strin
 	return "", 0
 }
 
-// handleDRAResources processes DRA resources for the workload and handles specific error conditions
-// with appropriate status updates. Returns true if the workload should be skipped from further processing.
-func (r *WorkloadReconciler) handleDRAResources(ctx context.Context, wl *kueue.Workload, wlCopy *kueue.Workload, cqName string) (bool, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	if !features.Enabled(features.DynamicResourceAllocation) {
-		return false, nil
-	}
-
-	workload.AdjustResources(ctx, r.client, wlCopy)
-	if err := workload.AddDeviceClassesToContainerRequests(ctx, r.client, wlCopy, cqName, r.cache.GetResourceNameForDeviceClass); err != nil {
-		switch {
-		case errors.Is(err, dra.ErrDeviceClassNotMapped):
-			log.V(2).Info("Skipping workload due to unmapped DeviceClass", "error", err)
-			updateErr := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadInadmissible, metav1.ConditionTrue, "UnmappedDeviceClass", err.Error(), "workload-reconciler", r.clock)
-			return true, updateErr
-		case errors.Is(err, dra.ErrResourceClaimInUse):
-			log.V(2).Info("Skipping workload due to ResourceClaim conflict", "error", err)
-			updateErr := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadInadmissible, metav1.ConditionTrue, "ResourceClaimInUse", err.Error(), "workload-reconciler", r.clock)
-			return true, updateErr
-		default:
-			// For other errors, log and return the error to retry
-			log.V(2).Info("Error processing DRA resources", "error", err)
-			return false, err
-		}
-	}
-	return false, nil
-}
-
 type resourceUpdatesHandler struct {
 	r *WorkloadReconciler
 }
@@ -969,14 +916,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
-		if _, ok := h.r.queues.ClusterQueueForWorkload(wlCopy); !ok {
-			log.V(4).Info("ClusterQueue not yet available; deferring workload processing")
-			continue
-		}
-		cqName, _ := h.r.queues.ClusterQueueForWorkload(wlCopy)
-		if skip, err := h.r.handleDRAResources(ctrl.LoggerInto(ctx, log), wlCopy, wlCopy, string(cqName)); skip || err != nil {
-			continue
-		}
+		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
