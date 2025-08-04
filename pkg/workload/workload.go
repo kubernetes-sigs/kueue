@@ -39,6 +39,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -1079,23 +1080,31 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
 	PrepareForEviction(wl, clock.Now(), reason, msg)
+	reportWorkloadEvictedOnce := WorkloadEvictionStateInc(wl, reason, underlyingCause)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
 	}
-	reportWorkloadEvictedOnce := WorkloadEvictionStateInc(wl, reason, "")
+	if wl.Status.Admission == nil {
+		// This is an extra safeguard for access to `wl.Status.Admission`.
+		// This function is expected to be called only for workload which have
+		// Admission.
+		log := log.FromContext(ctx)
+		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
+		return nil
+	}
 	ReportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, "")
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause)
 	}
 	return nil
 }
 
-func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) bool {
+func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, reason, message)
 	ResetClusterNomination(w)
-	return ResetChecksOnEviction(w, now)
+	ResetChecksOnEviction(w, now)
 }
 
 func ResetClusterNomination(w *kueue.Workload) {
