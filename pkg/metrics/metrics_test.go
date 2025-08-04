@@ -18,7 +18,6 @@ package metrics
 
 import (
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -147,9 +146,8 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
-	duration := time.Second
-	ReportEvictedWorkloads("cluster_queue1", "Preempted", &duration)
-	ReportEvictedWorkloads("cluster_queue1", "Evicted", &duration)
+	ReportEvictedWorkloads("cluster_queue1", "Preempted")
+	ReportEvictedWorkloads("cluster_queue1", "Evicted")
 
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
@@ -160,15 +158,12 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
-	duration := time.Second
-
-	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1", &duration)
+	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1")
 
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 4, "preempting_cluster_queue", "cluster_queue1")
-	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InClusterQueue")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortFairSharing")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclamation")
@@ -176,7 +171,6 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
-	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
 func TestGitVersionMetric(t *testing.T) {

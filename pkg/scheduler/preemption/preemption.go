@@ -174,7 +174,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 
 			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", string(target.WorkloadInfo.ClusterQueue)))
 			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
-			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, target.WorkloadInfo.Obj)
+			workload.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
 		}
@@ -190,6 +190,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 	workload.SetPreemptedCondition(w, reason, message)
 	err := workload.ApplyAdmissionStatus(ctx, p.client, w, true, p.clock)
 	if err == nil {
+		workload.ReportEvictedWorkload(p.recorder, w, w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, message)
 		if reportWorkloadEvictedOnce {
 			metrics.ReportEvictedWorkloadsOnce(w.Status.Admission.ClusterQueue, kueue.WorkloadEvictedByPreemption, "")
 		}
