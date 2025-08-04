@@ -3164,13 +3164,13 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
 					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
 					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("300m")))
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("reducing the job's parallelism to emulate scale-down operation")
 				gomega.Eventually(func(g gomega.Gomega) {
 					testJob.Spec.Parallelism = ptr.To(int32(1))
 					g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("resource flavor utilization is correctly updated")
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -3190,14 +3190,14 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
 					g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testJobWorkload.UID))
 					testJobWorkload = &workloads.Items[0]
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("increasing the job's parallelism to emulate scale-up operation")
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
 					testJob.Spec.Parallelism = ptr.To(int32(2))
 					g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("resource flavor utilization is correctly updated")
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -3280,14 +3280,13 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 					testJobBWorkload = &workloads.Items[0]
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, testJobBWorkload)
-
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("scale-down job-a to make room for job-b")
 				gomega.Eventually(func(g gomega.Gomega) {
 					testJobA.Spec.Parallelism = ptr.To(int32(1))
 					g.Expect(k8sClient.Update(ctx, testJobA)).Should(gomega.Succeed())
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("admitting the job-b workload")
 				gomega.Eventually(func(g gomega.Gomega) {
