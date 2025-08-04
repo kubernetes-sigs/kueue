@@ -635,10 +635,9 @@ func workloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
 	} else {
 		return nil
 	}
-	c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
 
 	var evicted *time.Time
-	if c != nil && c.Status == metav1.ConditionTrue {
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue {
 		evicted = &c.LastTransitionTime.Time
 	} else {
 		return nil
@@ -1105,17 +1104,18 @@ func ResetClusterNomination(w *kueue.Workload) {
 }
 
 func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
-	durationToPreemption := workloadsWithPodsReadyToEvictedTime(wl)
-	metrics.ReportEvictedWorkloads(cqName, reason, durationToPreemption)
+	metrics.ReportEvictedWorkloads(cqName, reason)
+	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
+		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason).Observe(podsReadyToEvictionTime.Seconds())
+	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
 }
 
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, wl *kueue.Workload) {
-	durationToPreemption := workloadsWithPodsReadyToEvictedTime(wl)
-	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, durationToPreemption)
+func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
+	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName)
 }
 
 func References(wls []*Info) []klog.ObjectRef {
