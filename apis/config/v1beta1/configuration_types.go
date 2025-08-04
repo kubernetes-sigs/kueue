@@ -405,7 +405,8 @@ type Integrations struct {
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
-	//  - "deployment" (requires enabling pod integration)
+	//  - "replicaset"
+	//  - "deployment" (should be used either with pod or replicaset integrations)
 	//  - "statefulset" (requires enabling pod integration)
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset" (requires enabling pod integration)
 	Frameworks []string `json:"frameworks,omitempty"`
