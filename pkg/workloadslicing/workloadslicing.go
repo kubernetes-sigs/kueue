@@ -350,3 +350,20 @@ func FindReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Ta
 	}
 	return targets, nil
 }
+
+func ApplyWorkloadSliceSchedulingGate(object metav1.Object, podTemplate *corev1.PodTemplateSpec) {
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+	if slices.Contains(podTemplate.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+		return
+	}
+	podTemplate.Spec.SchedulingGates = append(podTemplate.Spec.SchedulingGates, workloadSliceSchedulingGate)
+}
+
+func HasWorkloadSliceSchedulingGate(gates []corev1.PodSchedulingGate) bool {
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+	return slices.Contains(gates, workloadSliceSchedulingGate)
+}
