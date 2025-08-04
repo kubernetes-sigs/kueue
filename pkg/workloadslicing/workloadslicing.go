@@ -65,19 +65,19 @@ func Enabled(object metav1.Object) bool {
 }
 
 const (
-	// WorkloadSliceReplacementFor is the annotation key used to capture an "old" workload slice key
-	// that will be preempted by the "new", e.g., this workload slice with annotation.
+	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
+	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
 	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
+
+	// WorkloadSliceClusterName is the annotation key set on a new workload slice to record
+	// the name of the remote cluster where the original workload was scheduled in a multikueue context.
+	// This annotation can be used to enforce workload propagation or affinity policies.
+	WorkloadSliceClusterName = "kueue.x-k8s.io/workload-slice-cluster-name"
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
-// key if this workload was annotated with such, otherwise, returns an empty string.
 func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
-	annotations := wl.GetAnnotations()
-	if len(annotations) == 0 {
-		return nil
-	}
-	key, found := annotations[WorkloadSliceReplacementFor]
+	key, found := wl.GetAnnotations()[WorkloadSliceReplacementFor]
 	if !found {
 		return nil
 	}
@@ -85,6 +85,14 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
+// ClusterName returns the name of the remote cluster where the original workload
+// was scheduled in a multikueue context. If the corresponding annotation is not set,
+// it returns an empty string.
+func ClusterName(wl *kueue.Workload) string {
+	return wl.GetAnnotations()[WorkloadSliceClusterName]
+}
+
+// Finish updates the status of a workload slice by applying the "Finished" condition
 // Finish updates the status of a workload slice by applying the "Finished" condition.
 // The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
 // If the "Finished" condition is not present, it applies the condition with the provided `reason` and `message`.
@@ -306,6 +314,14 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preempti
 	}
 
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// IsReplaced returns true if the workload status contains active WorkloadFinish condition
+// with WorkloadSliceReplaced reason.
+func IsReplaced(status kueue.WorkloadStatus) bool {
+	finishedCondition := apimeta.FindStatusCondition(status.Conditions, kueue.WorkloadFinished)
+	return finishedCondition != nil && finishedCondition.Status == metav1.ConditionTrue &&
+		finishedCondition.Reason == kueue.WorkloadSliceReplaced
 }
 
 // FindReplacedSliceTarget identifies and removes a preempted workload slice target from the given list of targets.
