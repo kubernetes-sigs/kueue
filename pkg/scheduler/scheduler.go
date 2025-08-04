@@ -309,6 +309,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			continue
 		}
+
 		if !s.cache.PodsReadyForAllAdmittedWorkloads(log) {
 			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
@@ -324,11 +325,23 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 
-		// Evict old workload-slice if any. Note: that oldWorkloadSlice is not nil only if
-		// this is a workload-slice enabled workload and there is an old slice to evict.
+		// Evict the old workload slice if present.
+		// oldWorkloadSlice is non-nil only when workload slicing is enabled
+		// and there is an existing slice to evict.
+		//
+		// Copy the clusterName value from the old workload into the new workload
+		// to ensure consistent placement in a MultiKueue context.
+		// This status update will be persisted during the workload admission step below.
+		//
+		// If the admission step fails, we may end up in a state where:
+		// - the old workload is marked Finished, and
+		// - the new workload is not admitted.
+		// In a single-cluster context, this should lead to Job suspension.
+		// In a MultiKueue context, this should also trigger removal of remote workload/Job objects.
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+			e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 			if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
-				log.Error(err, "Failed to aggregate workload slice")
+				log.Error(err, "Failed to replace workload slice")
 				continue
 			}
 		}
