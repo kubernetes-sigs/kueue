@@ -438,6 +438,10 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 				continue
 			}
 
+			if meta.IsStatusConditionTrue(candidateWl.Obj.Status.Conditions, kueue.WorkloadEvicted) {
+				continue
+			}
+
 			if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
 				continue
 			}
@@ -456,6 +460,11 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 				if onlyLowerPriority && priority.Priority(candidateWl.Obj) >= priority.Priority(wl) {
 					continue
 				}
+
+				if meta.IsStatusConditionTrue(candidateWl.Obj.Status.Conditions, kueue.WorkloadEvicted) {
+					continue
+				}
+
 				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
 					continue
 				}

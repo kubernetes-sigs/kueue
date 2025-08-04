@@ -283,6 +283,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
 
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
+			if e.status == preempting {
+				continue
+			}
+
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
 			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets)
@@ -290,6 +294,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 				log.Error(err, "Failed to preempt workloads")
 			}
 			if preempted != 0 {
+				e.status = preempting
 				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 				e.requeueReason = queue.RequeueReasonPendingPreemption
 			}
@@ -359,6 +364,8 @@ const (
 	evicted entryStatus = "evicted"
 	// indicates if the workload was assumed to have been admitted.
 	assumed entryStatus = "assumed"
+	// indicates that the workload has issued preemptions and is waiting for targets to be evicted.
+	preempting entryStatus = "preempting"
 	// indicates that the workload was never nominated for admission.
 	notNominated entryStatus = ""
 )
