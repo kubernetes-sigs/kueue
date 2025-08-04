@@ -916,7 +916,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
 					Creation(now).
-					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference(testJobObject.Namespace, testJobObject.Name+"-1"))).
+					Annotations(map[string]string{}).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 					Obj(),
@@ -1321,6 +1321,67 @@ func TestScaledDown(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := ScaledDown(tt.args.oldCounts, tt.args.newCounts); got != tt.want {
 				t.Errorf("ScaledDown() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyWorkloadSliceSchedulingGate(t *testing.T) {
+	tests := map[string]struct {
+		args *corev1.PodTemplateSpec
+		want *corev1.PodTemplateSpec
+	}{
+		"AddGateToAnEmptyList": {
+			args: &corev1.PodTemplateSpec{},
+			want: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					SchedulingGates: []corev1.PodSchedulingGate{
+						{Name: kueue.ElasticJobSchedulingGate},
+					},
+				},
+			},
+		},
+		"AddGateToANotEmptyList": {
+			args: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					SchedulingGates: []corev1.PodSchedulingGate{
+						{Name: "some.other/gate"},
+					},
+				},
+			},
+			want: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					SchedulingGates: []corev1.PodSchedulingGate{
+						{Name: "some.other/gate"},
+						{Name: kueue.ElasticJobSchedulingGate},
+					},
+				},
+			},
+		},
+		"AddGateToAListWithAlreadyExistingGate": {
+			args: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					SchedulingGates: []corev1.PodSchedulingGate{
+						{Name: kueue.ElasticJobSchedulingGate},
+						{Name: "some.other/gate"},
+					},
+				},
+			},
+			want: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					SchedulingGates: []corev1.PodSchedulingGate{
+						{Name: kueue.ElasticJobSchedulingGate},
+						{Name: "some.other/gate"},
+					},
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ApplyWorkloadSliceSchedulingGate(tt.args)
+			if diff := cmp.Diff(tt.want, tt.args); diff != "" {
+				t.Errorf("ApplyWorkloadSliceSchedulingGate() (+want,-got):\n%s", diff)
 			}
 		})
 	}

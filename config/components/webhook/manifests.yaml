@@ -259,6 +259,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-apps-v1-replicaset
+  failurePolicy: Fail
+  name: mreplicaset.kb.io
+  rules:
+  - apiGroups:
+    - apps
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - replicasets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kueue-x-k8s-io-v1beta2-resourceflavor
   failurePolicy: Fail
   name: mresourceflavor.kb.io
@@ -653,6 +673,26 @@ webhooks:
     - UPDATE
     resources:
     - rayjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-apps-v1-replicaset
+  failurePolicy: Fail
+  name: vreplicaset.kb.io
+  rules:
+  - apiGroups:
+    - apps
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - replicasets
   sideEffects: None
 - admissionReviewVersions:
   - v1

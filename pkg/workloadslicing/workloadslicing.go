@@ -404,3 +404,18 @@ func FindReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Ta
 	}
 	return targets, nil
 }
+
+// ApplyWorkloadSliceSchedulingGate adds the ElasticJob scheduling gate
+// to the given PodTemplateSpec if it is not already present.
+//
+// This gate is used to prevent pod scheduling until the corresponding
+// WorkloadSlice has been admitted by Kueue.
+func ApplyWorkloadSliceSchedulingGate(podTemplate *corev1.PodTemplateSpec) {
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+	if slices.Contains(podTemplate.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+		return
+	}
+	podTemplate.Spec.SchedulingGates = append(podTemplate.Spec.SchedulingGates, workloadSliceSchedulingGate)
+}
