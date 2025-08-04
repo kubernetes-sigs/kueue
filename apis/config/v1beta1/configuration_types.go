@@ -406,6 +406,7 @@ type Integrations struct {
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
 	//  - "pod"
+	//  - "replicaset"
 	//  - "deployment"
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
