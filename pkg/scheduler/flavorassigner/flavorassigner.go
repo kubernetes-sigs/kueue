@@ -328,7 +328,7 @@ const (
 )
 
 // isPreferred returns true if mode a is better than b according to the selected policy
-func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bool {
+func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
 		return false
 	}
@@ -344,7 +344,7 @@ func isPreferred(a, b granularMode, fungiblityConfig kueue.FlavorFungibility) bo
 		}
 	}
 
-	if fungiblityConfig.WhenCanBorrow == kueue.TryNextFlavor {
+	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
 		if a.needsBorrowing != b.needsBorrowing {
 			return !a.needsBorrowing
 		}
