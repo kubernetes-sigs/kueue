@@ -993,22 +993,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(util.DeleteObject(ctx, k8sWorker1Client, worker1Cq2)).Should(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
-				// After reconnecting the container to the network, when we try to get pods,
-				// we get it with the previous values (as before disconnect). Therefore, it
-				// takes some time for the cluster to restore them, and we got actually values.
-				// To be sure that the leader of kueue-control-manager successfully recovered
-				// we can check it by removing already created Cluster Queue.
-				var cq kueue.ClusterQueue
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)).Should(utiltesting.BeNotFoundError())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the cluster do become active", func() {
+			ginkgo.By("Waiting for the cluster to become active", func() {
 				readClient := &kueue.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
@@ -1021,6 +1008,28 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the kube-system components to become active", func() {
+				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, util.StartUpTimeout)
+			})
+
+			ginkgo.By("Checking if it is possible to use the cluster again", func() {
+				// After reconnecting the container to the network, when we try to get pods,
+				// we get it with the previous values (as before disconnect). Therefore, it
+				// takes some time for the cluster to restore them, and we got actually values.
+				// To be sure that the leader of kueue-control-manager successfully recovered
+				// we can check it by removing already created Cluster Queue.
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.LongTimeout)
+
+				// Extra check by creating and removing object with use of reconnected kueue.
+				rf := utiltesting.MakeResourceFlavor("other-default").Obj()
+				util.MustCreate(ctx, k8sWorker1Client, rf)
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdRf := &kueue.ResourceFlavor{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(rf), createdRf)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, rf, true)
 			})
 		})
 	})

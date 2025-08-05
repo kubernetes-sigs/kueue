@@ -317,6 +317,19 @@ func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Cl
 	waitForOperatorAvailability(ctx, k8sClient, kroKey)
 }
 
+func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, timeout time.Duration) {
+	const ns = "kube-system"
+	for _, controller := range []string{
+		"kindnet",
+		"kube-controller-manager",
+		"kube-scheduler",
+	} {
+		controllerOpts := GetListOptsFromLabel(fmt.Sprintf("app=%s", controller))
+		ginkgo.By(fmt.Sprintf("Waiting for %s to be available", controller))
+		WaitForPodIsReady(ctx, k8sClient, restClient, cfg, ns, timeout, controllerOpts)
+	}
+}
+
 func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
 	var kueueCfg configapi.Configuration
 	kueueNS := GetKueueNamespace()
@@ -381,6 +394,27 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 			gomega.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
 		}
 	}
+}
+
+func WaitForPodIsReady(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, namespace string, timeout time.Duration, opts ...client.ListOption) {
+	pods := corev1.PodList{}
+	podListOpts := &client.ListOptions{}
+	podListOpts.Namespace = namespace
+	podListOpts.ApplyOptions(opts)
+	podCondIgnoreFields := cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime")
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.List(ctx, &pods, podListOpts)).To(gomega.Succeed())
+		for _, p := range pods.Items {
+			g.Expect(p.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionTrue,
+			}, podCondIgnoreFields)))
+			g.Expect(p.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+				Type:   corev1.ContainersReady,
+				Status: corev1.ConditionTrue,
+			}, podCondIgnoreFields)))
+		}
+	}, timeout, Interval).Should(gomega.Succeed())
 }
 
 func GetKuberayTestImage() string {
