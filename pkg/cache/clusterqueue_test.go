@@ -498,9 +498,9 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			name: "TAS CQ goes active state",
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).Obj(),
 			wantReason:  "Ready",
 			wantMessage: "Can admit new workloads",
@@ -509,15 +509,15 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			name: "TAS do not support Cohorts",
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).Obj(),
 			updatedCq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).Cohort("some-cohort").Obj(),
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
 			wantMessage: "Can admit new workloads",
@@ -526,15 +526,15 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			name: "TAS do not support Preemption",
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).Obj(),
 			updatedCq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
@@ -550,15 +550,15 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			name: "TAS do not support MultiKueue AdmissionCheck",
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).Obj(),
 			updatedCq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).AdmissionChecks("mk-check").Obj(),
 			wantReason:  kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling,
 			wantMessage: "Can't admit new workloads: TAS is not supported with MultiKueue admission check.",
@@ -568,9 +568,9 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			skipTopology: true,
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
-					utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltesting.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
-						FlavorQuotas,
+						Obj(),
 				).Obj(),
 			wantReason:  kueue.ClusterQueueActiveReasonTopologyNotFound,
 			wantMessage: `Can't admit new workloads: there is no Topology "example-topology" for TAS flavor "tas-flavor".`,
