@@ -1,0 +1,43 @@
+name: Update Release Issue on Prepare release PR Merge
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  update-release-issue:
+    # if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'Prepare release v')
+    if: startsWith(github.event.pull_request.title, 'Prepare release v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up GitHub CLI
+        uses: github/cli-action@v1
+        #with:
+        #  token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find issue with matching title
+        id: find-issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --state open --json number,title | \
+            jq -r '.[] | select(.title == "${{ github.event.pull_request.title }}") | .number')
+          echo "ISSUE_NUMBER=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Update issue body with PR number
+        if: steps.find-issue.outputs.ISSUE_NUMBER != ''
+        run: |
+          # Fetch the current issue body
+          ISSUE_BODY=$(gh issue view ${{ steps.find-issue.outputs.ISSUE_NUMBER }} --json body -q .body)
+          # Replace <!-- PREPARE_PULL --> with the PR number
+          NEW_BODY=$(echo "$ISSUE_BODY" | sed "s/<!-- PREPARE_PULL -->/${{ github.event.pull_request.number }}/g")
+          # Update the issue with the new body
+          gh issue edit ${{ steps.find-issue.outputs.ISSUE_NUMBER }} --body "$NEW_BODY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Handle no matching issue
+        if: steps.find-issue.outputs.ISSUE_NUMBER == ''
+        run: echo "No issue found with title '${{ github.event.pull_request.title }}'"

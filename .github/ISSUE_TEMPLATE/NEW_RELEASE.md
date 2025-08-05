@@ -23,7 +23,7 @@ Please do not remove items from the checklist
 - [ ] Update the release branch:
   - [ ] Update `RELEASE_BRANCH` and `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
   - [ ] Update the `CHANGELOG`
-  - [ ] Submit a pull request with the changes: <!-- example #211 #214 -->
+  - [ ] Submit a pull request with the changes: <!-- PREPARE_PULL --> <!-- example #211 #214 -->
 - [ ] An OWNER creates a signed tag running
      `git tag -s $VERSION`
       and inserts the changelog into the tag description.
