@@ -1010,7 +1010,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the kube-system components to become active", func() {
+			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
 				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, util.StartUpTimeout)
 			})
 

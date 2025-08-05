@@ -250,7 +250,7 @@ func exportKindLogs(ctx context.Context, kindClusterName string) {
 	}
 }
 
-func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName, checkRestartCount bool) {
 	deployment := &appsv1.Deployment{}
 	pods := &corev1.PodList{}
 	waitForAvailableStart := time.Now()
@@ -263,7 +263,7 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 				// To make sure that we don't have restarts of controller-manager.
 				// If we have that's mean that something went wrong, and there is
 				// no needs to continue trying check availability.
-				if cs.RestartCount > 0 {
+				if checkRestartCount && cs.RestartCount > 0 {
 					return gomega.StopTrying(fmt.Sprintf("%q in %q has restarted %d times", cs.Name, pod.Name, cs.RestartCount))
 				}
 			}
@@ -281,32 +281,38 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, kcmKey)
+	waitForOperatorAvailability(ctx, k8sClient, kcmKey, true)
+}
+
+func WaitForKueueAvailabilityNoRestartCountCheck(ctx context.Context, k8sClient client.Client) {
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	waitForOperatorAvailability(ctx, k8sClient, kcmKey, false)
 }
 
 func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client) {
 	awmKey := types.NamespacedName{Namespace: "appwrapper-system", Name: "appwrapper-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, awmKey)
+	waitForOperatorAvailability(ctx, k8sClient, awmKey, true)
 }
 
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
 	jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+	waitForOperatorAvailability(ctx, k8sClient, jcmKey, true)
 }
 
 func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Client) {
 	jcmKey := types.NamespacedName{Namespace: "lws-system", Name: "lws-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+	waitForOperatorAvailability(ctx, k8sClient, jcmKey, true)
 }
 
 func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
-	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+	waitForOperatorAvailability(ctx, k8sClient, kftoKey, true)
 }
 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
-	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+	waitForOperatorAvailability(ctx, k8sClient, kftoKey, true)
 }
 
 func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
@@ -314,7 +320,7 @@ func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Cl
 	// See discussions https://github.com/kubernetes-sigs/kueue/pull/4568#discussion_r2001045775 and
 	// https://github.com/ray-project/kuberay/pull/2624/files#r2001143254 for context.
 	kroKey := types.NamespacedName{Namespace: "default", Name: "kuberay-operator"}
-	waitForOperatorAvailability(ctx, k8sClient, kroKey)
+	waitForOperatorAvailability(ctx, k8sClient, kroKey, true)
 }
 
 func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, cfg *rest.Config, timeout time.Duration) {
