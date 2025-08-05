@@ -203,7 +203,7 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 			want: want{
 				workload: withAnnotation(
 					withAnnotation(
-						withAnnotation(testWorkload(t, testJob(2)), workloadslicing.WorkloadSliceClusterName, "testCluster"),
+						withClusterName(testWorkload(t, testJob(2)), "testCluster"),
 						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 					workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(testWorkload(t, testJob(1))))),
 			},
