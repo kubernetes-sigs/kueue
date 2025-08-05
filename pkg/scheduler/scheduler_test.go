@@ -2747,8 +2747,8 @@ func TestSchedule(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").Obj(),
 					).
 					Obj(),
 				*utiltesting.MakeClusterQueue("other-beta").
@@ -2758,8 +2758,8 @@ func TestSchedule(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
@@ -2810,15 +2810,15 @@ func TestSchedule(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "7").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "7").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "7").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "7").Obj(),
 					).
 					Obj(),
 				*utiltesting.MakeClusterQueue("other-beta").
 					Cohort("other").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "3").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "3").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "3").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "3").Obj(),
 					).
 					Obj(),
 			},
@@ -2866,15 +2866,15 @@ func TestSchedule(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").Obj(),
 					).
 					Obj(),
 				*utiltesting.MakeClusterQueue("other-beta").
 					Cohort("other").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
@@ -2930,15 +2930,15 @@ func TestSchedule(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").Obj(),
 					).
 					Obj(),
 				*utiltesting.MakeClusterQueue("other-beta").
 					Cohort("other").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
-						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
@@ -3018,7 +3018,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("CQ1").
 					Cohort("other").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").Obj(),
 					).
 					Obj(),
 				*utiltesting.MakeClusterQueue("CQ2").
@@ -3027,13 +3027,13 @@ func TestSchedule(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					}).
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").Obj(),
 					).
 					Obj(),
 				*utiltesting.MakeClusterQueue("CQ3").
 					Cohort("other").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
@@ -3092,7 +3092,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("ClusterQueueA").
 					Cohort("root").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
 					).
 					Preemption(kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -3101,7 +3101,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("ClusterQueueB").
 					Cohort("root").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
@@ -3145,7 +3145,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("ClusterQueueA").
 					Cohort("root").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
 					).
 					Preemption(kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -3154,7 +3154,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("ClusterQueueB").
 					Cohort("root").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
@@ -3196,7 +3196,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("ClusterQueueA").
 					Cohort("root").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
 					).
 					Preemption(kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -3205,7 +3205,7 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("ClusterQueueB").
 					Cohort("root").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
 			},
