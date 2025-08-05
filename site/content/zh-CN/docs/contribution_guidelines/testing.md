@@ -110,7 +110,7 @@ func TestValidateClusterQueue(t *testing.T) {
 你可以使用以下方法来启动 kind 集群，然后从命令行或 VSCode 运行 e2e 测试，
 将它们附加到现有集群。例如，假设你想测试一些 multikueue-e2e 测试。
 
-运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` 并等待 `Press Enter to cleanup.` 出现。
+运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e` 并等待 `Do you want to cleanup? [Y/n] ` 出现。
 
 集群已准备就绪，现在你可以从另一个终端运行测试：
 ```shell
