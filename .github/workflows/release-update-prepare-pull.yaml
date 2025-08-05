@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [closed]
 
+permissions:
+  pull-requests: read
+  issues: write
+
 jobs:
   update-release-issue:
     # if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'Prepare release v')
