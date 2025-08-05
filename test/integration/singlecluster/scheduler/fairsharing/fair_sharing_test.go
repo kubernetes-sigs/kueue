@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			cohortSecondRight := createCohort(testing.MakeCohort("second-right").Parent("first-left").Obj())
 			cohortBank := createCohort(testing.MakeCohort("bank").Parent("first-right").
 				ResourceGroup(
-					testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").FlavorQuotas,
+					*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
 				).Obj())
 
 			cqSecondLeft := createQueue(testing.MakeClusterQueue("second-left").
