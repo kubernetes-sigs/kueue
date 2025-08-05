@@ -30,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -549,6 +551,69 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			ginkgo.By("Verify the default priority workload is finished", func() {
 				util.ExpectWorkloadToFinish(ctx, k8sClient, defaultGroupKey)
+			})
+		})
+
+		ginkgo.It("Pod should be admitted after the group labels are added", func() {
+			ginkgo.By("creating a pod", func() {
+				p := podtesting.MakePod("pod-0", ns.Name).
+					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					Label("app-role", "worker").
+					Annotation(podconstants.SuspendedByParentAnnotation, "OtherController").
+					KueueSchedulingGate().
+					Obj()
+				util.MustCreate(ctx, k8sClient, p)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var createdPod corev1.Pod
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+					g.Expect(createdPod.Annotations).To(gomega.HaveKey(podconstants.RoleHashAnnotation))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Add the group annotations and labels to the pod", func() {
+				var p corev1.Pod
+				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
+				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
+
+				p.Labels[podconstants.GroupNameLabel] = "test-group"
+				p.Annotations[podconstants.GroupTotalCountAnnotation] = "1"
+				p.Annotations[podconstants.SuspendedByParentAnnotation] = "OtherController"
+				p.Labels[controllerconsts.QueueLabel] = lq.Name
+				p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+				gomega.Expect(k8sClient.Update(ctx, &p)).To(gomega.Succeed())
+
+				var podWithHash corev1.Pod
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&p), &podWithHash)).To(gomega.Succeed())
+				initialRoleHash := podWithHash.Annotations[podconstants.RoleHashAnnotation]
+				gomega.Expect(initialRoleHash).NotTo(gomega.BeEmpty())
+			})
+
+			ginkgo.By("Verify the pod is scheduled and runs", func() {
+				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
+				gomega.Eventually(func(g gomega.Gomega) {
+					var runningPod corev1.Pod
+					g.Expect(k8sClient.Get(ctx, pKey, &runningPod)).To(gomega.Succeed())
+					g.Expect(runningPod.Spec.SchedulingGates).To(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gKey := client.ObjectKey{Namespace: ns.Name, Name: "test-group"}
+				util.ExpectWorkloadToFinish(ctx, k8sClient, gKey)
+			})
+
+			ginkgo.By("Ensure the pod is deleted", func() {
+				var p corev1.Pod
+				pKey := client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}
+				gomega.Expect(k8sClient.Get(ctx, pKey, &p)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Delete(ctx, &p)).To(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, pKey, &corev1.Pod{})).To(testing.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gKey := client.ObjectKey{Namespace: ns.Name, Name: "test-group"}
+				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 			})
 		})
 	})
