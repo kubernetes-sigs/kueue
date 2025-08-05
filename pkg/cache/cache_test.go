@@ -494,17 +494,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(log logr.Logger, cache *Cache) error {
 				_ = setup(log, cache)
 				updateCqs := []kueue.ClusterQueue{
-					utiltesting.MakeClusterQueue("a").NamespaceSelector(nil).Cohort("three").ClusterQueue,
-					utiltesting.MakeClusterQueue("b").NamespaceSelector(nil).ClusterQueue,
-					utiltesting.MakeClusterQueue("c").NamespaceSelector(nil).Cohort("three").ClusterQueue,
+					*utiltesting.MakeClusterQueue("a").NamespaceSelector(nil).Cohort("three").Obj(),
+					*utiltesting.MakeClusterQueue("b").NamespaceSelector(nil).Obj(),
+					*utiltesting.MakeClusterQueue("c").NamespaceSelector(nil).Cohort("three").Obj(),
 				}
 				for _, c := range updateCqs {
 					_ = cache.UpdateClusterQueue(log, &c)
 				}
 				deleteCqs := []kueue.ClusterQueue{
-					utiltesting.MakeClusterQueue("d").Cohort("two").ClusterQueue,
-					utiltesting.MakeClusterQueue("e").Cohort("two").ClusterQueue,
-					utiltesting.MakeClusterQueue("f").Cohort("two").ClusterQueue,
+					*utiltesting.MakeClusterQueue("d").Cohort("two").Obj(),
+					*utiltesting.MakeClusterQueue("e").Cohort("two").Obj(),
+					*utiltesting.MakeClusterQueue("f").Cohort("two").Obj(),
 				}
 				for _, c := range deleteCqs {
 					cache.DeleteClusterQueue(&c)
