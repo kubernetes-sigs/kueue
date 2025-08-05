@@ -188,7 +188,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 func TestCohortReconcileLifecycle(t *testing.T) {
 	ctx := t.Context()
 	cohort := utiltesting.MakeCohort("cohort").ResourceGroup(
-		utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").FlavorQuotas,
+		*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 	).Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
 	cache := cache.New(cl)
@@ -227,7 +227,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected error")
 		}
 		cohort.Spec.ResourceGroups[0] = utiltesting.ResourceGroup(
-			utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").FlavorQuotas,
+			*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 		)
 		if err := cl.Update(ctx, cohort); err != nil {
 			t.Fatal("unexpected error updating cohort", err)
@@ -310,19 +310,19 @@ func TestCohortReconcilerFilters(t *testing.T) {
 	}{
 		"unchanged returns false": {
 			old: utiltesting.MakeCohort("cohort").ResourceGroup(
-				utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").FlavorQuotas,
+				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 			).Obj(),
 			new: utiltesting.MakeCohort("cohort").ResourceGroup(
-				utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").FlavorQuotas,
+				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 			).Obj(),
 			want: false,
 		},
 		"changed resource returns true": {
 			old: utiltesting.MakeCohort("cohort").ResourceGroup(
-				utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").FlavorQuotas,
+				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 			).Obj(),
 			new: utiltesting.MakeCohort("cohort").ResourceGroup(
-				utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").FlavorQuotas,
+				*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 			).Obj(),
 			want: true,
 		},
