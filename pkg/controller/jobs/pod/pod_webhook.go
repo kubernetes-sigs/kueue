@@ -200,11 +200,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			}
 			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
 		}
-
-		if podGroupName(pod.pod) != "" {
-			if err := pod.addRoleHash(); err != nil {
-				return err
-			}
+		if err := pod.addRoleHash(); err != nil {
+			return err
 		}
 		// copy back changes to the object
 		pod.pod.DeepCopyInto(obj.(*corev1.Pod))
