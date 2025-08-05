@@ -814,22 +814,22 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeClusterQueue("cq-autocycle").
 					Cohort("autocycle").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
 					).Obj(),
 				utiltesting.MakeClusterQueue("cq-a").
 					Cohort("cycle-a").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
 					).Obj(),
 				utiltesting.MakeClusterQueue("cq-b").
 					Cohort("cycle-b").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
 					).Obj(),
 				utiltesting.MakeClusterQueue("cq-nocycle").
 					Cohort("nocycle").
 					ResourceGroup(
-						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
 					).Obj(),
 			},
 			wantSnapshot: Snapshot{
