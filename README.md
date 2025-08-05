@@ -140,7 +140,8 @@ You can reach the maintainers of this project at:
 
 ### Graphic assets
 
-- [Logos](https://github.com/cncf/artwork/tree/main/projects/kueue)
+- [Kueue](https://github.com/cncf/artwork/tree/main/projects/kubernetes/sub-projects/kueue)
+- [KueueViz](https://github.com/cncf/artwork/tree/main/projects/kubernetes/sub-projects/kueueviz)
 
 ### Code of conduct
 
