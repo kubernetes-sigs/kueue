@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/storage"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -69,11 +70,6 @@ const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
 	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
-
-	// WorkloadSliceClusterName is the annotation key set on a new workload slice to record
-	// the name of the remote cluster where the original workload was scheduled in a multikueue context.
-	// This annotation can be used to enforce workload propagation or affinity policies.
-	WorkloadSliceClusterName = "kueue.x-k8s.io/workload-slice-cluster-name"
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
@@ -90,7 +86,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 // was scheduled in a multikueue context. If the corresponding annotation is not set,
 // it returns an empty string.
 func ClusterName(wl *kueue.Workload) string {
-	return wl.GetAnnotations()[WorkloadSliceClusterName]
+	return ptr.Deref(wl.Status.ClusterName, "")
 }
 
 // Finish updates the status of a workload slice by applying the "Finished" condition

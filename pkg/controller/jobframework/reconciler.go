@@ -1236,10 +1236,8 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
 
-		// Capture remote cluster name in multikueue context to enforce workload propagation or affinity policies.
-		if clusterName := ptr.Deref(oldSlice.Status.ClusterName, ""); clusterName != "" {
-			metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceClusterName, clusterName)
-		}
+		// Keep the same cluster assignment between slices.
+		wl.Status.ClusterName = oldSlice.Status.ClusterName
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
