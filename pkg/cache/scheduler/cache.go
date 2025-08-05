@@ -87,10 +87,11 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 
 // WithDRAResources enables DRA resource calculation in workload.Info construction.
 // This integrates DRA logical resources into the standard workload resource accounting.
+// The cluster queue name will be dynamically determined when creating workload.Info objects.
 func WithDRAResources(client client.Client) Option {
 	return func(c *Cache) {
-		c.workloadInfoOptions = append(c.workloadInfoOptions,
-			workload.WithDRAResources(client, "", c.GetResourceNameForDeviceClass))
+		c.draEnabled = true
+		c.draClient = client
 	}
 }
 
@@ -125,6 +126,10 @@ type Cache struct {
 	tasCache tasCache
 
 	draDeviceClassToResource map[corev1.ResourceName]corev1.ResourceName
+
+	// DRA support
+	draEnabled bool
+	draClient  client.Client
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -145,6 +150,13 @@ func New(client client.Client, options ...Option) *Cache {
 }
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
+	var draClient client.Client
+	var draLookup func(corev1.ResourceName) (corev1.ResourceName, bool)
+	if c.draEnabled {
+		draClient = c.draClient
+		draLookup = c.GetResourceNameForDeviceClass
+	}
+
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
@@ -152,6 +164,8 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
+		draClient:           draClient,
+		draLookup:           draLookup,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,

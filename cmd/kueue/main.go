@@ -230,6 +230,9 @@ func main() {
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
+	if features.Enabled(features.DynamicResourceAllocation) {
+		queueOptions = append(queueOptions, queue.WithDRAResources(mgr.GetClient(), cCache.GetResourceNameForDeviceClass))
+	}
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
