@@ -88,18 +88,6 @@ Learn more about:
 - Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
-## Architecture
-
-<!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
-
-Learn more about the architecture of Kueue with the following design docs:
-
-- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) discusses the API proposal and a high
-  level description of how Kueue operates. Join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
-to get document access.
-- [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
-presents the detailed design of the controller.
-
 ## Roadmap
 
 High-level overview of the main priorities for 2025:
