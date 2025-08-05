@@ -93,10 +93,18 @@ wait # for libraries installation
 export KUBECONFIG="$MANAGER_KUBECONFIG:$WORKER1_KUBECONFIG:$WORKER2_KUBECONFIG"
 kueue_deploy
 
-if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
-  read -rp "Press Enter to cleanup."
-else
-  # shellcheck disable=SC2086
-  $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
-  "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
+  read -rp "Do you want to cleanup? [Y/n] " reply
+  if [[ "$reply" =~ ^[nN]$ ]]; then
+    trap - EXIT
+    echo "Skipping cleanup for kind clusters."
+    echo -e "\nManager kind cluster cleanup:\n  kind delete cluster --name $MANAGER_KIND_CLUSTER_NAME"
+    echo -e "\nWorker1 kind cluster cleanup:\n  kind delete cluster --name $WORKER1_KIND_CLUSTER_NAME"
+    echo -e "\nWorker2 kind cluster cleanup:\n  kind delete cluster --name $WORKER2_KIND_CLUSTER_NAME"
+  fi
+  exit 0
 fi
+
+# shellcheck disable=SC2086
+$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
+"$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

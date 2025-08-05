@@ -51,10 +51,16 @@ wait
 kind_load "$KIND_CLUSTER_NAME" ""
 kueue_deploy
 
-if [ "$E2E_RUN_ONLY_ENV" == 'true' ]; then
-  read -rp "Press Enter to cleanup."
-else
-  # shellcheck disable=SC2086
-  $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/$E2E_TARGET_FOLDER/...
-  "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
+  read -rp "Do you want to cleanup? [Y/n] " reply
+  if [[ "$reply" =~ ^[nN]$ ]]; then
+    trap - EXIT
+    echo "Skipping cleanup for kind cluster."
+    echo -e "\nKind cluster cleanup:\n  kind delete cluster --name $KIND_CLUSTER_NAME"
+  fi
+  exit 0
 fi
+
+# shellcheck disable=SC2086
+$GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/$E2E_TARGET_FOLDER/...
+"$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
