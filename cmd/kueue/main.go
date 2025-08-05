@@ -228,6 +228,10 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
+	// Add DRA support to queue manager if DRA feature is enabled
+	if features.Enabled(features.DynamicResourceAllocation) {
+		queueOptions = append(queueOptions, queue.WithDRAResources(mgr.GetClient(), cCache.GetResourceNameForDeviceClass))
+	}
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 	ctx := ctrl.SetupSignalHandler()
@@ -362,6 +366,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		}
 	}
 
+	webhooks.SetKueueNamespace(*cfg.Namespace)
 	if failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
 		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}

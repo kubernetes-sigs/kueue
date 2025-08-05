@@ -1300,3 +1300,18 @@ func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 	}
 	return false
 }
+
+// BuildDRAWorkloadInfoOptions creates workload info options with DRA support if enabled.
+// It takes base options and enhances them with DRA configuration for the specified cluster queue.
+// This centralizes DRA workload info option building logic.
+func BuildDRAWorkloadInfoOptions(baseOptions []InfoOption, client client.Client, clusterQueue string, lookup func(corev1.ResourceName) (corev1.ResourceName, bool)) []InfoOption {
+	infoOptions := make([]InfoOption, len(baseOptions))
+	copy(infoOptions, baseOptions)
+
+	// Add DRA option with the correct cluster queue name if DRA is enabled
+	if features.Enabled(features.DynamicResourceAllocation) && client != nil && lookup != nil {
+		infoOptions = append(infoOptions, WithDRAResources(client, clusterQueue, lookup))
+	}
+
+	return infoOptions
+}
