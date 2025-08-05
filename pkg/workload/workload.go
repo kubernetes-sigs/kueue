@@ -766,7 +766,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	}
 }
 
-func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
+func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
 	if wlCopy.Status.AdmissionChecks == nil && w.Status.AdmissionChecks != nil {
 		wlCopy.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, 0)
 	}
@@ -786,7 +786,7 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w, strict)
 	admissionStatusPatch(w, wlCopy)
-	AdmissionChecksStatusPatch(w, wlCopy, clk)
+	admissionChecksStatusPatch(w, wlCopy, clk)
 	return wlCopy
 }
 
@@ -997,9 +997,9 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	PrepareForEviction(wl, clock.Now(), reason, msg)
-	reportWorkloadEvictedOnce := WorkloadEvictionStateInc(wl, reason, underlyingCause)
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
+	prepareForEviction(wl, clock.Now(), reason, msg)
+	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
 	}
@@ -1011,19 +1011,19 @@ func EvictWorkload(ctx context.Context, c client.Client, recorder record.EventRe
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	ReportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause)
 	}
 	return nil
 }
 
-func PrepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
+func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, reason, message)
-	ResetChecksOnEviction(w, now)
+	resetChecksOnEviction(w, now)
 }
 
-func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
 	metrics.ReportEvictedWorkloads(cqName, reason)
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
@@ -1042,8 +1042,8 @@ func References(wls []*Info) []klog.ObjectRef {
 	return keys
 }
 
-func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
-	evictionState := FindSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
+func workloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
+	evictionState := findSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
 	if evictionState == nil {
 		evictionState = &kueue.WorkloadSchedulingStatsEviction{
 			Reason:          reason,
@@ -1052,11 +1052,11 @@ func WorkloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string
 	}
 	report := evictionState.Count == 0
 	evictionState.Count++
-	SetSchedulingStatsEviction(wl, *evictionState)
+	setSchedulingStatsEviction(wl, *evictionState)
 	return report
 }
 
-func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEviction {
+func findSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingCause string) *kueue.WorkloadSchedulingStatsEviction {
 	if wl.Status.SchedulingStats != nil {
 		for i := range wl.Status.SchedulingStats.Evictions {
 			if wl.Status.SchedulingStats.Evictions[i].Reason == reason && wl.Status.SchedulingStats.Evictions[i].UnderlyingCause == underlyingCause {
@@ -1067,11 +1067,11 @@ func FindSchedulingStatsEvictionByReason(wl *kueue.Workload, reason, underlyingC
 	return nil
 }
 
-func SetSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEviction) bool {
+func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEviction) bool {
 	if wl.Status.SchedulingStats == nil {
 		wl.Status.SchedulingStats = &kueue.SchedulingStats{}
 	}
-	evictionState := FindSchedulingStatsEvictionByReason(wl, newEvictionState.Reason, newEvictionState.UnderlyingCause)
+	evictionState := findSchedulingStatsEvictionByReason(wl, newEvictionState.Reason, newEvictionState.UnderlyingCause)
 	if evictionState == nil {
 		wl.Status.SchedulingStats.Evictions = append(wl.Status.SchedulingStats.Evictions, newEvictionState)
 		return true
