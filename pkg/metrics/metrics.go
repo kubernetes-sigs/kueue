@@ -525,7 +525,6 @@ func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, unde
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
-	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
 }
 
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
