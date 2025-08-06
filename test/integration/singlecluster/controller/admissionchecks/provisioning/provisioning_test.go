@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -115,10 +115,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
-				g.Expect(lq.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -827,7 +824,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ns             *corev1.Namespace
 			wlKey          types.NamespacedName
 			ac             *kueue.AdmissionCheck
-			readyAC        *kueue.AdmissionCheck
 			prc            *kueue.ProvisioningRequestConfig
 			rf             *kueue.ResourceFlavor
 			cq             *kueue.ClusterQueue
@@ -847,23 +843,22 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
-			readyAC = testing.MakeAdmissionCheck("pending-ac").
-				ControllerName("dummy-controller").
-				Obj()
-			util.MustCreate(ctx, k8sClient, readyAC)
-
 			rf = testing.MakeResourceFlavor("rf1").Label("ns1", "ns1v").Obj()
 			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
-				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name), kueue.AdmissionCheckReference(readyAC.Name)).
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
@@ -913,7 +908,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, readyAC, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
@@ -998,9 +992,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
 					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
-					g.Expect(check).NotTo(gomega.BeNil())
-					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
-					check = workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(readyAC.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1104,9 +1095,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
 					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
-					g.Expect(check).NotTo(gomega.BeNil())
-					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
-					check = workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(readyAC.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1233,9 +1221,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
-					check = workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(readyAC.Name))
-					g.Expect(check).NotTo(gomega.BeNil())
-					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1335,9 +1320,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -1517,7 +1504,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, rf)
 
 			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -1527,10 +1514,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
-				g.Expect(lq.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
