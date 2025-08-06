@@ -276,7 +276,7 @@ push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RE
 
 PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
 if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
-  NEW_RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE_BODY}" | sed "s/<!-- PREPARE_PULL -->/#${PREPARE_RELEASE_PR_NUMBER}/g")
+  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL -->/#${PREPARE_RELEASE_PR_NUMBER}}
   gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
     echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
   }
