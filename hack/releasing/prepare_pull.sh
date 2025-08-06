@@ -97,23 +97,27 @@ if ! git ls-remote --heads "$UPSTREAM_REMOTE" "${RELEASE_BRANCH}" | grep -q "${R
   exit 1
 fi
 
-RELEASE_ISSUE=$(gh issue list | grep "Release ${RELEASE_VERSION}" | awk '{print $1}' || true)
+RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
+
+RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
+  echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
+  exit 1
+fi
+
+RELEASE_ISSUE=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" --json body || true)
 if [ -z "$RELEASE_ISSUE" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1
 fi
 
-RELEASE_ISSUE_BODY=$(gh issue view "${RELEASE_ISSUE}" -R kubernetes-sigs/kueue --json body || true)
-if [ -z "$RELEASE_ISSUE_BODY" ]; then
-  echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
-  exit 1
-fi
+RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE}" | jq -r '.body')
 
 CHANGELOG_FILE="${REPO_ROOT}/CHANGELOG/CHANGELOG-${MAJOR_MINOR}.md"
 declare -r CHANGELOG_FILE
 
 # shellcheck disable=SC2016
-CHANGELOG=$(echo "${RELEASE_ISSUE_BODY}" | jq -r '.body' | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')
+CHANGELOG=$(echo "${RELEASE_ISSUE_BODY}" | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')
 if [ -z "$CHANGELOG" ]; then
   echo "!!! No changelog found. Please update issue and add changelog."
 fi
@@ -220,7 +224,7 @@ function make_pr() {
 $3.
 
 #### Which issue(s) this PR fixes:
-Part of \#${RELEASE_ISSUE}
+Part of #${RELEASE_ISSUE_NUMBER}
 
 #### Special notes for your reviewer:
 
@@ -269,6 +273,14 @@ declare -r PREPARE_RELEASE_PR_NAME
 
 prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
 push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
+
+PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
+if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
+  NEW_RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE_BODY}" | sed "s/<!-- PREPARE_PULL -->/#${PREPARE_RELEASE_PR_NUMBER}/g")
+  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+    echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+  }
+fi
 
 LATEST_RELEASE_VERSION=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
 
