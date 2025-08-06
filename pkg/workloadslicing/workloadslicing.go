@@ -28,7 +28,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apiserver/pkg/storage"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -112,21 +111,6 @@ func Finish(ctx context.Context, clnt client.Client, workloadSlice *kueue.Worklo
 	return nil
 }
 
-// versionHelper is used in the FindNotFinishedWorkloads sort routine as a tiebreaker
-// for workloads with identical creationTimestamp values.
-//
-// Note: Kubernetes documentation explicitly states:
-//
-//	"Clients must not assume that resource versions are numeric or collatable."
-//
-// To comply with this guidance, we rely on the Kubernetes apiserver/storage library
-// (storage.APIObjectVersioner) to perform resourceVersion comparisons.
-//
-// This ensures that if Kubernetes changes its internal resourceVersion format or semantics,
-// the helper will either be updated accordingly or removed entirely, in which case,
-// such changes will surface at compile time, prompting this code to be updated as needed.
-var versionHelper = storage.APIObjectVersioner{}
-
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
 // without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
@@ -137,14 +121,14 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 
 	// Sort workloads by creation timestamp, oldest first.
 	// In the rare case that two workload slices have identical creationTimestamp values
-	// (due to RFC3339 second-level precision), fall back to resourceVersion comparison
+	// (due to RFC3339 second-level precision), use WorkloadSliceReplacementFor
 	// as a tiebreaker. This edge case is uncommon in production but can occur in
 	// integration or e2e tests where the original and scaled-up workloads are created
 	// in rapid succession.
 	sort.Slice(list.Items, func(i, j int) bool {
 		a, b := list.Items[i], list.Items[j]
 		if a.CreationTimestamp.Equal(&b.CreationTimestamp) {
-			return versionHelper.CompareResourceVersion(&a, &b) < 0
+			return b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a))
 		}
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	})
