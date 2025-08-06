@@ -201,12 +201,12 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// This transient state typically occurs when a new slice has been created,
 		// and the old slice is pending deactivation. The system should resolve this
 		// by deactivating the old slice, after which processing will continue under "case #1".
-
-		// There is also an edge-case when the old slice was preempted/evicted by the scheduler
-		// to make the room for other (than new slice) workload, which would result in two
-		// "pending" workloads. In such case - it is safe to deactivate the old slice.
 		oldWorkload := workloads[0]
-		if !workload.HasQuotaReservation(&oldWorkload) {
+
+		// Finish the old workload slice if it lost its quota reservation or if it was
+		// explicitly evicted.
+		if evictedCondition := apimeta.FindStatusCondition(oldWorkload.Status.Conditions, kueue.WorkloadEvicted); !workload.HasQuotaReservation(&oldWorkload) || evictedCondition != nil {
+			// Finish the old workload slice as out of sync.
 			if err := Finish(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
 				return nil, true, err
 			}

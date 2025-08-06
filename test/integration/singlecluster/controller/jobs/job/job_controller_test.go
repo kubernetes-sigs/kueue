@@ -19,6 +19,7 @@ package job
 import (
 	"fmt"
 	"maps"
+	"strconv"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -3095,6 +3096,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		clusterQueue   *kueue.ClusterQueue
 		localQueue     *kueue.LocalQueue
 	)
+	cpuNominalQuota := 5
 
 	ginkgo.BeforeAll(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
@@ -3111,7 +3113,10 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = testing.MakeClusterQueue("default").
-			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			ResourceGroup(*testing.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 
@@ -3127,179 +3132,250 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	})
 
 	ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
-		ginkgo.When("Job is opted in", func() {
-			ginkgo.It("Should support job scale-down and scale-up", func() {
-				testJob := testingjob.MakeJob("job1", ns.Name).
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "100m").
-					Parallelism(3).
-					Completions(3).
-					Obj()
+		ginkgo.It("Should support job scale-down and scale-up", func() {
+			testJob := testingjob.MakeJob("job1", ns.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				Parallelism(3).
+				Completions(3).
+				Obj()
 
-				var testJobWorkload *kueue.Workload
+			var testJobWorkload *kueue.Workload
 
-				ginkgo.By("creating a job")
-				util.MustCreate(ctx, k8sClient, testJob)
+			ginkgo.By("creating a job")
+			util.MustCreate(ctx, k8sClient, testJob)
 
-				ginkgo.By("admitting the job's workload")
-				gomega.Eventually(func(g gomega.Gomega) {
-					workloads := &kueue.WorkloadList{}
-					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
-					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-					testJobWorkload = &workloads.Items[0]
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("admitting the job's workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				testJobWorkload = &workloads.Items[0]
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("the job is unsuspended")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
-					g.Expect(ptr.Deref(testJob.Spec.Suspend, false)).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("the job is unsuspended")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(testJob.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("resource flavor utilization is correctly recorded")
-				gomega.Eventually(func(g gomega.Gomega) {
-					cq := &kueue.ClusterQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("300m")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("resource flavor utilization is correctly recorded")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+				g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("300m")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("reducing the job's parallelism to emulate scale-down operation")
-				gomega.Eventually(func(g gomega.Gomega) {
-					testJob.Spec.Parallelism = ptr.To(int32(1))
-					g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("reducing the job's parallelism to emulate scale-down operation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				testJob.Spec.Parallelism = ptr.To(int32(1))
+				g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("resource flavor utilization is correctly updated")
-				gomega.Eventually(func(g gomega.Gomega) {
-					cq := &kueue.ClusterQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("100m")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("resource flavor utilization is correctly updated")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+				g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("100m")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("assert the job's workload is updated and still admitted")
-				gomega.Eventually(func(g gomega.Gomega) {
-					workloads := &kueue.WorkloadList{}
-					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
-					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
-					g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
-					g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testJobWorkload.UID))
-					testJobWorkload = &workloads.Items[0]
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("assert the job's workload is updated and still admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+				g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
+				g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testJobWorkload.UID))
+				testJobWorkload = &workloads.Items[0]
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("increasing the job's parallelism to emulate scale-up operation")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
-					testJob.Spec.Parallelism = ptr.To(int32(2))
-					g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("increasing the job's parallelism to emulate scale-up operation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+				testJob.Spec.Parallelism = ptr.To(int32(2))
+				g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("resource flavor utilization is correctly updated")
-				gomega.Eventually(func(g gomega.Gomega) {
-					cq := &kueue.ClusterQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-					g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-					g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-					g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("200m")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("resource flavor utilization is correctly updated")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+				g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+				g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("200m")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("old workload is finished and new workload is admitted")
-				gomega.Eventually(func(g gomega.Gomega) {
-					workloads := &kueue.WorkloadList{}
-					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
-					g.Expect(workloads.Items).Should(gomega.HaveLen(2))
-					for i := range workloads.Items {
-						if workloads.Items[i].Name == testJobWorkload.Name {
-							g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
-							continue
-						}
-						testJobWorkload = &workloads.Items[i]
-						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+			ginkgo.By("old workload is finished and new workload is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(2))
+				for i := range workloads.Items {
+					if workloads.Items[i].Name == testJobWorkload.Name {
+						g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
+						continue
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {
-				var (
-					testJobAWorkload *kueue.Workload
-					testJobBWorkload *kueue.Workload
-				)
-
-				testJobA := testingjob.MakeJob("job-a", ns.Name).
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					Parallelism(3).
-					Completions(3).
-					Obj()
-
-				ginkgo.By("creating a job-a")
-				util.MustCreate(ctx, k8sClient, testJobA)
-
-				ginkgo.By("admitting the job-a's workload")
-				gomega.Eventually(func(g gomega.Gomega) {
-					workloads := &kueue.WorkloadList{}
-					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace))).Should(gomega.Succeed())
-					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-					testJobAWorkload = &workloads.Items[0]
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobAWorkload)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("the job-a is unsuspended")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobA), testJobA)).Should(gomega.Succeed())
-					g.Expect(ptr.Deref(testJobA.Spec.Suspend, false)).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				testJobB := testingjob.MakeJob("job-b", ns.Name).
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					Parallelism(3).
-					Completions(3).
-					Obj()
-
-				ginkgo.By("creating a job-b")
-				util.MustCreate(ctx, k8sClient, testJobB)
-
-				ginkgo.By("the job-b remains suspended")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobB), testJobB)).Should(gomega.Succeed())
-					g.Expect(ptr.Deref(testJobB.Spec.Suspend, false)).Should(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("job-b's workload remains pending with unreserved quota")
-				gomega.Eventually(func(g gomega.Gomega) {
-					workloads := &kueue.WorkloadList{}
-					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testJobB.UID)})).Should(gomega.Succeed())
-					g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-					testJobBWorkload = &workloads.Items[0]
-					util.ExpectWorkloadsToBePending(ctx, k8sClient, testJobBWorkload)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("scale-down job-a to make room for job-b")
-				gomega.Eventually(func(g gomega.Gomega) {
-					testJobA.Spec.Parallelism = ptr.To(int32(1))
-					g.Expect(k8sClient.Update(ctx, testJobA)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("admitting the job-b workload")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobBWorkload), testJobBWorkload)).Should(gomega.Succeed())
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobBWorkload)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("the job-b is unsuspended")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobB), testJobB)).Should(gomega.Succeed())
-					g.Expect(ptr.Deref(testJobB.Spec.Suspend, false)).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+					testJobWorkload = &workloads.Items[i]
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {
+			var (
+				testJobAWorkload *kueue.Workload
+				testJobBWorkload *kueue.Workload
+			)
+
+			testJobA := testingjob.MakeJob("job-a", ns.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Parallelism(3).
+				Completions(3).
+				Obj()
+
+			ginkgo.By("creating a job-a")
+			util.MustCreate(ctx, k8sClient, testJobA)
+
+			ginkgo.By("admitting the job-a's workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				testJobAWorkload = &workloads.Items[0]
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobAWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the job-a is unsuspended")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobA), testJobA)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(testJobA.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			testJobB := testingjob.MakeJob("job-b", ns.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Parallelism(3).
+				Completions(3).
+				Obj()
+
+			ginkgo.By("creating a job-b")
+			util.MustCreate(ctx, k8sClient, testJobB)
+
+			ginkgo.By("the job-b remains suspended")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobB), testJobB)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(testJobB.Spec.Suspend, false)).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("job-b's workload remains pending with unreserved quota")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testJobB.UID)})).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				testJobBWorkload = &workloads.Items[0]
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, testJobBWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("scale-down job-a to make room for job-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				testJobA.Spec.Parallelism = ptr.To(int32(1))
+				g.Expect(k8sClient.Update(ctx, testJobA)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("admitting the job-b workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobBWorkload), testJobBWorkload)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobBWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the job-b is unsuspended")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJobB), testJobB)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(testJobB.Spec.Suspend, false)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should mark old pending workload-slice evicted by scheduler as finished", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		ginkgo.By("create low priority class")
+		lowPriorityClass := testing.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
+		util.MustCreate(ctx, k8sClient, lowPriorityClass)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, lowPriorityClass)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("create high priority class")
+		highPriorityClass := testing.MakeWorkloadPriorityClass("high").PriorityValue(int32(highPriorityValue)).Obj()
+		util.MustCreate(ctx, k8sClient, highPriorityClass)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
+		})
+
+		lowPriorityJob := testingjob.MakeJob("job-low", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(3).
+			Completions(int32(cpuNominalQuota + 1)).
+			WorkloadPriorityClass(lowPriorityClass.Name).
+			Obj()
+
+		ginkgo.By("creating a low-priority job")
+		util.MustCreate(ctx, k8sClient, lowPriorityJob)
+
+		ginkgo.By("the low-priority job is unsuspended")
+		util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityJob), nil)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), lowPriorityJob)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(lowPriorityJob.Spec.Suspend, false)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		var lowPriorityWorkloadSlice *kueue.Workload
+		ginkgo.By("the low-priority workload is admitted")
+		workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, lowPriorityJob.Namespace, 1)
+		lowPriorityWorkloadSlice = &workloads[0]
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowPriorityWorkloadSlice)
+
+		ginkgo.By("scale-up low-priority job beyond the queue's nominal capacity")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), lowPriorityJob)).Should(gomega.Succeed())
+			lowPriorityJob.Spec.Parallelism = ptr.To(int32(cpuNominalQuota + 1))
+			g.Expect(k8sClient.Update(ctx, lowPriorityJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("low priority new workload slice is pending")
+		lowPriorityNewWorkloadSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, lowPriorityWorkloadSlice)
+		gomega.Expect(lowPriorityNewWorkloadSlice).Should(gomega.Not(gomega.BeNil()))
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, lowPriorityNewWorkloadSlice)
+
+		highPriorityJob := testingjob.MakeJob("high", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(3).
+			Completions(3).
+			WorkloadPriorityClass(highPriorityClass.Name).
+			Obj()
+
+		ginkgo.By("creating a high priority job")
+		util.MustCreate(ctx, k8sClient, highPriorityJob)
+
+		ginkgo.By("the high priority job is unsuspended")
+		util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob), nil)
+
+		ginkgo.By("the low priority old workload slice is finished")
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityWorkloadSlice))
 	})
 })
