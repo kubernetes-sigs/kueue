@@ -2720,6 +2720,36 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 		},
+		"workload submitted to inactive CQ due to missing ResourceFlavor": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("flavor-nonexistent-cq-2").
+					QueueingStrategy(kueue.StrictFIFO).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("nonexistent-flavor-2").
+							Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("nonexistent-2", "sales").
+					ClusterQueue("flavor-nonexistent-cq-2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl", "sales").
+					Queue("nonexistent-2").
+					PodSets(
+						*utiltesting.MakePodSet("main", 1).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"flavor-nonexistent-cq-2": {"sales/wl"},
+			},
+			wantEvents: nil,
+		},
+
 		"not enough resources with fair sharing enabled": {
 			enableFairSharing: true,
 			workloads: []kueue.Workload{
