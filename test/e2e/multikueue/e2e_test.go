@@ -1011,8 +1011,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg)
 				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
-				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, util.StartUpTimeout)
 			})
 
 			ginkgo.By("Checking if it is possible to use the cluster again", func() {
