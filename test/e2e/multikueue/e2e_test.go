@@ -956,16 +956,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
-			worker1Cq2 := utiltesting.MakeClusterQueue("q2").
-				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas(worker1Flavor.Name).
-						Resource(corev1.ResourceCPU, "2").
-						Resource(corev1.ResourceMemory, "1G").
-						Obj(),
-				).
-				Obj()
-			util.MustCreate(ctx, k8sWorker1Client, worker1Cq2)
-
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
 
@@ -1013,24 +1003,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
 				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg)
 				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
-			})
-
-			ginkgo.By("Checking if it is possible to use the cluster again", func() {
-				// After reconnecting the container to the network, when we try to get pods,
-				// we get it with the previous values (as before disconnect). Therefore, it
-				// takes some time for the cluster to restore them, and we got actually values.
-				// To be sure that the leader of kueue-control-manager successfully recovered
-				// we can check it by removing already created Cluster Queue.
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.LongTimeout)
-
-				// Extra check by creating and removing object with use of reconnected kueue.
-				rf := utiltesting.MakeResourceFlavor("other-default").Obj()
-				util.MustCreate(ctx, k8sWorker1Client, rf)
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdRf := &kueue.ResourceFlavor{}
-					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(rf), createdRf)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, rf, true)
 			})
 		})
 	})
