@@ -18,6 +18,12 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+declare -r REPO_ROOT
+
+# shellcheck source=hack/releasing/common.sh
+source "${REPO_ROOT}/hack/releasing/common.sh"
+
 if [[ "$#" -ne 1 ]]; then
   echo "${0} <version>"
   echo
@@ -36,17 +42,15 @@ if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
-declare -r STAGING_IMAGE_REGISTRY="us-central1-docker.pkg.dev/k8s-staging-images/kueue"
-
 # $1 - image name
 # $2 - version
 function check_image() {
   local image_name="$1"
   local version="$2"
-  local full_image_name="${STAGING_IMAGE_REGISTRY}/${image_name}:${version}"
+  local full_image_name=$(get_image_full_name "$image_name" "$version")
   echo "Checking if \"${full_image_name}\" is available."
   local image_details
-  image_details=$(gcloud container images describe "${full_image_name}" --verbosity error --format json || true)
+  image_details=$(get_image_details "$full_image_name")
   if [ -n "$image_details" ]; then
     image_name_with_digest=$(echo "$image_details" | jq -r '.image_summary.fully_qualified_digest')
     echo " ✅ Image \"${image_name_with_digest}\" is available."
@@ -59,21 +63,16 @@ function check_image() {
 
 function check_images() {
   local images=(
+      charts/kueue
       kueue
       kueueviz-backend
       kueueviz-frontend
   )
-
   for image in "${images[@]}"; do
     if ! check_image "${image}" "${RELEASE_VERSION}"; then
       return 1
     fi
   done
-
-  # The charts/kueue image is require tag without `v` prefix.
-  if ! check_image "charts/kueue" "${RELEASE_VERSION#v}"; then
-    return 1
-  fi
 }
 
 while true; do
