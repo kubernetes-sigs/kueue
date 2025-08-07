@@ -57,6 +57,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -9341,6 +9343,285 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))...); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestScheduleForAFS(t *testing.T) {
+	// alpha = 1.0 - 0.5^(1/10) ≈ 0.067
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
+		UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
+	}
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	resourceFlavors := []*kueue.ResourceFlavor{
+		utiltesting.MakeResourceFlavor("default").Obj(),
+	}
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltesting.MakeClusterQueue("cq1").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "20").
+				Resource(corev1.ResourceMemory, "8Gi").Obj()).
+			AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+			Obj(),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltesting.MakeLocalQueue("lq-a", "default").
+			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			ClusterQueue("cq1").Obj(),
+		*utiltesting.MakeLocalQueue("lq-b", "default").
+			FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+			ClusterQueue("cq1").Obj(),
+	}
+
+	cases := map[string]struct {
+		workloads       []kueue.Workload
+		admissionError  error
+		wantAssignments map[workload.Reference]kueue.Admission
+		wantPenalties   map[string]corev1.ResourceList
+	}{
+		"single workload admission": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl1": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "5").Obj(),
+			},
+			wantPenalties: map[string]corev1.ResourceList{
+				"default/lq-a": {
+					corev1.ResourceCPU: resource.MustParse("0.335"), // 5 * 0.067 = 0.335
+				},
+			},
+		},
+		"workload with memory and CPU": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "5").
+						Request(corev1.ResourceMemory, "100Mi").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl1": *utiltesting.MakeAdmission("cq1", "one").
+					Assignment(corev1.ResourceCPU, "default", "5").
+					Assignment(corev1.ResourceMemory, "default", "100Mi").
+					Obj(),
+			},
+			wantPenalties: map[string]corev1.ResourceList{
+				"default/lq-a": {
+					corev1.ResourceCPU:    resource.MustParse("0.335"), // 5 * 0.067 = 0.335
+					corev1.ResourceMemory: resource.MustParse("6.7Mi"), // 100Mi * 0.067 = 6.7Mi
+				},
+			},
+		},
+		"workload with zero resources - no penalty": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl1": *utiltesting.MakeAdmission("cq1", "one").Obj(),
+			},
+			wantPenalties: map[string]corev1.ResourceList{
+				"default/lq-a": {},
+			},
+		},
+		"admission fails - no penalty should be added": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Obj(),
+			},
+			admissionError:  errors.New("admission failed"),
+			wantAssignments: map[workload.Reference]kueue.Admission{},
+			wantPenalties: map[string]corev1.ResourceList{
+				"default/lq-a": {},
+			},
+		},
+		"multiple workloads same queue": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl3", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl1": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+				"default/wl2": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+				"default/wl3": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+			},
+			wantPenalties: map[string]corev1.ResourceList{
+				"default/lq-a": {
+					corev1.ResourceCPU: resource.MustParse("0.603"), // 9 * 0.067 = 0.603
+				},
+			},
+		},
+		"multiple workloads multiple queues": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "default").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl3", "default").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "3").
+						Request(corev1.ResourceMemory, "50Mi").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl4", "default").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl1": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+				"default/wl2": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "5").Obj(),
+				"default/wl3": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "3").Assignment(corev1.ResourceMemory, "default", "50Mi").Obj(),
+				"default/wl4": *utiltesting.MakeAdmission("cq1", "one").Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+			},
+			wantPenalties: map[string]corev1.ResourceList{
+				"default/lq-a": {
+					corev1.ResourceCPU:    resource.MustParse("0.402"),  // lq-a CPU = 3 + 3 = 6, penalty = 6 * 0.067 = 0.402
+					corev1.ResourceMemory: resource.MustParse("3.35Mi"), // lq-a Memory = 50Mi, penalty = 50Mi * 0.067 = 3.35Mi
+				},
+				"default/lq-b": {
+					corev1.ResourceCPU: resource.MustParse("0.536"), // lq-b CPU = 5 + 3 = 8, penalty = 8 * 0.067 = 0.536
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.ClusterQueueList{Items: clusterQueues}, &kueue.LocalQueueList{Items: queues}).
+				WithObjects(
+					utiltesting.MakeNamespace("default"),
+				)
+			cl := clientBuilder.Build()
+			cqCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cqCache)
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			for _, q := range queues {
+				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+				}
+			}
+			for _, rf := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, cq := range clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+			}
+			recorder := &utiltesting.EventRecorder{}
+			scheduler := New(qManager, cqCache, cl, recorder,
+				WithFairSharing(&config.FairSharing{Enable: true}),
+				WithAdmissionFairSharing(afsConfig),
+				WithClock(t, fakeClock))
+			wg := sync.WaitGroup{}
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+
+			gotScheduled := make(map[workload.Reference]kueue.Admission)
+			var mu sync.Mutex
+			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+				if tc.admissionError != nil {
+					return tc.admissionError
+				}
+				mu.Lock()
+				gotScheduled[workload.Key(w)] = *w.Status.Admission
+				mu.Unlock()
+				return nil
+			}
+
+			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			go qManager.CleanUpOnContext(ctx)
+			defer cancel()
+
+			for range len(tc.workloads) {
+				scheduler.schedule(ctx)
+				wg.Wait()
+			}
+
+			if diff := cmp.Diff(tc.wantAssignments, gotScheduled); diff != "" {
+				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+			}
+
+			gotPenalties := qManager.GetAfsEntryPenalties()
+			if len(tc.wantPenalties) != gotPenalties.Len() {
+				t.Errorf("Expected %d LocalQueues with penalties, but got %d", len(tc.wantPenalties), gotPenalties.Len())
+			}
+
+			for lqKey, expectedPenalty := range tc.wantPenalties {
+				actualPenalty, found := gotPenalties.Get(utilqueue.LocalQueueReference(lqKey))
+				if !found {
+					t.Errorf("Expected penalty for %s not found in penalties map", lqKey)
+					continue
+				}
+
+				for resource, expectedQuantity := range expectedPenalty {
+					actualQuantity, exists := actualPenalty[resource]
+					if !exists {
+						t.Errorf("Expected resource %s not found in actual penalty for %s", resource, lqKey)
+						continue
+					}
+
+					expectedFloat := utilresource.QuantityToFloat(&expectedQuantity)
+					actualFloat := utilresource.QuantityToFloat(&actualQuantity)
+					if diff := cmp.Diff(expectedFloat, actualFloat, cmpopts.EquateApprox(0.01, 0)); diff != "" {
+						t.Errorf("Unexpected penalty for %s resource %s (-want,+got):\n%s", lqKey, resource, diff)
+					}
+				}
 			}
 		})
 	}
