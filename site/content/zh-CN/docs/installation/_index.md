@@ -33,9 +33,6 @@ description: >
 确保满足以下条件：
 
 - 运行版本为 1.29 或更新的 Kubernetes 集群。了解如何[安装 Kubernetes 工具](https://kubernetes.io/docs/tasks/tools/)。
-- 启用了 `SuspendJob` [特性][feature_gate]。在 Kubernetes 1.22 或更新版本中，该特性默认启用。
-- （可选）启用了 `JobMutableNodeSchedulingDirectives` [特性][feature_gate]（在 Kubernetes 1.22 或更新版本中可用）。
-  在 Kubernetes 1.23 或更新版本中，该特性默认启用。
 - kubectl 命令行工具已与你的集群通信。
 
 Kueue 发布[指标](/docs/reference/metrics)以监控其控制器组件。
