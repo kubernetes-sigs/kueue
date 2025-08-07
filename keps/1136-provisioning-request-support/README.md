@@ -325,11 +325,14 @@ The following scenarios should be tested:
 
 ### Graduation Criteria
 
-User feedback is positive.
+* `ProvisioningRequest` is using V1 APIs
+* `ProvisioningRequest` deprecated annotations are dropped by code.
+* `ProvisioningRequest` is beta without known issues.
 
 ## Implementation History
 
 2023-09-21: KEP
+2025-08-07: Promoted to GA.
 
 ## Alternatives
 

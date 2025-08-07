@@ -213,6 +213,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ProvisioningACC: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.15
 	},
 	VisibilityOnDemand: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
