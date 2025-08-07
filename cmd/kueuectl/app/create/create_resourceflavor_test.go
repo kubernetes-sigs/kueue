@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -323,7 +324,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			clientset := fake.NewSimpleClientset()
+			clientset := fake.NewClientset()
 			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 
 			cmd := NewResourceFlavorCmd(tcg, streams)
@@ -363,7 +364,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantRf, gotRf); diff != "" {
+			if diff := cmp.Diff(tc.wantRf, gotRf, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ManagedFields")); diff != "" {
 				t.Errorf("Unexpected resource flavor (-want/+got)\n%s", diff)
 			}
 		})
