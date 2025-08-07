@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // XGBoostJobWrapper wraps a Job.
@@ -83,6 +84,13 @@ func (j *XGBoostJobWrapper) XGBReplicaSpecsDefault() *XGBoostJobWrapper {
 						Image:     "pause",
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+						},
 					},
 				},
 				NodeSelector: map[string]string{},
@@ -97,10 +105,11 @@ func (j *XGBoostJobWrapper) XGBReplicaSpecsDefault() *XGBoostJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:      "c",
-						Image:     "pause",
-						Command:   []string{},
-						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						Name:            "c",
+						Image:           "pause",
+						Command:         []string{},
+						Resources:       corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						SecurityContext: testing.UseDefaultSecurityContext(),
 					},
 				},
 				NodeSelector: map[string]string{},

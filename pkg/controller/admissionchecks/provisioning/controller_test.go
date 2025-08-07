@@ -202,6 +202,13 @@ func TestReconcile(t *testing.T) {
 					corev1.ResourceCPU: resource.MustParse("1"),
 				},
 			},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.To(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+			},
 		}).
 		NodeSelector("f1l1", "v1").
 		Toleration(corev1.Toleration{
@@ -219,6 +226,13 @@ func TestReconcile(t *testing.T) {
 				Requests: corev1.ResourceList{
 					corev1.ResourceMemory: resource.MustParse("1M"),
 				},
+			},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.To(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 			},
 		}).
 		NodeSelector("f2l1", "v1")
@@ -742,6 +756,13 @@ func TestReconcile(t *testing.T) {
 							Limits: corev1.ResourceList{
 								"example.com/gpu": resource.MustParse("1"),
 							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 						},
 					}).
 					Obj(),
@@ -1340,6 +1361,13 @@ func TestReconcile(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("1"),
 							},
 						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+						},
 					}).
 					NodeSelector("f1l1", "v1").
 					Toleration(corev1.Toleration{
@@ -1359,6 +1387,13 @@ func TestReconcile(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("1M"),
 							},
 						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+						},
 					}).
 					NodeSelector("f2l1", "v1").
 					PriorityClass("pc-100").
@@ -1372,6 +1407,13 @@ func TestReconcile(t *testing.T) {
 							Requests: corev1.ResourceList{
 								corev1.ResourceMemory: resource.MustParse("1M"),
 							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 						},
 					}).
 					NodeSelector("f2l1", "v1").
@@ -1489,6 +1531,13 @@ func TestReconcile(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("1"),
 							},
 						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+						},
 					}).
 					NodeSelector("f1l1", "v1").
 					PriorityClass("pc-100").
@@ -1509,6 +1558,13 @@ func TestReconcile(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("1M"),
 							},
 						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+						},
 					}).
 					NodeSelector("f2l1", "v1").
 					PriorityClass("pc-100").
@@ -1522,6 +1578,13 @@ func TestReconcile(t *testing.T) {
 							Requests: corev1.ResourceList{
 								corev1.ResourceMemory: resource.MustParse("1M"),
 							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 						},
 					}).
 					NodeSelector("f2l1", "v1").
