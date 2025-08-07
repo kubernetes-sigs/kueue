@@ -35,3 +35,23 @@ resolve_path() {
   local resolved="/${stack[*]}"
   echo "${resolved// /\/}"
 }
+
+declare -r STAGING_IMAGE_REGISTRY="us-central1-docker.pkg.dev/k8s-staging-images/kueue"
+
+# $1 - image name
+# $1 - version
+function get_image_full_name() {
+  local image_name="$1"
+  local version="$2"
+  if [ "${image_name}" == "charts/kueue" ]; then
+    version="${version#v}"
+  fi
+  local full_image_name="${STAGING_IMAGE_REGISTRY}/${image_name}:${version}"
+  echo ${full_image_name}
+}
+
+# $1 - full image name
+function get_image_details() {
+  local full_image_name="$1"
+  gcloud container images describe "${full_image_name}" --verbosity error --format json || true
+}
