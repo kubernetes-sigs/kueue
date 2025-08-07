@@ -215,3 +215,26 @@ For example, a Job defined by the following manifest:
 {{< include "examples/jobs/sample-job-partial-admission.yaml" "yaml" >}}
 
 When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
+
+## ElasticJob
+
+{{< feature-state state="alpha" for_version="v0.13" >}}
+
+Kueue supports the ability for batch users to scale a `Job`'s parallelism **without recreating, restarting, or suspending** the Job.
+
+To enable this feature, ensure the following:
+
+* The `ElasticJobsViaWorkloadSlices` feature gate is set to `true`
+* The Job is annotated with `kueue.x-k8s.io/elastic-job: "true"`
+
+For example, a Job defined by the following manifest:
+
+{{< include "examples/jobs/sample-scalable-job.yaml" "yaml" >}}
+
+Once the Job is created, you can scale it by updating the `parallelism` field and applying the change.
+
+When scaling **up**, you should observe:
+
+* A **new workload** created and admitted for the updated parallelism
+* The **previous workload** being marked as `Finished`
+

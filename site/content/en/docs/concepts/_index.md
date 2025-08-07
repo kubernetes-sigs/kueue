@@ -90,3 +90,8 @@ resources that are now required by the owning ClusterQueue.
 ### [Fair Sharing](/docs/concepts/fair_sharing)
 
 Mechanisms in Kueue to share quota between tenants fairly.
+
+### [Elastic Workloads](/docs/concepts/elastic_workload)
+
+Workload types that support dynamic scaling.
+
