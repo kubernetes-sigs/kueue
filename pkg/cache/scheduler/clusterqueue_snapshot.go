@@ -136,12 +136,16 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 	}
 }
 
+// Fits checks if the incoming workload can fit into the CQ snapshot
 func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
+	// 1.) check the availability of resources per flavor in local and borrowing quota for incoming workload
 	for fr, q := range usage.Quota {
 		if c.Available(fr) < q {
 			return false
 		}
 	}
+
+	// 2.) check availability of resources including topology constraints
 	for tasFlavor, flvUsage := range usage.TAS {
 		// We assume the `tasFlavor` is already in the snapshot as this was
 		// already checked earlier during flavor assignment, and the set of

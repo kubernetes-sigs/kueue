@@ -35,6 +35,18 @@ const (
 	// Enables partial admission.
 	PartialAdmission featuregate.Feature = "PartialAdmission"
 
+	// owner: @stuton
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-pending-workloads-visibility
+	//
+	// Enables queue visibility.
+	QueueVisibility featuregate.Feature = "QueueVisibility"
+
+	// owner: @amy
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/6488
+	//
+	// Enable refreshing assignments during scheduling cycle when preemption targets overlap
+	RefreshAssignmentsDuringSchedulingCycle featuregate.Feature = "RefreshAssignmentsDuringSchedulingCycle"
+
 	// owner: @KunWuLuan
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
@@ -197,6 +209,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PartialAdmission: {
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
+	},
+	QueueVisibility: {
+		{Version: version.MustParse("0.5"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
+	},
+
+	RefreshAssignmentsDuringSchedulingCycle: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	FlavorFungibility: {

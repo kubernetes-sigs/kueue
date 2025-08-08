@@ -587,6 +587,15 @@ func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) 
 	expectCounterMetric(metric, v)
 }
 
+func ExpectAdmissionCyclePreemptionSkipsMetric(cq *kueue.ClusterQueue, v int) {
+	metric := metrics.AdmissionCyclePreemptionSkips.WithLabelValues(cq.Name)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		value, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(value)).Should(gomega.Equal(v))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name)
 	expectCounterMetric(metric, v)
