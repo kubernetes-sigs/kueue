@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-job-admit
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: gpu-queue
+spec:
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        kueue.x-k8s.io/queue-name: gpu-queue
+    spec:
+      restartPolicy: Never
+      resourceClaims:
+      - name: gpu
+        resourceClaimTemplateName: gpu-claim
+      containers:
+      - name: main
+        image: busybox
+        command: ["sleep", "60"]
+        resources:
+          claims:
+          - name: gpu 
