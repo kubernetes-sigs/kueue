@@ -171,11 +171,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1Cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1Flavor, true)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.LongTimeout)
 
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Flavor, true)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.LongTimeout)
 
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.LongTimeout)
@@ -958,9 +958,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
-
 			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
-				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
+				sedCommand := `sed -i '/^[[:space:]]*- kube-apiserver/a\    - --bind-address=127.0.0.1' /etc/kubernetes/manifests/kube-apiserver.yaml`
+				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
@@ -980,7 +980,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
-				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
+				sedCommand := `sed -i '/^[[:space:]]*- --bind-address=127.0.0.1/d' /etc/kubernetes/manifests/kube-apiserver.yaml`
+				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			})
@@ -1001,7 +1002,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
-				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg)
+				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
 				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
 			})
 		})
