@@ -792,14 +792,18 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 // buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
 func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *kueue.TopologyAssignment {
 	assignment := &kueue.TopologyAssignment{
-		Domains: make([]kueue.TopologyDomainAssignment, len(domains)),
+		Domains: make([]kueue.TopologyDomainAssignment, 0),
 	}
 	assignment.Levels = s.levelKeys[levelIdx:]
-	for i, domain := range domains {
-		assignment.Domains[i] = kueue.TopologyDomainAssignment{
+	for _, domain := range domains {
+		if domain.state == 0 {
+			// It may happen when PodSet count is 0.
+			continue
+		}
+		assignment.Domains = append(assignment.Domains, kueue.TopologyDomainAssignment{
 			Values: domain.levelValues[levelIdx:],
 			Count:  domain.state,
-		}
+		})
 	}
 	return assignment
 }
