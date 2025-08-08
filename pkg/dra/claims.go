@@ -23,7 +23,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta1 "k8s.io/api/resource/v1beta1"
+	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,19 +46,25 @@ var (
 // When structured-parameters are used (beta in k8s 1.32/1.33) **every entry**
 // in `spec.devices.requests` represents one device, so the quantity is the
 // sum of all `exactly` entries that reference the same DeviceClass.
-func countDevicesPerClass(claimSpec *resourcev1beta1.ResourceClaimSpec) map[corev1.ResourceName]resource.Quantity {
+func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) map[corev1.ResourceName]resource.Quantity {
 	out := make(map[corev1.ResourceName]resource.Quantity)
 	if claimSpec == nil {
 		return out
 	}
 	for _, req := range claimSpec.Devices.Requests {
-		dc := corev1.ResourceName(req.DeviceClassName)
+		// v1beta2 DeviceRequest has Exactly or FirstAvailable. For Step 1, we
+		// preserve existing semantics by only supporting Exactly with Count.
+		var dcName string
+		var q int64
+		if req.Exactly != nil {
+			dcName = req.Exactly.DeviceClassName
+			if req.Exactly.AllocationMode == resourcev1beta2.DeviceAllocationModeExactCount {
+				q = req.Exactly.Count
+			}
+		}
+		dc := corev1.ResourceName(dcName)
 		if dc == "" {
 			continue
-		}
-		var q int64
-		if req.AllocationMode == resourcev1beta1.DeviceAllocationModeExactCount {
-			q = req.Count
 		}
 		// TODO: handle other Allocation modes
 		if existing, found := out[dc]; found {
@@ -74,16 +80,16 @@ func countDevicesPerClass(claimSpec *resourcev1beta1.ResourceClaimSpec) map[core
 // getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
 // and returns its *ResourceClaimSpec. A nil spec and nil error mean the reference is
 // empty (both name pointers are nil) and should be skipped.
-func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourcev1beta1.ResourceClaimSpec, error) {
+func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourcev1beta2.ResourceClaimSpec, error) {
 	switch {
 	case prc.ResourceClaimTemplateName != nil:
-		var tmpl resourcev1beta1.ResourceClaimTemplate
+		var tmpl resourcev1beta2.ResourceClaimTemplate
 		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimTemplateName}, &tmpl); err != nil {
 			return nil, err
 		}
 		return &tmpl.Spec.Spec, nil
 	case prc.ResourceClaimName != nil:
-		var claim resourcev1beta1.ResourceClaim
+		var claim resourcev1beta2.ResourceClaim
 		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimName}, &claim); err != nil {
 			return nil, err
 		}

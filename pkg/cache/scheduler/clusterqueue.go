@@ -439,10 +439,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, w)
 	}
-
-	// Use workload.BuildDRAWorkloadInfoOptions to get DRA-aware options using stored DRA parameters
 	infoOptions := workload.BuildDRAWorkloadInfoOptions(c.workloadInfoOptions, c.draClient, string(c.Name), c.draLookup)
-
 	wi := workload.NewInfo(w, infoOptions...)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(log, wi, add)

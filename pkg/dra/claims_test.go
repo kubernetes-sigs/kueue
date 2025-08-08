@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta1 "k8s.io/api/resource/v1beta1"
+	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,32 +39,36 @@ func Test_GetResourceRequests(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = kueuev1beta1.AddToScheme(scheme)
-	_ = resourcev1beta1.AddToScheme(scheme)
+	_ = resourcev1beta2.AddToScheme(scheme)
 
 	// Shared objects for all test cases.
-	tmpl := &resourcev1beta1.ResourceClaimTemplate{
+	tmpl := &resourcev1beta2.ResourceClaimTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-1", Namespace: "ns1"},
-		Spec: resourcev1beta1.ResourceClaimTemplateSpec{
-			Spec: resourcev1beta1.ResourceClaimSpec{
-				Devices: resourcev1beta1.DeviceClaim{
-					Requests: []resourcev1beta1.DeviceRequest{{
-						AllocationMode:  resourcev1beta1.DeviceAllocationModeExactCount,
-						Count:           2,
-						DeviceClassName: "test-deviceclass-1",
+		Spec: resourcev1beta2.ResourceClaimTemplateSpec{
+			Spec: resourcev1beta2.ResourceClaimSpec{
+				Devices: resourcev1beta2.DeviceClaim{
+					Requests: []resourcev1beta2.DeviceRequest{{
+						Exactly: &resourcev1beta2.ExactDeviceRequest{
+							AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+							Count:           2,
+							DeviceClassName: "test-deviceclass-1",
+						},
 					}},
 				},
 			},
 		},
 	}
 
-	claim := &resourcev1beta1.ResourceClaim{
+	claim := &resourcev1beta2.ResourceClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: "claim-2", Namespace: "ns1"},
-		Spec: resourcev1beta1.ResourceClaimSpec{
-			Devices: resourcev1beta1.DeviceClaim{
-				Requests: []resourcev1beta1.DeviceRequest{{
-					AllocationMode:  resourcev1beta1.DeviceAllocationModeExactCount,
-					Count:           1,
-					DeviceClassName: "test-deviceclass-2",
+		Spec: resourcev1beta2.ResourceClaimSpec{
+			Devices: resourcev1beta2.DeviceClaim{
+				Requests: []resourcev1beta2.DeviceRequest{{
+					Exactly: &resourcev1beta2.ExactDeviceRequest{
+						AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+						Count:           1,
+						DeviceClassName: "test-deviceclass-2",
+					},
 				}},
 			},
 		},
@@ -128,9 +132,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			extraObjects: []runtime.Object{
-				&resourcev1beta1.ResourceClaimTemplate{
+				&resourcev1beta2.ResourceClaimTemplate{
 					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-2", Namespace: "ns1"},
-					Spec:       resourcev1beta1.ResourceClaimTemplateSpec{Spec: resourcev1beta1.ResourceClaimSpec{Devices: resourcev1beta1.DeviceClaim{Requests: []resourcev1beta1.DeviceRequest{{AllocationMode: resourcev1beta1.DeviceAllocationModeExactCount, Count: 1, DeviceClassName: "test-deviceclass-2"}}}}},
+					Spec:       resourcev1beta2.ResourceClaimTemplateSpec{Spec: resourcev1beta2.ResourceClaimSpec{Devices: resourcev1beta2.DeviceClaim{Requests: []resourcev1beta2.DeviceRequest{{Exactly: &resourcev1beta2.ExactDeviceRequest{AllocationMode: resourcev1beta2.DeviceAllocationModeExactCount, Count: 1, DeviceClassName: "test-deviceclass-2"}}}}}},
 				},
 			},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
@@ -157,9 +161,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Single template requesting two devices",
 			extraObjects: []runtime.Object{
-				&resourcev1beta1.ResourceClaimTemplate{
+				&resourcev1beta2.ResourceClaimTemplate{
 					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-3", Namespace: "ns1"},
-					Spec:       resourcev1beta1.ResourceClaimTemplateSpec{Spec: resourcev1beta1.ResourceClaimSpec{Devices: resourcev1beta1.DeviceClaim{Requests: []resourcev1beta1.DeviceRequest{{AllocationMode: resourcev1beta1.DeviceAllocationModeExactCount, Count: 2, DeviceClassName: "test-deviceclass-1"}}}}},
+					Spec:       resourcev1beta2.ResourceClaimTemplateSpec{Spec: resourcev1beta2.ResourceClaimSpec{Devices: resourcev1beta2.DeviceClaim{Requests: []resourcev1beta2.DeviceRequest{{Exactly: &resourcev1beta2.ExactDeviceRequest{AllocationMode: resourcev1beta2.DeviceAllocationModeExactCount, Count: 2, DeviceClassName: "test-deviceclass-1"}}}}}},
 				},
 			},
 			modifyWL: func(w *kueuev1beta1.Workload) {

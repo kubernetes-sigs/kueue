@@ -946,13 +946,12 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 			continue
 		}
 
-		// Phase 6: InfoOption approach - test for DRA compatibility
+		// InfoOption approach - test for DRA compatibility
 		if features.Enabled(features.DynamicResourceAllocation) {
 			cqName, _ := h.r.queues.ClusterQueueForWorkload(&w)
 			info := workload.NewInfo(&w, workload.WithDRAResources(h.r.client, string(cqName), h.r.cache.GetResourceNameForDeviceClass))
 			if info == nil {
 				// DRA processing failed, mark workload as inadmissible
-				wlCopy := w.DeepCopy()
 				if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DRA resource processing failed", h.r.clock.Now()) {
 					if err := workload.ApplyAdmissionStatus(ctx, h.r.client, wlCopy, true, h.r.clock); err != nil {
 						log.Error(err, "Failed to update workload status for DRA error")
