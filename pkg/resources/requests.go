@@ -58,6 +58,12 @@ func (r Requests) ScaledDown(f int64) Requests {
 
 func (r Requests) Divide(f int64) {
 	for k := range r {
+		if r[k] == 0 && f == 0 {
+			// Skip dividing by 0 when resources are 0.
+			// This may happen when the function is used to scale down the
+			// resources computed initially for all (0) Pods, and thus r[k] = 0.
+			continue
+		}
 		r[k] /= f
 	}
 }
