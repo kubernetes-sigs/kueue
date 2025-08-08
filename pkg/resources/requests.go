@@ -58,7 +58,9 @@ func (r Requests) ScaledDown(f int64) Requests {
 
 func (r Requests) Divide(f int64) {
 	for k := range r {
-		r[k] /= f
+		if r[k] != 0 {
+			r[k] /= f
+		}
 	}
 }
 
