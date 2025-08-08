@@ -182,10 +182,11 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		disableLendingLimit               bool
-		disablePartialAdmission           bool
-		enableFairSharing                 bool
-		enableElasticJobsViaWorkloadSlice bool
+		disableLendingLimit                           bool
+		disablePartialAdmission                       bool
+		enableFairSharing                             bool
+		enableElasticJobsViaWorkloadSlice             bool
+		enableRefreshAssignmentsDuringSchedulingCycle bool
 
 		workloads      []kueue.Workload
 		objects        []client.Object
@@ -2286,7 +2287,7 @@ func TestSchedule(t *testing.T) {
 				"other-gamma": 0,
 			},
 		},
-		"multiple preemptions skip overlapping preemption targets": {
+		"multiple preemptions skip overlapping preemption targets - enableRefreshAssignmentsDuringSchedulingCycle off": {
 			// Gamma cq is using more than fair share of CPU.
 			// alpha and beta need CPU to run incoming workload.
 			//
@@ -2396,6 +2397,246 @@ func TestSchedule(t *testing.T) {
 			wantSkippedPreemptions: map[string]int{
 				"other-alpha": 0,
 				"other-beta":  1,
+				"other-gamma": 0,
+			},
+		},
+		"multiple preemptions exclude overlapping preemption targets - retry previously fails - enableRefreshAssignmentsDuringSchedulingCycle on": {
+			// This test demonstrates how RefreshAssignmentsDuringSchedulingCycle enables
+			// retry logic for overlapping preemption targets. Without the feature, when
+			// overlapping preemption targets are detected, the workload is immediately
+			// skipped with no retry attempt.
+			//
+			// With the feature enabled: when preemptor schedules and preempts c1, the
+			// freed resources are immediately reflected in the snapshot. When
+			// pretending-preemptor detects overlapping targets, it retries assignment
+			// and finds sufficient resources without overlapping preemption.
+			//
+			// Result: Both preemptors schedule successfully through retry logic.
+			// This test is a copy of the one above except...
+			//   1.) enables RefreshAssignmentsDuringSchedulingCycle
+			//   2.) no longer skips preemptions
+			enableFairSharing: true,
+			enableRefreshAssignmentsDuringSchedulingCycle: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").
+							Resource("alpha-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").
+							Resource("beta-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-gamma").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").
+							Resource("gamma-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("resource-bank").
+					Cohort("other").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "9").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-gamma").ClusterQueue("other-gamma").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request("alpha-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						Assignment("alpha-resource", "default", "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request("beta-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						Assignment("beta-resource", "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-gamma").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "9").
+					Request("gamma-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-gamma").
+						Assignment(corev1.ResourceCPU, "default", "9").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Request("alpha-resource", "1").
+					Obj(),
+				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Request("beta-resource", "1").
+					Obj(),
+			},
+			// With improved resource accounting, b1 can also be preempted because
+			// the resource accounting properly tracks freed resources
+			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-beta/b1", "eng-gamma/c1"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"other-alpha": {"eng-alpha/preemptor"},
+				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").
+					Assignment("alpha-resource", "default", "1").Obj(),
+				"eng-beta/b1": *utiltesting.MakeAdmission("other-beta").
+					Assignment("beta-resource", "default", "1").Obj(),
+				"eng-gamma/c1": *utiltesting.MakeAdmission("other-gamma").
+					Assignment(corev1.ResourceCPU, "default", "9").Obj(),
+			},
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  0, // No longer skipped due to improved resource accounting
+				"other-gamma": 0,
+			},
+		},
+		"multiple preemptions exclude overlapping preemption targets - retry succeeds - enableRefreshAssignmentsDuringSchedulingCycle on": {
+			// This test demonstrates RefreshAssignmentsDuringSchedulingCycle retry logic
+			// with overlapping preemption targets. Both preemptors initially target the same
+			// workload, then the second preemptor detects overlap and retries to target
+			// a different workload.
+			//
+			// Setup: other-alpha has 3 CPU nominal quota, other-beta has 4 CPU nominal quota, other-gamma and other-delta have 0 quota.
+			// w1 (3 CPU) is submitted to other-gamma, w2 (4 CPU) is submitted to other-delta, both borrowing from cohort.
+			// preemptor1 and preemptor2 (both 3 CPU) are submitted to other-alpha and other-beta respectively,
+			// reclaiming guarantees. They initially target the same preemption target, then the second
+			// preemptor recalculates new assignments through retry logic.
+			enableRefreshAssignmentsDuringSchedulingCycle: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "3").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-gamma").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-delta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-gamma").ClusterQueue("other-gamma").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-delta").ClusterQueue("other-delta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// w1 submitted to CQ-3 (other-gamma, 0 CPU), borrows 3 CPU from cohort
+				*utiltesting.MakeWorkload("w1", "eng-gamma").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-gamma").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+					Obj(),
+				// w2 submitted to CQ-4 (other-delta, 0 CPU), borrows 4 CPU from cohort
+				// This gives preemptor2 an alternative target after retry
+				*utiltesting.MakeWorkload("w2", "eng-delta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuota(utiltesting.MakeAdmission("other-delta").
+						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					Obj(),
+				// preemptor1 submitted to CQ-1 (other-alpha), reclaiming 3 CPU (higher priority)
+				*utiltesting.MakeWorkload("preemptor1", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+				// preemptor2 submitted to CQ-2 (other-beta), reclaiming 3 CPU (lower priority than preemptor1)
+				*utiltesting.MakeWorkload("preemptor2", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			// Both preemptors should succeed through overlapping preemption detection and retry logic.
+			// Initially both target the same workload. preemptor1 gets its target, preemptor2
+			// detects overlap, retries, and targets the other workload. This demonstrates
+			// the retry logic successfully resolving overlapping preemption targets.
+			wantPreempted: sets.New[workload.Reference]("eng-gamma/w1", "eng-delta/w2"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"other-alpha": {"eng-alpha/preemptor1"},
+				"other-beta":  {"eng-beta/preemptor2"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				// Removal from cache for the preempted workloads is deferred until we receive Workload updates
+				"eng-gamma/w1": *utiltesting.MakeAdmission("other-gamma").
+					Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+				"eng-delta/w2": *utiltesting.MakeAdmission("other-delta").
+					Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+			},
+			// No skipped preemptions - retry succeeds for preemptor2
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  0,
 				"other-gamma": 0,
 			},
 		},
@@ -3247,6 +3488,7 @@ func TestSchedule(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 			}
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsViaWorkloadSlice)
+			features.SetFeatureGateDuringTest(t, features.RefreshAssignmentsDuringSchedulingCycle, tc.enableRefreshAssignmentsDuringSchedulingCycle)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 

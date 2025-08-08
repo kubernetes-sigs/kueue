@@ -39,6 +39,7 @@ type candidateIterator struct {
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
+	excludeWorkloads                  map[workload.Reference]*workload.Info
 }
 
 type candidateElem struct {
@@ -74,7 +75,7 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // with and without borrowing. The runs are independent which means that the same candidates
 // might be returned for both, but note that the candidates with borrrowing are a subset of
 // candidates without borrowing.
-func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func(logr.Logger, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
+func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func(logr.Logger, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool, excludeWorkloads map[workload.Reference]*workload.Info) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 	sort.Slice(sameQueueCandidates, func(i, j int) bool {
@@ -105,6 +106,7 @@ func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frs
 		NoCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
 		NoCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
 		hierarchicalReclaimCtx:            hierarchicalReclaimCtx,
+		excludeWorkloads:                  excludeWorkloads,
 	}
 }
 
@@ -116,6 +118,12 @@ func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
 	}
 	candidate := c.candidates[c.runIndex]
 	c.runIndex++
+
+	// Check if this candidate is excluded
+	if _, excluded := c.excludeWorkloads[workload.Key(candidate.wl.Obj)]; excluded {
+		return c.Next(borrow)
+	}
+
 	if !c.candidateIsValid(candidate, borrow) {
 		return c.Next(borrow)
 	}
