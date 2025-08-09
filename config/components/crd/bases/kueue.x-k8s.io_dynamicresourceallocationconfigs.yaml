@@ -68,8 +68,8 @@ spec:
                       type: array
                       x-kubernetes-list-type: set
                     name:
-                      description: Name is referenced in ClusterQueue.nominalQuota
-                        and Workload status.
+                      description: ResourceName is the name identifying various resources
+                        in a ResourceList.
                       type: string
                   required:
                   - deviceClassNames
