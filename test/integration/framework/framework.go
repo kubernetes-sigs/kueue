@@ -57,12 +57,13 @@ import (
 type ManagerSetup func(context.Context, manager.Manager)
 
 type Framework struct {
-	DepCRDPaths           []string
-	WebhookPath           string
-	APIServerFeatureGates []string
-	testEnv               *envtest.Environment
-	cancel                context.CancelFunc
-	scheme                *runtime.Scheme
+	DepCRDPaths            []string
+	WebhookPath            string
+	APIServerFeatureGates  []string
+	APIServerRuntimeConfig []string
+	testEnv                *envtest.Environment
+	cancel                 context.CancelFunc
+	scheme                 *runtime.Scheme
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
@@ -84,6 +85,10 @@ func (f *Framework) Init() *rest.Config {
 
 		if len(f.APIServerFeatureGates) > 0 {
 			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("feature-gates", strings.Join(f.APIServerFeatureGates, ","))
+		}
+
+		if len(f.APIServerRuntimeConfig) > 0 {
+			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("runtime-config", strings.Join(f.APIServerRuntimeConfig, ","))
 		}
 
 		if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
@@ -215,6 +220,16 @@ func (f *Framework) Teardown() {
 	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+}
+
+// GetTestEnv returns the test environment for advanced configuration
+func (f *Framework) GetTestEnv() *envtest.Environment {
+	return f.testEnv
+}
+
+// GetScheme returns the runtime scheme
+func (f *Framework) GetScheme() *runtime.Scheme {
+	return f.scheme
 }
 
 var (

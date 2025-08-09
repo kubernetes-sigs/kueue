@@ -199,6 +199,11 @@ type Info struct {
 	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
 	LocalQueueFSUsage *float64
+
+	// DRAError holds an error produced while processing Dynamic Resource Allocation
+	// for this workload during Info construction. When non-nil, callers can use
+	// errors.Is/As to classify the specific DRA failure and react accordingly.
+	DRAError error
 }
 
 type PodSetResources struct {
@@ -259,54 +264,26 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 }
 
 func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
-	// Check if DRA is enabled by detecting DRA options
-	draEnabled := false
-	for _, opt := range opts {
-		testOpts := InfoOptions{}
-		opt(&testOpts)
-		if testOpts.dra != nil {
-			draEnabled = true
-			break
-		}
-	}
-
-	if draEnabled {
-		// DRA is explicitly enabled, use NewInfoWithDRA and fail on error
-		info, err := NewInfoWithDRA(w, opts...)
-		if err != nil {
-			// Log error and return nil - don't fallback when DRA is explicitly enabled
-			ctrl.LoggerFrom(context.Background()).Error(err, "Failed to calculate DRA resources", "workload", w.Name)
-			return nil
-		}
-		return info
-	} else {
-		// DRA not enabled, NewInfoWithDRA will skip DRA processing (no DRA errors expected)
-		info, _ := NewInfoWithDRA(w, opts...)
-		return info
-	}
-}
-
-// NewInfoWithDRA creates a workload.Info with DRA support and error handling.
-// This function should be used when DRA resource calculation is needed and errors must be handled.
-func NewInfoWithDRA(w *kueue.Workload, opts ...InfoOption) (*Info, error) {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
-	info := &Info{
-		Obj: w,
-	}
+	info := &Info{Obj: w}
 	if w.Status.Admission != nil {
 		info.ClusterQueue = w.Status.Admission.ClusterQueue
 		info.TotalRequests = totalRequestsFromAdmission(w)
-	} else {
-		totalRequests, err := totalRequestsFromPodSets(w, &options)
-		if err != nil {
-			return nil, err
-		}
-		info.TotalRequests = totalRequests
+		return info
 	}
-	return info, nil
+	totalRequests, err := totalRequestsFromPodSets(w, &options)
+	if err != nil {
+		// Preserve the error on Info so callers can react, but still return Info
+		info.DRAError = err
+		// Log for visibility in callers that don't check the field
+		ctrl.LoggerFrom(context.Background()).Error(err, "Failed to calculate DRA resources", "workload", w.Name)
+		return info
+	}
+	info.TotalRequests = totalRequests
+	return info
 }
 
 func (i *Info) Update(wl *kueue.Workload) {
@@ -514,25 +491,6 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, *kueue.PodSetTopologyRequest) {
 		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].TopologyRequest
 	})
-}
-
-// mergeDRARequests merges DRA logical resources into the per-PodSet resource requests.
-// This follows the same pattern as resource transformations to ensure consistent workload status.
-func mergeDRARequests(podSetResources []PodSetResources, draRequests map[kueue.PodSetReference]corev1.ResourceList) []PodSetResources {
-	for i := range podSetResources {
-		ps := &podSetResources[i]
-		if draRes, exists := draRequests[ps.Name]; exists {
-			// Merge DRA logical resources (e.g., "whole-gpus": 1) into ps.Requests
-			for resName, quantity := range draRes {
-				if ps.Requests == nil {
-					ps.Requests = make(resources.Requests)
-				}
-				// Convert resource.Quantity to int64 (milli-units)
-				ps.Requests[resName] += quantity.MilliValue()
-			}
-		}
-	}
-	return podSetResources
 }
 
 func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetResources, error) {
@@ -1318,8 +1276,8 @@ func GetWorkloadPriorityClass(wl *kueue.Workload) string {
 // It takes base options and enhances them with DRA configuration for the specified cluster queue.
 // This centralizes DRA workload info option building logic.
 func BuildDRAWorkloadInfoOptions(baseOptions []InfoOption, client client.Client, clusterQueue string, lookup func(corev1.ResourceName) (corev1.ResourceName, bool)) []InfoOption {
-	infoOptions := make([]InfoOption, len(baseOptions))
-	copy(infoOptions, baseOptions)
+	infoOptions := make([]InfoOption, 0, len(baseOptions)+1)
+	infoOptions = append(infoOptions, baseOptions...)
 
 	// Add DRA option with the correct cluster queue name if DRA is enabled
 	if features.Enabled(features.DynamicResourceAllocation) && client != nil && lookup != nil {

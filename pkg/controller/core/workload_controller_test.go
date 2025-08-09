@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -407,6 +409,105 @@ func TestReconcile(t *testing.T) {
 		wantResult     reconcile.Result
 		reconcilerOpts []Option
 	}{
+		"reconcile DRA ResourceClaim -> quota accounted": {
+			workload: func() *kueue.Workload {
+				wl := utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
+					Queue("lq").
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimName: ptr.To("rc1"),
+				}}
+				wl.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{{
+					Name: "main", Image: "pause",
+					Resources: corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}}},
+				}}
+				return wl
+			}(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "2").Obj(),
+				).Obj(),
+			lq:           utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaim"},
+					EventType: "Normal",
+					Reason:    "Admitted",
+					Message:   fmt.Sprintf("Admitted by ClusterQueue %s, wait time since reservation was %s", "cq", fakeClock.Since(metav1.NewTime(testStartTime).Time.Truncate(time.Second)).Truncate(time.Second)),
+				},
+			},
+		},
+		"reconcile DRA suspended workload (Active=false)": {
+			workload: func() *kueue.Workload {
+				wl := utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
+					Queue("lq").
+					// Admit first, but the workload is suspended
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					Admitted(true).
+					Active(false).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimName: ptr.To("rc1"),
+				}}
+				wl.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{{
+					Name: "main", Image: "pause",
+					Resources: corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}}},
+				}}
+				return wl
+			}(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaim"},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "EvictedDueToDeactivated",
+				Message:   "The workload is deactivated",
+			}},
+		},
+		"reconcile DRA two containers using same ResourceClaim": {
+			workload: func() *kueue.Workload {
+				wl := utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
+					Queue("lq").
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimName: ptr.To("rc1"),
+				}}
+				wl.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
+					{
+						Name: "main", Image: "pause",
+						Resources: corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}}},
+					},
+					{
+						Name: "sidecar", Image: "pause",
+						Resources: corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}}},
+					},
+				}
+				return wl
+			}(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaim"},
+				EventType: "Normal",
+				Reason:    "Admitted",
+				Message:   fmt.Sprintf("Admitted by ClusterQueue %s, wait time since reservation was %s", "cq", fakeClock.Since(metav1.NewTime(testStartTime).Time.Truncate(time.Second)).Truncate(time.Second)),
+			}},
+		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("cq").
@@ -2020,6 +2121,40 @@ func TestReconcile(t *testing.T) {
 			},
 			wantError: nil,
 		},
+		"reconcile DRA ResourceClaim but no quota and WL suspended": {
+			workload: func() *kueue.Workload {
+				wl := utiltesting.MakeWorkload("wl-no-quota-suspended", "ns").
+					Queue("lq").
+					// Reserve once to simulate prior reservation, then mark admitted+suspended
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					Admitted(true).
+					Active(false).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+					Obj()
+				// DRA: reference claim rc1
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimName: ptr.To("rc1"),
+				}}
+				wl.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{{
+					Name: "main", Image: "pause",
+					Resources: corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}}},
+				}}
+				return wl
+			}(),
+			// ClusterQueue with insufficient quota: flavor has 0 for example.com/gpu
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "0").Obj(),
+				).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "wl-no-quota-suspended"},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "EvictedDueToDeactivated",
+				Message:   "The workload is deactivated",
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2027,6 +2162,30 @@ func TestReconcile(t *testing.T) {
 
 			objs := []client.Object{tc.workload}
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			// Inject DRA ResourceClaim when present (for the DRA test case)
+			if tc.workload != nil && tc.workload.Namespace == "ns" &&
+				(tc.workload.Name == "wlWithDRAResourceClaim" || tc.workload.Name == "wl-no-quota-suspended") {
+				// Create v1beta2 ResourceClaim named rc1 in ns
+				count := int64(1)
+				if tc.workload.Name == "wl-no-quota-suspended" {
+					count = 3 // Request 3 resources but quota is only 2
+				}
+				rc := &resourcev1beta2.ResourceClaim{
+					ObjectMeta: metav1.ObjectMeta{Name: "rc1", Namespace: "ns"},
+					Spec: resourcev1beta2.ResourceClaimSpec{
+						Devices: resourcev1beta2.DeviceClaim{
+							Requests: []resourcev1beta2.DeviceRequest{{
+								Exactly: &resourcev1beta2.ExactDeviceRequest{
+									DeviceClassName: "example.com/foo",
+									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									Count:           count,
+								},
+							}},
+						},
+					},
+				}
+				clientBuilder = clientBuilder.WithObjects(rc)
+			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 
@@ -2058,6 +2217,20 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
+			if tc.workload != nil && tc.workload.Namespace == "ns" &&
+				len(tc.workload.Spec.PodSets) > 0 &&
+				len(tc.workload.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
+				_, log := utiltesting.ContextWithLog(t)
+				cqCache.AddOrUpdateDynamicResourceAllocationConfig(log, &kueuealpha.DynamicResourceAllocationConfig{
+					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
+						Resources: []kueuealpha.DynamicResource{{
+							Name:             corev1.ResourceName("example.com/gpu"),
+							DeviceClassNames: []corev1.ResourceName{"example.com/foo"},
+						}},
+					},
+				})
+			}
+
 			gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
@@ -2068,19 +2241,23 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
 			}
 
-			gotWorkload := &kueue.Workload{}
-			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), gotWorkload); err != nil {
-				if tc.wantWorkload != nil && !errors.IsNotFound(err) {
-					t.Fatalf("Could not get Workloads after reconcile: %v", err)
+			if tc.wantWorkload != nil {
+				gotWorkload := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), gotWorkload); err != nil {
+					if !errors.IsNotFound(err) {
+						t.Fatalf("Could not get Workloads after reconcile: %v", err)
+					}
+					t.Fatalf("expected workload to persist")
 				}
-				gotWorkload = nil
-			}
-			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
+
+			// TODO: Add assertion for DRA resource usage in ClusterQueue cache once snapshot API is working properly
 		})
 	}
 }

@@ -439,6 +439,9 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, w)
 	}
+	// Build InfoOptions with DRA config when enabled. We don't handle DRA errors here:
+	// - Cache only stores workloads that are quotaReserved/admitted; NewInfo takes the admission fast-path.
+	// - DRA validation and error handling are performed upstream in the controller event handlers.
 	infoOptions := workload.BuildDRAWorkloadInfoOptions(c.workloadInfoOptions, c.draClient, string(c.Name), c.draLookup)
 	wi := workload.NewInfo(w, infoOptions...)
 	c.Workloads[k] = wi
