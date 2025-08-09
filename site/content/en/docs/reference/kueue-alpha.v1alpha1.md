@@ -22,7 +22,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 
 
 <p>DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
-in the cluster. Only one instance named &quot;default&quot; in the kueue-system namespace
+in the cluster. Only one instance named &quot;default&quot; in the configured namespace
 is allowed.</p>
 
 
@@ -91,14 +91,19 @@ to quota in ClusterQueue.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>Name is referenced in ClusterQueue.nominalQuota and Workload status.</p>
-</td>
+   <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.</p>
+   <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.
+Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length of each name must not exceed 253 characters.</p>
 </td>
 </tr>
 </tbody>
