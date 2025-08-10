@@ -1,35 +1,33 @@
 ---
-title: "Run A JobSet"
+title: "运行 JobSet"
 linkTitle: "Jobsets"
 date: 2023-06-16
 weight: 7
-description: >
-  Run a Kueue scheduled JobSet.
+description: 在启用了 Kueue 的环境里运行 Jobset
 ---
 
-This document explains how you can use Kueue’s scheduling and resource management functionality when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSet](https://jobset.sigs.k8s.io/docs/concepts/).
+本指南解释了如何使用 Kueue 的调度和资源管理功能运行 [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSet](https://jobset.sigs.k8s.io/docs/concepts/)。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于[批处理用户](/zh-CN/docs/tasks#batch-user)，他们需要对 Kueue 有基本的了解。更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前 {#before-you-begin}
 
-1. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+1. 请参见[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
-2. See [JobSet Installation](https://jobset.sigs.k8s.io/docs/installation/) for installation and configuration details of JobSet Operator.
+2. 请参见 [JobSet 安装文档](https://jobset.sigs.k8s.io/docs/installation/)了解 JobSet Operator 的安装和配置详情。
 
-{{% alert title="Note" color="primary" %}}
-In order to use JobSet, prior to v0.8.1, you need to restart Kueue after the installation.
-You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
+{{% alert title="注意" color="primary" %}}
+在 v0.8.1 之前，为了使用 JobSet，你需要重启 Kueue。你可以通过运行 `kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
 {{% /alert %}}
 
-## JobSet definition
+## JobSet 定义 {#jobset-definition}
 
-When running [JobSets](https://jobset.sigs.k8s.io/docs/concepts/) on
-Kueue, take into consideration the following aspects:
+当在 Kueue 上运行 [JobSet](https://jobset.sigs.k8s.io/docs/concepts/)时，
+请考虑以下方面：
 
-### a. Queue selection
+### a. 队列选择 {#a-queue-selection}
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the JobSet configuration.
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 JobSet 配置的 `metadata.labels` 部分指定。
 
 ```yaml
 metadata:
@@ -37,9 +35,9 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Configure the resource needs
+### b. 配置资源需求 {#b-configure-the-resource-needs}
 
-The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations.
+工作负载的资源需求可以在 `spec.replicatedJobs` 中配置。还应考虑副本数量[并行度](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/job/#parallel-jobs)和完成数量对资源计算的影响。
 
 ```yaml
     - replicas: 1
@@ -55,9 +53,11 @@ The resource needs of the workload can be configured in the `spec.replicatedJobs
                       cpu: 1
 ```
 
-### c. Jobs prioritisation
+### c. 作业优先级 {#c-jobs-prioritisation}
 
-The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass) of `spec.replicatedJobs` that is not empty will be used as the priority.
+`spec.replicatedJobs` 中第一个非空的
+[PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass)
+将用作优先级。
 
 ```yaml
     - template:
@@ -67,16 +67,16 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
               priorityClassName: high-priority
 ```
 
-## Example JobSet
+## 示例 JobSet {#example-jobset}
 
 {{< include "examples/jobs/sample-jobset.yaml" "yaml" >}}
 
-You can run this JobSet with the following commands:
+你可以使用以下命令运行此 JobSet：
 
 ```sh
-# To monitor the queue and admission of the jobs, you can run this example multiple times:
+# 为了监控队列和作业的准入，你可以多次运行此示例：
 kubectl create -f sample-jobset.yaml
 ```
 
-## Multikueue
-Check [the Multikueue](docs/tasks/run/multikueue) for details on running Jobsets in MultiKueue environment.
+## Multikueue {#multikueue}
+请参见 [Multikueue](/zh-CN/docs/tasks/run/multikueue) 了解在 MultiKueue 环境中运行 JobSet 的详细信息。
