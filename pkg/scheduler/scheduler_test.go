@@ -248,31 +248,21 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/admitted": {
 					ClusterQueue: "other-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "main",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("50"),
-							},
-							Count: ptr.To[int32](1),
-						},
+						utiltesting.MakePodSetAssignment("main").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "50").
+							Count(1).
+							Obj(),
 					},
 				},
 				"eng-alpha/new": {
 					ClusterQueue: "other-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "main",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "spot",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("20"),
-							},
-							Count: ptr.To[int32](1),
-						},
+						utiltesting.MakePodSetAssignment("main").
+							Flavor(corev1.ResourceCPU, "spot").
+							ResourceUsage(corev1.ResourceCPU, "20").
+							Count(1).
+							Obj(),
 					},
 				},
 			},
@@ -296,16 +286,11 @@ func TestSchedule(t *testing.T) {
 				"sales/foo": {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("10000m"),
-							},
-							Count: ptr.To[int32](10),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Count(10).
+							Obj(),
 					},
 				},
 			},
@@ -388,16 +373,11 @@ func TestSchedule(t *testing.T) {
 				"sales/foo": {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("10000m"),
-							},
-							Count: ptr.To[int32](10),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Count(10).
+							Obj(),
 					},
 				},
 			},
@@ -440,16 +420,11 @@ func TestSchedule(t *testing.T) {
 				"sales/assigned": {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("40000m"),
-							},
-							Count: ptr.To[int32](40),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Count(40).
+							Obj(),
 					},
 				},
 			},
@@ -489,31 +464,21 @@ func TestSchedule(t *testing.T) {
 				"sales/new": {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("1000m"),
-							},
-							Count: ptr.To[int32](1),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "1000m").
+							Count(1).
+							Obj(),
 					},
 				},
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("51000m"),
-							},
-							Count: ptr.To[int32](51),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "51000m").
+							Count(51).
+							Obj(),
 					},
 				},
 			},
@@ -538,31 +503,21 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("40000m"),
-							},
-							Count: ptr.To[int32](40),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Count(40).
+							Obj(),
 					},
 				},
 				"eng-beta/new": {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("40000m"),
-							},
-							Count: ptr.To[int32](40),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Count(40).
+							Obj(),
 					},
 				},
 			},
@@ -587,28 +542,18 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/new": {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-								"example.com/gpu":  "model-a",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("60000m"),
-								"example.com/gpu":  resource.MustParse("10"),
-							},
-							Count: ptr.To[int32](10),
-						},
-						{
-							Name: "two",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "spot",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("40000m"),
-							},
-							Count: ptr.To[int32](40),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							Flavor("example.com/gpu", "model-a").
+							ResourceUsage(corev1.ResourceCPU, "60000m").
+							ResourceUsage("example.com/gpu", "10").
+							Count(10).
+							Obj(),
+						utiltesting.MakePodSetAssignment("two").
+							Flavor(corev1.ResourceCPU, "spot").
+							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Count(40).
+							Obj(),
 					},
 				},
 			},
@@ -633,16 +578,11 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("45000m"),
-							},
-							Count: ptr.To[int32](45),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "45000m").
+							Count(45).
+							Obj(),
 					},
 				},
 			},
@@ -670,31 +610,21 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("45000m"),
-							},
-							Count: ptr.To[int32](45),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "45000m").
+							Count(45).
+							Obj(),
 					},
 				},
 				"eng-beta/new": {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("55000m"),
-							},
-							Count: ptr.To[int32](55),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "55000m").
+							Count(55).
+							Obj(),
 					},
 				},
 			},
@@ -891,31 +821,21 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "spot",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("60000m"),
-							},
-							Count: ptr.To[int32](60),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "spot").
+							ResourceUsage(corev1.ResourceCPU, "60000m").
+							Count(60).
+							Obj(),
 					},
 				},
 				"eng-beta/existing": {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("45000m"),
-							},
-							Count: ptr.To[int32](45),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "45000m").
+							Count(45).
+							Obj(),
 					},
 				},
 			},
@@ -974,26 +894,16 @@ func TestSchedule(t *testing.T) {
 					).
 					ReserveQuota(utiltesting.MakeAdmission("eng-gamma").
 						PodSets(
-							kueue.PodSetAssignment{
-								Name: "borrow-on-demand",
-								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-									corev1.ResourceCPU: "on-demand",
-								},
-								ResourceUsage: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("51"),
-								},
-								Count: ptr.To[int32](51),
-							},
-							kueue.PodSetAssignment{
-								Name: "use-all-spot",
-								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-									corev1.ResourceCPU: "spot",
-								},
-								ResourceUsage: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("100"),
-								},
-								Count: ptr.To[int32](100),
-							},
+							utiltesting.MakePodSetAssignment("borrow-on-demand").
+								Flavor(corev1.ResourceCPU, "on-demand").
+								ResourceUsage(corev1.ResourceCPU, "51").
+								Count(51).
+								Obj(),
+							utiltesting.MakePodSetAssignment("use-all-spot").
+								Flavor(corev1.ResourceCPU, "spot").
+								ResourceUsage(corev1.ResourceCPU, "100").
+								Count(100).
+								Obj(),
 						).
 						Obj()).
 					Obj(),
@@ -1019,26 +929,16 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
 					PodSets(
-						kueue.PodSetAssignment{
-							Name: "borrow-on-demand",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "on-demand",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("51"),
-							},
-							Count: ptr.To[int32](51),
-						},
-						kueue.PodSetAssignment{
-							Name: "use-all-spot",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "spot",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("100"),
-							},
-							Count: ptr.To[int32](100),
-						},
+						utiltesting.MakePodSetAssignment("borrow-on-demand").
+							Flavor(corev1.ResourceCPU, "on-demand").
+							ResourceUsage(corev1.ResourceCPU, "51").
+							Count(51).
+							Obj(),
+						utiltesting.MakePodSetAssignment("use-all-spot").
+							Flavor(corev1.ResourceCPU, "spot").
+							ResourceUsage(corev1.ResourceCPU, "100").
+							Count(100).
+							Obj(),
 					).Obj(),
 				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
 				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
@@ -1067,16 +967,11 @@ func TestSchedule(t *testing.T) {
 				"sales/new": {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("50000m"),
-							},
-							Count: ptr.To[int32](25),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "50000m").
+							Count(25).
+							Obj(),
 					},
 				},
 			},
@@ -1104,16 +999,11 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/old": {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								"example.com/gpu": "model-a",
-							},
-							ResourceUsage: corev1.ResourceList{
-								"example.com/gpu": resource.MustParse("10"),
-							},
-							Count: ptr.To[int32](10),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor("example.com/gpu", "model-a").
+							ResourceUsage("example.com/gpu", "10").
+							Count(10).
+							Obj(),
 					},
 				},
 			},
@@ -1144,16 +1034,11 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/old": {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								"example.com/gpu": "model-a",
-							},
-							ResourceUsage: corev1.ResourceList{
-								"example.com/gpu": resource.MustParse("10"),
-							},
-							Count: ptr.To[int32](10),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor("example.com/gpu", "model-a").
+							ResourceUsage("example.com/gpu", "10").
+							Count(10).
+							Obj(),
 					},
 				},
 			},
@@ -1185,36 +1070,21 @@ func TestSchedule(t *testing.T) {
 				"sales/new": {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("20000m"),
-							},
-							Count: ptr.To[int32](20),
-						},
-						{
-							Name: "two",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("20000m"),
-							},
-							Count: ptr.To[int32](20),
-						},
-						{
-							Name: "three",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("10000m"),
-							},
-							Count: ptr.To[int32](10),
-						},
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "20000m").
+							Count(20).
+							Obj(),
+						utiltesting.MakePodSetAssignment("two").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "20000m").
+							Count(20).
+							Obj(),
+						utiltesting.MakePodSetAssignment("three").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Count(10).
+							Obj(),
 					},
 				},
 			},
@@ -1411,16 +1281,11 @@ func TestSchedule(t *testing.T) {
 					).
 					ReserveQuota(utiltesting.MakeAdmission("cq_a").
 						PodSets(
-							kueue.PodSetAssignment{
-								Name: kueue.DefaultPodSetName,
-								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-									corev1.ResourceCPU: "default",
-								},
-								ResourceUsage: corev1.ResourceList{
-									corev1.ResourceCPU: resource.MustParse("2"),
-								},
-								Count: ptr.To[int32](1),
-							},
+							utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Flavor(corev1.ResourceCPU, "default").
+								ResourceUsage(corev1.ResourceCPU, "2").
+								Count(1).
+								Obj(),
 						).
 						Obj()).
 					Obj(),
@@ -1429,31 +1294,21 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/admitted_a": {
 					ClusterQueue: "cq_a",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: kueue.DefaultPodSetName,
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("2"),
-							},
-							Count: ptr.To[int32](1),
-						},
+						utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "2").
+							Count(1).
+							Obj(),
 					},
 				},
 				"eng-beta/b": {
 					ClusterQueue: "cq_b",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						{
-							Name: kueue.DefaultPodSetName,
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("1"),
-							},
-							Count: ptr.To[int32](1),
-						},
+						utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "1").
+							Count(1).
+							Obj(),
 					},
 				},
 			},
@@ -5279,30 +5134,20 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main", "one", "two").
 							PodSets(
-								kueue.PodSetAssignment{
-									Name: "one",
-									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-										corev1.ResourceCPU: "tas-default",
-									},
-									ResourceUsage: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("1"),
-									},
-									Count: ptr.To[int32](1),
-									TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								utiltesting.MakePodSetAssignment("one").
+									Flavor(corev1.ResourceCPU, "tas-default").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(1).
+									TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 										Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-										Obj(),
-								},
-								kueue.PodSetAssignment{
-									Name: "two",
-									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-										corev1.ResourceCPU: "tas-second",
-									},
-									ResourceUsage: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("1"),
-									},
-									Count:                  ptr.To[int32](1),
-									DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
-								},
+										Obj()).
+									Obj(),
+								utiltesting.MakePodSetAssignment("two").
+									Flavor(corev1.ResourceCPU, "tas-second").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(1).
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Obj(),
 							).Obj(),
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -5314,33 +5159,23 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[string]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one", "two").
 					PodSets(
-						kueue.PodSetAssignment{
-							Name: "one",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "tas-default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("1"),
-							},
-							Count: ptr.To[int32](1),
-							TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-default").
+							ResourceUsage(corev1.ResourceCPU, "1").
+							Count(1).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-								Obj(),
-						},
-						kueue.PodSetAssignment{
-							Name: "two",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "tas-second",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("1"),
-							},
-							Count:                  ptr.To[int32](1),
-							DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStateReady),
-							TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Obj()).
+							Obj(),
+						utiltesting.MakePodSetAssignment("two").
+							Flavor(corev1.ResourceCPU, "tas-second").
+							ResourceUsage(corev1.ResourceCPU, "1").
+							Count(1).
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
-								Obj(),
-						},
+								Obj()).
+							Obj(),
 					).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -5644,29 +5479,19 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[string]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					PodSets(
-						kueue.PodSetAssignment{
-							Name: "launcher",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("500m"),
-							},
-							Count: ptr.To[int32](1),
-						},
-						kueue.PodSetAssignment{
-							Name: "worker",
-							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-								corev1.ResourceCPU: "tas-default",
-							},
-							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("500m"),
-							},
-							Count: ptr.To[int32](1),
-							TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						utiltesting.MakePodSetAssignment("launcher").
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "500m").
+							Count(1).
+							Obj(),
+						utiltesting.MakePodSetAssignment("worker").
+							Flavor(corev1.ResourceCPU, "tas-default").
+							ResourceUsage(corev1.ResourceCPU, "500m").
+							Count(1).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-								Obj(),
-						},
+								Obj()).
+							Obj(),
 					).
 					Obj(),
 			},
