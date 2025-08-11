@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 var (
@@ -83,13 +83,13 @@ func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Worklo
 		pod := &wl.Spec.PodSets[pi].Template.Spec
 		for ci := range pod.InitContainers {
 			res := &pod.InitContainers[ci].Resources
-			res.Limits = utilresource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = utilresource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
 		}
 		for ci := range pod.Containers {
 			res := &pod.Containers[ci].Resources
-			res.Limits = utilresource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = utilresource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
 		}
 	}
 	return nil
@@ -106,11 +106,11 @@ func handleLimitsToRequests(wl *kueue.Workload) {
 func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	for ci := range pod.InitContainers {
 		res := &pod.InitContainers[ci].Resources
-		res.Requests = utilresource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
 	}
 	for ci := range pod.Containers {
 		res := &pod.Containers[ci].Resources
-		res.Requests = utilresource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
 	}
 }
 
@@ -139,7 +139,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 		podSpecPath := PodSetsPath.Index(i).Child("template").Child("spec")
 		for i := range ps.Template.Spec.InitContainers {
 			c := ps.Template.Spec.InitContainers[i]
-			if resNames := utilresource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
+			if resNames := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("initContainers").Index(i), resNames, RequestsMustNotExceedLimitMessage),
@@ -149,7 +149,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 
 		for i := range ps.Template.Spec.Containers {
 			c := ps.Template.Spec.Containers[i]
-			if resNames := utilresource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
+			if resNames := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("containers").Index(i), resNames, RequestsMustNotExceedLimitMessage),

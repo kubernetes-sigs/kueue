@@ -32,20 +32,15 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
-// Sentinel errors for specific conditions that callers can check with errors.Is()
 var (
 	ErrDeviceClassNotMapped = errors.New("DeviceClass is not mapped in DynamicResourceAllocationConfig")
 	ErrResourceClaimInUse   = errors.New("ResourceClaim is used by another workload")
 	ErrClaimSpecNotFound    = errors.New("failed to get claim spec")
 )
 
-// countDevicesPerClass returns a map[DeviceClass]→Quantity representing the
+// countDevicesPerClass returns a map[DeviceClass]->Quantity representing the
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec.
-//
-// When structured-parameters are used (beta in k8s 1.32/1.33) **every entry**
-// in `spec.devices.requests` represents one device, so the quantity is the
-// sum of all `exactly` entries that reference the same DeviceClass.
 func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) map[corev1.ResourceName]resource.Quantity {
 	out := make(map[corev1.ResourceName]resource.Quantity)
 	if claimSpec == nil {
@@ -99,7 +94,7 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 	}
 }
 
-// GetResourceRequestsForResourceClaimTemplates walks all ResourceClaims referenced by each PodSet of the Workload,
+// GetResourceRequestsForResourceClaimTemplates walks all ResourceClaimTemplates referenced by each PodSet of the Workload,
 // converts DeviceClass counts into logical resources using the provided lookup function and
 // returns the aggregated quantities per PodSet.
 //
@@ -146,6 +141,12 @@ func GetResourceRequestsForResourceClaimTemplates(
 	return perPodSet, nil
 }
 
+// GetResourceRequestsForResourceClaims walks all ResourceClaims referenced by each PodSet of the Workload,
+// converts DeviceClass counts into logical resources using the provided lookup function and
+// returns the aggregated quantities per PodSet.
+//
+// If at least one DeviceClass is not present in the DynamicResourceAllocationConfig the function
+// returns an error.
 func GetResourceRequestsForResourceClaims(ctx context.Context,
 	cl client.Client,
 	wl *kueue.Workload,

@@ -110,7 +110,7 @@ type DRAInfoOptions struct {
 type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
-	dra                      *DRAInfoOptions // Optional DRA configuration
+	dra                      *DRAInfoOptions
 }
 
 type InfoOption func(*InfoOptions)
@@ -132,7 +132,6 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 }
 
 // WithDRAResources enables DRA resource calculation for workload.Info construction.
-// This follows the same pattern as resource transformations for consistent workload status handling.
 func WithDRAResources(client client.Client, clusterQueue string, lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool)) InfoOption {
 	return func(o *InfoOptions) {
 		o.dra = &DRAInfoOptions{
@@ -200,9 +199,7 @@ type Info struct {
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
 	LocalQueueFSUsage *float64
 
-	// DRAError holds an error produced while processing Dynamic Resource Allocation
-	// for this workload during Info construction. When non-nil, callers can use
-	// errors.Is/As to classify the specific DRA failure and react accordingly.
+	// DRAError holds an error produced while processing this workload during Info construction.
 	DRAError error
 }
 
@@ -276,9 +273,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	}
 	totalRequests, err := totalRequestsFromPodSets(w, &options)
 	if err != nil {
-		// Preserve the error on Info so callers can react, but still return Info
 		info.DRAError = err
-		// Log for visibility in callers that don't check the field
 		ctrl.LoggerFrom(context.Background()).Error(err, "Failed to calculate DRA resources", "workload", w.Name)
 		return info
 	}
@@ -515,53 +510,39 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetRe
 		res = append(res, setRes)
 	}
 
-	// Apply DRA resources (follows same pattern as resource transformations)
 	if features.Enabled(features.DynamicResourceAllocation) && info.dra != nil && info.dra.enabled {
-		// Calculate DRA resources for ResourceClaimTemplates
 		psRCTReq, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), info.dra.client, wl, info.dra.lookup)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get resource requests for resource claim templates: %w", err)
 		}
-
-		// Calculate DRA resources for ResourceClaims
 		psRCReq, err := dra.GetResourceRequestsForResourceClaims(context.Background(), info.dra.client, wl, info.dra.clusterQueue, info.dra.lookup)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get resource requests for resource claims: %w", err)
 		}
 
-		// Merge both types of DRA resources
-		combinedDRARequests := make(map[kueue.PodSetReference]corev1.ResourceList)
-		for psName, reqs := range psRCTReq {
-			combinedDRARequests[psName] = reqs.DeepCopy()
-		}
-		for psName, reqs := range psRCReq {
-			if existing, ok := combinedDRARequests[psName]; ok {
-				// Merge ResourceClaim requests with ResourceClaimTemplate requests
-				for resName, qty := range reqs {
-					if existingQty, hasRes := existing[resName]; hasRes {
-						existingQty.Add(qty)
-						existing[resName] = existingQty
-					} else {
-						existing[resName] = qty.DeepCopy()
-					}
-				}
-			} else {
-				combinedDRARequests[psName] = reqs.DeepCopy()
-			}
-		}
-
-		// Apply DRA resources to podset requests (matching the count multiplication pattern)
 		for i := range res {
 			ps := &res[i]
-			if draRes, exists := combinedDRARequests[ps.Name]; exists {
-				for resName, quantity := range draRes {
+			if rctRes, exists := psRCTReq[ps.Name]; exists {
+				for resName, quantity := range rctRes {
 					if ps.Requests == nil {
 						ps.Requests = make(resources.Requests)
 					}
-					// Apply the same count multiplication as regular resources
-					// Use proper resource value conversion (milli-units for CPU, absolute for others)
+					// ResourceClaimTemplates create per-pod claims, so multiply by pod count
 					scaledQuantity := resources.ResourceValue(resName, quantity) * int64(ps.Count)
 					ps.Requests[resName] += scaledQuantity
+				}
+			}
+		}
+
+		for i := range res {
+			ps := &res[i]
+			if rcRes, exists := psRCReq[ps.Name]; exists {
+				for resName, quantity := range rcRes {
+					if ps.Requests == nil {
+						ps.Requests = make(resources.Requests)
+					}
+					// ResourceClaims are shared, use exact quantity from spec
+					ps.Requests[resName] += resources.ResourceValue(resName, quantity)
 				}
 			}
 		}

@@ -22,7 +22,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -82,14 +81,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	// Setup client
 	ctx, k8sClient = fwk.SetupClient(cfg)
-
-	// Create kueue-system namespace first
-	kueueSystemNS := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "kueue-system",
-		},
-	}
-	gomega.Expect(k8sClient.Create(ctx, kueueSystemNS)).To(gomega.Succeed())
 })
 
 var _ = ginkgo.AfterSuite(func() {
@@ -107,9 +98,6 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	// Indexes
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	// Set webhook namespace before setting up webhooks
-	webhooks.SetKueueNamespace("kueue-system")
 
 	// Webhooks
 	failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
@@ -152,7 +140,7 @@ func makeResourceClaim(name, namespace, deviceClassName string, count int64) *re
 		Spec: resourcev1beta2.ResourceClaimSpec{
 			Devices: resourcev1beta2.DeviceClaim{
 				Requests: []resourcev1beta2.DeviceRequest{{
-					Name: "gpu-request", // Required: must be a valid RFC 1123 label
+					Name: "gpu-request",
 					Exactly: &resourcev1beta2.ExactDeviceRequest{
 						DeviceClassName: deviceClassName,
 						AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,

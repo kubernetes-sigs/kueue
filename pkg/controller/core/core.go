@@ -78,11 +78,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 
 	if features.Enabled(features.DynamicResourceAllocation) {
-		namespace := configapi.DefaultNamespace
-		if cfg.Namespace != nil {
-			namespace = *cfg.Namespace
-		}
-		draRec := NewDRAConfigReconciler(mgr.GetClient(), cc, namespace)
+		draRec := NewDRAConfigReconciler(mgr.GetClient(), cc)
 		if err := draRec.SetupWithManager(mgr); err != nil {
 			return "DynamicResourceAllocationConfig", err
 		}

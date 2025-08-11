@@ -37,7 +37,6 @@ import (
 
 var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		// Start the manager with controllers for full e2e integration testing
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
@@ -46,7 +45,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	ginkgo.BeforeEach(func() {
-		ctx = context.Background() // Create context for test operations
+		ctx = context.Background()
 	})
 
 	ginkgo.When("DRA is enabled", func() {
@@ -67,14 +66,13 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			if draConfig == nil {
 				draConfig = &kueuealpha.DynamicResourceAllocationConfig{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "default",
-						Namespace: "kueue-system",
+						Name: "default",
 					},
 					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 						Resources: []kueuealpha.DynamicResource{
 							{
-								Name:             "example.com/gpu",
-								DeviceClassNames: []corev1.ResourceName{"example.com"},
+								Name:             "gpus",
+								DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
 							},
 						},
 					},
@@ -94,12 +92,12 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					NamespaceSelector: &metav1.LabelSelector{},
 					ResourceGroups: []kueue.ResourceGroup{
 						{
-							CoveredResources: []corev1.ResourceName{"example.com/gpu"},
+							CoveredResources: []corev1.ResourceName{"gpus"},
 							Flavors: []kueue.FlavorQuotas{
 								{
 									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
 									Resources: []kueue.ResourceQuota{
-										{Name: "example.com/gpu", NominalQuota: resource.MustParse("10")},
+										{Name: "gpus", NominalQuota: resource.MustParse("10")},
 									},
 								},
 							},
@@ -118,19 +116,17 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-			// DRA config is cleaned up in AfterSuite as it's suite-level singleton
 		})
 
 		ginkgo.It("Should admit workload with DRA resource claims", func() {
 			ginkgo.By("Creating a ResourceClaim")
-			rc := makeResourceClaim("test-rc", ns.Name, "example.com", 2)
+			rc := makeResourceClaim("test-rc", ns.Name, "gpu.example.com", 2)
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with DRA resource claim")
 			wl := utiltesting.MakeWorkload("test-wl", ns.Name).
 				Queue("test-lq").
 				Obj()
-			// Manually add ResourceClaims to PodSet
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{Name: "gpu", ResourceClaimName: ptr.To("test-rc")},
 			}
@@ -148,21 +144,20 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
-				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
-				g.Expect(assignment.ResourceUsage["example.com/gpu"]).To(gomega.Equal(resource.MustParse("2")))
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpus")))
+				g.Expect(assignment.ResourceUsage["gpus"]).To(gomega.Equal(resource.MustParse("2")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should handle workload with insufficient DRA quota", func() {
 			ginkgo.By("Creating a ResourceClaim that exceeds quota")
-			rc := makeResourceClaim("test-rc-large", ns.Name, "example.com", 15) // Exceeds quota of 10
+			rc := makeResourceClaim("test-rc-large", ns.Name, "gpu.example.com", 15)
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with large DRA resource claim")
 			wl := utiltesting.MakeWorkload("test-wl-large", ns.Name).
 				Queue("test-lq").
 				Obj()
-			// Manually add ResourceClaims to PodSet
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{Name: "gpu", ResourceClaimName: ptr.To("test-rc-large")},
 			}
@@ -181,11 +176,11 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.It("Should handle multiple workloads sharing DRA quota", func() {
 			ginkgo.By("Creating first ResourceClaim")
-			rc1 := makeResourceClaim("test-rc-1", ns.Name, "example.com", 4)
+			rc1 := makeResourceClaim("test-rc-1", ns.Name, "gpu.example.com", 4)
 			gomega.Expect(k8sClient.Create(ctx, rc1)).To(gomega.Succeed())
 
 			ginkgo.By("Creating second ResourceClaim")
-			rc2 := makeResourceClaim("test-rc-2", ns.Name, "example.com", 4)
+			rc2 := makeResourceClaim("test-rc-2", ns.Name, "gpu.example.com", 4)
 			gomega.Expect(k8sClient.Create(ctx, rc2)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload")
@@ -228,12 +223,12 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			totalUsage := int64(0)
 			if updatedWl1.Status.Admission != nil && len(updatedWl1.Status.Admission.PodSetAssignments) > 0 {
-				if usage, ok := updatedWl1.Status.Admission.PodSetAssignments[0].ResourceUsage["example.com/gpu"]; ok {
+				if usage, ok := updatedWl1.Status.Admission.PodSetAssignments[0].ResourceUsage["gpus"]; ok {
 					totalUsage += usage.Value()
 				}
 			}
 			if updatedWl2.Status.Admission != nil && len(updatedWl2.Status.Admission.PodSetAssignments) > 0 {
-				if usage, ok := updatedWl2.Status.Admission.PodSetAssignments[0].ResourceUsage["example.com/gpu"]; ok {
+				if usage, ok := updatedWl2.Status.Admission.PodSetAssignments[0].ResourceUsage["gpus"]; ok {
 					totalUsage += usage.Value()
 				}
 			}
@@ -242,7 +237,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.It("Should reject second workload using same ResourceClaim", func() {
 			ginkgo.By("Creating a ResourceClaim")
-			rc := makeResourceClaim("shared-rc", ns.Name, "example.com", 2)
+			rc := makeResourceClaim("shared-rc", ns.Name, "gpu.example.com", 2)
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload using the ResourceClaim")
@@ -286,7 +281,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.It("Should handle DRA config updates", func() {
 			ginkgo.By("Creating initial workload with DRA")
-			rc := makeResourceClaim("test-rc", ns.Name, "example.com", 2)
+			rc := makeResourceClaim("test-rc", ns.Name, "gpu.example.com", 2)
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			wl := utiltesting.MakeWorkload("test-wl", ns.Name).
@@ -309,13 +304,13 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			ginkgo.By("Updating DRA config to add new resource mapping")
 			// Get the suite-level singleton DRA config
-			suiteDRAConfigKey := client.ObjectKey{Name: "default", Namespace: "kueue-system"}
+			suiteDRAConfigKey := client.ObjectKey{Name: "default"}
 			var updatedDRAConfig kueuealpha.DynamicResourceAllocationConfig
 			gomega.Expect(k8sClient.Get(ctx, suiteDRAConfigKey, &updatedDRAConfig)).To(gomega.Succeed())
 
 			updatedDRAConfig.Spec.Resources = append(updatedDRAConfig.Spec.Resources, kueuealpha.DynamicResource{
-				Name:             "example.com/memory",
-				DeviceClassNames: []corev1.ResourceName{"example.com/bar"},
+				Name:             "new-gpus",
+				DeviceClassNames: []corev1.ResourceName{"new-gpus.example.com"},
 			})
 			gomega.Expect(k8sClient.Update(ctx, &updatedDRAConfig)).To(gomega.Succeed())
 
@@ -340,7 +335,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							Requests: []resourcev1beta2.DeviceRequest{{
 								Name: "gpu-request",
 								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "example.com",
+									DeviceClassName: "gpu.example.com",
 									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
 									Count:           2,
 								},
@@ -355,8 +350,6 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			wl := utiltesting.MakeWorkload("test-wl-template", ns.Name).
 				Queue("test-lq").
 				Obj()
-
-			// Reference the ResourceClaimTemplate by name
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
 				{
 					Name:                      "gpu-template",
@@ -377,8 +370,8 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
-				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
-				g.Expect(assignment.ResourceUsage["example.com/gpu"]).To(gomega.Equal(resource.MustParse("2")))
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpus")))
+				g.Expect(assignment.ResourceUsage["gpus"]).To(gomega.Equal(resource.MustParse("2")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -395,7 +388,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							Requests: []resourcev1beta2.DeviceRequest{{
 								Name: "gpu-request",
 								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "example.com",
+									DeviceClassName: "gpu.example.com",
 									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
 									Count:           3,
 								},
@@ -417,7 +410,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							Requests: []resourcev1beta2.DeviceRequest{{
 								Name: "gpu-request",
 								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "example.com",
+									DeviceClassName: "gpu.example.com",
 									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
 									Count:           3,
 								},
@@ -474,12 +467,12 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			totalUsage := int64(0)
 			if updatedWl1.Status.Admission != nil && len(updatedWl1.Status.Admission.PodSetAssignments) > 0 {
-				if usage, ok := updatedWl1.Status.Admission.PodSetAssignments[0].ResourceUsage["example.com/gpu"]; ok {
+				if usage, ok := updatedWl1.Status.Admission.PodSetAssignments[0].ResourceUsage["gpus"]; ok {
 					totalUsage += usage.Value()
 				}
 			}
 			if updatedWl2.Status.Admission != nil && len(updatedWl2.Status.Admission.PodSetAssignments) > 0 {
-				if usage, ok := updatedWl2.Status.Admission.PodSetAssignments[0].ResourceUsage["example.com/gpu"]; ok {
+				if usage, ok := updatedWl2.Status.Admission.PodSetAssignments[0].ResourceUsage["gpus"]; ok {
 					totalUsage += usage.Value()
 				}
 			}
@@ -499,7 +492,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							Requests: []resourcev1beta2.DeviceRequest{{
 								Name: "gpu-request",
 								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "example.com",
+									DeviceClassName: "gpu.example.com",
 									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
 									Count:           12,
 								},

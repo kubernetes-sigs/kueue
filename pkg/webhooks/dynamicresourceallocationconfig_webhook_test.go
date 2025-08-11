@@ -18,6 +18,7 @@ package webhooks
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -33,8 +34,7 @@ import (
 func makeConfig(resourceName, dcName corev1.ResourceName) *kueuev1alpha1.DynamicResourceAllocationConfig {
 	return &kueuev1alpha1.DynamicResourceAllocationConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default",
-			Namespace: "kueue-system",
+			Name: "default",
 		},
 		Spec: kueuev1alpha1.DynamicResourceAllocationConfigSpec{
 			Resources: []kueuev1alpha1.DynamicResource{
@@ -98,7 +98,7 @@ func TestDynamicResourceAllocationConfigFeatureGate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, tc.featureEnabled)
 
 			cfg := makeConfig(corev1.ResourceName("example.com/gpu"), corev1.ResourceName("example.com/device-class")).DeepCopy()
-			wh := &DynamicResourceAllocationConfigWebhook{namespace: "kueue-system"}
+			wh := &DynamicResourceAllocationConfigWebhook{}
 			_, err := wh.ValidateCreate(context.Background(), cfg)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("ValidateCreate() error expectation mismatch: wanted error=%v got err=%v", tc.wantErr, err)
@@ -107,32 +107,33 @@ func TestDynamicResourceAllocationConfigFeatureGate(t *testing.T) {
 	}
 }
 
-func TestDynamicResourceAllocationConfigNamespace(t *testing.T) {
+func TestDynamicResourceAllocationConfigClusterScoped(t *testing.T) {
 	testCases := []struct {
 		name              string
+		configName        string
 		configNamespace   string
-		webhookNamespace  string
 		wantErr           bool
 		expectedErrDetail string
 	}{
 		{
-			name:             "valid namespace - default",
-			configNamespace:  "kueue-system",
-			webhookNamespace: "kueue-system",
-			wantErr:          false,
+			name:            "valid cluster-scoped resource",
+			configName:      "default",
+			configNamespace: "",
+			wantErr:         false,
 		},
 		{
-			name:             "valid namespace - custom",
-			configNamespace:  "custom-namespace",
-			webhookNamespace: "custom-namespace",
-			wantErr:          false,
-		},
-		{
-			name:              "invalid namespace",
-			configNamespace:   "wrong-namespace",
-			webhookNamespace:  "kueue-system",
+			name:              "invalid name",
+			configName:        "wrong-name",
+			configNamespace:   "",
 			wantErr:           true,
-			expectedErrDetail: "metadata.namespace: Invalid value: \"wrong-namespace\": must be 'kueue-system'",
+			expectedErrDetail: "metadata.name: Invalid value: \"wrong-name\": must be 'default'",
+		},
+		{
+			name:              "invalid namespace - should be empty for cluster-scoped",
+			configName:        "default",
+			configNamespace:   "kueue-system",
+			wantErr:           true,
+			expectedErrDetail: "metadata.namespace: Invalid value: \"kueue-system\": must be empty for cluster-scoped resource",
 		},
 	}
 
@@ -141,8 +142,10 @@ func TestDynamicResourceAllocationConfigNamespace(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
 
 			cfg := makeConfig(corev1.ResourceName("example.com/gpu"), corev1.ResourceName("example.com/device-class")).DeepCopy()
+			cfg.Name = tc.configName
 			cfg.Namespace = tc.configNamespace
-			wh := &DynamicResourceAllocationConfigWebhook{namespace: tc.webhookNamespace}
+
+			wh := &DynamicResourceAllocationConfigWebhook{}
 			_, err := wh.ValidateCreate(context.Background(), cfg)
 
 			if (err != nil) != tc.wantErr {
@@ -150,9 +153,8 @@ func TestDynamicResourceAllocationConfigNamespace(t *testing.T) {
 			}
 
 			if tc.wantErr && err != nil {
-				errStr := err.Error()
-				if errStr != tc.expectedErrDetail {
-					t.Errorf("Expected error detail %q, got %q", tc.expectedErrDetail, errStr)
+				if !strings.Contains(err.Error(), tc.expectedErrDetail) {
+					t.Errorf("Expected error to contain %q, got: %s", tc.expectedErrDetail, err.Error())
 				}
 			}
 		})
