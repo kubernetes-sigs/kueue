@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
@@ -353,16 +352,8 @@ func TestSchedule(t *testing.T) {
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("sales", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"skip workload with missing or deleted ClusterQueue (NoFit)": {
@@ -413,11 +404,7 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{"sales/foo"},
 			eventCmpOpts:  ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("sales", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"error during admission": {
@@ -2578,19 +2565,16 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "sales", Name: "new"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-					Message: fmt.Sprintf("%s: %s",
+				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
+					Message(fmt.Sprintf("%s: %s",
 						errLimitRangeConstraintsUnsatisfiedResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
 							[]corev1.ResourceName{corev1.ResourceCPU},
 							limitrange.RequestsMustNotBeAboveLimitRangeMaxMessage,
 						).Error(),
-					),
-				},
+					)).
+					Obj(),
 			},
 		},
 		"container resource requests exceed limits": {
@@ -2607,18 +2591,15 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "sales", Name: "new"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-					Message: fmt.Sprintf("%s: %s",
+				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
+					Message(fmt.Sprintf("%s: %s",
 						errInvalidWLResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
 							[]corev1.ResourceName{corev1.ResourceCPU}, workload.RequestsMustNotExceedLimitMessage,
 						).Error(),
-					),
-				},
+					)).
+					Obj(),
 			},
 		},
 		"not enough resources with fair sharing enabled": {
@@ -4735,16 +4716,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest; second pass; baseline scenario": {
@@ -4791,11 +4764,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with two TAS flavors, only the second is using Provisioning Admission Check": {
@@ -4863,16 +4832,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; baseline scenario": {
@@ -5040,12 +5001,9 @@ func TestScheduleForTAS(t *testing.T) {
 					}).Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    "SecondPassFailed",
-					Message:   "couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)",
-				},
+				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
+					Message("couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)").
+					Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; required rack; fit": {
@@ -5225,12 +5183,9 @@ func TestScheduleForTAS(t *testing.T) {
 					}).Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    "SecondPassFailed",
-					Message:   "couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)",
-				},
+				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
+					Message("couldn't assign flavors to pod set one: topology \"tas-three-level\" doesn't allow to fit any of 1 pod(s)").
+					Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; two podsets": {
@@ -5374,11 +5329,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest when two TAS flavors; second pass": {
@@ -5457,11 +5408,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with two TAS flavors - one with ProvisioningRequest, one regular; second pass": {
@@ -5612,11 +5559,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest gets QuotaReserved only; implicit defaulting": {
@@ -5645,11 +5588,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest when two TAS flavors; second pass; implicit defaulting": {
@@ -5727,11 +5666,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest gets QuotaReserved only": {
@@ -5761,11 +5696,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload with a custom AdmissionCheck gets TAS assigned": {
@@ -5805,11 +5736,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload which does not specify TAS annotation uses the only TAS flavor": {
@@ -5849,16 +5776,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload requiring TAS skips the non-TAS flavor": {
@@ -5901,16 +5820,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload which does not need TAS skips the TAS flavor": {
@@ -5942,16 +5853,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload with mixed PodSets (requiring TAS and not)": {
@@ -6019,16 +5922,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload required TAS gets scheduled": {
@@ -6063,16 +5958,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload requests topology level which is not present in topology": {
@@ -6093,12 +5980,9 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: Flavor "tas-default" does not contain the requested level`,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: Flavor "tas-default" does not contain the requested level`).
+					Obj(),
 			},
 		},
 		"workload requests topology level which is only present in second flavor": {
@@ -6160,16 +6044,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload does not get scheduled as it does not fit within the node capacity": {
@@ -6190,12 +6066,9 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`).
+					Obj(),
 			},
 		},
 		"workload does not get scheduled as the node capacity is already used by another TAS workload": {
@@ -6240,12 +6113,9 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`).
+					Obj(),
 			},
 		},
 		"workload does not get scheduled as the node capacity is already used by a non-TAS pod": {
@@ -6272,12 +6142,9 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`).
+					Obj(),
 			},
 		},
 		"workload gets scheduled as the usage of TAS pods and workloads is not double-counted": {
@@ -6344,16 +6211,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload gets admitted next to already admitted workload, multiple resources used": {
@@ -6416,16 +6275,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload with multiple PodSets requesting the same TAS flavor; multiple levels": {
@@ -6478,12 +6329,9 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set worker: topology "tas-two-level" doesn't allow to fit any of 1 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set worker: topology "tas-two-level" doesn't allow to fit any of 1 pod(s)`).
+					Obj(),
 			},
 		},
 		"scheduling workload with multiple PodSets requesting TAS flavor and will succeed": {
@@ -6570,16 +6418,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"scheduling workload with multiple PodSets requesting higher level topology": {
@@ -6666,16 +6506,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"scheduling workload when the node for another admitted workload is deleted": {
@@ -6755,16 +6587,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"scheduling workload on a tainted node when the toleration is on ResourceFlavor": {
@@ -6838,16 +6662,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"TAS workload gets scheduled as trimmed by partial admission": {
@@ -6883,16 +6699,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload does not get scheduled as the node capacity (.status.allocatable['pods']) is already used by non-TAS and TAS workloads": {
@@ -6954,12 +6762,9 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`).
+					Obj(),
 			},
 		},
 		"workload with zero value request gets scheduled": {
@@ -6995,16 +6800,8 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 	}
@@ -7257,18 +7054,12 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
-					EventType: "Normal",
-					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 5 more needed. Pending the preemption of 1 workload(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 5 more needed. Pending the preemption of 1 workload(s)`).
+					Obj(),
 			},
 		},
 		"only low priority workload is preempted": {
@@ -7318,18 +7109,12 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
-					EventType: "Normal",
-					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
+					Obj(),
 			},
 		},
 		"With pods count usage pressure on nodes: only low priority workload is preempted": {
@@ -7383,18 +7168,12 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/high-priority-waiting"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
-					EventType: "Normal",
-					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "high-priority-waiting"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "high-priority-waiting", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
+					Obj(),
 			},
 		},
 		"low priority workload is preempted, mid-priority workload survives": {
@@ -7469,18 +7248,12 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
-					EventType: "Normal",
-					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
+					Obj(),
 			},
 		},
 		"low priority workload is preempted even though there is enough capacity, but fragmented": {
@@ -7557,18 +7330,12 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "low-priority-admitted"},
-					EventType: "Normal",
-					Reason:    "Preempted",
-					Message:   "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue",
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s). Pending the preemption of 1 workload(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
+					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s). Pending the preemption of 1 workload(s)`).
+					Obj(),
 			},
 		},
 		"workload with equal priority awaits for other workloads to complete": {
@@ -7631,12 +7398,9 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/mid-priority-waiting"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "mid-priority-waiting"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "mid-priority-waiting", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`).
+					Obj(),
 			},
 		},
 	}
@@ -7882,16 +7646,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"reclaim within cohort; single borrowing workload gets preempted": {
@@ -7940,16 +7696,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantPreempted: sets.New("default/a1-admitted"),
 			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1-admitted"},
-					Reason:    "Preempted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"reclaim within cohort; single workload is preempted out three candidates": {
@@ -8051,16 +7799,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantPreempted: sets.New("default/a1-admitted"),
 			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1-admitted"},
-					Reason:    "Preempted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
+				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"reclaim within cohort; preempting with partial admission": {
@@ -8140,16 +7880,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantPreempted: sets.New("default/a2-admitted"),
 			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a2-admitted"},
-					Reason:    "Preempted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
+				utiltesting.MakeEventRecord("default", "a2-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"reclaim within cohort; capacity reserved by preempting workload does not allow to schedule last workload": {
@@ -8266,26 +7998,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantPreempted: sets.New("default/a2-admitted", "default/a3-admitted"),
 			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "c1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a2-admitted"},
-					Reason:    "Preempted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a3-admitted"},
-					Reason:    "Preempted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "c1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a2-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a3-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"two small workloads considered; both get scheduled on different nodes": {
@@ -8343,26 +8059,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"two small workloads considered; both get scheduled on the same node": {
@@ -8420,26 +8120,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"two small workloads considered; there is only space for one of them on the initial node": {
@@ -8486,21 +8170,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"two workloads considered; there is enough space only for the first": {
@@ -8547,21 +8219,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"two workloads considered; both overlapping in the initial flavor assignment": {
@@ -8610,21 +8270,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
+				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload with targets reserves capacity so that lower priority workload cannot use it": {
@@ -8691,21 +8339,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantPreempted: sets.New("default/a1-admitted"),
 			eventCmpOpts:  cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a2"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a1-admitted"},
-					Reason:    "Preempted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
+				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload without targets reserves capacity so that lower priority workload cannot use it": {
@@ -8773,16 +8409,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a2"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Pending",
-					EventType: corev1.EventTypeWarning,
-				},
+				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload without targets doesn't reserve capacity when it can always reclaim": {
@@ -8847,22 +8475,11 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "QuotaReserved",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "b1"},
-					Reason:    "Admitted",
-					EventType: corev1.EventTypeNormal,
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "a2"},
-					EventType: "Warning",
-					Reason:    "Pending",
-					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s)`,
-				},
+				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "a2", "Pending", "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s)`).
+					Obj(),
 			},
 			wantNewAssignments: map[string]kueue.Admission{
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b", "one").
