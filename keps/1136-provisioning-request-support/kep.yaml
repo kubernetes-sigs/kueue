@@ -27,6 +27,7 @@ milestone:
   stable: "v0.14"
 
 feature-gates:
+  - KeepQuotaForProvReqRetry
   - ProvisioningACC
 
 # The following PRR answers are required at alpha release
