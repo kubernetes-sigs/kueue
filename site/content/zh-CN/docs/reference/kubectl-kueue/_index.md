@@ -4,21 +4,21 @@ linkTitle: "Kubectl Kueue 插件"
 date: 2024-07-02
 weight: 10
 description: >
-  The kubectl-kueue plugin, kueuectl, allows you to list, create, resume and stop kueue resources such as resourceflavor, clusterqueues, localqueues and workloads.
+  kubectl-kueue 插件，即 kueuectl，允许你列出、创建、恢复和停止 Kueue 资源，如 resourceflavor、clusterqueue、localqueue 和 workload。
 ---
 
-## Syntax
+## 语法 {#syntax}
 
-Use the following syntax to run `kubectl kueue` commands from your terminal window:
+使用以下语法从终端窗口运行 `kubectl kueue` 命令：
 
 ```shell
 kubectl kueue [OPERATION] [TYPE] [NAME] [flags]
 ```
 
-or with shorter syntax `kueuectl`:
+或使用更短的语法 `kueuectl`：
 
 ```shell
 kueuectl [OPERATION] [TYPE] [NAME] [flags]
 ```
 
-You can run `kubectl kueue help` in the terminal to get the full list of commands, along with all possible flags.
+你可以在终端中运行 `kubectl kueue help` 来获取完整的命令列表以及所有可能的标志。
