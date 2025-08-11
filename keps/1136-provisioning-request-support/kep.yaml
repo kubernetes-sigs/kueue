@@ -3,16 +3,18 @@ kep-number: 1136
 authors:
   - "@mwielgus"
   - "@pbundyra"
-status: draft
+status: implemented
 creation-date: 2023-09-20
 reviewers:
   - "@kerthcet"
   - "@alculquicondor"
+  - "@PBundyra"
 approvers:
   - "@alculquicondor"
+  - "@mimowo"
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: ga
+stage: stable
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
@@ -22,7 +24,7 @@ latest-milestone: "v0.14"
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
   beta: "v0.5"
-  ga: "v0.14"
+  stable: "v0.14"
 
 feature-gates:
   - ProvisioningACC

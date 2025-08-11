@@ -135,8 +135,6 @@ If you're using an older version of Kueue, you can verify the feature gate is en
 kubectl describe pod -n kueue-system kueue-controller-manager-
 ```
 
-For versions before v0.7.0, ensure the arguments include `--feature-gates=ProvisioningACC=true`.
-
 ### b. Ensure your Workload has reserved quota
 
 To check if your Workload has reserved quota in a ClusterQueue check your Workload's status by running the following command:
