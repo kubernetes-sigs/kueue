@@ -1691,3 +1691,26 @@ func AppendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, 
 		BlockOwnerDeletion: blockDeletion,
 	}))
 }
+
+type EventRecordWrapper struct {
+	EventRecord
+}
+
+func MakeEventRecord(namespace, name, reason, eventType string) *EventRecordWrapper {
+	return &EventRecordWrapper{
+		EventRecord: EventRecord{
+			Key:       types.NamespacedName{Namespace: namespace, Name: name},
+			Reason:    reason,
+			EventType: eventType,
+		},
+	}
+}
+
+func (e *EventRecordWrapper) Message(message string) *EventRecordWrapper {
+	e.EventRecord.Message = message
+	return e
+}
+
+func (e *EventRecordWrapper) Obj() EventRecord {
+	return e.EventRecord
+}
