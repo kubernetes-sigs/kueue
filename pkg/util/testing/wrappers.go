@@ -1762,3 +1762,53 @@ func (t *TopologyAssignmentWrapper) Domain(domain kueue.TopologyDomainAssignment
 func (t *TopologyAssignmentWrapper) Obj() *kueue.TopologyAssignment {
 	return &t.TopologyAssignment
 }
+
+type PodSetAssignmentWrapper struct {
+	kueue.PodSetAssignment
+}
+
+func MakePodSetAssignment(name kueue.PodSetReference) *PodSetAssignmentWrapper {
+	return &PodSetAssignmentWrapper{
+		PodSetAssignment: kueue.PodSetAssignment{
+			Name:          name,
+			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+			ResourceUsage: make(corev1.ResourceList),
+			Count:         ptr.To[int32](1),
+		},
+	}
+}
+
+func (p *PodSetAssignmentWrapper) Obj() kueue.PodSetAssignment {
+	return p.PodSetAssignment
+}
+
+func (p *PodSetAssignmentWrapper) Flavor(resource corev1.ResourceName, flavor kueue.ResourceFlavorReference) *PodSetAssignmentWrapper {
+	if p.Flavors == nil {
+		p.Flavors = make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	}
+	p.Flavors[resource] = flavor
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName, quantity string) *PodSetAssignmentWrapper {
+	if p.PodSetAssignment.ResourceUsage == nil {
+		p.PodSetAssignment.ResourceUsage = make(corev1.ResourceList)
+	}
+	p.PodSetAssignment.ResourceUsage[resourceName] = resource.MustParse(quantity)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.Count = ptr.To(count)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) TopologyAssignment(ta *kueue.TopologyAssignment) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.TopologyAssignment = ta
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.DelayedTopologyRequest = ptr.To(state)
+	return p
+}
