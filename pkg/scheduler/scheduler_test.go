@@ -4696,22 +4696,12 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "launcher", "worker").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
 					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "0").
 					AssignmentPodCountWithIndex(1, 0).
-					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-					}).
+					TopologyAssignmentWithIndex(1, utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).Obj()).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -4750,17 +4740,10 @@ func TestScheduleForTAS(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
 					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -4818,17 +4801,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-reservation", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -4854,17 +4830,9 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -4874,17 +4842,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; preferred; fit in different rack": {
@@ -4905,23 +4866,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -4931,23 +4879,11 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-							{
-								Count: 1,
-								Values: []string{
-									"x5",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x5"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; preferred; no fit": {
@@ -4968,17 +4904,9 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "3000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -4988,17 +4916,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "3000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x0",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
@@ -5024,23 +4945,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-									{
-										Count: 1,
-										Values: []string{
-											"x2",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -5050,23 +4958,11 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x2",
-								},
-							},
-							{
-								Count: 1,
-								Values: []string{
-									"x3",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; required rack for a single node; fit": {
@@ -5087,17 +4983,9 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -5107,17 +4995,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 		},
 		"workload with nodeToReplace annotation; second pass; required rack; no fit": {
@@ -5138,23 +5019,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -5164,23 +5032,11 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x0",
-								},
-							},
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
@@ -5211,30 +5067,14 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one", "two").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x0",
-										},
-									},
-								},
-							}).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
 							AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCountWithIndex(1, 1).
-							TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).
+							TopologyAssignmentWithIndex(1, utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
@@ -5244,30 +5084,14 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one", "two").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x2",
-								},
-							},
-						},
-					}).
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+						Obj()).
 					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCountWithIndex(1, 1).
-					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).
+					TopologyAssignmentWithIndex(1, utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
 					Obj(),
 			},
 		},
@@ -5315,17 +5139,10 @@ func TestScheduleForTAS(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "tas-default", "26").
 					AssignmentPodCount(26).
 					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 26,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 26).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5394,17 +5211,10 @@ func TestScheduleForTAS(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "tas-second", "1000m").
 					AssignmentPodCount(1).
 					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5478,17 +5288,9 @@ func TestScheduleForTAS(t *testing.T) {
 										corev1.ResourceCPU: resource.MustParse("1"),
 									},
 									Count: ptr.To[int32](1),
-									TopologyAssignment: &kueue.TopologyAssignment{
-										Levels: utiltas.Levels(&defaultSingleLevelTopology),
-										Domains: []kueue.TopologyDomainAssignment{
-											{
-												Count: 1,
-												Values: []string{
-													"x1",
-												},
-											},
-										},
-									},
+									TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj(),
 								},
 								kueue.PodSetAssignment{
 									Name: "two",
@@ -5521,17 +5323,9 @@ func TestScheduleForTAS(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("1"),
 							},
 							Count: ptr.To[int32](1),
-							TopologyAssignment: &kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							},
+							TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj(),
 						},
 						kueue.PodSetAssignment{
 							Name: "two",
@@ -5543,17 +5337,9 @@ func TestScheduleForTAS(t *testing.T) {
 							},
 							Count:                  ptr.To[int32](1),
 							DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStateReady),
-							TopologyAssignment: &kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							},
+							TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj(),
 						},
 					).Obj(),
 			},
@@ -5652,17 +5438,10 @@ func TestScheduleForTAS(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "tas-second", "1000m").
 					AssignmentPodCount(1).
 					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5722,17 +5501,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5762,17 +5534,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5806,17 +5571,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5905,17 +5663,9 @@ func TestScheduleForTAS(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("500m"),
 							},
 							Count: ptr.To[int32](1),
-							TopologyAssignment: &kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							},
+							TopologyAssignment: utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj(),
 						},
 					).
 					Obj(),
@@ -5944,17 +5694,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6030,17 +5773,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-custom-flavor", "1").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: []string{"cloud.com/custom-level"},
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{"cloud.com/custom-level"}).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6090,17 +5826,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -6174,17 +5903,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "400m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -6197,17 +5919,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "500m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6236,17 +5951,10 @@ func TestScheduleForTAS(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "tas-default", "500m").
 							Assignment(corev1.ResourceMemory, "tas-default", "500Mi").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -6261,17 +5969,10 @@ func TestScheduleForTAS(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "tas-default", "500m").
 					Assignment(corev1.ResourceMemory, "tas-default", "500Mi").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6384,36 +6085,15 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "launcher", "worker").
 					AssignmentWithIndex(0, corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCountWithIndex(0, 1).
-					TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).
+					TopologyAssignmentWithIndex(0, utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
 					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "15000m").
 					AssignmentPodCountWithIndex(1, 15).
-					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 7,
-								Values: []string{
-									"x1",
-								},
-							},
-							{
-								Count: 8,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).
+					TopologyAssignmentWithIndex(1, utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 7).Obj()).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 8).Obj()).
+						Obj()).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -6472,36 +6152,15 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "launcher", "worker").
 					AssignmentWithIndex(0, corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCountWithIndex(0, 1).
-					TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).
+					TopologyAssignmentWithIndex(0, utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
 					AssignmentWithIndex(1, corev1.ResourceCPU, "tas-default", "15000m").
 					AssignmentPodCountWithIndex(1, 15).
-					TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 7,
-								Values: []string{
-									"x1",
-								},
-							},
-							{
-								Count: 8,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).
+					TopologyAssignmentWithIndex(1, utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 7).Obj()).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 8).Obj()).
+						Obj()).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -6550,17 +6209,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -6573,17 +6225,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6648,17 +6293,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6685,17 +6323,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -6739,17 +6370,10 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "150m").
 							AssignmentPodCount(2).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 2,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 2).
@@ -6786,17 +6410,10 @@ func TestScheduleForTAS(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "tas-default", "0").
 					Assignment(corev1.ResourceMemory, "tas-default", "10Mi").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -7030,17 +6647,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"z1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"z1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7085,17 +6695,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7144,17 +6747,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7199,17 +6795,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "2").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7224,17 +6813,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "2").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7281,17 +6863,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "4").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7306,17 +6881,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "4").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7372,17 +6940,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "4").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7626,23 +7187,11 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "6").
 					AssignmentPodCount(6).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-							{
-								Count: 5,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 5).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -7664,17 +7213,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(5).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 5,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 5).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 5).
@@ -7716,17 +7258,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(5).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 5,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 5).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 5).
@@ -7741,17 +7276,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "2").
 							AssignmentPodCount(2).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 2,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 2).
@@ -7766,17 +7294,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7820,17 +7341,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(5).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 5,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 5).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 4).
@@ -7845,17 +7359,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "3").
 							AssignmentPodCount(3).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 3,
-										Values: []string{
-											"x1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 3).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 3).
@@ -7900,23 +7407,11 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "5").
 							AssignmentPodCount(5).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 3,
-										Values: []string{
-											"x1",
-										},
-									},
-									{
-										Count: 2,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 3).Obj()).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 5).
@@ -7931,17 +7426,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -7956,17 +7444,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1").
 							AssignmentPodCount(1).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 1).
@@ -8031,31 +7512,17 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "5").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b", "one").
 					Assignment(corev1.ResourceMemory, "tas-default", "5").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -8092,31 +7559,17 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "2").
 					AssignmentPodCount(2).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 2,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -8153,17 +7606,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "1").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]string{
 				"tas-cq-b": {"default/b1"},
@@ -8205,17 +7651,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "5").
 					AssignmentPodCount(5).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 5,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 5).Obj()).
+						Obj()).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -8253,17 +7692,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "2").
 					AssignmentPodCount(1).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 1,
-								Values: []string{
-									"x1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]string{
 				"tas-cq-b": {"default/b1"},
@@ -8297,17 +7729,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "2").
 							AssignmentPodCount(2).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 2,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 2).
@@ -8366,17 +7791,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "2").
 							AssignmentPodCount(2).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 2,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 2).
@@ -8435,17 +7853,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						utiltesting.MakeAdmission("tas-cq-a", "one").
 							Assignment(corev1.ResourceCPU, "tas-default", "2").
 							AssignmentPodCount(2).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: utiltas.Levels(&defaultSingleLevelTopology),
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 2,
-										Values: []string{
-											"y1",
-										},
-									},
-								},
-							}).Obj(),
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
+								Obj()).
+							Obj(),
 					).
 					Admitted(true).
 					PodSets(*utiltesting.MakePodSet("one", 2).
@@ -8485,17 +7896,10 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b", "one").
 					Assignment(corev1.ResourceCPU, "tas-default", "3").
 					AssignmentPodCount(3).
-					TopologyAssignment(&kueue.TopologyAssignment{
-						Levels: utiltas.Levels(&defaultSingleLevelTopology),
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count: 3,
-								Values: []string{
-									"y1",
-								},
-							},
-						},
-					}).Obj(),
+					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 3).Obj()).
+						Obj()).
+					Obj(),
 			},
 		},
 	}
