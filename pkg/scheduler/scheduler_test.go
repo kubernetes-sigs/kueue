@@ -172,78 +172,14 @@ func TestSchedule(t *testing.T) {
 			Obj(),
 	}
 	queues := []kueue.LocalQueue{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "sales",
-				Name:      "main",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "sales",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "sales",
-				Name:      "blocked",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-alpha",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "eng-alpha",
-				Name:      "main",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-alpha",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "eng-beta",
-				Name:      "main",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-beta",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "sales",
-				Name:      "flavor-nonexistent-queue",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "flavor-nonexistent-cq",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "sales",
-				Name:      "cq-nonexistent-queue",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "nonexistent-cq",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "lend",
-				Name:      "lend-a-queue",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "lend-a",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "lend",
-				Name:      "lend-b-queue",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "lend-b",
-			},
-		},
+		*utiltesting.MakeLocalQueue("main", "sales").ClusterQueue("sales").Obj(),
+		*utiltesting.MakeLocalQueue("blocked", "sales").ClusterQueue("eng-alpha").Obj(),
+		*utiltesting.MakeLocalQueue("main", "eng-alpha").ClusterQueue("eng-alpha").Obj(),
+		*utiltesting.MakeLocalQueue("main", "eng-beta").ClusterQueue("eng-beta").Obj(),
+		*utiltesting.MakeLocalQueue("flavor-nonexistent-queue", "sales").ClusterQueue("flavor-nonexistent-cq").Obj(),
+		*utiltesting.MakeLocalQueue("cq-nonexistent-queue", "sales").ClusterQueue("nonexistent-cq").Obj(),
+		*utiltesting.MakeLocalQueue("lend-a-queue", "lend").ClusterQueue("lend-a").Obj(),
+		*utiltesting.MakeLocalQueue("lend-b-queue", "lend").ClusterQueue("lend-b").Obj(),
 	}
 	cases := map[string]struct {
 		// Features
@@ -1102,15 +1038,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-gamma",
-						Name:      "main",
-					},
-					Spec: kueue.LocalQueueSpec{
-						ClusterQueue: "eng-gamma",
-					},
-				},
+				*utiltesting.MakeLocalQueue("main", "eng-gamma").ClusterQueue("eng-gamma").Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
@@ -1480,24 +1408,8 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-alpha",
-						Name:      "lq_a",
-					},
-					Spec: kueue.LocalQueueSpec{
-						ClusterQueue: "cq_a",
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "lq_b",
-					},
-					Spec: kueue.LocalQueueSpec{
-						ClusterQueue: "cq_b",
-					},
-				},
+				*utiltesting.MakeLocalQueue("lq_a", "eng-alpha").ClusterQueue("cq_a").Obj(),
+				*utiltesting.MakeLocalQueue("lq_b", "eng-beta").ClusterQueue("cq_b").Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "eng-alpha").
@@ -4039,42 +3951,10 @@ func TestLastSchedulingContext(t *testing.T) {
 	}
 
 	queues := []kueue.LocalQueue{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "main",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-alpha",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "main-alpha",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-cohort-alpha",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "main-beta",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-cohort-beta",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "main-theta",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "eng-cohort-theta",
-			},
-		},
+		*utiltesting.MakeLocalQueue("main", "default").ClusterQueue("eng-alpha").Obj(),
+		*utiltesting.MakeLocalQueue("main-alpha", "default").ClusterQueue("eng-cohort-alpha").Obj(),
+		*utiltesting.MakeLocalQueue("main-beta", "default").ClusterQueue("eng-cohort-beta").Obj(),
+		*utiltesting.MakeLocalQueue("main-theta", "default").ClusterQueue("eng-cohort-theta").Obj(),
 	}
 	cases := []struct {
 		name                           string
@@ -4960,15 +4840,7 @@ func TestScheduleForTAS(t *testing.T) {
 		AdmissionChecks(kueue.AdmissionCheckReference(defaultCustomCheck.Name)).
 		Obj()
 	queues := []kueue.LocalQueue{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "tas-main",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "tas-main",
-			},
-		},
+		*utiltesting.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 	cases := map[string]struct {
@@ -7556,15 +7428,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			Resource(corev1.ResourceMemory, "50Gi").Obj()).
 		Obj()
 	queues := []kueue.LocalQueue{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "tas-main",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "tas-main",
-			},
-		},
+		*utiltesting.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
 	}
 	cases := map[string]struct {
 		nodes           []corev1.Node
@@ -8202,33 +8066,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			Resource(corev1.ResourceMemory, "4Gi").Obj()).
 		Obj()
 	queues := []kueue.LocalQueue{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "tas-lq-a",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "tas-cq-a",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "tas-lq-b",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "tas-cq-b",
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "tas-lq-c",
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: "tas-cq-c",
-			},
-		},
+		*utiltesting.MakeLocalQueue("tas-lq-a", "default").ClusterQueue("tas-cq-a").Obj(),
+		*utiltesting.MakeLocalQueue("tas-lq-b", "default").ClusterQueue("tas-cq-b").Obj(),
+		*utiltesting.MakeLocalQueue("tas-lq-c", "default").ClusterQueue("tas-cq-c").Obj(),
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 	cases := map[string]struct {
