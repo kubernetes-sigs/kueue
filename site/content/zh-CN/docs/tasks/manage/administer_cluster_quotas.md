@@ -1,43 +1,40 @@
 ---
-title: "Administer Cluster Quotas"
+title: "管理集群配额"
 date: 2022-03-14
 weight: 2
 description: >
-  Manage your cluster resource quotas and to establish Fair Sharing rules among the tenants.
+  管理你的集群资源配额，并在租户之间建立公平共享规则。
 ---
 
-This page shows you how to manage your cluster resource quotas and to establish
-Fair Sharing rules among the tenants.
+本页面向你展示如何管理集群资源配额，
+并在租户之间建立公平共享规则。
 
-The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
+本页面的目标读者是[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
 
-## Before you begin
+## 你开始之前 {#before-you-begin}
 
-Make sure the following conditions are met:
+请确保满足以下条件：
 
-- A Kubernetes cluster is running.
-- The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/installation).
+- Kubernetes 集群已运行。
+- kubectl 命令行工具能与你的集群通信。
+- [已安装 Kueue](/zh-CN/docs/installation)。
 
-## Single ClusterQueue and single ResourceFlavor setup
+## 安装单一 ClusterQueue 和 ResourceFlavor {#single-clusterqueue-and-single-resourceflavor-setup}
 
-In the following steps, you will create a queuing system with a single
-ClusterQueue and a single [ResourceFlavor](/docs/concepts/cluster_queue#resourceflavor-object)
-to govern the quota of your cluster.
+在以下步骤中，你将创建一个排队系统用于管理集群的配额，它拥有
+一个 ClusterQueue 和一个 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object)。
 
-You can perform all these steps at once by
-applying [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml):
+你可以通过 apply [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml)一次性完成这些步骤：
 
 ```shell
 kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
 ```
 
-### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue)
+### 1. 创建 [ClusterQueue](/zh-CN/docs/concepts/cluster_queue) {#1-create-clusterqueue}
 
-Create a single ClusterQueue to represent the resource quotas for your entire
-cluster.
+创建一个 ClusterQueue 来表示整个集群的资源配额。
 
-Write the manifest for the ClusterQueue. It should look similar to the following:
+编写 ClusterQueue 的清单文件。应类似如下：
 
 ```yaml
 # cluster-queue.yaml
@@ -58,28 +55,27 @@ spec:
         nominalQuota: 36Gi
 ```
 
-To create the ClusterQueue, run the following command:
+要创建 ClusterQueue，请运行以下命令：
 
 ```shell
 kubectl apply -f cluster-queue.yaml
 ```
 
-This ClusterQueue governs the usage of [resource types](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
-`cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue#resourceflavor-object),
-named `default` with a nominal quota.
+此 ClusterQueue 管理[资源类型](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
+`cpu` 和 `memory` 的使用。每种资源类型都有一个名为 `default` 的 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object)，
+并设置了名义配额。
 
-The empty `namespaceSelector` allows any namespace to use these resources.
+空的 `namespaceSelector` 允许任何命名空间使用这些资源。
 
-### 2. Create a [ResourceFlavor](/docs/concepts/cluster_queue#resourceflavor-object)
+### 2. 创建 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object) {#2-create-resourceflavor}
 
-The ClusterQueue is not ready to be used yet, as the `default` flavor is not
-defined.
+ClusterQueue 目前还不能使用，因为 `default` 风味尚未定义。
 
-Typically, a resource flavor has node labels and/or taints to scope which nodes
-can provide it. However, since we are using a single flavor to represent all the
-resources available in the cluster, you can create an empty ResourceFlavor.
+通常，ResourceFlavor 有节点标签和/或污点，用于限定哪些节点可以提供此 Flavor。
+但由于我们使用单一风味来代表
+集群中所有可用资源，你可以创建一个空的 ResourceFlavor。
 
-Write the manifest for the ResourceFlavor. It should look similar to the following:
+编写 ResourceFlavor 的清单文件。应类似如下：
 
 ```yaml
 # default-flavor.yaml
@@ -89,24 +85,24 @@ metadata:
   name: "default-flavor"
 ```
 
-To create the ResourceFlavor, run the following command:
+要创建 ResourceFlavor，请运行以下命令：
 
 ```shell
 kubectl apply -f default-flavor.yaml
 ```
 
-The `.metadata.name` matches the `.spec.resourceGroups[0].flavors[0].name`
-field in the ClusterQueue.
+`.metadata.name` 字段需与 ClusterQueue 中 `.spec.resourceGroups[0].flavors[0].name`
+字段一致。
 
-### 3. Create [LocalQueues](/docs/concepts/local_queue)
+### 3. 创建 [LocalQueues](/zh-CN/docs/concepts/local_queue) {#3-create-localqueues}
 
-Users cannot directly send [workloads](/docs/concepts/workload) to
-ClusterQueues. Instead, users need to send their workloads to a Queue in their
-namespace.
-Thus, for the queuing system to be complete, you need to create a Queue in
-each namespace that needs access to the ClusterQueue.
+用户不能直接将[工作负载](/zh-CN/docs/concepts/workload)
+发送到 ClusterQueue。
+用户需要将工作负载发送到其命名空间中的队列。
+因此，为了使排队系统完整，
+你需要在每个需要访问 ClusterQueue 的命名空间中创建一个队列。
 
-Write the manifest for the LocalQueue. It should look similar to the following:
+编写 LocalQueue 的清单文件。应类似如下：
 
 ```yaml
 # default-user-queue.yaml
@@ -119,24 +115,23 @@ spec:
   clusterQueue: "cluster-queue"
 ```
 
-To create the LocalQueue, run the following command:
+要创建 LocalQueue，请运行以下命令：
 
 ```shell
 kubectl apply -f default-user-queue.yaml
 ```
 
-## Multiple ResourceFlavors setup
+## 多 ResourceFlavor 设置 {#multiple-resourceflavors-setup}
 
-You can define quotas for different [resource flavors](/docs/concepts/cluster_queue#resourceflavor-object).
+你可以为不同的 [ResourceFlavor](/zh-CN/docs/concepts/cluster_queue#resourceflavor-object)定义配额。
 
-For the rest of this section, assume that your cluster has nodes with two CPU
-architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`.
+本节其余部分假设你的集群有两种 CPU 架构的节点，
+分别为 `x86` 和 `arm`，通过节点标签 `cpu-arch` 指定。
 
+### 1. 创建 ResourceFlavors {#1-create-resourceflavors}
 
-### 1. Create ResourceFlavors
-
-Write the manifests for the ResourceFlavors. They should look similar to the
-following:
+编写 ResourceFlavor 的清单文件。
+应类似如下：
 
 ```yaml
 # flavor-x86.yaml
@@ -160,21 +155,19 @@ spec:
     cpu-arch: arm
 ```
 
-To create the ResourceFlavors, run the following command:
+要创建 ResourceFlavor，请运行以下命令：
 
 ```shell
 kubectl apply -f flavor-x86.yaml -f flavor-arm.yaml
 ```
 
-The labels set in the ResourceFlavors should match the labels in your nodes.
-If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
-(or equivalent controllers), make sure it is configured to add those labels when
-adding new nodes.
+ResourceFlavor 中设置的标签应与你的节点标签一致。
+如果你使用 [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
+或类似控制器，请确保其配置为在添加新节点时添加这些标签。
 
-### 2. Create a ClusterQueue referencing the flavors
+### 2. 创建引用 ResourceFlavor 的 ClusterQueue {#2-create-a-clusterqueue-referencing-the-flavors}
 
-Write the manifest for the ClusterQueue that references the flavors. It should
-look similar to the following:
+编写引用 ResourceFlavor 的 ClusterQueue 清单文件。应类似如下：
 
 ```yaml
 # cluster-queue.yaml
@@ -203,26 +196,25 @@ spec:
         nominalQuota: 84Gi
 ```
 
-The flavor names in the fields `.spec.resourceGroups[*].flavors[*].name`
-should match the names of the ResourceFlavors created earlier.
+`.spec.resourceGroups[*].flavors[*].name`
+字段中的风味名称应与前面创建的 ResourceFlavor 名称一致。
 
-Note that `memory` is referencing the `default-flavor` flavor created in the [single flavor setup.](#single-clusterqueue-and-single-resourceflavor-setup)
-This means that you don't want to distinguish if the memory is given from `x86`
-or `arm` nodes.
+注意，`memory` 引用了在[单一风味设置](#single-clusterqueue-and-single-resourceflavor-setup)
+中创建的 `default-flavor` 风味。
+这意味着你不区分内存来自 `x86` 还是 `arm` 节点。
 
-To create the ClusterQueue, run the following command:
+要创建 ClusterQueue，请运行以下命令：
 
 ```shell
 kubectl apply -f cluster-queue.yaml
 ```
 
-## Multiple ClusterQueues and borrowing cohorts
+## 多 ClusterQueue 与借用 cohort {#multiple-clusterqueues-and-borrowing-cohorts}
 
-Two or more ClusterQueues can borrow unused quota from other ClusterQueues in
-the same [cohort](/docs/concepts/cluster_queue#cohort).
+两个或多个 ClusterQueue 可以在同一 [cohort](/zh-CN/docs/concepts/cluster_queue#cohort)
+中相互借用未使用的配额。
 
-Using the following example, you can establish a cohort `team-ab` that includes
-ClusterQueues `team-a-cq` and `team-b-cq`.
+通过以下示例，你可以建立一个包含 ClusterQueue `team-a-cq` 和 `team-b-cq` 的 cohort `team-ab`。
 
 ```yaml
 # team-a-cq.yaml
@@ -265,27 +257,26 @@ spec:
         nominalQuota: 48Gi
 ```
 
-Note that the ClusterQueue `team-a-cq` also defines [borrowingLimit](/docs/concepts/cluster_queue#borrowingLimit).
-This restricts the ability of the ClusterQueue to borrow the unused quota from
-the cohort up to the configured `borrowingLimit`, even if the quota is completely unused.
+注意，ClusterQueue `team-a-cq` 还定义了 [borrowingLimit](/zh-CN/docs/concepts/cluster_queue#borrowingLimit)。
+这限制了 ClusterQueue 从 cohort 借用未使用配额的能力，
+最多只能借用到配置的 `borrowingLimit`，即使配额完全未被使用。
 
-To create these ClusterQueues, save the preceding manifests and run the
-following command:
+要创建这些 ClusterQueue，
+请保存上述清单并运行以下命令：
 
 ```shell
 kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 ```
 
-## Multiple ClusterQueue with dedicated and fallback flavors
+## 多个 ClusterQueue 包含专用和回退资源类型 {#multiple-clusterqueue-with-dedicated-and-fallback-flavors}
 
-A ClusterQueue can borrow resources from the [cohort](/docs/concepts/cluster_queue#cohort)
-even if the ClusterQueue has zero nominalQuota for a flavor. This allows you to
-give dedicated quota for a flavor and fallback to quota for a different flavor,
-shared with other tenants.
+即使 ClusterQueue 某个风味的 nominalQuota 为零，
+也可以从 [cohort](/zh-CN/docs/concepts/cluster_queue#cohort)
+借用资源。这允许你为某个风味分配专用配额，并在需要时回退到与其他租户共享的风味配额。
 
-Such setup can be accomplished with a ClusterQueue for each tenant and an extra
-ClusterQueue for the shared resources. For example, the manifests for two
-tenants look like the following:
+这种设置可以通过为每个租户创建一个 ClusterQueue，
+并为共享资源创建一个额外的 ClusterQueue 实现。
+例如，两个租户的清单如下：
 
 ```yaml
 # team-a-cq.yaml
@@ -369,29 +360,27 @@ spec:
         nominalQuota: 24Gi
 ```
 
-Note the following setup:
+请注意以下设置：
 
-- `team-a-cq` and `team-b-cq` define a `borrowingLimit: 0` 
-  for the `arm` flavor. Therefore, they can't borrow this flavor from each
-  other.
-- `team-a-cq` and `team-b-cq` define `nominalQuota: 0` for the `x86` flavor.
-  Therefore, they don't have any dedicated quota for the flavor and they can
-  only borrow it from `shared-cq`.
+- `team-a-cq` 和 `team-b-cq` 为 `arm` 风味定义了 `borrowingLimit: 0`，
+  因此它们不能相互借用该风味。
+- `team-a-cq` 和 `team-b-cq` 为 `x86` 风味定义了 `nominalQuota: 0`，
+  因此它们没有该风味的专用配额，
+  只能从 `shared-cq` 借用。
 
-To create these ClusterQueues, save the preceding manifests and run the
-following command:
+要创建这些 ClusterQueue，
+请保存上述清单并运行以下命令：
 
 ```shell
 kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
 ```
 
-## Exclude arbitrary resources in the quota management 
-By default, administrators must specify all resources required by Pods in the ClusterQueues `.spec.resourceGroups[*]`.
-If you want to exclude some resources in the ClusterQueues quota management and admission process, 
-you can specify the resource prefixes in the Kueue Configuration as a cluster-level setting.
+## 在配额管理中排除任意资源 {#exclude-arbitrary-resources-in-the-quota-management}
+默认情况下，管理员必须在 ClusterQueue 的 `.spec.resourceGroups[*]` 中指定 Pod 所需的所有资源。
+如果你希望在 ClusterQueue 配额管理和准入过程中排除某些资源，可以在 Kueue 配置中以集群级别设置资源前缀。
 
-Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version) 
-and extend the configuration with fields similar to the following:
+请按照[使用自定义配置的安装说明](/zh-CN/docs/installation#install-a-custom-configured-released-version)
+操作，并在配置中添加如下字段：
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -401,31 +390,30 @@ resources:
   - "example.com"
 ```
 
-## Transform resources for quota management
+## 配额管理的资源转换 {#transform-resources-for-quota-management}
 
 {{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="Note" color="primary" %}}
+{{% alert title="注意" color="primary" %}}
 
-`ConfigurableResourceTransformation` is a Beta feature that is enabled by default.
+`ConfigurableResourceTransformation` 是一个 Beta 特性，默认启用。
 
-You can disable it by setting the `ConfigurableResourceTransformation` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+你可以通过设置 `ConfigurableResourceTransformation` 特性开关来禁用它。详细的特性开关配置请查阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
 {{% /alert %}}
 
-An administrator may customize how the resources requested by Pods are
-converted into Workload resource requests. This enables
-the admission and quota calculations done by ClusterQueues to be performed
-on a transformed set of resources requirements without changing
-the resource requests and limits that the Pods created by the Workload
-will present to the Kubernetes Scheduler when the Workload is admitted by
-a ClusterQueue. Customizations are defined by specifying resource transformations
-in the Kueue configuration as a cluster-level setting.
+管理员可以自定义 Pod 请求的资源是如何转换成 Workload 的资源请求的。
+这样，ClusterQueue 在执行准入（admission）和配额（quota）计算时，
+可以基于转换后的资源需求进行，
+而无需更改 Workload
+在被 ClusterQueue 接受后、其创建的 Pod 向 Kubernetes Scheduler 所呈现的资源请求与限制。
+这种自定义通过在 Kueue 配置中指定 资源转换规则 来实现，
+并作为集群级别的设置生效。
 
-The supported transformations enable mapping an input resource into one or more
-output resources by multiplying the input resource quantity by a scaling factor.
-The input resource may either be retained (default) or removed from the transformed resources. If no transformation is defined for an input resource, it is retained without change.
+支持的转换允许通过乘以缩放因子，将输入资源映射为一个或多个输出资源。
+输入资源可以保留（默认）或从转换后的资源中移除。
+如果未为输入资源定义转换，则保持不变。
 
-Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
-and extend the Kueue configuration with fields similar to the following:
+请按照[使用自定义配置的安装说明](/zh-CN/docs/installation#install-a-custom-configured-released-version)
+操作，并在 Kueue 配置中添加如下字段：
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -448,7 +436,7 @@ resources:
       example.com/credits: 1
 ```
 
-With this example configuration, a Pod that requests:
+有了此配置，Pod 请求如下：
 ```yaml
     resources:
       requests:
@@ -459,7 +447,7 @@ With this example configuration, a Pod that requests:
         example.com/gpu-type2: 1
 ```
 
-The Workload obtains an effective resource requests for quota purposes:
+Workload 获得的有效资源请求为：
 
 ```yaml
     resources:
