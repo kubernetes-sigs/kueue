@@ -1,3 +1,20 @@
+## v0.12.7
+
+Changes since `v0.12.6`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix support for PodGroup integration used by external controllers, which determine the
+  the target LocalQueue and the group size only later. In that case the hash would not be
+  computed resulting in downstream issues for ProvisioningRequest.
+
+  Now such an external controller can indicate the control over the PodGroup by adding
+  the `kueue.x-k8s.io/pod-suspending-parent` annotation, and later patch the Pods by setting
+  other metadata, like the kueue.x-k8s.io/queue-name label to initiate scheduling of the PodGroup. (#6463, @pawloch00)
+- TAS: fix the bug that Kueue is crashing when PodSet has size 0, eg. no workers in LeaderWorkerSet instance. (#6524, @mimowo)
+
 ## v0.12.6
 
 Changes since `v0.12.5`:
