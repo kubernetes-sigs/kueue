@@ -1698,3 +1698,51 @@ func (e *EventRecordWrapper) Message(message string) *EventRecordWrapper {
 func (e *EventRecordWrapper) Obj() EventRecord {
 	return e.EventRecord
 }
+
+type TopologyDomainAssignmentWrapper struct {
+	kueue.TopologyDomainAssignment
+}
+
+func MakeTopologyDomainAssignment(values []string, count int32) *TopologyDomainAssignmentWrapper {
+	return &TopologyDomainAssignmentWrapper{
+		TopologyDomainAssignment: kueue.TopologyDomainAssignment{
+			Values: values,
+			Count:  count,
+		},
+	}
+}
+
+func (t *TopologyDomainAssignmentWrapper) Obj() kueue.TopologyDomainAssignment {
+	return t.TopologyDomainAssignment
+}
+
+type TopologyAssignmentWrapper struct {
+	kueue.TopologyAssignment
+}
+
+func MakeTopologyAssignment(levels []string) *TopologyAssignmentWrapper {
+	return &TopologyAssignmentWrapper{
+		TopologyAssignment: kueue.TopologyAssignment{
+			Levels: levels,
+		},
+	}
+}
+
+func (t *TopologyAssignmentWrapper) Levels(levels ...string) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Levels = levels
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Domains(domains ...kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Domains = domains
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Domain(domain kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Domains = append(t.TopologyAssignment.Domains, domain)
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Obj() *kueue.TopologyAssignment {
+	return &t.TopologyAssignment
+}
