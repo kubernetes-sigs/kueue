@@ -693,6 +693,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	if prevQueue != e.ObjectNew.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
 	}
+
 	prevStatus := workload.Status(e.ObjectOld)
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
@@ -706,6 +707,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
+	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 	if features.Enabled(features.DynamicResourceAllocation) && status == workload.StatusPending {
 		cqName, _ := r.queues.ClusterQueueForWorkload(e.ObjectNew)
@@ -958,7 +960,6 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 			}
 		}
 
-		// Use original workload (not copy) since InfoOptions approach doesn't require mutation
 		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}

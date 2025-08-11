@@ -41,7 +41,6 @@ func Test_GetResourceRequests(t *testing.T) {
 	_ = kueuev1beta1.AddToScheme(scheme)
 	_ = resourcev1beta2.AddToScheme(scheme)
 
-	// Shared objects for all test cases.
 	tmpl := &resourcev1beta2.ResourceClaimTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-1", Namespace: "ns1"},
 		Spec: resourcev1beta2.ResourceClaimTemplateSpec{

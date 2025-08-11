@@ -413,7 +413,7 @@ func TestReconcile(t *testing.T) {
 			workload: func() *kueue.Workload {
 				wl := utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
 					Queue("lq").
-					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("gpus", "flavor1", "1").Obj()).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
@@ -428,7 +428,7 @@ func TestReconcile(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
-						Resource("example.com/gpu", "2").Obj(),
+						Resource("gpus", "2").Obj(),
 				).Obj(),
 			lq:           utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: nil,
@@ -446,7 +446,7 @@ func TestReconcile(t *testing.T) {
 				wl := utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
 					Queue("lq").
 					// Admit first, but the workload is suspended
-					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("gpus", "flavor1", "1").Obj()).
 					Admitted(true).
 					Active(false).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
@@ -463,7 +463,7 @@ func TestReconcile(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
-						Resource("example.com/gpu", "2").Obj(),
+						Resource("gpus", "2").Obj(),
 				).Obj(),
 			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantEvents: []utiltesting.EventRecord{{
@@ -477,7 +477,7 @@ func TestReconcile(t *testing.T) {
 			workload: func() *kueue.Workload {
 				wl := utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
 					Queue("lq").
-					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("gpus", "flavor1", "1").Obj()).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
@@ -498,7 +498,7 @@ func TestReconcile(t *testing.T) {
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
-						Resource("example.com/gpu", "2").Obj(),
+						Resource("gpus", "2").Obj(),
 				).Obj(),
 			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantEvents: []utiltesting.EventRecord{{
@@ -2126,7 +2126,7 @@ func TestReconcile(t *testing.T) {
 				wl := utiltesting.MakeWorkload("wl-no-quota-suspended", "ns").
 					Queue("lq").
 					// Reserve once to simulate prior reservation, then mark admitted+suspended
-					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("example.com/gpu", "flavor1", "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("gpus", "flavor1", "1").Obj()).
 					Admitted(true).
 					Active(false).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
@@ -2141,11 +2141,11 @@ func TestReconcile(t *testing.T) {
 				}}
 				return wl
 			}(),
-			// ClusterQueue with insufficient quota: flavor has 0 for example.com/gpu
+			// ClusterQueue with insufficient quota: flavor has 0 for gpus
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
-						Resource("example.com/gpu", "0").Obj(),
+						Resource("gpus", "0").Obj(),
 				).Obj(),
 			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantEvents: []utiltesting.EventRecord{{
@@ -2176,7 +2176,7 @@ func TestReconcile(t *testing.T) {
 						Devices: resourcev1beta2.DeviceClaim{
 							Requests: []resourcev1beta2.DeviceRequest{{
 								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "example.com/foo",
+									DeviceClassName: "gpu.example.com",
 									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
 									Count:           count,
 								},
@@ -2224,8 +2224,8 @@ func TestReconcile(t *testing.T) {
 				cqCache.AddOrUpdateDynamicResourceAllocationConfig(log, &kueuealpha.DynamicResourceAllocationConfig{
 					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 						Resources: []kueuealpha.DynamicResource{{
-							Name:             corev1.ResourceName("example.com/gpu"),
-							DeviceClassNames: []corev1.ResourceName{"example.com/foo"},
+							Name:             corev1.ResourceName("gpus"),
+							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
 						}},
 					},
 				})
