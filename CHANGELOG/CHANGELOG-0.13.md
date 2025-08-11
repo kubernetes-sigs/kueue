@@ -1,3 +1,22 @@
+## v0.13.2
+
+Changes since `v0.13.1`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- ElasticJobs: Fix the bug that scheduling of the Pending workloads was not triggered on scale-down of the running 
+  elastic Job which could result in admitting one or more of the queued workloads. (#6407, @ichekrygin)
+- Fix support for PodGroup integration used by external controllers, which determine the 
+  the target LocalQueue and the group size only later. In that case the hash would not be 
+  computed resulting in downstream issues for ProvisioningRequest.
+  
+  Now such an external controller can indicate the control over the PodGroup by adding
+  the `kueue.x-k8s.io/pod-suspending-parent` annotation, and later patch the Pods by setting
+  other metadata, like the kueue.x-k8s.io/queue-name label to initiate scheduling of the PodGroup. (#6461, @pawloch00)
+- TAS: fix the bug that Kueue is crashing when PodSet has size 0, eg. no workers in LeaderWorkerSet instance. (#6522, @mimowo)
+
 ## v0.13.1
 
 Changes since `v0.13.0`:
