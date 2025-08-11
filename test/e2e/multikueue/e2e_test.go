@@ -898,17 +898,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAc.Name))).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    kueue.AdmissionCheckReference(multiKueueAc.Name),
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker2"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-					g.Expect(ptr.Deref(createdLeaderWorkload.Status.ClusterName, "")).To(gomega.Equal(workerCluster2.Name))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker2")
 
+			ginkgo.By("Waiting for the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
