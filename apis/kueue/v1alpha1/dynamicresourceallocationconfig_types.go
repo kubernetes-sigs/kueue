@@ -22,12 +22,13 @@ import (
 )
 
 // +genclient
+// +genclient:nonNamespaced
 // +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:storageversion
 
 // DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
-// in the cluster. Only one instance named "default" in the configured namespace
-// is allowed.
+// in the cluster. Only one instance named "default" is allowed.
 type DynamicResourceAllocationConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -30,14 +30,12 @@ import (
 )
 
 // DynamicResourceAllocationConfigWebhook validates create / update requests.
-type DynamicResourceAllocationConfigWebhook struct {
-	namespace string
-}
+type DynamicResourceAllocationConfigWebhook struct{}
 
-func setupWebhookForDynamicResourceAllocationConfig(mgr ctrl.Manager, namespace string) error {
+func setupWebhookForDynamicResourceAllocationConfig(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueuev1alpha1.DynamicResourceAllocationConfig{}).
-		WithValidator(&DynamicResourceAllocationConfigWebhook{namespace: namespace}).
+		WithValidator(&DynamicResourceAllocationConfigWebhook{}).
 		Complete()
 }
 
@@ -53,8 +51,11 @@ func (w *DynamicResourceAllocationConfigWebhook) ValidateCreate(_ context.Contex
 	draCfg := obj.(*kueuev1alpha1.DynamicResourceAllocationConfig)
 
 	var allErrs field.ErrorList
-	if draCfg.Namespace != w.namespace {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "namespace"), draCfg.Namespace, "must be '"+w.namespace+"'"))
+	if draCfg.Name != "default" {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "name"), draCfg.Name, "must be 'default'"))
+	}
+	if draCfg.Namespace != "" {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "namespace"), draCfg.Namespace, "must be empty for cluster-scoped resource"))
 	}
 
 	allErrs = append(allErrs, validateDynamicResourceAllocationConfig(draCfg)...)
@@ -76,8 +77,8 @@ func (w *DynamicResourceAllocationConfigWebhook) ValidateUpdate(_ context.Contex
 	if draCfg.Name != "default" {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "name"), draCfg.Name, "must be 'default'"))
 	}
-	if draCfg.Namespace != w.namespace {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "namespace"), draCfg.Namespace, "must be '"+w.namespace+"'"))
+	if draCfg.Namespace != "" {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "namespace"), draCfg.Namespace, "must be empty for cluster-scoped resource"))
 	}
 
 	allErrs = append(allErrs, validateDynamicResourceAllocationConfig(draCfg)...)

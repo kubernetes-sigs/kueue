@@ -36,18 +36,16 @@ import (
 // mapping in sync with the singleton DynamicResourceAllocationConfig object.
 // It is only registered when the DynamicResourceAllocation feature gate is enabled.
 type DynamicResourceAllocationConfigReconciler struct {
-	client    client.Client
-	cache     *cache.Cache
-	log       logr.Logger
-	namespace string
+	client client.Client
+	cache  *cache.Cache
+	log    logr.Logger
 }
 
-func NewDRAConfigReconciler(client client.Client, c *cache.Cache, namespace string) *DynamicResourceAllocationConfigReconciler {
+func NewDRAConfigReconciler(client client.Client, c *cache.Cache) *DynamicResourceAllocationConfigReconciler {
 	return &DynamicResourceAllocationConfigReconciler{
-		client:    client,
-		cache:     c,
-		log:       ctrl.Log.WithName("dra-config-reconciler"),
-		namespace: namespace,
+		client: client,
+		cache:  c,
+		log:    ctrl.Log.WithName("dra-config-reconciler"),
 	}
 }
 
@@ -74,14 +72,14 @@ func (r *DynamicResourceAllocationConfigReconciler) SetupWithManager(mgr ctrl.Ma
 		Named("dynamicresourceallocationconfig_controller").
 		For(&kueuealpha.DynamicResourceAllocationConfig{}).
 		WithEventFilter(predicate.Funcs{
-			// Only singleton named "default" in the configured namespace matters.
+			// Only singleton named "default" matters (cluster-scoped resource).
 			CreateFunc: func(e event.CreateEvent) bool {
 				obj := e.Object.(*kueuealpha.DynamicResourceAllocationConfig)
-				return obj.Name == "default" && obj.Namespace == r.namespace
+				return obj.Name == "default"
 			},
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				obj := e.ObjectNew.(*kueuealpha.DynamicResourceAllocationConfig)
-				return obj.Name == "default" && obj.Namespace == r.namespace
+				return obj.Name == "default"
 			},
 			DeleteFunc:  func(event.DeleteEvent) bool { return false },
 			GenericFunc: func(event.GenericEvent) bool { return false },

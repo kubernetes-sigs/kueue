@@ -28,7 +28,7 @@ spec:
     listKind: DynamicResourceAllocationConfigList
     plural: dynamicresourceallocationconfigs
     singular: dynamicresourceallocationconfig
-  scope: Namespaced
+  scope: Cluster
   versions:
     - name: v1alpha1
       schema:
