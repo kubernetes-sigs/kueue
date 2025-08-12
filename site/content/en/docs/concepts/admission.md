@@ -22,38 +22,12 @@ Kueue implements this through a two-phase admission cycle:
 controllers that can perform validations such as policy checks, compliance, etc.
 The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are in the `Ready` state.
 
-## Provisioning AdmissionCheck 
+## [Provisioning AdmissionCheck ](docs/concepts/admission_check/provisioning_request)
 
-When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it did't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cluster-autoscaler environments.
+When neither AdmissionChecks nor [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were configured, Admissions were mainly based on quota checks. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cluster-autoscaler environments through the following sequential checks:
+- First reserving ClusterQue resources (**Quota Reservation**),
+- Then confirming the physical capacity via ProvisioningRequest and Cluster Autoscaler(CA) (**Capacity Guarantee**)
 
-Kueue's enhanced admission requires two sequential checks:
-
-1. **Quota Reservation:** Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other Workloads from claiming it. This step verifies logical resource availability.
-2. **Capacity Guarantee:** This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) (CA) to verify physical resource availability. 
-    - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/admission-check-controllers/provisioning/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration) settings, and setting owner reference to Workload.
-    - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
-      - `Provisioned=true`: CA provisioned the capacity and it's ready to use
-      - `Provisioned=false`: Provisioning in progress
-      - `Failed=true`:  CA couldn't provision the capacity
-      - `BookingExpired=true`: CA stopped booking the capacity, it will scale down if there are no Pods running on it  
-      - `CapacityRevoked=true`: CA revokes the capacity, if a Workload is running on it, it will be evicted
-  
-    These conditions only affect non-admitted Workloads. Once admitted, they are ignored.
-
-
-Let's understand this with a real-world usage - GPU Workload:
-
-Scenario: *AI training job requiring 16 GPUs :*
-
-- **Step 1** *(Quota Reservation)*: ClusterQueue has 32 GPU quota available. Kueue reserves 16 GPUs from this quota.
-
-- **Step 2** *(Admission Check)*: Kueue creates a ProvisioningRequest requesting for 16 GPUs. 
-  - Cluster Autoscaler checks cloud provider GPU inventory and initiates scaling of 4x GPU nodes (4 GPUs each). It sets `Provisioned=true` when nodes are ready.
-
-  - Kueue sees the `Provisioned=true` proceeds to mark the AdmissionCheck `Ready` and admits workload.
-
-Outcome:
-*Job starts immediately with all 16 GPUs available.*
 
 ## Failure Handling:
 
@@ -68,3 +42,7 @@ Outcome:
   - It evicts the Workload.
   - It releases the reserved quota. 
   - It deactivates the Workload and to requeue it, the user needs to set the `.status.active` field to `true`.
+
+  ## What's Next?
+
+  You can read the [Concepts](/docs/concepts) section to learn how [Admission Checks](/docs/concepts/admission_check/) influence admission.
