@@ -960,9 +960,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
-
-			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
-				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
+			ginkgo.By("Disconnecting worker1 node's APIServer", func() {
+				sedCommand := `sed -i '/^[[:space:]]*- kube-apiserver/a\    - --bind-address=127.0.0.1' /etc/kubernetes/manifests/kube-apiserver.yaml`
+				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
@@ -981,26 +981,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
-				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
+			ginkgo.By("Reconnecting worker1 node's APIServer", func() {
+				sedCommand := `sed -i '/^[[:space:]]*- --bind-address=127.0.0.1/d' /etc/kubernetes/manifests/kube-apiserver.yaml`
+				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(util.DeleteObject(ctx, k8sWorker1Client, worker1Cq2)).Should(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
-				// After reconnecting the container to the network, when we try to get pods,
-				// we get it with the previous values (as before disconnect). Therefore, it
-				// takes some time for the cluster to restore them, and we got actually values.
-				// To be sure that the leader of kueue-control-manager successfully recovered
-				// we can check it by removing already created Cluster Queue.
-				var cq kueue.ClusterQueue
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)).Should(utiltesting.BeNotFoundError())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the cluster do become active", func() {
+			ginkgo.By("Waiting for the cluster to become active", func() {
 				readClient := &kueue.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
@@ -1013,6 +1001,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
+				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
+			})
+
+			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, util.StartUpTimeout)
 			})
 		})
 	})
