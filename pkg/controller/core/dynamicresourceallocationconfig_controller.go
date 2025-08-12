@@ -26,25 +26,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=dynamicresourceallocationconfigs,verbs=get;list;watch
 
-// DynamicResourceAllocationConfigReconciler keeps the cache's DeviceClass→logical-resource
+// DynamicResourceAllocationConfigReconciler keeps the global DRA mapper's DeviceClass->logical-resource
 // mapping in sync with the singleton DynamicResourceAllocationConfig object.
 // It is only registered when the DynamicResourceAllocation feature gate is enabled.
 type DynamicResourceAllocationConfigReconciler struct {
 	client client.Client
-	cache  *cache.Cache
 	log    logr.Logger
 }
 
-func NewDRAConfigReconciler(client client.Client, c *cache.Cache) *DynamicResourceAllocationConfigReconciler {
+func NewDRAConfigReconciler(client client.Client) *DynamicResourceAllocationConfigReconciler {
 	return &DynamicResourceAllocationConfigReconciler{
 		client: client,
-		cache:  c,
 		log:    ctrl.Log.WithName("dra-config-reconciler"),
 	}
 }
@@ -62,8 +60,13 @@ func (r *DynamicResourceAllocationConfigReconciler) Reconcile(ctx context.Contex
 	}
 
 	r.log.V(2).Info("Reconciling DynamicResourceAllocationConfig", "name", req.NamespacedName)
-	// we do not expect a lot of reconciles triggered here, therefore directly updating the cache should be okay
-	r.cache.AddOrUpdateDynamicResourceAllocationConfig(r.log, &cfg)
+
+	// Update the global DRA mapper
+	if err := dra.UpdateMapperFromConfig(ctx, &cfg); err != nil {
+		r.log.Error(err, "Failed to update global DRA mapper", "config", req.NamespacedName)
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 

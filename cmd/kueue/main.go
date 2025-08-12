@@ -228,10 +228,6 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
-	// Add DRA support to queue manager if DRA feature is enabled
-	if features.Enabled(features.DynamicResourceAllocation) {
-		queueOptions = append(queueOptions, queue.WithDRAResources(mgr.GetClient(), cCache.GetResourceNameForDeviceClass))
-	}
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 	ctx := ctrl.SetupSignalHandler()
