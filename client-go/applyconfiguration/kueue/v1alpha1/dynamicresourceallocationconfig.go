@@ -33,10 +33,9 @@ type DynamicResourceAllocationConfigApplyConfiguration struct {
 
 // DynamicResourceAllocationConfig constructs a declarative configuration of the DynamicResourceAllocationConfig type for use with
 // apply.
-func DynamicResourceAllocationConfig(name, namespace string) *DynamicResourceAllocationConfigApplyConfiguration {
+func DynamicResourceAllocationConfig(name string) *DynamicResourceAllocationConfigApplyConfiguration {
 	b := &DynamicResourceAllocationConfigApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("DynamicResourceAllocationConfig")
 	b.WithAPIVersion("kueue.x-k8s.io/v1alpha1")
 	return b
