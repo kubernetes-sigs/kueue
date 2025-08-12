@@ -960,9 +960,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
-
-			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
-				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
+			ginkgo.By("Disconnecting worker1 node's APIServer", func() {
+				sedCommand := `sed -i '/^[[:space:]]*- kube-apiserver/a\    - --bind-address=127.0.0.1' /etc/kubernetes/manifests/kube-apiserver.yaml`
+				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
@@ -981,8 +981,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
-				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
+			ginkgo.By("Reconnecting worker1 node's APIServer", func() {
+				sedCommand := `sed -i '/^[[:space:]]*- --bind-address=127.0.0.1/d' /etc/kubernetes/manifests/kube-apiserver.yaml`
+				cmd := exec.Command("docker", "exec", worker1Container, "sh", "-c", sedCommand)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			})
