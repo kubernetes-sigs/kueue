@@ -525,5 +525,67 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should admit workload when created after DRA config has device class mapping", func() {
+			ginkgo.By("Updating DRA config to map new device class to existing resource")
+			suiteDRAConfigKey := client.ObjectKey{Name: "default"}
+			var updatedDRAConfig kueuealpha.DynamicResourceAllocationConfig
+			gomega.Expect(k8sClient.Get(ctx, suiteDRAConfigKey, &updatedDRAConfig)).To(gomega.Succeed())
+
+			// Add mapping for new device class to the existing "gpus" resource
+			updatedDRAConfig.Spec.Resources[0].DeviceClassNames = append(
+				updatedDRAConfig.Spec.Resources[0].DeviceClassNames,
+				"new-gpu.example.com",
+			)
+			gomega.Expect(k8sClient.Update(ctx, &updatedDRAConfig)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a ResourceClaim with the pre-mapped device class")
+			rc := &resourcev1beta2.ResourceClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-rc-new-class",
+					Namespace: ns.Name,
+				},
+				Spec: resourcev1beta2.ResourceClaimSpec{
+					Devices: resourcev1beta2.DeviceClaim{
+						Requests: []resourcev1beta2.DeviceRequest{{
+							Name: "new-device-request",
+							Exactly: &resourcev1beta2.ExactDeviceRequest{
+								DeviceClassName: "new-gpu.example.com",
+								AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+								Count:           3,
+							},
+						}},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with the pre-mapped device class")
+			wl := utiltesting.MakeWorkload("test-wl-new-class", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "new-gpu", ResourceClaimName: ptr.To("test-rc-new-class")},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "new-gpu"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload gets immediately admitted with correct resource usage")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				// Verify resource usage reflects the device class mapping
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpus")))
+				g.Expect(assignment.ResourceUsage["gpus"]).To(gomega.Equal(resource.MustParse("3")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		})
 	})
 })
