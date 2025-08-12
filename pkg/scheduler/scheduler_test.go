@@ -6293,23 +6293,16 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			topologies: []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "tas-default",
-				},
-				Spec: kueue.ResourceFlavorSpec{
-					NodeLabels: map[string]string{
-						"tas-node": "true",
-					},
-					Tolerations: []corev1.Toleration{
-						{
-							Key:      "example.com/gpu",
-							Operator: corev1.TolerationOpExists,
-						},
-					},
-					TopologyName: ptr.To[kueue.TopologyReference]("tas-single-level"),
-				},
-			}},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltesting.MakeResourceFlavor("tas-default").
+					NodeLabel("tas-node", "true").
+					Toleration(corev1.Toleration{
+						Key:      "example.com/gpu",
+						Operator: corev1.TolerationOpExists,
+					}).
+					TopologyName("tas-single-level").
+					Obj(),
+			},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
 					ResourceGroup(
