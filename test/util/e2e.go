@@ -399,6 +399,63 @@ func WaitForActivePodsAndTerminate(ctx context.Context, k8sClient client.Client,
 	}
 }
 
+func WaitForKueueAvailabilityNoRestartCountCheck(ctx context.Context, k8sClient client.Client) {
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	waitForDeploymentAvailability(ctx, k8sClient, kcmKey)
+}
+
+func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
+	const ns = "kube-system"
+	deployKey := types.NamespacedName{Namespace: ns, Name: "coredns"}
+	ginkgo.By(fmt.Sprintf("Waiting for deployment %q to be available", deployKey.Name))
+	waitForDeploymentAvailability(ctx, k8sClient, deployKey)
+
+	for _, ds := range []string{
+		"kindnet",
+		"kube-proxy",
+	} {
+		dsKey := types.NamespacedName{Namespace: ns, Name: ds}
+		ginkgo.By(fmt.Sprintf("Waiting for daemonset %q to be available", ds))
+		waitForDaemonSetAvailability(ctx, k8sClient, dsKey)
+	}
+
+	for _, pod := range []string{
+		"etcd",
+		"kube-controller-manager",
+		"kube-apiserver",
+		"kube-scheduler",
+	} {
+		ginkgo.By(fmt.Sprintf("Waiting for %s to be available", pod))
+		podKey := types.NamespacedName{Namespace: ns, Name: fmt.Sprintf("%s-%s", pod, clusterName)}
+		waitForPodAvailability(ctx, k8sClient, podKey)
+	}
+}
+
+func waitForPodAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	pod := &corev1.Pod{}
+	waitForAvailableStart := time.Now()
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, pod)).To(gomega.Succeed())
+		g.Expect(pod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+			Type:   corev1.PodReady,
+			Status: corev1.ConditionTrue,
+		}, cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime"))))
+	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Pod available in the cluster", "pod", key, "waitingTime", time.Since(waitForAvailableStart))
+}
+
+func waitForDaemonSetAvailability(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	daemonset := &appsv1.DaemonSet{}
+	waitForAvailableStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for availability of deployment: %q", key))
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, daemonset)).To(gomega.Succeed())
+		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
+	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Deployment is available in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
+}
+
 func GetKuberayTestImage() string {
 	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
