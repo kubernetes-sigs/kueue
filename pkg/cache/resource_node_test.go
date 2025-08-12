@@ -30,18 +30,18 @@ func TestCohortLendable(t *testing.T) {
 
 	cq1 := utiltesting.MakeClusterQueue("cq1").
 		ResourceGroup(
-			utiltesting.MakeFlavorQuotas("default").
+			*utiltesting.MakeFlavorQuotas("default").
 				ResourceQuotaWrapper("cpu").NominalQuota("8").LendingLimit("8").Append().
 				ResourceQuotaWrapper("example.com/gpu").NominalQuota("3").LendingLimit("3").Append().
-				FlavorQuotas,
+				Obj(),
 		).Cohort("test-cohort").
 		ClusterQueue
 
 	cq2 := utiltesting.MakeClusterQueue("cq2").
 		ResourceGroup(
-			utiltesting.MakeFlavorQuotas("default").
+			*utiltesting.MakeFlavorQuotas("default").
 				ResourceQuotaWrapper("cpu").NominalQuota("2").LendingLimit("2").Append().
-				FlavorQuotas,
+				Obj(),
 		).Cohort("test-cohort").
 		ClusterQueue
 

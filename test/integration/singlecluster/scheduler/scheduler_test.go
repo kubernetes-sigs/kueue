@@ -1515,7 +1515,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("cohort with resources created and workload admitted")
 			cohortBank := testing.MakeCohort("bank").Parent("right").
 				ResourceGroup(
-					testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").FlavorQuotas,
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj(),
 				).Obj()
 			util.MustCreate(ctx, k8sClient, cohortBank)
 			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
@@ -2545,12 +2545,18 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			createQueue(testing.MakeClusterQueue("cq1").
 				FlavorFungibility(fungibility).Cohort("cohort").
 				Preemption(preemption).
-				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").FlavorQuotas).Obj())
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
+					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj())
 
 			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
 				FlavorFungibility(fungibility).
 				Preemption(preemption).
-				ResourceGroup(testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").FlavorQuotas, testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").FlavorQuotas).Obj())
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
+					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
 
 			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
 			{
