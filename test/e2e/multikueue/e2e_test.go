@@ -1000,7 +1000,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the cluster do become active", func() {
+			ginkgo.By("Waiting for the cluster to become active", func() {
 				readClient := &kueue.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
@@ -1013,6 +1013,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for Kueue and kube-system pods to become active again", func() {
+				util.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
+				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sWorker1Client)
 			})
 		})
 	})
