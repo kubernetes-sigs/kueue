@@ -25,27 +25,18 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-// Merge merges a and b while resolving the conflicts by calling commonKeyValue
-func Merge[K comparable, V any, S ~map[K]V](a, b S, commonKeyValue func(a, b V) V) S {
-	if a == nil {
-		return maps.Clone(b)
+// Copy copies all key/value pairs in src adding them to dst.
+// When a key in src is already present in dst,
+// the value in dst will be overwritten by the value associated
+// with the key in src.
+func Copy[K comparable, V any, S ~map[K]V](dst *S, src S) {
+	if dst == nil {
+		return
 	}
-
-	ret := maps.Clone(a)
-
-	for k, v := range b {
-		if _, found := a[k]; found {
-			ret[k] = commonKeyValue(a[k], v)
-		} else {
-			ret[k] = v
-		}
+	if *dst == nil && src != nil {
+		*dst = make(S, len(src))
 	}
-	return ret
-}
-
-// MergeKeepFirst merges a and b keeping the values in a in case of conflict
-func MergeKeepFirst[K comparable, V any, S ~map[K]V](a, b S) S {
-	return Merge(a, b, func(v, _ V) V { return v })
+	maps.Copy(*dst, src)
 }
 
 // HaveConflict checks if a and b have the same key, but different value
