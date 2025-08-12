@@ -41,45 +41,44 @@ type DynamicResourceAllocationConfigInformer interface {
 type dynamicResourceAllocationConfigInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewDynamicResourceAllocationConfigInformer constructs a new informer for DynamicResourceAllocationConfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewDynamicResourceAllocationConfigInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredDynamicResourceAllocationConfigInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewDynamicResourceAllocationConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredDynamicResourceAllocationConfigInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredDynamicResourceAllocationConfigInformer constructs a new informer for DynamicResourceAllocationConfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredDynamicResourceAllocationConfigInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredDynamicResourceAllocationConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().DynamicResourceAllocationConfigs(namespace).List(context.Background(), options)
+				return client.KueueV1alpha1().DynamicResourceAllocationConfigs().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().DynamicResourceAllocationConfigs(namespace).Watch(context.Background(), options)
+				return client.KueueV1alpha1().DynamicResourceAllocationConfigs().Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().DynamicResourceAllocationConfigs(namespace).List(ctx, options)
+				return client.KueueV1alpha1().DynamicResourceAllocationConfigs().List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1alpha1().DynamicResourceAllocationConfigs(namespace).Watch(ctx, options)
+				return client.KueueV1alpha1().DynamicResourceAllocationConfigs().Watch(ctx, options)
 			},
 		},
 		&apiskueuev1alpha1.DynamicResourceAllocationConfig{},
@@ -89,7 +88,7 @@ func NewFilteredDynamicResourceAllocationConfigInformer(client versioned.Interfa
 }
 
 func (f *dynamicResourceAllocationConfigInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredDynamicResourceAllocationConfigInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredDynamicResourceAllocationConfigInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *dynamicResourceAllocationConfigInformer) Informer() cache.SharedIndexInformer {

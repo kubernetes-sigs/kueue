@@ -22,8 +22,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 
 
 <p>DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
-in the cluster. Only one instance named &quot;default&quot; in the configured namespace
-is allowed.</p>
+in the cluster. Only one instance named &quot;default&quot; is allowed.</p>
 
 
 <table class="table">
