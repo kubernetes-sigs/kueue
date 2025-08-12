@@ -6,13 +6,13 @@ description: >
   An admission check controller providing kueue integration with cluster autoscaler.
 ---
 
-When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it did't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/admission-check-controllers/provisioning/) addresses this in cluster-autoscaler environments.
+When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it did't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioning-admissioncheck-controller) addresses this in cluster-autoscaler environments.
 
 Kueue's enhanced admission requires two sequential checks:
 
 1. **Quota Reservation:** Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other Workloads from claiming it. This step verifies logical resource availability.
 2. **Capacity Guarantee:** This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) (CA) to verify physical resource availability. 
-    - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/concepts/admission-check/provisioning/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/concepts/admission-check/provisioning_request/#provisioningrequest-configuration) settings, and setting owner reference to Workload.
+    - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/concepts/admission_check/provisioning_request/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) settings, and setting owner reference to Workload.
     - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
       - `Provisioned=true`: CA provisioned the capacity and it's ready to use
       - `Provisioned=false`: Provisioning in progress
