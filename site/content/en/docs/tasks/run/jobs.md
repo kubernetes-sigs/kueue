@@ -215,3 +215,97 @@ For example, a Job defined by the following manifest:
 {{< include "examples/jobs/sample-job-partial-admission.yaml" "yaml" >}}
 
 When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
+
+## ElasticJob
+
+{{< feature-state state="alpha" for_version="v0.13" >}}
+
+Kueue supports the ability for batch users to scale a `Job`'s parallelism **without recreating, restarting, or suspending** the Job.
+
+To enable this feature, ensure the following:
+
+* The `ElasticJobsViaWorkloadSlices` feature gate is set to `true`
+* The Job is annotated with `kueue.x-k8s.io/elastic-job: "true"`
+
+For example, a Job defined by the following manifest:
+
+{{< include "examples/jobs/sample-scalable-job.yaml" "yaml" >}}
+
+Once the Job is created, you can scale it by updating the `parallelism` field and applying the change.
+
+When scaling **up**, you should observe:
+
+* A **new workload** created and admitted for the updated parallelism
+* The **previous workload** being marked as `Finished`
+
+### Example Walkthrough
+
+#### Create
+
+1. Create a Job using the provided example.
+2. Observe the Job, Pod, and Workload objects.
+
+```text
+kubectl get job,deploy,rs,pod,workload
+
+NAME                           STATUS    COMPLETIONS   DURATION   AGE
+job.batch/sample-elastic-job   Running   0/10          4s         4s
+
+NAME                           READY   STATUS    RESTARTS   AGE
+pod/sample-elastic-job-468nl   1/1     Running   0          4s
+pod/sample-elastic-job-gd9qn   1/1     Running   0          4s
+pod/sample-elastic-job-snk6j   1/1     Running   0          4s
+
+NAME                                                   QUEUE       RESERVED IN   ADMITTED   FINISHED   ACTIVE   POD-COUNT   AGE
+workload.kueue.x-k8s.io/job-sample-elastic-job-615b3   user-queue  user-queue    True                  true     3           4s
+```
+
+#### Scale Down
+
+1. Update the example, reducing the `parallelism` value from `3` to `1`.
+2. Observe changes to the Job, Pod, and Workload objects.
+
+```text
+kubectl get job,deploy,rs,pod,workload
+
+NAME                           STATUS    COMPLETIONS   DURATION   AGE
+job.batch/sample-elastic-job   Running   0/10          27s        27s
+
+NAME                           READY   STATUS        RESTARTS   AGE
+pod/sample-elastic-job-468nl   1/1     Terminating   0          27s <-- 
+pod/sample-elastic-job-gd9qn   1/1     Running       0          27s
+pod/sample-elastic-job-snk6j   1/1     Terminating   0          27s <--
+
+NAME                                                   QUEUE       RESERVED IN   ADMITTED   FINISHED   ACTIVE   POD-COUNT   AGE
+workload.kueue.x-k8s.io/job-sample-elastic-job-615b3   user-queue  user-queue    True                  true     1           4s
+```
+
+* Two Pods are terminating, while the remaining Pod continues running.
+* No new Workload object is created.
+
+#### Scale Up
+
+1. Update the example, increasing the `parallelism` value from `1` to `4`.
+2. Observe changes to the Job, Pod, and Workload objects.
+
+```text
+kubectl get job,deploy,rs,pod,workload
+
+NAME                           STATUS    COMPLETIONS   DURATION   AGE
+job.batch/sample-elastic-job   Running   1/10          82s        82s
+
+NAME                           READY   STATUS      RESTARTS   AGE
+pod/sample-elastic-job-4xtsq   1/1     Running     0          10s 
+pod/sample-elastic-job-fl6j4   1/1     Running     0          10s
+pod/sample-elastic-job-gd9qn   1/1     Running     0          52s <-- old pod
+pod/sample-elastic-job-q482v   1/1     Running     0          10s
+
+
+NAME                                                   QUEUE       RESERVED IN   ADMITTED   FINISHED   ACTIVE   POD-COUNT   AGE
+workload.kueue.x-k8s.io/job-sample-elastic-job-615b3   user-queue  user-queue    True       True       true     1           52s <-- old workload
+workload.kueue.x-k8s.io/job-sample-elastic-job-992ea   user-queue  user-queue    True                  true     4           10s <-- new workload
+```
+
+* New Pods are created and running.
+* A **new Workload** is created with the updated Pod count.
+* The **old Workload** is marked as `Finished`.
