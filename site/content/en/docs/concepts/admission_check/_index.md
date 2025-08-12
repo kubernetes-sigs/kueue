@@ -9,8 +9,7 @@ no_list: true
 ---
 
 AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
-After Kueue has reserved quota for a Workload, Kueue runs all the admission checks configured
-in the ClusterQueue concurrently.
+After Kueue has reserved quota for a Workload, Kueue runs all the admission checks configured in the ClusterQueue concurrently.
 Kueue can only admit a Workload when all of the AdmissionChecks have provided a positive signal for the Workload.
 
 ### API
