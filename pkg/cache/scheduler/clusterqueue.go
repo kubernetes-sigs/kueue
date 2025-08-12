@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -32,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -84,10 +82,6 @@ type clusterQueue struct {
 	admittedWorkloadsCount             int
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
-
-	// DRA parameters for workload info creation
-	draClient client.Client
-	draLookup func(corev1.ResourceName) (corev1.ResourceName, bool)
 
 	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
@@ -439,11 +433,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, w)
 	}
-	// Build InfoOptions with DRA config when enabled. We don't handle DRA errors here:
-	// - Cache only stores workloads that are quotaReserved/admitted; NewInfo takes the admission fast-path.
-	// - DRA validation and error handling are performed upstream in the controller event handlers.
-	infoOptions := workload.BuildDRAWorkloadInfoOptions(c.workloadInfoOptions, c.draClient, string(c.Name), c.draLookup)
-	wi := workload.NewInfo(w, infoOptions...)
+	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {

@@ -44,7 +44,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -99,12 +98,8 @@ type AssignmentClusterQueueState struct {
 }
 
 // DRAInfoOptions holds DRA-specific configuration for workload.Info construction.
-// This keeps DRA concerns isolated from the main InfoOptions struct.
 type DRAInfoOptions struct {
-	client       client.Client
-	clusterQueue string
-	lookup       func(dc corev1.ResourceName) (corev1.ResourceName, bool)
-	enabled      bool
+	preprocessedResources map[kueue.PodSetReference]corev1.ResourceList
 }
 
 type InfoOptions struct {
@@ -131,15 +126,13 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 	}
 }
 
-// WithDRAResources enables DRA resource calculation for workload.Info construction.
-func WithDRAResources(client client.Client, clusterQueue string, lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool)) InfoOption {
+// WithPreprocessedDRAResources creates an InfoOption that provides preprocessed DRA resources.
+func WithPreprocessedDRAResources(draResources map[kueue.PodSetReference]corev1.ResourceList) InfoOption {
 	return func(o *InfoOptions) {
-		o.dra = &DRAInfoOptions{
-			client:       client,
-			clusterQueue: clusterQueue,
-			lookup:       lookup,
-			enabled:      true,
+		if o.dra == nil {
+			o.dra = &DRAInfoOptions{}
 		}
+		o.dra.preprocessedResources = draResources
 	}
 }
 
@@ -510,38 +503,16 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetRe
 		res = append(res, setRes)
 	}
 
-	if features.Enabled(features.DynamicResourceAllocation) && info.dra != nil && info.dra.enabled {
-		psRCTReq, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), info.dra.client, wl, info.dra.lookup)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get resource requests for resource claim templates: %w", err)
-		}
-		psRCReq, err := dra.GetResourceRequestsForResourceClaims(context.Background(), info.dra.client, wl, info.dra.clusterQueue, info.dra.lookup)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get resource requests for resource claims: %w", err)
-		}
-
+	if features.Enabled(features.DynamicResourceAllocation) && info.dra.preprocessedResources != nil {
+		// Use preprocessed DRA resources if provided
 		for i := range res {
 			ps := &res[i]
-			if rctRes, exists := psRCTReq[ps.Name]; exists {
-				for resName, quantity := range rctRes {
+			if draRes, exists := info.dra.preprocessedResources[ps.Name]; exists {
+				for resName, quantity := range draRes {
 					if ps.Requests == nil {
 						ps.Requests = make(resources.Requests)
 					}
-					// ResourceClaimTemplates create per-pod claims, so multiply by pod count
-					scaledQuantity := resources.ResourceValue(resName, quantity) * int64(ps.Count)
-					ps.Requests[resName] += scaledQuantity
-				}
-			}
-		}
-
-		for i := range res {
-			ps := &res[i]
-			if rcRes, exists := psRCReq[ps.Name]; exists {
-				for resName, quantity := range rcRes {
-					if ps.Requests == nil {
-						ps.Requests = make(resources.Requests)
-					}
-					// ResourceClaims are shared, use exact quantity from spec
+					// Preprocessed resources are already scaled appropriately
 					ps.Requests[resName] += resources.ResourceValue(resName, quantity)
 				}
 			}

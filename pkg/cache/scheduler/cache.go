@@ -85,16 +85,6 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
-// WithDRAResources enables DRA resource calculation in workload.Info construction.
-// This integrates DRA logical resources into the standard workload resource accounting.
-// The cluster queue name will be dynamically determined when creating workload.Info objects.
-func WithDRAResources(client client.Client) Option {
-	return func(c *Cache) {
-		c.draEnabled = true
-		c.draClient = client
-	}
-}
-
 func WithFairSharing(enabled bool) Option {
 	return func(c *Cache) {
 		c.fairSharingEnabled = enabled
@@ -124,23 +114,16 @@ type Cache struct {
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
-
-	draDeviceClassToResource map[corev1.ResourceName]corev1.ResourceName
-
-	// DRA support
-	draEnabled bool
-	draClient  client.Client
 }
 
 func New(client client.Client, options ...Option) *Cache {
 	cache := &Cache{
-		client:                   client,
-		assumedWorkloads:         make(map[workload.Reference]kueue.ClusterQueueReference),
-		resourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:          make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:                       hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
-		tasCache:                 NewTASCache(client),
-		draDeviceClassToResource: make(map[corev1.ResourceName]corev1.ResourceName),
+		client:           client,
+		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
+		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
+		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:         NewTASCache(client),
 	}
 	for _, option := range options {
 		option(cache)
@@ -150,13 +133,6 @@ func New(client client.Client, options ...Option) *Cache {
 }
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
-	var draClient client.Client
-	var draLookup func(corev1.ResourceName) (corev1.ResourceName, bool)
-	if c.draEnabled {
-		draClient = c.draClient
-		draLookup = c.GetResourceNameForDeviceClass
-	}
-
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
@@ -164,8 +140,6 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
-		draClient:           draClient,
-		draLookup:           draLookup,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
@@ -1006,31 +980,4 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue
 // Key is the key used to index the queue.
 func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
-}
-
-// AddOrUpdateDynamicResourceAllocationConfig ingests the singleton CRD and updates
-// the in-memory DeviceClass → logical resource map.
-// It is idempotent and thread-safe.
-func (c *Cache) AddOrUpdateDynamicResourceAllocationConfig(log logr.Logger, draCfg *kueuealpha.DynamicResourceAllocationConfig) {
-	c.Lock()
-	defer c.Unlock()
-
-	// Rebuild from scratch to avoid stale entries.
-	deviceClassNameToResName := make(map[corev1.ResourceName]corev1.ResourceName)
-	for _, res := range draCfg.Spec.Resources {
-		for _, dc := range res.DeviceClassNames {
-			deviceClassNameToResName[dc] = res.Name
-		}
-	}
-	c.draDeviceClassToResource = deviceClassNameToResName
-	log.V(2).Info("Updated DRA DeviceClass mapping", "entries", len(deviceClassNameToResName))
-}
-
-// GetResourceNameForDeviceClass converts a DeviceClass to its logical resource name.
-// Returns (logicalRes, true) on success or ("", false) when unmapped.
-func (c *Cache) GetResourceNameForDeviceClass(dc corev1.ResourceName) (corev1.ResourceName, bool) {
-	c.RLock()
-	defer c.RUnlock()
-	lr, ok := c.draDeviceClassToResource[dc]
-	return lr, ok
 }
