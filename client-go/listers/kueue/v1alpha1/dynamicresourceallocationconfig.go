@@ -30,8 +30,9 @@ type DynamicResourceAllocationConfigLister interface {
 	// List lists all DynamicResourceAllocationConfigs in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*kueuev1alpha1.DynamicResourceAllocationConfig, err error)
-	// DynamicResourceAllocationConfigs returns an object that can list and get DynamicResourceAllocationConfigs.
-	DynamicResourceAllocationConfigs(namespace string) DynamicResourceAllocationConfigNamespaceLister
+	// Get retrieves the DynamicResourceAllocationConfig from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*kueuev1alpha1.DynamicResourceAllocationConfig, error)
 	DynamicResourceAllocationConfigListerExpansion
 }
 
@@ -43,27 +44,4 @@ type dynamicResourceAllocationConfigLister struct {
 // NewDynamicResourceAllocationConfigLister returns a new DynamicResourceAllocationConfigLister.
 func NewDynamicResourceAllocationConfigLister(indexer cache.Indexer) DynamicResourceAllocationConfigLister {
 	return &dynamicResourceAllocationConfigLister{listers.New[*kueuev1alpha1.DynamicResourceAllocationConfig](indexer, kueuev1alpha1.Resource("dynamicresourceallocationconfig"))}
-}
-
-// DynamicResourceAllocationConfigs returns an object that can list and get DynamicResourceAllocationConfigs.
-func (s *dynamicResourceAllocationConfigLister) DynamicResourceAllocationConfigs(namespace string) DynamicResourceAllocationConfigNamespaceLister {
-	return dynamicResourceAllocationConfigNamespaceLister{listers.NewNamespaced[*kueuev1alpha1.DynamicResourceAllocationConfig](s.ResourceIndexer, namespace)}
-}
-
-// DynamicResourceAllocationConfigNamespaceLister helps list and get DynamicResourceAllocationConfigs.
-// All objects returned here must be treated as read-only.
-type DynamicResourceAllocationConfigNamespaceLister interface {
-	// List lists all DynamicResourceAllocationConfigs in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*kueuev1alpha1.DynamicResourceAllocationConfig, err error)
-	// Get retrieves the DynamicResourceAllocationConfig from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*kueuev1alpha1.DynamicResourceAllocationConfig, error)
-	DynamicResourceAllocationConfigNamespaceListerExpansion
-}
-
-// dynamicResourceAllocationConfigNamespaceLister implements the DynamicResourceAllocationConfigNamespaceLister
-// interface.
-type dynamicResourceAllocationConfigNamespaceLister struct {
-	listers.ResourceIndexer[*kueuev1alpha1.DynamicResourceAllocationConfig]
 }

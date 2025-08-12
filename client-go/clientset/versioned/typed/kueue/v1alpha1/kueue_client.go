@@ -36,8 +36,8 @@ type KueueV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *KueueV1alpha1Client) DynamicResourceAllocationConfigs(namespace string) DynamicResourceAllocationConfigInterface {
-	return newDynamicResourceAllocationConfigs(c, namespace)
+func (c *KueueV1alpha1Client) DynamicResourceAllocationConfigs() DynamicResourceAllocationConfigInterface {
+	return newDynamicResourceAllocationConfigs(c)
 }
 
 func (c *KueueV1alpha1Client) Topologies() TopologyInterface {

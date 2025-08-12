@@ -21,10 +21,6 @@ package v1alpha1
 // DynamicResourceAllocationConfigLister.
 type DynamicResourceAllocationConfigListerExpansion interface{}
 
-// DynamicResourceAllocationConfigNamespaceListerExpansion allows custom methods to be added to
-// DynamicResourceAllocationConfigNamespaceLister.
-type DynamicResourceAllocationConfigNamespaceListerExpansion interface{}
-
 // TopologyListerExpansion allows custom methods to be added to
 // TopologyLister.
 type TopologyListerExpansion interface{}

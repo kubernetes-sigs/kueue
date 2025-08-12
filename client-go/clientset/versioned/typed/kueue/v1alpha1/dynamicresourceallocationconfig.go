@@ -32,7 +32,7 @@ import (
 // DynamicResourceAllocationConfigsGetter has a method to return a DynamicResourceAllocationConfigInterface.
 // A group's client should implement this interface.
 type DynamicResourceAllocationConfigsGetter interface {
-	DynamicResourceAllocationConfigs(namespace string) DynamicResourceAllocationConfigInterface
+	DynamicResourceAllocationConfigs() DynamicResourceAllocationConfigInterface
 }
 
 // DynamicResourceAllocationConfigInterface has methods to work with DynamicResourceAllocationConfig resources.
@@ -55,13 +55,13 @@ type dynamicResourceAllocationConfigs struct {
 }
 
 // newDynamicResourceAllocationConfigs returns a DynamicResourceAllocationConfigs
-func newDynamicResourceAllocationConfigs(c *KueueV1alpha1Client, namespace string) *dynamicResourceAllocationConfigs {
+func newDynamicResourceAllocationConfigs(c *KueueV1alpha1Client) *dynamicResourceAllocationConfigs {
 	return &dynamicResourceAllocationConfigs{
 		gentype.NewClientWithListAndApply[*kueuev1alpha1.DynamicResourceAllocationConfig, *kueuev1alpha1.DynamicResourceAllocationConfigList, *applyconfigurationkueuev1alpha1.DynamicResourceAllocationConfigApplyConfiguration](
 			"dynamicresourceallocationconfigs",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			namespace,
+			"",
 			func() *kueuev1alpha1.DynamicResourceAllocationConfig {
 				return &kueuev1alpha1.DynamicResourceAllocationConfig{}
 			},

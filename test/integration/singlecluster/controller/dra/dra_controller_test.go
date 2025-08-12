@@ -585,7 +585,6 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpus")))
 				g.Expect(assignment.ResourceUsage["gpus"]).To(gomega.Equal(resource.MustParse("3")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		})
 	})
 })

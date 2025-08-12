@@ -30,11 +30,11 @@ type fakeDynamicResourceAllocationConfigs struct {
 	Fake *FakeKueueV1alpha1
 }
 
-func newFakeDynamicResourceAllocationConfigs(fake *FakeKueueV1alpha1, namespace string) typedkueuev1alpha1.DynamicResourceAllocationConfigInterface {
+func newFakeDynamicResourceAllocationConfigs(fake *FakeKueueV1alpha1) typedkueuev1alpha1.DynamicResourceAllocationConfigInterface {
 	return &fakeDynamicResourceAllocationConfigs{
 		gentype.NewFakeClientWithListAndApply[*v1alpha1.DynamicResourceAllocationConfig, *v1alpha1.DynamicResourceAllocationConfigList, *kueuev1alpha1.DynamicResourceAllocationConfigApplyConfiguration](
 			fake.Fake,
-			namespace,
+			"",
 			v1alpha1.SchemeGroupVersion.WithResource("dynamicresourceallocationconfigs"),
 			v1alpha1.SchemeGroupVersion.WithKind("DynamicResourceAllocationConfig"),
 			func() *v1alpha1.DynamicResourceAllocationConfig { return &v1alpha1.DynamicResourceAllocationConfig{} },

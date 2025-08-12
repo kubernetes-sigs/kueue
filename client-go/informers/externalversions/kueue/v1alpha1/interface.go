@@ -42,7 +42,7 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 
 // DynamicResourceAllocationConfigs returns a DynamicResourceAllocationConfigInformer.
 func (v *version) DynamicResourceAllocationConfigs() DynamicResourceAllocationConfigInformer {
-	return &dynamicResourceAllocationConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &dynamicResourceAllocationConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // Topologies returns a TopologyInformer.
