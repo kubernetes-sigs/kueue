@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"sigs.k8s.io/kueue/pkg/dra"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -2204,8 +2205,8 @@ func TestReconcile(t *testing.T) {
 			if tc.workload != nil && tc.workload.Namespace == "ns" &&
 				len(tc.workload.Spec.PodSets) > 0 &&
 				len(tc.workload.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
-				_, log := utiltesting.ContextWithLog(t)
-				cqCache.AddOrUpdateDynamicResourceAllocationConfig(log, &kueuealpha.DynamicResourceAllocationConfig{
+				ctx, _ := utiltesting.ContextWithLog(t)
+				err := dra.UpdateMapperFromConfig(ctx, &kueuealpha.DynamicResourceAllocationConfig{
 					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 						Resources: []kueuealpha.DynamicResource{{
 							Name:             corev1.ResourceName("gpus"),
@@ -2213,6 +2214,9 @@ func TestReconcile(t *testing.T) {
 						}},
 					},
 				})
+				if err != nil {
+					t.Fatalf("Failed to update DRA mapper: %v", err)
+				}
 			}
 
 			gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
@@ -2240,8 +2244,6 @@ func TestReconcile(t *testing.T) {
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
-
-			// TODO: Add assertion for DRA resource usage in ClusterQueue cache once snapshot API is working properly
 		})
 	}
 }

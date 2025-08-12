@@ -48,8 +48,7 @@ func (t *claimRefTracker) addAndCheckWorkLoad(ck ClaimKey, workloadName string) 
 		return true
 	}
 	if wl == workloadName {
-		// Same workload already using this claim - allow it
-		return true // ✅ FIXED: Allow same workload to reuse its claim
+		return true
 	}
 	return false
 }

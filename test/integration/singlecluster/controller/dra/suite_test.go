@@ -113,9 +113,6 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	// Configure queue manager with DRA support
 	queueOptions := []queue.Option{}
-	if features.Enabled(features.DynamicResourceAllocation) {
-		queueOptions = append(queueOptions, queue.WithDRAResources(mgr.GetClient(), cCache.GetResourceNameForDeviceClass))
-	}
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 	// Core controllers

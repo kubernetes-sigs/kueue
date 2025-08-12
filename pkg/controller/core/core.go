@@ -78,7 +78,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 
 	if features.Enabled(features.DynamicResourceAllocation) {
-		draRec := NewDRAConfigReconciler(mgr.GetClient(), cc)
+		draRec := NewDRAConfigReconciler(mgr.GetClient())
 		if err := draRec.SetupWithManager(mgr); err != nil {
 			return "DynamicResourceAllocationConfig", err
 		}
