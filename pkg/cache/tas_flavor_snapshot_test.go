@@ -23,9 +23,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
 
@@ -355,5 +357,68 @@ func TestMergeTopologyAssignments(t *testing.T) {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
 		})
+	}
+}
+
+func TestSliceStateResetBetweenConsecutivePodSets(t *testing.T) {
+	// Build a simple 2-level topology with two leaves under the same parent.
+	levels := []string{"level-1", "level-2"}
+
+	log, _ := logr.FromContext(t.Context())
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+
+	n1 := node.MakeNode("x").Label("level-1", "a").Label("level-2", "b").Obj()
+	n2 := node.MakeNode("y").Label("level-1", "a").Label("level-2", "c").Obj()
+
+	id1 := s.addNode(*n1)
+	id2 := s.addNode(*n2)
+	s.initialize()
+
+	// Provide free capacity directly on leaves.
+	s.leaves[id1].freeCapacity = resources.Requests{corev1.ResourcePods: 10}
+	s.leaves[id2].freeCapacity = resources.Requests{corev1.ResourcePods: 10}
+
+	// 1) First run: slice topology at leaf level (level-2).
+	// This should set non-zero sliceState on leaves.
+	requests := resources.Requests{corev1.ResourcePods: 1}
+	s.fillInCounts(
+		requests,
+		nil,
+		map[utiltas.TopologyDomainID]resources.Requests{},
+		1, // slice size
+		1, // sliceLevelIdx -> leaf level
+		false,
+		nil,
+		labels.Everything(),
+		"",
+	)
+
+	if s.leaves[id1].sliceState == 0 || s.leaves[id2].sliceState == 0 {
+		t.Fatalf("expected leaf sliceState > 0 after first run, got (%d, %d)", s.leaves[id1].sliceState, s.leaves[id2].sliceState)
+	}
+
+	// 2) Second run: slice topology at parent level (level-1).
+	// Leaves are below the requested slice level, so their sliceState must be reset to 0
+	// between fits (see tas_flavor_snapshot.go:1236).
+	s.fillInCounts(
+		requests,
+		nil,
+		map[utiltas.TopologyDomainID]resources.Requests{},
+		1, // slice size
+		0, // sliceLevelIdx -> parent level
+		false,
+		nil,
+		labels.Everything(),
+		"",
+	)
+
+	if s.leaves[id1].sliceState != 0 || s.leaves[id2].sliceState != 0 {
+		t.Fatalf("expected leaf sliceState reset to 0 for second run, got (%d, %d)", s.leaves[id1].sliceState, s.leaves[id2].sliceState)
+	}
+
+	// Optionally, the parent domain (level-1 value "a") should now hold slices.
+	parentID := utiltas.DomainID([]string{"a"})
+	if parent, ok := s.domains[parentID]; !ok || parent.sliceState == 0 {
+		t.Fatalf("expected parent domain sliceState > 0 for level-1 'a'")
 	}
 }
