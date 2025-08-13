@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -3043,4 +3044,214 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateAllowedKeysUsage(t *testing.T) {
+	testCases := []struct {
+		name        string
+		spec        *corev1.PodSpec
+		allowedKeys sets.Set[string]
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "empty allowed keys should pass",
+			spec:        &corev1.PodSpec{},
+			allowedKeys: sets.New[string](),
+			wantErr:     false,
+		},
+		{
+			name: "all allowed keys in nodeSelector",
+			spec: &corev1.PodSpec{
+				NodeSelector: map[string]string{
+					"kubernetes.io/arch": "amd64",
+					"node-type":          "cpu",
+					"extra-key":          "value", // extra keys are allowed
+				},
+			},
+			allowedKeys: sets.New("kubernetes.io/arch", "node-type"),
+			wantErr:     false,
+		},
+		{
+			name: "nodeSelector missing required keys",
+			spec: &corev1.PodSpec{
+				NodeSelector: map[string]string{
+					"kubernetes.io/arch": "amd64",
+					// missing "node-type"
+				},
+			},
+			allowedKeys: sets.New("kubernetes.io/arch", "node-type"),
+			wantErr:     true,
+			errContains: "must be fully constrained",
+		},
+		{
+			name: "allowed keys split across different nodeAffinity terms",
+			spec: &corev1.PodSpec{
+				Affinity: &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{
+								{
+									MatchExpressions: []corev1.NodeSelectorRequirement{
+										{
+											Key:      "kubernetes.io/arch",
+											Operator: corev1.NodeSelectorOpIn,
+											Values:   []string{"amd64"},
+										},
+									},
+								},
+								{
+									MatchExpressions: []corev1.NodeSelectorRequirement{
+										{
+											Key:      "node-type",
+											Operator: corev1.NodeSelectorOpExists,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			allowedKeys: sets.New("kubernetes.io/arch", "node-type"),
+			wantErr:     true,
+			errContains: "must be fully constrained",
+		},
+		{
+			name: "allowed keys split between nodeSelector and nodeAffinity",
+			spec: &corev1.PodSpec{
+				NodeSelector: map[string]string{
+					"kubernetes.io/arch": "amd64",
+				},
+				Affinity: &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{
+								{
+									MatchExpressions: []corev1.NodeSelectorRequirement{
+										{
+											Key:      "node-type",
+											Operator: corev1.NodeSelectorOpExists,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			allowedKeys: sets.New("kubernetes.io/arch", "node-type"),
+			wantErr:     true,
+			errContains: "must be fully constrained",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Enable the feature gate for this test
+			features.SetFeatureGateDuringTest(t, features.StrictResourceFlavorLabeling, true)
+
+			err := validateAllowedKeysUsage(tc.spec, tc.allowedKeys)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got none")
+					return
+				}
+				if tc.errContains != "" && !containsString(err.Error(), tc.errContains) {
+					t.Errorf("expected error to contain %q, but got: %v", tc.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error but got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateAllowedKeysUsage_FeatureGateDisabled(t *testing.T) {
+	// Feature gate is disabled by default, so validation should be skipped
+	spec := &corev1.PodSpec{
+		NodeSelector: map[string]string{
+			"kubernetes.io/arch": "amd64",
+			// missing "node-type" but should pass because feature is disabled
+		},
+	}
+	allowedKeys := sets.New("kubernetes.io/arch", "node-type")
+
+	err := validateAllowedKeysUsage(spec, allowedKeys)
+	if err != nil {
+		t.Errorf("expected no error when feature gate is disabled, but got: %v", err)
+	}
+}
+
+func TestFlavorSelector_ValidateAllowedKeysIntegration(t *testing.T) {
+	testCases := []struct {
+		name        string
+		spec        *corev1.PodSpec
+		allowedKeys sets.Set[string]
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid pod with all required keys in nodeSelector",
+			spec: &corev1.PodSpec{
+				NodeSelector: map[string]string{
+					"kubernetes.io/arch": "amd64",
+					"node-type":          "cpu",
+				},
+			},
+			allowedKeys: sets.New("kubernetes.io/arch", "node-type"),
+			wantErr:     false,
+		},
+		{
+			name: "invalid pod missing required keys",
+			spec: &corev1.PodSpec{
+				NodeSelector: map[string]string{
+					"kubernetes.io/arch": "amd64",
+					// missing "node-type"
+				},
+			},
+			allowedKeys: sets.New("kubernetes.io/arch", "node-type"),
+			wantErr:     true,
+			errContains: "must be fully constrained",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Enable the feature gate for this test
+			features.SetFeatureGateDuringTest(t, features.StrictResourceFlavorLabeling, true)
+
+			_, err := flavorSelector(tc.spec, tc.allowedKeys)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got none")
+					return
+				}
+				if tc.errContains != "" && !containsString(err.Error(), tc.errContains) {
+					t.Errorf("expected error to contain %q, but got: %v", tc.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error but got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// Helper function to check if a string contains a substring
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		}())
 }
