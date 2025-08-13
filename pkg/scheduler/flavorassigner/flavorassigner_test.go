@@ -3161,10 +3161,8 @@ func TestValidateAllowedKeysUsage(t *testing.T) {
 				if tc.errContains != "" && !containsString(err.Error(), tc.errContains) {
 					t.Errorf("expected error to contain %q, but got: %v", tc.errContains, err)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("expected no error but got: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("expected no error but got: %v", err)
 			}
 		})
 	}
@@ -3234,10 +3232,8 @@ func TestFlavorSelector_ValidateAllowedKeysIntegration(t *testing.T) {
 				if tc.errContains != "" && !containsString(err.Error(), tc.errContains) {
 					t.Errorf("expected error to contain %q, but got: %v", tc.errContains, err)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("expected no error but got: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("expected no error but got: %v", err)
 			}
 		})
 	}
