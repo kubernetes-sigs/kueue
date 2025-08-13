@@ -624,8 +624,9 @@ func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.Provisio
 		podSetUpdate := kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
-				ConsumesAnnotationKey:  pr.Name,
-				ClassNameAnnotationKey: pr.Spec.ProvisioningClassName},
+				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
+				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
+			},
 		}
 		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
 			podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))

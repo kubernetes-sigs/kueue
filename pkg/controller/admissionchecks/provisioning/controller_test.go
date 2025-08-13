@@ -616,15 +616,15 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									ConsumesAnnotationKey:  "wl-check1-1",
-									ClassNameAnnotationKey: "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									ConsumesAnnotationKey:  "wl-check1-1",
-									ClassNameAnnotationKey: "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 						},
@@ -1177,8 +1177,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									ConsumesAnnotationKey:  "wl-check1-1",
-									ClassNameAnnotationKey: "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 								NodeSelector: map[string]string{
 									"node-selector-key": "nodes-selector-xyz",
@@ -1187,8 +1187,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									ConsumesAnnotationKey:  "wl-check1-1",
-									ClassNameAnnotationKey: "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 								NodeSelector: map[string]string{
 									"node-selector-key": "nodes-selector-xyz",
@@ -1226,15 +1226,15 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									ConsumesAnnotationKey:  "wl-check1-1",
-									ClassNameAnnotationKey: "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									ConsumesAnnotationKey:  "wl-check1-1",
-									ClassNameAnnotationKey: "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 						},
