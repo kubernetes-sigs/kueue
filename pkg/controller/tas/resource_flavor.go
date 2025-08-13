@@ -21,6 +21,8 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -109,6 +111,12 @@ func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workque
 	if !isOldNode || !isNewNode {
 		return
 	}
+
+	if !checkNodeSchedulingPropertiesChanged(oldNode, newNode) {
+		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as it doesn't affect TAS scheduling", "node", newNode.Name)
+		return
+	}
+
 	h.queueReconcileForNode(oldNode, q)
 	h.queueReconcileForNode(newNode, q)
 }
@@ -202,4 +210,20 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 		}
 	}
 	return true
+}
+
+// checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
+func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
+	oldCopy := oldNode.DeepCopy()
+	newCopy := newNode.DeepCopy()
+
+	// Zero out LastHeartbeatTime
+	for i := range oldCopy.Status.Conditions {
+		oldCopy.Status.Conditions[i].LastHeartbeatTime = metav1.Time{}
+	}
+	for i := range newCopy.Status.Conditions {
+		newCopy.Status.Conditions[i].LastHeartbeatTime = metav1.Time{}
+	}
+
+	return !equality.Semantic.DeepEqual(oldCopy, newCopy)
 }
