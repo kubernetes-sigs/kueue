@@ -36,9 +36,6 @@ type DeploymentWrapper struct {
 
 // MakeDeployment creates a wrapper for a Deployment with a single container.
 func MakeDeployment(name, ns string) *DeploymentWrapper {
-	podLabels := map[string]string{
-		"app": fmt.Sprintf("%s-pod", name),
-	}
 	return &DeploymentWrapper{appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -47,11 +44,15 @@ func MakeDeployment(name, ns string) *DeploymentWrapper {
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
+				MatchLabels: map[string]string{
+					"app": fmt.Sprintf("%s-pod", name),
+				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
+					Labels: map[string]string{
+						"app": fmt.Sprintf("%s-pod", name),
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
