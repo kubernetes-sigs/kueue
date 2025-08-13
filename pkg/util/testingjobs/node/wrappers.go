@@ -61,6 +61,15 @@ func (n *NodeWrapper) Label(k, v string) *NodeWrapper {
 	return n
 }
 
+// Annotation adds an annotation to the Node
+func (n *NodeWrapper) Annotation(k, v string) *NodeWrapper {
+	if n.Annotations == nil {
+		n.Annotations = make(map[string]string)
+	}
+	n.Annotations[k] = v
+	return n
+}
+
 // StatusConditions appends the given status conditions to the Node.
 func (n *NodeWrapper) StatusConditions(conditions ...corev1.NodeCondition) *NodeWrapper {
 	n.Status.Conditions = append(n.Status.Conditions, conditions...)
@@ -105,5 +114,22 @@ func (n *NodeWrapper) NotReady() *NodeWrapper {
 // Unschedulable sets the Node to an unschedulable state.
 func (n *NodeWrapper) Unschedulable() *NodeWrapper {
 	n.Spec.Unschedulable = true
+	return n
+}
+
+// ConditionHeartbeat updates the LastHeartbeatTime of an existing condition.
+func (n *NodeWrapper) ConditionHeartbeat(conditionType corev1.NodeConditionType, heartbeat metav1.Time) *NodeWrapper {
+	for i := range n.Status.Conditions {
+		if n.Status.Conditions[i].Type == conditionType {
+			n.Status.Conditions[i].LastHeartbeatTime = heartbeat
+			break
+		}
+	}
+	return n
+}
+
+// ResourceVersion sets the ResourceVersion of the Node.
+func (n *NodeWrapper) ResourceVersion(version string) *NodeWrapper {
+	n.ObjectMeta.ResourceVersion = version
 	return n
 }
