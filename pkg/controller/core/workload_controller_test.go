@@ -677,8 +677,9 @@ func TestReconcile(t *testing.T) {
 				).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToAdmissionCheck",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "AdmissionCheck",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -686,7 +687,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
 					EventType: "Normal",
-					Reason:    "EvictedDueToDeactivatedDueToAdmissionCheck",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated due to Admission check(s): check-1, were rejected",
 				},
 			},
@@ -1344,14 +1345,18 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEviction{Reason: "DeactivatedDueToRequeuingLimitExceeded", Count: 1},
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
 				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
@@ -1408,8 +1413,9 @@ func TestReconcile(t *testing.T) {
 				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1417,7 +1423,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
@@ -1477,8 +1483,9 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1486,7 +1493,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
@@ -1546,8 +1553,9 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1555,7 +1563,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToDeactivatedDueToRequeuingLimitExceeded",
+					Reason:    "EvictedDueToDeactivated",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},

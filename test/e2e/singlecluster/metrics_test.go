@@ -522,6 +522,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{"kueue_evicted_workloads_total"},
 				{"kueue_evicted_workloads_once_total"},
 				{"kueue_preempted_workloads_total"},
+				{"kueue_deactivated_workloads_total"},
 
 				{"kueue_local_queue_evicted_workloads_total"},
 				{"kueue_local_queue_resource_reservation"},

@@ -591,6 +591,11 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	expectCounterMetric(metric, v)
 }
 
+func ExpectDeactivatedTotalMetric(cqName, reason string, v int) {
+	metric := metrics.DeactivatedWorkloadsTotal.WithLabelValues(cqName, reason)
+	expectCounterMetric(metric, v)
+}
+
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
