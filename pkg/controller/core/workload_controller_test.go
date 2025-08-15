@@ -677,8 +677,9 @@ func TestReconcile(t *testing.T) {
 				).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToAdmissionCheck",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "AdmissionCheck",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1344,7 +1345,11 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEviction{Reason: "DeactivatedDueToRequeuingLimitExceeded", Count: 1},
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
 				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1408,8 +1413,9 @@ func TestReconcile(t *testing.T) {
 				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1477,8 +1483,9 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1546,8 +1553,9 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
