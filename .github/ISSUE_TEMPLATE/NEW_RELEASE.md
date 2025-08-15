@@ -65,9 +65,9 @@ Please do not remove items from the checklist
         This ensures that the devel builds on the `main` branch will have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
-  - [ ] Create the presubmits and the periodic jobs for the next patch release:
+  - [ ] Create the presubmits and the periodic jobs for the next patch release: <!-- CI_PULL -->
         <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
-  - [ ] Drop CI Jobs for testing the out-of-support branch:
+  - [ ] Drop CI Jobs for testing the out-of-support branch: <!-- CI_PULL -->
         <!-- example: https://github.com/kubernetes/test-infra/pull/34562 -->
 
 
