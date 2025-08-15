@@ -355,15 +355,17 @@ type FlavorAssigner struct {
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
 	oracle            preemptionOracle
+	schedulingCycle   int64
 }
 
-func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle) *FlavorAssigner {
+func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, schedulingCycle int64) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                wl,
 		cq:                cq,
 		resourceFlavors:   resourceFlavors,
 		enableFairSharing: enableFairSharing,
 		oracle:            oracle,
+		schedulingCycle:   schedulingCycle,
 	}
 }
 
@@ -377,13 +379,9 @@ func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueueSnapshot) b
 // FlavorAssignmentMode.
 func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 	if a.wl.LastAssignment != nil && lastAssignmentOutdated(a.wl, a.cq) {
-		if logV := log.V(6); logV.Enabled() {
-			keysValues := []any{
-				"cq.AllocatableResourceGeneration", a.cq.AllocatableResourceGeneration,
-				"wl.LastAssignment.ClusterQueueGeneration", a.wl.LastAssignment.ClusterQueueGeneration,
-			}
-			logV.Info("Clearing Workload's last assignment because it was outdated", keysValues...)
-		}
+		log.V(5).Info("Clearing Workload's last assignment because it was outdated",
+			"cq.AllocatableResourceGeneration", a.cq.AllocatableResourceGeneration,
+			"wl.LastAssignment.ClusterQueueGeneration", a.wl.LastAssignment.ClusterQueueGeneration)
 		a.wl.LastAssignment = nil
 	}
 	return a.assignFlavors(log, counts)

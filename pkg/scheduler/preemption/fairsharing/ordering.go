@@ -19,6 +19,7 @@ package fairsharing
 import (
 	"iter"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -54,9 +55,11 @@ type TargetClusterQueueOrdering struct {
 	// preemption target candidates.
 	prunedClusterQueues sets.Set[*cache.ClusterQueueSnapshot]
 	prunedCohorts       sets.Set[*cache.CohortSnapshot]
+
+	log logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*workload.Info) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*cache.CohortSnapshot](),
@@ -65,6 +68,8 @@ func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*work
 
 		prunedClusterQueues: sets.New[*cache.ClusterQueueSnapshot](),
 		prunedCohorts:       sets.New[*cache.CohortSnapshot](),
+
+		log: log,
 	}
 
 	for ancestor := range cq.PathParentToRoot() {
@@ -131,19 +136,37 @@ func (t *TargetClusterQueueOrdering) hasWorkload(cq *cache.ClusterQueueSnapshot)
 // are no more candidate ClusterQueues; an iteration may have only
 // pruned nodes from the tree.
 func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *TargetClusterQueue {
+	t.log.V(5).Info("[ordering.go] nextTarget: evaluating cohort", "cohort", cohort.Name, "preemptorCQ", t.preemptorCq.Name)
+
 	var highestCq *cache.ClusterQueueSnapshot = nil
 	highestCqDrs := -1
 	for _, cq := range cohort.ChildCQs() {
 		if t.prunedClusterQueues.Has(cq) {
+			t.log.V(5).Info("[ordering.go] nextTarget: skipping pruned CQ", "cq", cq.Name, "cohort", cohort.Name)
 			continue
 		}
 
 		drs := cq.DominantResourceShare()
+		hasWorkload := t.hasWorkload(cq)
+		isPreemptorCQ := cq == t.preemptorCq
+
+		t.log.V(5).Info("[ordering.go] nextTarget: evaluating CQ", "cq", cq.Name, "drs", drs, "hasWorkload", hasWorkload, "isPreemptorCQ", isPreemptorCQ, "cohort", cohort.Name)
+
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
 		if (drs == 0 && cq != t.preemptorCq) || !t.hasWorkload(cq) {
+			pruneReason := "no workloads"
+			if drs == 0 && cq != t.preemptorCq {
+				pruneReason = "DRS=0 and not preemptor CQ"
+			}
+			t.log.V(5).Info("[ordering.go] nextTarget: pruning CQ", "cq", cq.Name, "reason", pruneReason, "drs", drs, "hasWorkload", hasWorkload)
 			t.prunedClusterQueues.Insert(cq)
 		} else if drs >= highestCqDrs {
+			previousHighestCq := "none"
+			if highestCq != nil {
+				previousHighestCq = string(highestCq.Name)
+			}
+			t.log.V(5).Info("[ordering.go] nextTarget: new highest CQ candidate", "cq", cq.Name, "drs", drs, "previousHighestDrs", highestCqDrs, "previousHighestCq", previousHighestCq)
 			highestCqDrs = drs
 			highestCq = cq
 		}
@@ -152,6 +175,9 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 	var highestCohort *cache.CohortSnapshot = nil
 	highestCohortDrs := -1
 	for _, cohort := range cohort.ChildCohorts() {
+		// WE SHOULD NOT BE HITTING THIS CODE PATH, ENSURE THAT
+		t.log.V(5).Info("[ordering.go] nextTarget: we should not be hitting this code path because there's no hierarchical cohorts yet")
+
 		if t.prunedCohorts.Has(cohort) {
 			continue
 		}
@@ -176,6 +202,12 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 	// None of the children are valid candidates (i.e. all
 	// children pruned), so this Cohort is pruned.
 	if highestCohort == nil && highestCq == nil {
+		t.log.V(5).Info("[ordering.go] nextTarget: pruning cohort - no valid children", "cohort", cohort.Name, "highestCohort", highestCohort, "highestCq", func() string {
+			if highestCq != nil {
+				return string(highestCq.Name)
+			}
+			return "none"
+		}())
 		t.prunedCohorts.Insert(cohort)
 		return nil
 	}
@@ -184,8 +216,20 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 	// slightly more fair, as we can choose the most unfair node
 	// within that Cohort.
 	if highestCohortDrs >= highestCqDrs {
+		t.log.V(5).Info("[ordering.go] nextTarget: choosing cohort over CQ", "chosenCohort", highestCohort.Name, "cohortDrs", highestCohortDrs, "rejectedCQ", func() string {
+			if highestCq != nil {
+				return string(highestCq.Name)
+			}
+			return "none"
+		}(), "cqDrs", highestCqDrs)
 		return t.nextTarget(highestCohort)
 	}
+	t.log.V(5).Info("[ordering.go] nextTarget: choosing CQ over cohort", "chosenCQ", highestCq.Name, "cqDrs", highestCqDrs, "rejectedCohort", func() string {
+		if highestCohort != nil {
+			return string(highestCohort.Name)
+		}
+		return "none"
+	}(), "cohortDrs", highestCohortDrs)
 	return &TargetClusterQueue{
 		ordering: t,
 		targetCq: highestCq,

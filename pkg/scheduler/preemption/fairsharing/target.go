@@ -15,6 +15,7 @@
 package fairsharing
 
 import (
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -31,6 +32,11 @@ type TargetClusterQueue struct {
 // considering its own workloads for priority based preemption.
 func (t *TargetClusterQueue) InClusterQueuePreemption() bool {
 	return t.targetCq == t.ordering.preemptorCq
+}
+
+// GetTargetCQName returns the name of the target ClusterQueue
+func (t *TargetClusterQueue) GetTargetCQName() kueue.ClusterQueueReference {
+	return t.targetCq.GetName()
 }
 
 func (t *TargetClusterQueue) PopWorkload() *workload.Info {
@@ -51,8 +57,44 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 // do not depend on the removal of the workload being considered for
 // preemption.
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
+	t.ordering.log.V(5).Info("[target.go] ComputeShares: starting DRS calculation",
+		"preemptorCQ", t.ordering.preemptorCq.Name,
+		"targetCQ", t.targetCq.Name,
+		"preemptorUsage", t.ordering.preemptorCq.ResourceNode.Usage,
+		"targetUsage", t.targetCq.ResourceNode.Usage,
+		"preemptorQuota", t.ordering.preemptorCq.ResourceNode.SubtreeQuota,
+		"targetQuota", t.targetCq.ResourceNode.SubtreeQuota)
+
 	preemptorAlmostLCA, targetAlmostLCA := getAlmostLCAs(t)
-	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
+
+	preemptorDRS := preemptorAlmostLCA.DominantResourceShare()
+	targetDRS := targetAlmostLCA.DominantResourceShare()
+
+	// Additional debug info for fairshare weight and borrowing status
+	preemptorFairWeight := t.ordering.preemptorCq.FairWeight
+	targetFairWeight := t.targetCq.FairWeight
+
+	t.ordering.log.V(5).Info("[target.go] ComputeShares: calculated DRS values",
+		"preemptorCQ", t.ordering.preemptorCq.Name,
+		"targetCQ", t.targetCq.Name,
+		"preemptorDRS", preemptorDRS,
+		"targetDRS", targetDRS,
+		"preemptorFairWeight", preemptorFairWeight.MilliValue(),
+		"targetFairWeight", targetFairWeight.MilliValue(),
+		"preemptorAlmostLCAType", func() string {
+			if _, ok := preemptorAlmostLCA.(*cache.ClusterQueueSnapshot); ok {
+				return "ClusterQueue"
+			}
+			return "Cohort"
+		}(),
+		"targetAlmostLCAType", func() string {
+			if _, ok := targetAlmostLCA.(*cache.ClusterQueueSnapshot); ok {
+				return "ClusterQueue"
+			}
+			return "Cohort"
+		}())
+
+	return PreemptorNewShare(preemptorDRS), TargetOldShare(targetDRS)
 }
 
 // ComputeTargetShareAfterRemoval returns DominantResourceShare of the

@@ -44,9 +44,7 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 }
 
 func logSnapshotIfVerbose(log logr.Logger, s *cache.Snapshot) {
-	if logV := log.V(6); logV.Enabled() {
-		s.Log(logV)
-	}
+	log.V(5).Info("Snapshot details", "snapshot", s)
 }
 
 func getWorkloadReferences(targets []*preemption.Target) []klog.ObjectRef {

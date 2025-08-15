@@ -43,6 +43,7 @@ func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQ
 	}
 	for _, candidate := range p.preemptor.getTargets(&preemptionCtx{
 		log:               log,
+		schedulingCycle:   p.preemptor.schedulingCycle,
 		preemptor:         wl,
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,

@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -175,6 +176,7 @@ func reportSkippedPreemptions(p map[kueue.ClusterQueueReference]int) {
 
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
+	s.preemptor.SetSchedulingCycle(s.schedulingCycle)
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
@@ -197,6 +199,17 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
+
+	var entriesList []string
+	for _, entry := range entries {
+		entriesList = append(entriesList, entry.string())
+	}
+	var inadmissibleEntriesList []string
+	for _, ie := range entries {
+		entriesList = append(inadmissibleEntriesList, ie.string())
+	}
+
+	log.V(5).Info("completed nomination", "entries", strings.Join(entriesList, ","), "inadmissibleEntries", strings.Join(inadmissibleEntriesList, ","))
 
 	// 4. Create iterator which returns ordered entries.
 	iterator := makeIterator(ctx, entries, s.workloadOrdering, s.fairSharing.Enable)
@@ -346,6 +359,27 @@ func (e *entry) assignmentUsage() workload.Usage {
 	})
 }
 
+func (e *entry) string() string {
+	var workloadName, workloadNamespace string
+	if e.Obj != nil {
+		workloadName = e.Obj.Name
+		workloadNamespace = e.Obj.Namespace
+	}
+
+	var clusterQueueName string
+	if e.ClusterQueue != "" {
+		clusterQueueName = string(e.ClusterQueue)
+	}
+
+	var preemptionTargetsCount int
+	if e.preemptionTargets != nil {
+		preemptionTargetsCount = len(e.preemptionTargets)
+	}
+
+	return fmt.Sprintf("entry{workload: %s/%s, clusterQueue: %s, status: %s, inadmissibleMsg: %q, requeueReason: %s, preemptionTargets: %d, assignment: %+v, totalRequests: %+v}",
+		workloadNamespace, workloadName, clusterQueueName, string(e.status), e.inadmissibleMsg, e.requeueReason, preemptionTargetsCount, e.assignment, e.TotalRequests)
+}
+
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
@@ -451,7 +485,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 
 func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap), s.schedulingCycle)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()

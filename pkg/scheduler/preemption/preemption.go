@@ -60,6 +60,7 @@ type Preemptor struct {
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
+	schedulingCycle   int64
 
 	// stubs
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
@@ -67,6 +68,7 @@ type Preemptor struct {
 
 type preemptionCtx struct {
 	log               logr.Logger
+	schedulingCycle   int64
 	preemptor         workload.Info
 	preemptorCQ       *cache.ClusterQueueSnapshot
 	snapshot          *cache.Snapshot
@@ -98,6 +100,10 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, strin
 	p.applyPreemption = f
 }
 
+func (p *Preemptor) SetSchedulingCycle(cycle int64) {
+	p.schedulingCycle = cycle
+}
+
 type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
@@ -110,6 +116,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
 	return p.getTargets(&preemptionCtx{
 		log:               log,
+		schedulingCycle:   p.schedulingCycle,
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
@@ -305,7 +312,7 @@ func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
 func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info) {
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.log)
 	var targets []*Target
 	var retryCandidates []*workload.Info
 	for candCQ := range ordering.Iter() {
@@ -323,10 +330,16 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		}
 
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+		preemptionCtx.log.V(5).Info("[preemption.go] runFirstFsStrategy: computed shares for target CQ", "schedulingCycle", preemptionCtx.schedulingCycle, "targetCQ", candCQ.GetTargetCQName(), "preemptorNewShare", int(preemptorNewShare), "targetOldShare", int(targetOldShare), "hasWorkloads", candCQ.HasWorkload())
+
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
-			if strategy(preemptorNewShare, targetOldShare, targetNewShare) {
+			strategyResult := strategy(preemptorNewShare, targetOldShare, targetNewShare)
+
+			preemptionCtx.log.V(5).Info("[preemption.go] runFirstFsStrategy: evaluating strategy for candidate", "schedulingCycle", preemptionCtx.schedulingCycle, "candidate", klog.KObj(candWl.Obj), "targetCQ", candCQ.GetTargetCQName(), "preemptorNewShare", int(preemptorNewShare), "targetOldShare", int(targetOldShare), "targetNewShare", int(targetNewShare), "strategyResult", strategyResult)
+
+			if strategyResult {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				reason := kueue.InCohortFairSharingReason
 
@@ -334,12 +347,17 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					WorkloadInfo: candWl,
 					Reason:       reason,
 				})
+
+				preemptionCtx.log.V(5).Info("[preemption.go] runFirstFsStrategy: strategy passed, checking if workload fits", "schedulingCycle", preemptionCtx.schedulingCycle, "candidate", klog.KObj(candWl.Obj), "targetCQ", candCQ.GetTargetCQName(), "totalTargets", len(targets))
+
 				if workloadFitsForFairSharing(preemptionCtx) {
+					preemptionCtx.log.V(5).Info("[preemption.go] runFirstFsStrategy: workload fits after preemption", "schedulingCycle", preemptionCtx.schedulingCycle, "preemptorWorkload", klog.KObj(preemptionCtx.preemptor.Obj), "totalTargets", len(targets))
 					return true, targets, nil
 				}
 				// Might need to pick a different CQ due to changing values.
 				break
 			} else {
+				preemptionCtx.log.V(5).Info("[preemption.go] runFirstFsStrategy: strategy failed, adding to retry candidates", "schedulingCycle", preemptionCtx.schedulingCycle, "candidate", klog.KObj(candWl.Obj), "targetCQ", candCQ.GetTargetCQName())
 				retryCandidates = append(retryCandidates, candWl)
 			}
 		}
@@ -350,7 +368,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns
 // (fits, targets).
 func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemptionCtx, targets []*Target) (bool, []*Target) {
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.log)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
@@ -375,14 +393,13 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 }
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) []*Target {
-	candidates := p.findCandidates(preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
+	candidates := p.findCandidates(preemptionCtx.log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidates) == 0 {
+		preemptionCtx.log.V(5).Info("[preemption.go] fairPreemptions: no candidates found", "schedulingCycle", preemptionCtx.schedulingCycle, "preemptorWorkload", klog.KObj(preemptionCtx.preemptor.Obj), "preemptorCQ", preemptionCtx.preemptorCQ.Name)
 		return nil
 	}
 	sort.Slice(candidates, CandidatesOrdering(candidates, preemptionCtx.preemptorCQ.Name, p.clock.Now()))
-	if logV := preemptionCtx.log.V(5); logV.Enabled() {
-		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
-	}
+	preemptionCtx.log.V(5).Info("Simulating fair preemption", "schedulingCycle", preemptionCtx.schedulingCycle, "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
 
 	// DRS values must include incoming workload.
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
@@ -417,49 +434,76 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
+func (p *Preemptor) findCandidates(log logr.Logger, wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
+
+	log.V(5).Info("[preemption.go] findCandidates: starting candidate search", "schedulingCycle", p.schedulingCycle, "preemptorWorkload", klog.KObj(wl), "preemptorCQ", cq.Name, "preemptorPriority", wlPriority, "frsNeedPreemption", frsNeedPreemption.UnsortedList())
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		considerSamePrio := cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority
 		preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
+		log.V(5).Info("[preemption.go] findCandidates: checking within ClusterQueue", "schedulingCycle", p.schedulingCycle, "cq", cq.Name, "withinClusterQueuePolicy", cq.Preemption.WithinClusterQueue, "considerSamePrio", considerSamePrio, "totalWorkloads", len(cq.Workloads))
+
 		for _, candidateWl := range cq.Workloads {
 			candidatePriority := priority.Priority(candidateWl.Obj)
 			if candidatePriority > wlPriority {
+				log.V(5).Info("[preemption.go] findCandidates: skipping higher priority candidate", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj), "candidatePriority", candidatePriority, "preemptorPriority", wlPriority)
 				continue
 			}
 
 			if candidatePriority == wlPriority && (!considerSamePrio || !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj))) {
+				log.V(5).Info("[preemption.go] findCandidates: skipping same priority candidate", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj), "candidatePriority", candidatePriority, "considerSamePrio", considerSamePrio)
 				continue
 			}
 
 			if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
+				log.V(5).Info("[preemption.go] findCandidates: skipping candidate not using needed resources", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj))
 				continue
 			}
+			log.V(5).Info("[preemption.go] findCandidates: adding within-CQ candidate", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj), "candidatePriority", candidatePriority)
 			candidates = append(candidates, candidateWl)
 		}
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
 		onlyLowerPriority := cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyAny
-		for _, cohortCQ := range cq.Parent().Root().SubtreeClusterQueues() {
-			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
-				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
+		cohortCQs := cq.Parent().Root().SubtreeClusterQueues()
+
+		log.V(5).Info("[preemption.go] findCandidates: checking within cohort", "schedulingCycle", p.schedulingCycle, "cq", cq.Name, "reclaimWithinCohortPolicy", cq.Preemption.ReclaimWithinCohort, "onlyLowerPriority", onlyLowerPriority, "totalCohortCQs", len(cohortCQs))
+
+		for _, cohortCQ := range cohortCQs {
+			if cq == cohortCQ {
+				log.V(5).Info("[preemption.go] findCandidates: skipping self CQ", "schedulingCycle", p.schedulingCycle, "cq", cohortCQ.Name)
 				continue
 			}
+
+			isBorrowing := cqIsBorrowing(cohortCQ, frsNeedPreemption)
+			if !isBorrowing {
+				log.V(5).Info("[preemption.go] findCandidates: skipping non-borrowing CQ", "schedulingCycle", p.schedulingCycle, "cq", cohortCQ.Name, "isBorrowing", isBorrowing)
+				continue
+			}
+
+			log.V(5).Info("[preemption.go] findCandidates: checking borrowing CQ", "schedulingCycle", p.schedulingCycle, "cq", cohortCQ.Name, "isBorrowing", isBorrowing, "workloads", len(cohortCQ.Workloads))
+
 			for _, candidateWl := range cohortCQ.Workloads {
-				if onlyLowerPriority && priority.Priority(candidateWl.Obj) >= priority.Priority(wl) {
+				candidatePriority := priority.Priority(candidateWl.Obj)
+				if onlyLowerPriority && candidatePriority >= priority.Priority(wl) {
+					log.V(5).Info("[preemption.go] findCandidates: skipping cohort candidate with higher/equal priority", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj), "candidatePriority", candidatePriority, "preemptorPriority", wlPriority, "onlyLowerPriority", onlyLowerPriority)
 					continue
 				}
 				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
+					log.V(5).Info("[preemption.go] findCandidates: skipping cohort candidate not using needed resources", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj))
 					continue
 				}
+				log.V(5).Info("[preemption.go] findCandidates: adding cohort candidate", "schedulingCycle", p.schedulingCycle, "candidate", klog.KObj(candidateWl.Obj), "candidateCQ", cohortCQ.Name, "candidatePriority", candidatePriority)
 				candidates = append(candidates, candidateWl)
 			}
 		}
 	}
+
+	log.V(5).Info("[preemption.go] findCandidates: completed candidate search", "schedulingCycle", p.schedulingCycle, "totalCandidates", len(candidates), "preemptorWorkload", klog.KObj(wl))
 	return candidates
 }
 
@@ -479,16 +523,69 @@ func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[re
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
+	preemptionCtx.log.V(5).Info("[preemption.go] workloadFits: starting fit check",
+		"schedulingCycle", preemptionCtx.schedulingCycle,
+		"preemptorWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+		"preemptorCQ", preemptionCtx.preemptorCQ.Name,
+		"allowBorrowing", allowBorrowing,
+		"workloadUsage", preemptionCtx.workloadUsage.Quota,
+		"preemptorCQUsage", preemptionCtx.preemptorCQ.ResourceNode.Usage,
+		"preemptorCQQuota", preemptionCtx.preemptorCQ.ResourceNode.SubtreeQuota)
+
 	for fr, v := range preemptionCtx.workloadUsage.Quota {
-		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
+		available := preemptionCtx.preemptorCQ.Available(fr)
+		wouldBorrow := preemptionCtx.preemptorCQ.BorrowingWith(fr, v)
+
+		preemptionCtx.log.V(5).Info("[preemption.go] workloadFits: checking flavor resource",
+			"schedulingCycle", preemptionCtx.schedulingCycle,
+			"flavorResource", fr,
+			"requested", v,
+			"available", available,
+			"wouldBorrow", wouldBorrow,
+			"allowBorrowing", allowBorrowing,
+			"currentUsage", preemptionCtx.preemptorCQ.ResourceNode.Usage[fr],
+			"nominalQuota", preemptionCtx.preemptorCQ.QuotaFor(fr).Nominal,
+			"borrowingLimit", preemptionCtx.preemptorCQ.QuotaFor(fr).BorrowingLimit)
+
+		if !allowBorrowing && wouldBorrow {
+			preemptionCtx.log.V(5).Info("[preemption.go] workloadFits: FAILED - would require borrowing but not allowed",
+				"schedulingCycle", preemptionCtx.schedulingCycle,
+				"flavorResource", fr,
+				"requested", v,
+				"wouldBorrow", wouldBorrow,
+				"allowBorrowing", allowBorrowing)
 			return false
 		}
-		if v > preemptionCtx.preemptorCQ.Available(fr) {
+		if v > available {
+			preemptionCtx.log.V(5).Info("[preemption.go] workloadFits: FAILED - insufficient available resources",
+				"schedulingCycle", preemptionCtx.schedulingCycle,
+				"flavorResource", fr,
+				"requested", v,
+				"available", available)
 			return false
 		}
 	}
+
 	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests, false, nil)
-	return tasResult.Failure() == nil
+	tasSuccess := tasResult.Failure() == nil
+
+	preemptionCtx.log.V(5).Info("[preemption.go] workloadFits: topology assignment result",
+		"schedulingCycle", preemptionCtx.schedulingCycle,
+		"tasSuccess", tasSuccess,
+		"tasFailure", func() string {
+			if tasResult.Failure() != nil {
+				return tasResult.Failure().Reason
+			}
+			return "none"
+		}())
+
+	preemptionCtx.log.V(5).Info("[preemption.go] workloadFits: final result",
+		"schedulingCycle", preemptionCtx.schedulingCycle,
+		"fits", tasSuccess,
+		"preemptorWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+		"preemptorCQ", preemptionCtx.preemptorCQ.Name)
+
+	return tasSuccess
 }
 
 // workloadFitsForFairSharing is a lightweight wrapper around
@@ -496,9 +593,14 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // the incoming workload, as FairSharing adds this usage at the start
 // of processing for accurate DominantResourceShare calculations.
 func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
+	preemptionCtx.log.V(5).Info("[preemption.go] workloadFitsForFairSharing: checking if workload fits", "schedulingCycle", preemptionCtx.schedulingCycle, "preemptorWorkload", klog.KObj(preemptionCtx.preemptor.Obj), "preemptorCQ", preemptionCtx.preemptorCQ.Name, "workloadUsage", preemptionCtx.workloadUsage.Quota)
+
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
 	res := workloadFits(preemptionCtx, true)
 	revertSimulation()
+
+	preemptionCtx.log.V(5).Info("[preemption.go] workloadFitsForFairSharing: workload fit result", "schedulingCycle", preemptionCtx.schedulingCycle, "fits", res, "preemptorWorkload", klog.KObj(preemptionCtx.preemptor.Obj), "preemptorCQ", preemptionCtx.preemptorCQ.Name)
+
 	return res
 }
 

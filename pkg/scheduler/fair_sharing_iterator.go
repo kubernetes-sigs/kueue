@@ -218,11 +218,11 @@ func (e *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry m
 }
 
 func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
-	if logV := log.V(5); logV.Enabled() {
+	log.V(5).Info("DominantResourceShare values used during tournament", "drsValues", func() []string {
 		serializableDrs := make([]string, 0, len(e.drsValues))
 		for k, v := range e.drsValues {
 			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %d}", k.parentCohort, k.workloadKey, v))
 		}
-		logV.Info("DominantResourceShare values used during tournament", "drsValues", serializableDrs)
-	}
+		return serializableDrs
+	}())
 }
