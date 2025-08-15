@@ -167,11 +167,13 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
+The label 'underlying_cause' can have the following values:
+- "" means that the value in 'reason' label is the root cause for eviction.
+- "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
+- "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
+- "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
 			Buckets: generateExponentialBuckets(14),
-		}, []string{"cluster_queue", "reason"},
+		}, []string{"cluster_queue", "reason", "underlying_cause"},
 	)
 
 	localQueueQuotaReservedWaitTime = prometheus.NewHistogramVec(
@@ -284,10 +286,12 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
-		}, []string{"cluster_queue", "reason"},
+The label 'underlying_cause' can have the following values:
+- "" means that the value in 'reason' label is the root cause for eviction.
+- "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
+- "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
+- "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
+		}, []string{"cluster_queue", "reason", "underlying_cause"},
 	)
 
 	ReplacedWorkloadSlicesTotal = prometheus.NewCounterVec(
@@ -311,10 +315,12 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
-		}, []string{"name", "namespace", "reason"},
+The label 'underlying_cause' can have the following values:
+- "" means that the value in 'reason' label is the root cause for eviction.
+- "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
+- "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
+- "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
+		}, []string{"name", "namespace", "reason", "underlying_cause"},
 	)
 
 	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
@@ -330,9 +336,13 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
+The label 'detailed_reason' can have the following values:
+- "" means that the value in 'reason' label is the root cause for eviction.
+- "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
+- "WaitForRecovery" means that the Pods were ready since the workload admission, but some pod has failed.
+- "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
+- "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
+- "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
 		}, []string{"cluster_queue", "reason", "detailed_reason"},
 	)
 
@@ -554,16 +564,16 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason string) {
-	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason).Inc()
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause string) {
+	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason, underlyingCause).Inc()
 }
 
 func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
 	ReplacedWorkloadSlicesTotal.WithLabelValues(string(cqName)).Inc()
 }
 
-func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason string) {
-	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason).Inc()
+func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string) {
+	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause).Inc()
 }
 
 func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause string) {
