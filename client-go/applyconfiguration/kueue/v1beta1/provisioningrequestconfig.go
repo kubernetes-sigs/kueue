@@ -20,7 +20,10 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 )
 
 // ProvisioningRequestConfigApplyConfiguration represents a declarative configuration of the ProvisioningRequestConfig type for use
@@ -39,6 +42,41 @@ func ProvisioningRequestConfig(name string) *ProvisioningRequestConfigApplyConfi
 	b.WithKind("ProvisioningRequestConfig")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
+}
+
+// ExtractProvisioningRequestConfig extracts the applied configuration owned by fieldManager from
+// provisioningRequestConfig. If no managedFields are found in provisioningRequestConfig for fieldManager, a
+// ProvisioningRequestConfigApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// provisioningRequestConfig must be a unmodified ProvisioningRequestConfig API object that was retrieved from the Kubernetes API.
+// ExtractProvisioningRequestConfig provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+// Experimental!
+func ExtractProvisioningRequestConfig(provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfig, fieldManager string) (*ProvisioningRequestConfigApplyConfiguration, error) {
+	return extractProvisioningRequestConfig(provisioningRequestConfig, fieldManager, "")
+}
+
+// ExtractProvisioningRequestConfigStatus is the same as ExtractProvisioningRequestConfig except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractProvisioningRequestConfigStatus(provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfig, fieldManager string) (*ProvisioningRequestConfigApplyConfiguration, error) {
+	return extractProvisioningRequestConfig(provisioningRequestConfig, fieldManager, "status")
+}
+
+func extractProvisioningRequestConfig(provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfig, fieldManager string, subresource string) (*ProvisioningRequestConfigApplyConfiguration, error) {
+	b := &ProvisioningRequestConfigApplyConfiguration{}
+	err := managedfields.ExtractInto(provisioningRequestConfig, internal.Parser().Type("io.k8s.sigs.kueue.apis.kueue.v1beta1.ProvisioningRequestConfig"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(provisioningRequestConfig.Name)
+
+	b.WithKind("ProvisioningRequestConfig")
+	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
+	return b, nil
 }
 
 // WithKind sets the Kind field in the declarative configuration to the given value
