@@ -166,10 +166,7 @@ The label 'reason' can have the following values:
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
-- "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
+- "Deactivated" means that the workload was evicted because spec.active is set to false.`,
 			Buckets: generateExponentialBuckets(14),
 		}, []string{"cluster_queue", "reason"},
 	)
@@ -283,10 +280,7 @@ The label 'reason' can have the following values:
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
-- "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
+- "Deactivated" means that the workload was evicted because spec.active is set to false.`,
 		}, []string{"cluster_queue", "reason"},
 	)
 
@@ -310,10 +304,7 @@ The label 'reason' can have the following values:
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
-- "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
+- "Deactivated" means that the workload was evicted because spec.active is set to false.`,
 		}, []string{"name", "namespace", "reason"},
 	)
 
@@ -329,10 +320,7 @@ The label 'reason' can have the following values:
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
-- "Deactivated" means that the workload was evicted because spec.active is set to false.
-- "DeactivatedDueToAdmissionCheck" means that the workload was evicted and deactivated by Kueue due to a rejected admission check.
-- "DeactivatedDueToMaximumExecutionTimeExceeded" means that the workload was evicted and deactivated by Kueue due to maximum execution time exceeded.
-- "DeactivatedDueToRequeuingLimitExceeded" means that the workload was evicted and deactivated by Kueue due to requeuing limit exceeded.`,
+- "Deactivated" means that the workload was evicted because spec.active is set to false.`,
 		}, []string{"cluster_queue", "reason", "detailed_reason"},
 	)
 
@@ -347,6 +335,18 @@ The label 'reason' can have the following values:
 - "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
 - "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.`,
 		}, []string{"preempting_cluster_queue", "reason"},
+	)
+
+	DeactivatedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "deactivated_workloads_total",
+			Help: `The number of deactivated workloads per 'cluster_queue',
+The label 'reason' can have the following values:
+- "AdmissionCheck" means that the workload was deactivated because at least one admission check transitioned to False.
+- "MaximumExecutionTimeExceeded" means that the workload was deactivated due to maximum execution time exceeded.
+- "RequeuingLimitExceeded" means that the workload was deactivated due to requeuing limit exceeded.`,
+		}, []string{"cluster_queue", "reason"},
 	)
 
 	// Metrics tied to the cache.
@@ -574,6 +574,10 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
 }
 
+func ReportDeactivation(deactivatedCqName kueue.ClusterQueueReference, deactivationReason string) {
+	DeactivatedWorkloadsTotal.WithLabelValues(string(deactivatedCqName), deactivationReason).Inc()
+}
+
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	return LocalQueueReference{
 		Name:      wl.Spec.QueueName,
@@ -596,6 +600,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	DeactivatedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
@@ -764,6 +769,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		DeactivatedWorkloadsTotal,
 		admissionWaitTime,
 		admissionChecksWaitTime,
 		queuedUntilReadyWaitTime,

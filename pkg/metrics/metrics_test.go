@@ -173,6 +173,18 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 }
 
+func TestReportAndCleanupClusterQueueDeactivatedNumber(t *testing.T) {
+	ReportDeactivation("cluster_queue1", "AdmissionCheck")
+	ReportDeactivation("cluster_queue1", "RequeuingLimitExceeded")
+
+	expectFilteredMetricsCount(t, DeactivatedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, DeactivatedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "AdmissionCheck")
+	expectFilteredMetricsCount(t, DeactivatedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "RequeuingLimitExceeded")
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, DeactivatedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestGitVersionMetric(t *testing.T) {
 	versionInfo := version.Get()
 	expectFilteredMetricsCount(t, buildInfo, 1, "git_version", versionInfo.GitVersion)

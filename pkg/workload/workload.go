@@ -1081,7 +1081,11 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	prepareForEviction(wl, clock.Now(), reason, msg)
+	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+		prepareForEviction(wl, clock.Now(), fmt.Sprintf("%sDueTo%s", reason, underlyingCause), msg)
+	} else {
+		prepareForEviction(wl, clock.Now(), reason, msg)
+	}
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
@@ -1097,6 +1101,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause)
+	}
+	if reason == kueue.WorkloadDeactivated {
+		metrics.ReportDeactivation(wl.Status.Admission.ClusterQueue, underlyingCause)
 	}
 	return nil
 }
