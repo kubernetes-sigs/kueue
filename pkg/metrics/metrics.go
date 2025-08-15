@@ -349,6 +349,20 @@ The label 'reason' can have the following values:
 		}, []string{"preempting_cluster_queue", "reason"},
 	)
 
+	EvictionDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "eviction_duration_seconds",
+			Help: `The time between when a workload transitions to Evicted=True (while having PodsReady=True)
+until it reaches Evicted=True & (QuotaReserved=False || Finished || Deactivated).
+The label 'reason' can have the following values:
+- "QuotaReserved=False" means the workload's quota reservation was cleared.
+- "Finished" means the workload finished execution.
+- "Deactivated" means the workload was deactivated (spec.active=false).`,
+			Buckets: generateExponentialBuckets(14),
+		}, []string{"cluster_queue", "end_reason"},
+	)
+
 	// Metrics tied to the cache.
 
 	ReservingActiveWorkloads = prometheus.NewGaugeVec(
@@ -574,6 +588,10 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
 }
 
+func ReportEvictionCompleted(cqName kueue.ClusterQueueReference, reason string, waitTime time.Duration) {
+	EvictionDuration.WithLabelValues(string(cqName), reason).Observe(waitTime.Seconds())
+}
+
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	return LocalQueueReference{
 		Name:      wl.Spec.QueueName,
@@ -764,6 +782,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		EvictionDuration,
 		admissionWaitTime,
 		admissionChecksWaitTime,
 		queuedUntilReadyWaitTime,
