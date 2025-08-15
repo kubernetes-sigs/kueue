@@ -17,6 +17,10 @@ limitations under the License.
 
 package v1alpha1
 
+// DynamicResourceAllocationConfigListerExpansion allows custom methods to be added to
+// DynamicResourceAllocationConfigLister.
+type DynamicResourceAllocationConfigListerExpansion interface{}
+
 // TopologyListerExpansion allows custom methods to be added to
 // TopologyLister.
 type TopologyListerExpansion interface{}
