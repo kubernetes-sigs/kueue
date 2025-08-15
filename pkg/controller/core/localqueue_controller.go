@@ -173,7 +173,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if r.admissionFSConfig != nil && features.Enabled(features.AdmissionFairSharing) {
-		updated := r.initializeAdmissionFsStatus(ctx, &queueObj)
+		updated := r.initializeAdmissionFsStatus(&queueObj)
 		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time)
 		lqKey := utilqueue.Key(&queueObj)
 		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !updated && sinceLastUpdate < interval && !r.queues.HasPendingPenaltyFor(lqKey) {
@@ -259,7 +259,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue) bool {
+func (r *LocalQueueReconciler) initializeAdmissionFsStatus(lq *kueue.LocalQueue) bool {
 	if lq.Status.FairSharing == nil {
 		lq.Status.FairSharing = &kueue.FairSharingStatus{}
 	}
