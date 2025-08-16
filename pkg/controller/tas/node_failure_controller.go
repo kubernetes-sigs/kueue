@@ -220,7 +220,7 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 
 // evictWorkload idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
-func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logger, wl *kueue.Workload, wlKey types.NamespacedName, nodeName string) (bool, error) {
+func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if failedNode, ok := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]; ok && failedNode != nodeName && !workload.IsEvicted(wl) {
 		log = log.WithValues("failedNode", failedNode)
 		log.V(3).Info("Evicting workload due to multiple node failures")
@@ -254,7 +254,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 		}
 
 		// evict workload when annotation present.
-		evictedNow, err := r.evictWorkload(ctx, log, &wl, wlKey, nodeName)
+		evictedNow, err := r.evictWorkload(ctx, log, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
