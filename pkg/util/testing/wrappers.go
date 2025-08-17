@@ -1675,3 +1675,124 @@ func AppendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, 
 		BlockOwnerDeletion: blockDeletion,
 	}))
 }
+
+type EventRecordWrapper struct {
+	EventRecord
+}
+
+func MakeEventRecord(namespace, name, reason, eventType string) *EventRecordWrapper {
+	return &EventRecordWrapper{
+		EventRecord: EventRecord{
+			Key:       types.NamespacedName{Namespace: namespace, Name: name},
+			Reason:    reason,
+			EventType: eventType,
+		},
+	}
+}
+
+func (e *EventRecordWrapper) Message(message string) *EventRecordWrapper {
+	e.EventRecord.Message = message
+	return e
+}
+
+func (e *EventRecordWrapper) Obj() EventRecord {
+	return e.EventRecord
+}
+
+type TopologyDomainAssignmentWrapper struct {
+	kueue.TopologyDomainAssignment
+}
+
+func MakeTopologyDomainAssignment(values []string, count int32) *TopologyDomainAssignmentWrapper {
+	return &TopologyDomainAssignmentWrapper{
+		TopologyDomainAssignment: kueue.TopologyDomainAssignment{
+			Values: values,
+			Count:  count,
+		},
+	}
+}
+
+func (t *TopologyDomainAssignmentWrapper) Obj() kueue.TopologyDomainAssignment {
+	return t.TopologyDomainAssignment
+}
+
+type TopologyAssignmentWrapper struct {
+	kueue.TopologyAssignment
+}
+
+func MakeTopologyAssignment(levels []string) *TopologyAssignmentWrapper {
+	return &TopologyAssignmentWrapper{
+		TopologyAssignment: kueue.TopologyAssignment{
+			Levels: levels,
+		},
+	}
+}
+
+func (t *TopologyAssignmentWrapper) Levels(levels ...string) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Levels = levels
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Domains(domains ...kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Domains = domains
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Domain(domain kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Domains = append(t.TopologyAssignment.Domains, domain)
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Obj() *kueue.TopologyAssignment {
+	return &t.TopologyAssignment
+}
+
+type PodSetAssignmentWrapper struct {
+	kueue.PodSetAssignment
+}
+
+func MakePodSetAssignment(name kueue.PodSetReference) *PodSetAssignmentWrapper {
+	return &PodSetAssignmentWrapper{
+		PodSetAssignment: kueue.PodSetAssignment{
+			Name:          name,
+			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+			ResourceUsage: make(corev1.ResourceList),
+			Count:         ptr.To[int32](1),
+		},
+	}
+}
+
+func (p *PodSetAssignmentWrapper) Obj() kueue.PodSetAssignment {
+	return p.PodSetAssignment
+}
+
+func (p *PodSetAssignmentWrapper) Flavor(resource corev1.ResourceName, flavor kueue.ResourceFlavorReference) *PodSetAssignmentWrapper {
+	if p.Flavors == nil {
+		p.Flavors = make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	}
+	p.Flavors[resource] = flavor
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName, quantity string) *PodSetAssignmentWrapper {
+	if p.PodSetAssignment.ResourceUsage == nil {
+		p.PodSetAssignment.ResourceUsage = make(corev1.ResourceList)
+	}
+	p.PodSetAssignment.ResourceUsage[resourceName] = resource.MustParse(quantity)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.Count = ptr.To(count)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) TopologyAssignment(ta *kueue.TopologyAssignment) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.TopologyAssignment = ta
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.DelayedTopologyRequest = ptr.To(state)
+	return p
+}

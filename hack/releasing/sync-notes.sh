@@ -75,7 +75,7 @@ function find_head_branch() {
 
   # Get the latest release version tag (sorted semver)
   latest_release_version=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
-  IFS='.' read -r latest_major latest_minor <<< "${latest_release_version#v}"
+  IFS='.' read -r latest_major latest_minor _ <<< "${latest_release_version#v}"
 
   # Check if current major.minor is less than latest
   if [[ "$major" -lt "$latest_major" ]] || { [[ "$major" -eq "$latest_major" ]] && [[ "$minor" -lt "$latest_minor" ]]; }; then

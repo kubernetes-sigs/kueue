@@ -37,15 +37,15 @@ func TestAvailable(t *testing.T) {
 	}{
 		"base cqs": {
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").
+				*utiltesting.MakeClusterQueue("cq1").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq2").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
 						*utiltesting.MakeFlavorQuotas("blue").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			usage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
 				"cq1": {{Flavor: "red", Resource: "cpu"}: 1000},
@@ -65,16 +65,16 @@ func TestAvailable(t *testing.T) {
 		},
 		"cqs with cohort": {
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").
+				*utiltesting.MakeClusterQueue("cq1").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq2").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "", "9").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("cohort").
@@ -97,11 +97,11 @@ func TestAvailable(t *testing.T) {
 		},
 		"cq borrows from cohort": {
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").
+				*utiltesting.MakeClusterQueue("cq1").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("cohort").
@@ -115,16 +115,16 @@ func TestAvailable(t *testing.T) {
 		},
 		"cq oversubscription spills into cohort": {
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").
+				*utiltesting.MakeClusterQueue("cq1").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq2").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "0", "0").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("cohort").
@@ -156,21 +156,21 @@ func TestAvailable(t *testing.T) {
 			// cq2 can access 12, due to borrowing limit
 			// cq3 can access 40, as there are no restrictions.
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").
+				*utiltesting.MakeClusterQueue("cq1").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq2").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "2").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("cq3").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq3").
 					Cohort("cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "", "5").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("cohort").
@@ -209,16 +209,16 @@ func TestAvailable(t *testing.T) {
 			//           /           \
 			//        cq1            cq2
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").
+				*utiltesting.MakeClusterQueue("cq1").
 					Cohort("left").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("cq2").
 					Cohort("right").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "", "0").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("root").Cohort,
@@ -256,21 +256,21 @@ func TestAvailable(t *testing.T) {
 			//           /    5
 			//   left-cq1      left-cq2
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("left-cq1").
+				*utiltesting.MakeClusterQueue("left-cq1").
 					Cohort("left").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("left-cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("left-cq2").
 					Cohort("left").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "5").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("right-cq").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("right-cq").
 					Cohort("right").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("root").Cohort,
@@ -306,26 +306,26 @@ func TestAvailable(t *testing.T) {
 			//           5    \
 			//   left-cq1      left-cq2
 			clusterQueues: []kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("left-cq1").
+				*utiltesting.MakeClusterQueue("left-cq1").
 					Cohort("left").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "", "5").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("left-cq2").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("left-cq2").
 					Cohort("left").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("right-cq").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("right-cq").
 					Cohort("right").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
-					).ClusterQueue,
-				utiltesting.MakeClusterQueue("root-cq").
+					).Obj(),
+				*utiltesting.MakeClusterQueue("root-cq").
 					Cohort("root").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
-					).ClusterQueue,
+					).Obj(),
 			},
 			cohorts: []kueue.Cohort{
 				utiltesting.MakeCohort("root").Cohort,

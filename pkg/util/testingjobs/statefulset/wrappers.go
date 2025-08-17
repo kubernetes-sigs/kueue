@@ -42,9 +42,6 @@ type StatefulSetWrapper struct {
 
 // MakeStatefulSet creates a wrapper for a StatefulSet with a single container.
 func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
-	podLabels := map[string]string{
-		"app": fmt.Sprintf("%s-pod", name),
-	}
 	return &StatefulSetWrapper{appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -53,11 +50,15 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
+				MatchLabels: map[string]string{
+					"app": fmt.Sprintf("%s-pod", name),
+				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
+					Labels: map[string]string{
+						"app": fmt.Sprintf("%s-pod", name),
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
