@@ -30,6 +30,7 @@ import (
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -168,6 +169,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = rayv1.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kftrainer.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})

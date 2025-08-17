@@ -806,6 +806,10 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 	}}
 }
 
+func (c *ClusterQueueWrapper) Clone() *ClusterQueueWrapper {
+	return &ClusterQueueWrapper{ClusterQueue: *c.DeepCopy()}
+}
+
 // Obj returns the inner ClusterQueue.
 func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 	return &c.ClusterQueue
