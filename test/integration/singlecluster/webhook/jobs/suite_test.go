@@ -60,6 +60,7 @@ var _ = ginkgo.BeforeSuite(func() {
 			util.RayOperatorCrds,
 			util.TrainingOperatorCrds,
 			util.AppWrapperCrds,
+			util.KfTrainerCrds,
 		},
 		WebhookPath: util.WebhookPath,
 	}
