@@ -270,8 +270,6 @@ spec:
 | `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   |       |
 | `PartialAdmission`                            | `false` | Alpha | 0.4   | 0.4   |
 | `PartialAdmission`                            | `true`  | Beta  | 0.5   |       |
-| `ProvisioningACC`                             | `false` | Alpha | 0.5   | 0.6   |
-| `ProvisioningACC`                             | `true`  | Beta  | 0.7   | 0.14  |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6   | 0.8   |
 | `VisibilityOnDemand`                          | `true`  | Beta  | 0.9   |       |
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6   |       |
@@ -280,7 +278,6 @@ spec:
 | `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   |       |
 | `ConfigurableResourceTransformations`         | `false` | Alpha | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations`         | `true`  | Beta  | 0.10  |       |
-| `ManagedJobsNamespaceSelector`                | `true`  | Beta  | 0.10  | 0.13  |
 | `LocalQueueDefaulting`                        | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                           | `false` | Alpha | 0.10  |       |
@@ -298,8 +295,11 @@ spec:
 ### Feature gates for graduated or deprecated features
 
 | Feature                           | Default | Stage      | Since | Until |
-| --------------------------------- | ------- | ---------- |-------| ----- |
+| --------------------------------- | ------- | ---------- | ----- | ----- |
+| `ManagedJobsNamespaceSelector`    | `true`  | Beta       | 0.10  | 0.13  |
 | `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
+| `ProvisioningACC`                 | `false` | Alpha      | 0.5   | 0.6   |
+| `ProvisioningACC`                 | `true`  | Beta       | 0.7   |       |
 | `ProvisioningACC`                 | `true`  | GA         | 0.14  |       |
 | `QueueVisibility`                 | `false` | Alpha      | 0.5   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |

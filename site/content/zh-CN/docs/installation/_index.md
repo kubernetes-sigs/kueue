@@ -270,8 +270,6 @@ spec:
 | `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8  |      |
 | `PartialAdmission`                            | `false` | Alpha | 0.4  | 0.4  |
 | `PartialAdmission`                            | `true`  | Beta  | 0.5  |      |
-| `ProvisioningACC`                             | `false` | Alpha | 0.5  | 0.6  |
-| `ProvisioningACC`                             | `true`  | Beta  | 0.7  |      |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6  | 0.8  |
 | `VisibilityOnDemand`                          | `true`  | Beta  | 0.9  |      |
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6  |      |
@@ -280,7 +278,6 @@ spec:
 | `TopologyAwareScheduling`                     | `false` | Alpha | 0.9  |      |
 | `ConfigurableResourceTransformations`         | `false` | Alpha | 0.9  | 0.9  |
 | `ConfigurableResourceTransformations`         | `true`  | Beta  | 0.10 |      |
-| `ManagedJobsNamespaceSelector`                | `true`  | Beta  | 0.10 | 0.13 |
 | `LocalQueueDefaulting`                        | `false` | Alpha | 0.10 | 0.11 |
 | `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12 |      |
 | `LocalQueueMetrics`                           | `false` | Alpha | 0.10 |      |
@@ -298,13 +295,17 @@ spec:
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
 | 功能 | 默认值 | 阶段 | 起始版本 | 截止版本 |
-| --------------------------------- | ------- | ---------- |------| ----- |
-| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13 |       |
-| `QueueVisibility`                 | `false` | Alpha      | 0.5  | 0.9   |
-| `QueueVisibility`                 | `false` | Deprecated | 0.9  |       |
-| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11 | 0.13  |
-| `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11 |       |
-| `TASProfileMixed`                 | `false` | Deprecated | 0.11 |       |
+| --------------------------------- | ------- | ---------- | ----- | ----- |
+| `ManagedJobsNamespaceSelector`    | `true`  | Beta       | 0.10  | 0.13  |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
+| `ProvisioningACC`                 | `false` | Alpha      | 0.5   | 0.6   |
+| `ProvisioningACC`                 | `true`  | Beta       | 0.7   |       |
+| `ProvisioningACC`                 | `true`  | GA         | 0.14  |       |
+| `QueueVisibility`                 | `false` | Alpha      | 0.5   | 0.9   |
+| `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
+| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
+| `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
+| `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
 
 ## 接下来是什么 {#whats-next}
 
