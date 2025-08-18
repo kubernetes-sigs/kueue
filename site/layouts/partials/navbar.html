@@ -6,11 +6,11 @@
 	<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#main_navbar" aria-controls="main_navbar" aria-expanded="false" aria-label="Toggle navigation">
 		<span class="navbar-toggler-icon"></span>
 	</button>
-	<div class="collapse navbar-collapse ml-md-auto" id="main_navbar">
-		<ul class="navbar-nav ml-auto pt-4 pt-md-0 my-2 my-md-1">
+	<div class="collapse navbar-collapse ms-md-auto" id="main_navbar">
+		<ul class="navbar-nav ms-auto pt-4 pt-md-0 my-2 my-md-1">
 			{{ $p := . }}
 			{{ range .Site.Menus.main }}
-			<li class="nav-item mr-2 mr-lg-4 mt-1 mt-lg-0">
+			<li class="nav-item me-2 mt-1 mt-lg-0">
 				{{ $active := or ($p.IsMenuCurrent "main" .) ($p.HasMenuCurrent "main" .) }}
 				{{ with .Page }}
 				{{ $active = or $active ( $.IsDescendant .)  }}
@@ -23,7 +23,7 @@
 			</li>
 			{{ end }}
 			{{ if  .Site.Params.versions }}
-			<li class="nav-item dropdown mt-1 mt-lg-0 mr-2">
+			<li class="nav-item dropdown mt-1 mt-lg-0 me-2">
 				{{ partial "navbar-version-selector.html" . }}
 			</li>
 			{{ end }}
