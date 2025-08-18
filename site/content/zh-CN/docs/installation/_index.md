@@ -272,7 +272,6 @@ spec:
 | `PartialAdmission`                            | `true`  | Beta  | 0.5  |      |
 | `ProvisioningACC`                             | `false` | Alpha | 0.5  | 0.6  |
 | `ProvisioningACC`                             | `true`  | Beta  | 0.7  |      |
-| `QueueVisibility`                             | `false` | Alpha | 0.5  | 0.9  |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6  | 0.8  |
 | `VisibilityOnDemand`                          | `true`  | Beta  | 0.9  |      |
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6  |      |
@@ -299,16 +298,13 @@ spec:
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
 | 功能 | 默认值 | 阶段 | 起始版本 | 截止版本 |
-| --------------------------------- | ------- | ---------- | ----- | ----- |
-| `ManagedJobsNamespaceSelector`    | `true`  | GA          | 0.13 |       |
-| `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
-| `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
-| `WorkloadResourceRequestsSummary` | `false` | Alpha      | 0.9   | 0.10  |
-| `WorkloadResourceRequestsSummary` | `true`  | Beta       | 0.10  | 0.11  |
-| `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11  |       |
-| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
-| `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
-| `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
+| --------------------------------- | ------- | ---------- |------| ----- |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13 |       |
+| `QueueVisibility`                 | `false` | Alpha      | 0.5  | 0.9   |
+| `QueueVisibility`                 | `false` | Deprecated | 0.9  |       |
+| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11 | 0.13  |
+| `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11 |       |
+| `TASProfileMixed`                 | `false` | Deprecated | 0.11 |       |
 
 ## 接下来是什么 {#whats-next}
 

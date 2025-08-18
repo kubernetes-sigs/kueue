@@ -272,7 +272,6 @@ spec:
 | `PartialAdmission`                            | `true`  | Beta  | 0.5   |       |
 | `ProvisioningACC`                             | `false` | Alpha | 0.5   | 0.6   |
 | `ProvisioningACC`                             | `true`  | Beta  | 0.7   |       |
-| `QueueVisibility`                             | `false` | Alpha | 0.5   | 0.9   |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6   | 0.8   |
 | `VisibilityOnDemand`                          | `true`  | Beta  | 0.9   |       |
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6   |       |
@@ -299,9 +298,9 @@ spec:
 ### Feature gates for graduated or deprecated features
 
 | Feature                           | Default | Stage      | Since | Until |
-| --------------------------------- | ------- | ---------- | ----- | ----- |
+| --------------------------------- | ------- | ---------- |-------| ----- |
 | `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
-| `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
+| `QueueVisibility`                 | `false` | Alpha      | 0.5   | 0.9   |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
 | `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
 | `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
