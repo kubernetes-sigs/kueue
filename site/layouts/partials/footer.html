@@ -18,7 +18,7 @@
       </div>
       <div class="col-12 col-sm-5 text-center py-2 order-sm-2">
         {{ with .Site.Params.copyright }}<small class="text-white">&copy; {{ now.Year}} {{ .}} {{ "| Documentation Distributed under CC BY 4.0" }}</small>{{ end }}
-        {{ with .Site.Params.privacy_policy }}<p><small class="ml-1"><a href="{{ . }}" target="_blank" rel="noopener">{{ T "footer_privacy_policy" }}</a></small></p>{{ end }}
+        {{ with .Site.Params.privacy_policy }}<p><small class="ms-1"><a href="{{ . }}" target="_blank" rel="noopener">{{ T "footer_privacy_policy" }}</a></small></p>{{ end }}
 	{{ if not .Site.Params.ui.footer_about_disable }}
 		{{ with .Site.GetPage "about" }}<p class="mt-2"><a href="{{ .RelPermalink }}">{{ .Title }}</a></p>{{ end }}
 	{{ end }}
