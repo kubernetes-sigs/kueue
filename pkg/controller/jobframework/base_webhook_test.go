@@ -30,12 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiljob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -253,7 +253,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 					utiltesting.MakeNamespace("default"),
 				)
 			cl := clientBuilder.Build()
-			cqCache := cache.New(cl)
+			cqCache := scheduler.New(cl)
 			queueManager := queue.NewManager(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").

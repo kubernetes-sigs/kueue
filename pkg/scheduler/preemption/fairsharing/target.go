@@ -15,7 +15,7 @@
 package fairsharing
 
 import (
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -23,7 +23,7 @@ import (
 // workloads for preemption.
 type TargetClusterQueue struct {
 	ordering *TargetClusterQueueOrdering
-	targetCq *cache.ClusterQueueSnapshot
+	targetCq *scheduler.ClusterQueueSnapshot
 }
 
 // InClusterQueuePreemption indicates that the TargetClusterQueue is

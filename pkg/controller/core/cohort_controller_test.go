@@ -29,8 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -38,7 +38,7 @@ import (
 func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := cache.New(cl)
+	cache := schedulercache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -73,7 +73,7 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := cache.New(cl)
+	cache := schedulercache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -110,7 +110,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		WithStatusSubresource(&kueue.Cohort{}).
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := cache.New(cl)
+	cache := schedulercache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -155,7 +155,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	}
 	cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(funcs).Build()
 
-	cache := cache.New(cl)
+	cache := schedulercache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 	cohort := utiltesting.MakeCohort("cohort").Obj()
@@ -191,7 +191,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 		*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 	).Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
-	cache := cache.New(cl)
+	cache := schedulercache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -281,7 +281,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 func TestCohortReconcilerFilters(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
-	cache := cache.New(cl)
+	cache := schedulercache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 

@@ -18,7 +18,7 @@ package queue
 
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from

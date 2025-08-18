@@ -24,13 +24,13 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
-func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *cache.ClusterQueueSnapshot) cache.WorkloadTASRequests {
-	tasRequests := make(cache.WorkloadTASRequests)
+func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schedulercache.ClusterQueueSnapshot) schedulercache.WorkloadTASRequests {
+	tasRequests := make(schedulercache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
 		if isTASRequested(&podSet, cq) {
 			psAssignment := a.podSetAssignmentByName(podSet.Name)
@@ -71,9 +71,9 @@ func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
 
 func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	wl *workload.Info,
-	cq *cache.ClusterQueueSnapshot,
+	cq *schedulercache.ClusterQueueSnapshot,
 	isTASImplied bool,
-	podSetIndex int) (*cache.TASPodSetRequests, error) {
+	podSetIndex int) (*schedulercache.TASPodSetRequests, error) {
 	if len(cq.TASFlavors) == 0 {
 		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
 	}
@@ -109,7 +109,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
 	}
 
-	return &cache.TASPodSetRequests{
+	return &schedulercache.TASPodSetRequests{
 		Count:             podCount,
 		SinglePodRequests: singlePodRequests,
 		PodSet:            podSet,
@@ -135,7 +135,7 @@ func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
 	return nil, errors.New("no flavor assigned")
 }
 
-func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
+func checkPodSetAndFlavorMatchForTAS(cq *schedulercache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
 	if isTASRequested(ps, cq) {
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because
@@ -170,12 +170,12 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 }
 
 // isTASImplied returns true if TAS is requested implicitly.
-func isTASImplied(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
+func isTASImplied(ps *kueue.PodSet, cq *schedulercache.ClusterQueueSnapshot) bool {
 	return !workload.IsExplicitlyRequestingTAS(*ps) && cq.IsTASOnly()
 }
 
 // isTASRequested checks if TAS is requested for the input PodSet, either
 // explicitly or implicitly.
-func isTASRequested(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
+func isTASRequested(ps *kueue.PodSet, cq *schedulercache.ClusterQueueSnapshot) bool {
 	return workload.IsExplicitlyRequestingTAS(*ps) || isTASImplied(ps, cq)
 }

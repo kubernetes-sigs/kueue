@@ -30,10 +30,10 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
@@ -187,7 +187,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		},
 		"cluster queue does not exist on cache": {
 			insertCqIntoManager: true,
-			wantError:           cache.ErrCqNotFound,
+			wantError:           scheduler.ErrCqNotFound,
 		},
 	}
 
@@ -204,7 +204,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
-			cqCache := cache.New(cl)
+			cqCache := scheduler.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			if tc.insertCqIntoCache {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
@@ -571,7 +571,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
-			cCache := cache.New(cl)
+			cCache := scheduler.New(cl)
 			qManager := queue.NewManager(cl, cCache)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if err := qManager.AddClusterQueue(ctx, cq); err != nil {

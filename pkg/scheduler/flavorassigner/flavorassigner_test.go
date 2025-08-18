@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
@@ -56,7 +56,7 @@ type testOracle struct {
 	simulationResult map[resources.FlavorResource]simulationResultForFlavor
 }
 
-func (f *testOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
+func (f *testOracle) SimulatePreemption(log logr.Logger, cq *scheduler.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {
 			return result.preemptionPossiblity, result.borrowingAfterSimulation
@@ -2441,7 +2441,7 @@ func TestAssignFlavors(t *testing.T) {
 				},
 			})
 
-			cache := cache.New(utiltesting.NewFakeClient())
+			cache := scheduler.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
@@ -2624,7 +2624,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				testCq.Spec.FlavorFungibility = tc.flavorFungibility
 			}
 
-			cache := cache.New(utiltesting.NewFakeClient())
+			cache := scheduler.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
@@ -2746,7 +2746,7 @@ func TestDeletedFlavors(t *testing.T) {
 				},
 			})
 
-			cache := cache.New(utiltesting.NewFakeClient())
+			cache := scheduler.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
@@ -2791,7 +2791,7 @@ func TestDeletedFlavors(t *testing.T) {
 func TestLastAssignmentOutdated(t *testing.T) {
 	type args struct {
 		wl *workload.Info
-		cq *cache.ClusterQueueSnapshot
+		cq *scheduler.ClusterQueueSnapshot
 	}
 	tests := []struct {
 		name string
@@ -2806,7 +2806,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 						ClusterQueueGeneration: 0,
 					},
 				},
-				cq: &cache.ClusterQueueSnapshot{
+				cq: &scheduler.ClusterQueueSnapshot{
 					AllocatableResourceGeneration: 1,
 				},
 			},
@@ -2820,7 +2820,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 						ClusterQueueGeneration: 0,
 					},
 				},
-				cq: &cache.ClusterQueueSnapshot{
+				cq: &scheduler.ClusterQueueSnapshot{
 					AllocatableResourceGeneration: 0,
 				},
 			},
@@ -2924,7 +2924,7 @@ func TestHierarchical(t *testing.T) {
 			if tc.flavorFungibility != nil {
 				testCq.Spec.FlavorFungibility = tc.flavorFungibility
 			}
-			cache := cache.New(utiltesting.NewFakeClient())
+			cache := scheduler.New(utiltesting.NewFakeClient())
 			for _, cohort := range cohorts {
 				if err := cache.AddOrUpdateCohort(cohort); err != nil {
 					t.Fatalf("Couldn't add Cohort to cache: %v", err)
@@ -2970,14 +2970,14 @@ func TestHierarchical(t *testing.T) {
 
 func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 	cases := map[string]struct {
-		cq         cache.ClusterQueueSnapshot
+		cq         scheduler.ClusterQueueSnapshot
 		assignment Assignment
 		workload   workload.Info
 		wantErr    string
 	}{
 		"workload requires Topology, but there is no TAS cache information": {
-			cq: cache.ClusterQueueSnapshot{
-				TASFlavors: map[kueue.ResourceFlavorReference]*cache.TASFlavorSnapshot{},
+			cq: scheduler.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*scheduler.TASFlavorSnapshot{},
 			},
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -3002,8 +3002,8 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			wantErr: "workload requires Topology, but there is no TAS cache information",
 		},
 		"workload requires Topology, but there is no TAS cache information for the assigned flavor": {
-			cq: cache.ClusterQueueSnapshot{
-				TASFlavors: map[kueue.ResourceFlavorReference]*cache.TASFlavorSnapshot{"tas": nil},
+			cq: scheduler.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*scheduler.TASFlavorSnapshot{"tas": nil},
 			},
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{{

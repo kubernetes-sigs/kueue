@@ -48,11 +48,11 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -69,7 +69,7 @@ type ClusterQueueReconciler struct {
 	client                               client.Client
 	log                                  logr.Logger
 	qManager                             *queue.Manager
-	cache                                *cache.Cache
+	cache                                *scheduler.Cache
 	snapshotsQueue                       workqueue.TypedInterface[kueue.ClusterQueueReference]
 	snapUpdateCh                         chan event.GenericEvent
 	nonCQObjectUpdateCh                  chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]
@@ -137,7 +137,7 @@ var defaultCQOptions = ClusterQueueReconcilerOptions{
 func NewClusterQueueReconciler(
 	client client.Client,
 	qMgr *queue.Manager,
-	cache *cache.Cache,
+	cache *scheduler.Cache,
 	opts ...ClusterQueueReconcilerOption,
 ) *ClusterQueueReconciler {
 	options := defaultCQOptions
@@ -495,7 +495,7 @@ func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
 // cqNamespaceHandler handles namespace update events.
 type cqNamespaceHandler struct {
 	qManager *queue.Manager
-	cache    *cache.Cache
+	cache    *scheduler.Cache
 }
 
 func (h *cqNamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
