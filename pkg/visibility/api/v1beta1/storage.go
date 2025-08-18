@@ -19,7 +19,7 @@ package v1beta1
 import (
 	"k8s.io/apiserver/pkg/registry/rest"
 
-	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
 )
 
 func NewStorage(mgr *queue.Manager) map[string]rest.Storage {

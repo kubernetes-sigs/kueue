@@ -29,8 +29,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 
 	_ "k8s.io/metrics/pkg/apis/metrics/install"

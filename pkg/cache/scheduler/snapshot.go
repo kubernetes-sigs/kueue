@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cache
+package scheduler
 
 import (
 	"context"
@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/hierarchy"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"

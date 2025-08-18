@@ -40,10 +40,10 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1152,7 +1152,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 func TestReplacedWorkloadSlice(t *testing.T) {
 	type args struct {
 		wl   *workload.Info
-		snap *cache.Snapshot
+		snap *scheduler.Snapshot
 	}
 	type want struct {
 		wl      *workload.Info
@@ -1178,7 +1178,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 			featureEnabled: true,
 			args: args{
 				wl:   workload.NewInfo(utiltesting.MakeWorkload("test", "default").Obj()),
-				snap: &cache.Snapshot{},
+				snap: &scheduler.Snapshot{},
 			},
 		},
 		"ReplacedWorkloadIsNotFound_MissingClusterQueue": {
@@ -1187,10 +1187,10 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Obj()),
-				snap: &cache.Snapshot{
+				snap: &scheduler.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*cache.CohortSnapshot{},
-						map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot{}),
+						map[kueue.CohortReference]*scheduler.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*scheduler.ClusterQueueSnapshot{}),
 				},
 			},
 		},
@@ -1201,10 +1201,10 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Admission(utiltesting.MakeAdmission("default").Obj()).
 					Obj()),
-				snap: &cache.Snapshot{
+				snap: &scheduler.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*cache.CohortSnapshot{},
-						map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot{
+						map[kueue.CohortReference]*scheduler.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*scheduler.ClusterQueueSnapshot{
 							"default": {},
 						}),
 				},
@@ -1217,10 +1217,10 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Admission(utiltesting.MakeAdmission("default").Obj()).
 					Obj()),
-				snap: &cache.Snapshot{
+				snap: &scheduler.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*cache.CohortSnapshot{},
-						map[kueue.ClusterQueueReference]*cache.ClusterQueueSnapshot{
+						map[kueue.CohortReference]*scheduler.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*scheduler.ClusterQueueSnapshot{
 							"default": {
 								Workloads: map[workload.Reference]*workload.Info{
 									"test-old": workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj()),

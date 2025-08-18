@@ -30,10 +30,10 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
@@ -104,7 +104,7 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
-			cqCache := cache.New(cli)
+			cqCache := scheduler.New(cli)
 			queueManager := queue.NewManager(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").

@@ -34,7 +34,7 @@ import (
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
-	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
