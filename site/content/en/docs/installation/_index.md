@@ -276,8 +276,6 @@ spec:
 | `LendingLimit`                                | `false` | Alpha | 0.6   | 0.8   |
 | `LendingLimit`                                | `true`  | Beta  | 0.9   |       |
 | `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   |       |
-| `ConfigurableResourceTransformations`         | `false` | Alpha | 0.9   | 0.9   |
-| `ConfigurableResourceTransformations`         | `true`  | Beta  | 0.10  |       |
 | `LocalQueueDefaulting`                        | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                           | `false` | Alpha | 0.10  |       |
@@ -294,18 +292,21 @@ spec:
 
 ### Feature gates for graduated or deprecated features
 
-| Feature                           | Default | Stage      | Since | Until |
-| --------------------------------- | ------- | ---------- | ----- | ----- |
-| `ManagedJobsNamespaceSelector`    | `true`  | Beta       | 0.10  | 0.13  |
-| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
-| `ProvisioningACC`                 | `false` | Alpha      | 0.5   | 0.6   |
-| `ProvisioningACC`                 | `true`  | Beta       | 0.7   |       |
-| `ProvisioningACC`                 | `true`  | GA         | 0.14  |       |
-| `QueueVisibility`                 | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
-| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
-| `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
-| `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
+| Feature                               | Default | Stage      | Since | Until |
+|---------------------------------------| ------- |------------| ----- | ----- |
+| `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  | 0.13  |
+| `ManagedJobsNamespaceSelector`        | `true`  | GA         | 0.13  |       |
+| `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
+| `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
+| `ProvisioningACC`                     | `true`  | GA         | 0.14  |       |
+| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
+| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  | 0.13  |
+| `ConfigurableResourceTransformations` | `true`  | GA         | 0.14  |       |
+| `QueueVisibility`                     | `false` | Alpha      | 0.4   | 0.9   |
+| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
+| `TASProfileMostFreeCapacity`          | `false` | Deprecated | 0.11  | 0.13  |
+| `TASProfileLeastFreeCapacity`         | `false` | Deprecated | 0.11  |       |
+| `TASProfileMixed`                     | `false` | Deprecated | 0.11  |       |
 
 ## What's next
 
