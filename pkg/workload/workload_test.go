@@ -1326,7 +1326,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 						Name:  "main",
 						Count: 1,
 						Requests: resources.Requests{
-							corev1.ResourceCPU: 100, // 100m
+							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						},
 					},

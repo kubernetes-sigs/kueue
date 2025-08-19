@@ -74,15 +74,21 @@ spec:
                           DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
                           The total length of each name must not exceed 253 characters.
                         items:
-                          description: ResourceName is the name identifying various resources in a ResourceList.
+                          maxLength: 253
                           type: string
+                          x-kubernetes-validations:
+                            - message: Name must be lowercase alphanumeric with dots, hyphens, and slashes, starting and ending with alphanumeric
+                              rule: self.matches(r'^[a-z0-9]([a-z0-9./-]*[a-z0-9])?$')
                         maxItems: 8
                         minItems: 1
                         type: array
                         x-kubernetes-list-type: set
                       name:
-                        description: ResourceName is the name identifying various resources in a ResourceList.
+                        maxLength: 253
                         type: string
+                        x-kubernetes-validations:
+                          - message: Name must be lowercase alphanumeric with dots, hyphens, and slashes, starting and ending with alphanumeric
+                            rule: self.matches(r'^[a-z0-9]([a-z0-9./-]*[a-z0-9])?$')
                     required:
                       - deviceClassNames
                       - name
@@ -99,5 +105,8 @@ spec:
           required:
             - spec
           type: object
+          x-kubernetes-validations:
+            - message: DynamicResourceAllocationConfig name must be 'default'
+              rule: self.metadata.name == 'default'
       served: true
       storage: true
