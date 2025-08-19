@@ -581,6 +581,46 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
 		})
 	})
+
+	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {
+		var (
+			cqA *kueue.ClusterQueue
+			cqB *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			cqA = createQueue(testing.MakeClusterQueue("a").
+				Cohort("all").FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).Obj())
+
+			cqB = createQueue(testing.MakeClusterQueue("b").
+				Cohort("all").FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).Obj())
+		})
+
+		ginkgo.It("Queue can reclaim its nominal quota", framework.SlowSpec, func() {
+			ginkgo.By("Adding so many workloads in cqA that it borrows some quota from cqB")
+			for range 10 {
+				createWorkload("a", "100")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 10)
+			ginkgo.By("Creating a newer workload in cqB that needs only nominal quota")
+			createWorkload("b", "500")
+			ginkgo.By("Evict the some workloads in cqA and reclaim the nominal quota in cqB")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 3)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 7)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 1)
+		})
+	})
 })
 
 func expectCohortWeightedShare(cohortName string, weightedShare int64) {
