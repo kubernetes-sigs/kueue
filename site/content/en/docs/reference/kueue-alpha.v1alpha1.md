@@ -69,6 +69,18 @@ in the cluster. Only one instance named &quot;default&quot; is allowed.</p>
 </tbody>
 </table>
 
+## `DriverResourceName`     {#kueue-x-k8s-io-v1alpha1-DriverResourceName}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [DynamicResource](#kueue-x-k8s-io-v1alpha1-DynamicResource)
+
+
+
+
+
 ## `DynamicResource`     {#kueue-x-k8s-io-v1alpha1-DynamicResource}
     
 
@@ -87,13 +99,13 @@ to quota in ClusterQueue.</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+<a href="#kueue-x-k8s-io-v1alpha1-DriverResourceName"><code>DriverResourceName</code></a>
 </td>
 <td>
    <span class="text-muted">No description provided.</span></td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+<a href="#kueue-x-k8s-io-v1alpha1-DriverResourceName"><code>[]DriverResourceName</code></a>
 </td>
 <td>
    <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.

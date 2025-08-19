@@ -71,8 +71,8 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 						Resources: []kueuealpha.DynamicResource{
 							{
-								Name:             "gpus",
-								DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+								Name:             kueuealpha.DriverResourceName("gpus"),
+								DeviceClassNames: []kueuealpha.DriverResourceName{"gpu.example.com"},
 							},
 						},
 					},
@@ -309,8 +309,8 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Expect(k8sClient.Get(ctx, suiteDRAConfigKey, &updatedDRAConfig)).To(gomega.Succeed())
 
 			updatedDRAConfig.Spec.Resources = append(updatedDRAConfig.Spec.Resources, kueuealpha.DynamicResource{
-				Name:             "new-gpus",
-				DeviceClassNames: []corev1.ResourceName{"new-gpus.example.com"},
+				Name:             kueuealpha.DriverResourceName("new-gpus"),
+				DeviceClassNames: []kueuealpha.DriverResourceName{"new-gpus.example.com"},
 			})
 			gomega.Expect(k8sClient.Update(ctx, &updatedDRAConfig)).To(gomega.Succeed())
 
@@ -535,7 +535,7 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			// Add mapping for new device class to the existing "gpus" resource
 			updatedDRAConfig.Spec.Resources[0].DeviceClassNames = append(
 				updatedDRAConfig.Spec.Resources[0].DeviceClassNames,
-				"new-gpu.example.com",
+				kueuealpha.DriverResourceName("new-gpu.example.com"),
 			)
 			gomega.Expect(k8sClient.Update(ctx, &updatedDRAConfig)).To(gomega.Succeed())
 

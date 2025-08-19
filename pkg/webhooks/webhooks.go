@@ -39,9 +39,5 @@ func Setup(mgr ctrl.Manager, dispatcherName string) (string, error) {
 		return "Cohort", err
 	}
 
-	if err := setupWebhookForDynamicResourceAllocationConfig(mgr); err != nil {
-		return "DynamicResourceAllocationConfig", err
-	}
-
 	return "", nil
 }
