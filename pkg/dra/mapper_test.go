@@ -65,8 +65,8 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 					Resources: []kueuealpha.DynamicResource{
 						{
-							Name:             "example.com/gpu",
-							DeviceClassNames: []corev1.ResourceName{"example.com/gpu-class"},
+							Name:             kueuealpha.DriverResourceName("example.com/gpu"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/gpu-class"},
 						},
 					},
 				},
@@ -95,8 +95,8 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 					Resources: []kueuealpha.DynamicResource{
 						{
-							Name: "example.com/accelerator",
-							DeviceClassNames: []corev1.ResourceName{
+							Name: kueuealpha.DriverResourceName("example.com/accelerator"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{
 								"example.com/gpu-a100",
 								"example.com/gpu-v100",
 								"example.com/tpu-v4",
@@ -139,12 +139,12 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 					Resources: []kueuealpha.DynamicResource{
 						{
-							Name:             "example.com/gpu",
-							DeviceClassNames: []corev1.ResourceName{"example.com/gpu-class"},
+							Name:             kueuealpha.DriverResourceName("example.com/gpu"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/gpu-class"},
 						},
 						{
-							Name:             "example.com/fpga",
-							DeviceClassNames: []corev1.ResourceName{"example.com/fpga-class"},
+							Name:             kueuealpha.DriverResourceName("example.com/fpga"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/fpga-class"},
 						},
 					},
 				},
@@ -231,8 +231,8 @@ func TestDRAResourceMapper_LoadFromConfig(t *testing.T) {
 				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 					Resources: []kueuealpha.DynamicResource{
 						{
-							Name:             "example.com/gpu",
-							DeviceClassNames: []corev1.ResourceName{"example.com/gpu-class"},
+							Name:             kueuealpha.DriverResourceName("example.com/gpu"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/gpu-class"},
 						},
 					},
 				},
@@ -304,8 +304,8 @@ func TestDRAResourceMapper_UpdateFromConfig(t *testing.T) {
 				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 					Resources: []kueuealpha.DynamicResource{
 						{
-							Name:             "example.com/old-gpu",
-							DeviceClassNames: []corev1.ResourceName{"example.com/old-class"},
+							Name:             kueuealpha.DriverResourceName("example.com/old-gpu"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/old-class"},
 						},
 					},
 				},
@@ -315,8 +315,8 @@ func TestDRAResourceMapper_UpdateFromConfig(t *testing.T) {
 				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 					Resources: []kueuealpha.DynamicResource{
 						{
-							Name:             "example.com/new-gpu",
-							DeviceClassNames: []corev1.ResourceName{"example.com/new-class"},
+							Name:             kueuealpha.DriverResourceName("example.com/new-gpu"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/new-class"},
 						},
 					},
 				},

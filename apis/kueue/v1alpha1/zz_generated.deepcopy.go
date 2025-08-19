@@ -21,7 +21,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -30,7 +29,7 @@ func (in *DynamicResource) DeepCopyInto(out *DynamicResource) {
 	*out = *in
 	if in.DeviceClassNames != nil {
 		in, out := &in.DeviceClassNames, &out.DeviceClassNames
-		*out = make([]v1.ResourceName, len(*in))
+		*out = make([]DriverResourceName, len(*in))
 		copy(*out, *in)
 	}
 }

@@ -2225,8 +2225,8 @@ func TestReconcile(t *testing.T) {
 				err := dra.UpdateMapperFromConfig(ctx, &kueuealpha.DynamicResourceAllocationConfig{
 					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
 						Resources: []kueuealpha.DynamicResource{{
-							Name:             corev1.ResourceName("gpus"),
-							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+							Name:             kueuealpha.DriverResourceName("gpus"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{"gpu.example.com"},
 						}},
 					},
 				})

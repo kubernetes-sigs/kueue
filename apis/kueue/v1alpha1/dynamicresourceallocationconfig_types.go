@@ -17,15 +17,19 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:XValidation:rule="self.matches(r'^[a-z0-9]([a-z0-9./-]*[a-z0-9])?$')",message="Name must be lowercase alphanumeric with dots, hyphens, and slashes, starting and ending with alphanumeric"
+type DriverResourceName string
 
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:storageversion
+// +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default'",message="DynamicResourceAllocationConfig name must be 'default'"
 
 // DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
 // in the cluster. Only one instance named "default" is allowed.
@@ -58,7 +62,7 @@ type DynamicResource struct {
 	// The total length must not exceed 253 characters.
 
 	// +required
-	Name corev1.ResourceName `json:"name"`
+	Name DriverResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.
 	// Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
@@ -70,7 +74,7 @@ type DynamicResource struct {
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
-	DeviceClassNames []corev1.ResourceName `json:"deviceClassNames"`
+	DeviceClassNames []DriverResourceName `json:"deviceClassNames"`
 }
 
 // +kubebuilder:object:root=true

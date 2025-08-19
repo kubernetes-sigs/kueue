@@ -18,14 +18,14 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 // DynamicResourceApplyConfiguration represents a declarative configuration of the DynamicResource type for use
 // with apply.
 type DynamicResourceApplyConfiguration struct {
-	Name             *v1.ResourceName  `json:"name,omitempty"`
-	DeviceClassNames []v1.ResourceName `json:"deviceClassNames,omitempty"`
+	Name             *kueuev1alpha1.DriverResourceName  `json:"name,omitempty"`
+	DeviceClassNames []kueuev1alpha1.DriverResourceName `json:"deviceClassNames,omitempty"`
 }
 
 // DynamicResourceApplyConfiguration constructs a declarative configuration of the DynamicResource type for use with
@@ -37,7 +37,7 @@ func DynamicResource() *DynamicResourceApplyConfiguration {
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *DynamicResourceApplyConfiguration) WithName(value v1.ResourceName) *DynamicResourceApplyConfiguration {
+func (b *DynamicResourceApplyConfiguration) WithName(value kueuev1alpha1.DriverResourceName) *DynamicResourceApplyConfiguration {
 	b.Name = &value
 	return b
 }
@@ -45,7 +45,7 @@ func (b *DynamicResourceApplyConfiguration) WithName(value v1.ResourceName) *Dyn
 // WithDeviceClassNames adds the given value to the DeviceClassNames field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the DeviceClassNames field.
-func (b *DynamicResourceApplyConfiguration) WithDeviceClassNames(values ...v1.ResourceName) *DynamicResourceApplyConfiguration {
+func (b *DynamicResourceApplyConfiguration) WithDeviceClassNames(values ...kueuev1alpha1.DriverResourceName) *DynamicResourceApplyConfiguration {
 	for i := range values {
 		b.DeviceClassNames = append(b.DeviceClassNames, values[i])
 	}

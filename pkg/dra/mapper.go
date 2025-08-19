@@ -39,7 +39,9 @@ var (
 // ResourceMapper provides thread-safe device class to logical resource name mapping
 // based on DynamicResourceAllocationConfig custom resource.
 type ResourceMapper struct {
-	mu                    sync.RWMutex
+	mu sync.RWMutex
+	// internally we use corev1.ResourceName for device class and logical resource name to shield
+	// the implementation from API changes
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 }
 
@@ -87,7 +89,7 @@ func (m *ResourceMapper) updateFromConfig(ctx context.Context, draConfig *kueuea
 
 	for _, resource := range draConfig.Spec.Resources {
 		for _, deviceClassName := range resource.DeviceClassNames {
-			newMapping[deviceClassName] = resource.Name
+			newMapping[corev1.ResourceName(deviceClassName)] = corev1.ResourceName(resource.Name)
 		}
 	}
 
