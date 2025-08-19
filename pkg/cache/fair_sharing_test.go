@@ -164,6 +164,88 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 		},
+		"usage slightly above nominal in a cohort with large quotas": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: 501,
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("500").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("1000").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{
+					Name:     "cq",
+					NodeType: nodeTypeCq,
+					DrName:   "example.com/gpu",
+					DrValue:  1,
+				},
+				{
+					Name:     "lending-cq",
+					NodeType: nodeTypeCq,
+					DrName:   "",
+					DrValue:  0,
+				},
+				{
+					Name:     "test-cohort",
+					NodeType: nodeTypeCohort,
+					DrName:   "",
+					DrValue:  0,
+				},
+			},
+		},
+		"usage way above nominal in a cohort with large quotas and weights": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: 800,
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("500").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("1000").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{
+					Name:     "cq",
+					NodeType: nodeTypeCq,
+					DrName:   "example.com/gpu",
+					DrValue:  1,
+				},
+				{
+					Name:     "lending-cq",
+					NodeType: nodeTypeCq,
+					DrName:   "",
+					DrValue:  0,
+				},
+				{
+					Name:     "test-cohort",
+					NodeType: nodeTypeCohort,
+					DrName:   "",
+					DrValue:  0,
+				},
+			},
+		},
 		"one resource above nominal": {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
