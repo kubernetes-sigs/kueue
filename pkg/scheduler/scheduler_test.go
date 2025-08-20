@@ -2640,6 +2640,216 @@ func TestSchedule(t *testing.T) {
 				"other-gamma": 0,
 			},
 		},
+		"borrowing cq with 2 admitted workloads and 2 reclaiming cqs - no skipping - enableRefreshAssignmentsDuringSchedulingCycle on": {
+			// This test verifies that when we have a borrowing cluster queue with 2 admitted workloads
+			// and 2 reclaiming cluster queues competing for resources in the same cohort, preemption processing
+			// should not be skipped even when resources are constrained and preemption is required
+			enableRefreshAssignmentsDuringSchedulingCycle: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("borrowing-cq").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "0").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("reclaiming-cq1").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("reclaiming-cq2").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "1").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("borrowing", "eng-alpha").ClusterQueue("borrowing-cq").Obj(),
+				*utiltesting.MakeLocalQueue("reclaiming1", "eng-alpha").ClusterQueue("reclaiming-cq1").Obj(),
+				*utiltesting.MakeLocalQueue("reclaiming2", "eng-beta").ClusterQueue("reclaiming-cq2").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// Borrowing cluster queue with 2 admitted workloads borrowing from reclaiming CQs
+				// Total cohort capacity: 2 test-resource units (1 from reclaiming-cq1 + 1 from reclaiming-cq2)
+				// These borrowing workloads consume all 2 units, leaving 0 available
+				*utiltesting.MakeWorkload("borrowing-w1", "eng-alpha").
+					Priority(0).
+					Queue("borrowing").
+					Request("test-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("borrowing-cq").
+						Assignment("test-resource", "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("borrowing-w2", "eng-alpha").
+					Priority(0).
+					Queue("borrowing").
+					Request("test-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("borrowing-cq").
+						Assignment("test-resource", "default", "1").Obj()).
+					Obj(),
+				// First reclaiming cluster queue - needs its 1 test-resource back, must preempt borrowing-w1
+				*utiltesting.MakeWorkload("reclaiming-w1", "eng-alpha").
+					Priority(100).
+					Queue("reclaiming1").
+					Request("test-resource", "1").
+					Obj(),
+				// Second reclaiming cluster queue - needs its 1 test-resource back, must preempt borrowing-w2
+				*utiltesting.MakeWorkload("reclaiming-w2", "eng-beta").
+					Priority(100).
+					Queue("reclaiming2").
+					Request("test-resource", "1").
+					Obj(),
+			},
+			// Expected: Both borrowing workloads are preempted, reclaiming workloads wait for preemption
+			wantPreempted: sets.New[workload.Reference]("eng-alpha/borrowing-w1", "eng-alpha/borrowing-w2"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"reclaiming-cq1": {"eng-alpha/reclaiming-w1"},
+				"reclaiming-cq2": {"eng-beta/reclaiming-w2"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				// Preempted workloads remain in cache until workload update is received
+				"eng-alpha/borrowing-w1": *utiltesting.MakeAdmission("borrowing-cq").
+					Assignment("test-resource", "default", "1").Obj(),
+				"eng-alpha/borrowing-w2": *utiltesting.MakeAdmission("borrowing-cq").
+					Assignment("test-resource", "default", "1").Obj(),
+			},
+			// No skipped preemptions - all cluster queues should process preemption logic
+			wantSkippedPreemptions: map[string]int{
+				"borrowing-cq":   0,
+				"reclaiming-cq1": 0,
+				"reclaiming-cq2": 0,
+			},
+		},
+		"borrowing cq with 2 admitted workloads and 2 reclaiming cqs - extra workload confirmed pending": {
+			// This test is similar to the previous one but adds an extra workload to reclaiming-cq2
+			// that should be skipped and left pending admission since there are insufficient resources
+			enableRefreshAssignmentsDuringSchedulingCycle: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("borrowing-cq").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "0").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("reclaiming-cq1").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("reclaiming-cq2").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("extra-cq").
+					Cohort("test").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource("test-resource", "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("borrowing", "eng-alpha").ClusterQueue("borrowing-cq").Obj(),
+				*utiltesting.MakeLocalQueue("reclaiming1", "eng-alpha").ClusterQueue("reclaiming-cq1").Obj(),
+				*utiltesting.MakeLocalQueue("reclaiming2", "eng-beta").ClusterQueue("reclaiming-cq2").Obj(),
+				*utiltesting.MakeLocalQueue("extra", "eng-beta").ClusterQueue("extra-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// Borrowing cluster queue with 2 admitted workloads borrowing from reclaiming CQs
+				*utiltesting.MakeWorkload("borrowing-w1", "eng-alpha").
+					Priority(0).
+					Queue("borrowing").
+					Request("test-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("borrowing-cq").
+						Assignment("test-resource", "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("borrowing-w2", "eng-alpha").
+					Priority(0).
+					Queue("borrowing").
+					Request("test-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("borrowing-cq").
+						Assignment("test-resource", "default", "1").Obj()).
+					Obj(),
+				// First reclaiming cluster queue - needs its 1 test-resource back
+				*utiltesting.MakeWorkload("reclaiming-w1", "eng-alpha").
+					Priority(100).
+					Queue("reclaiming1").
+					Request("test-resource", "1").
+					Obj(),
+				// Second reclaiming cluster queue - needs its 1 test-resource back
+				*utiltesting.MakeWorkload("reclaiming-w2", "eng-beta").
+					Priority(100).
+					Queue("reclaiming2").
+					Request("test-resource", "1").
+					Obj(),
+				// Extra workload in new cluster queue with 0 quota - should be skipped due to no resources
+				*utiltesting.MakeWorkload("extra-w1", "eng-beta").
+					Priority(90).
+					Queue("extra").
+					Request("test-resource", "1").
+					Obj(),
+			},
+			// Expected: Both borrowing workloads are preempted, first 2 reclaiming workloads wait for preemption,
+			// extra workload is left pending due to insufficient resources
+			wantPreempted: sets.New[workload.Reference]("eng-alpha/borrowing-w1", "eng-alpha/borrowing-w2"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"reclaiming-cq1": {"eng-alpha/reclaiming-w1"},
+				"reclaiming-cq2": {"eng-beta/reclaiming-w2"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"extra-cq": {"eng-beta/extra-w1"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				// Preempted workloads remain in cache until workload update is received
+				"eng-alpha/borrowing-w1": *utiltesting.MakeAdmission("borrowing-cq").
+					Assignment("test-resource", "default", "1").Obj(),
+				"eng-alpha/borrowing-w2": *utiltesting.MakeAdmission("borrowing-cq").
+					Assignment("test-resource", "default", "1").Obj(),
+			},
+			// THE KEY TEST: No skipped preemptions - workloads are either scheduled or marked inadmissible
+			wantSkippedPreemptions: map[string]int{
+				"borrowing-cq":   0,
+				"reclaiming-cq1": 0,
+				"reclaiming-cq2": 0,
+				"extra-cq":       0,
+			},
+		},
 		"not enough resources": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "sales").

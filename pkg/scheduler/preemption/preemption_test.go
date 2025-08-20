@@ -1857,7 +1857,7 @@ func TestPreemption(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy, nil)
+			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy, nil, nil)
 			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
@@ -2772,7 +2772,7 @@ func TestFairPreemptions(t *testing.T) {
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshotWorkingCopy, nil)
+			), snapshotWorkingCopy, nil, nil)
 			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
@@ -4142,7 +4142,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy, nil)
+			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy, nil, nil)
 			_, err = preemptor.IssuePreemptions(ctx, wlInfo, targets)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
