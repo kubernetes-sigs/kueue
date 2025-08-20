@@ -105,7 +105,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		}
 	}
 	var podSetGroupName *string
-	if podSet.TopologyRequest != nil && podSet.TopologyRequest.PodSetGroupName != nil {
+	if podSet.TopologyRequest != nil {
 		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
 	}
 
