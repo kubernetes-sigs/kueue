@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -96,7 +96,7 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 	}
 }
 
-func ApplyDefaultForManagedBy(job GenericJob, queues *queue.Manager, cache *scheduler.Cache, log logr.Logger) {
+func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *schdcache.Cache, log logr.Logger) {
 	if managedJob, ok := job.(JobWithManagedBy); ok {
 		if managedJob.CanDefaultManagedBy() {
 			localQueueName, found := job.Object().GetLabels()[constants.QueueLabel]

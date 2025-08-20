@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	cache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -81,9 +81,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
-	cacheOptions := []cache.Option{}
-	cCache := cache.New(mgr.GetClient(), cacheOptions...)
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	cacheOptions := []schdcache.Option{}
+	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+	queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)

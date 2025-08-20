@@ -47,8 +47,8 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -3292,8 +3292,8 @@ func TestSchedule(t *testing.T) {
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := schedulercache.New(cl)
-			qManager := queuecache.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range allQueues {
 				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -4075,8 +4075,8 @@ func TestLastSchedulingContext(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme,
 				corev1.EventSource{Component: constants.AdmissionName})
-			cqCache := schedulercache.New(cl)
-			qManager := queuecache.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range queues {
 				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -4268,8 +4268,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			cqCache := schedulercache.New(cl)
-			qManager := queuecache.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)
 			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
@@ -4484,7 +4484,7 @@ func TestResourcesToReserve(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()
-			cqCache := schedulercache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flavor := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flavor)
 			}
@@ -6481,10 +6481,10 @@ func TestScheduleForTAS(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := schedulercache.New(cl)
+			cqCache := schdcache.New(cl)
 			now := time.Now()
 			fakeClock := testingclock.NewFakeClock(now)
-			qManager := queuecache.NewManager(cl, cqCache, queuecache.WithClock(fakeClock))
+			qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
 			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
@@ -7020,8 +7020,8 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := schedulercache.New(cl)
-			qManager := queuecache.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
 			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
@@ -7958,8 +7958,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := schedulercache.New(cl)
-			qManager := queuecache.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
 			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
@@ -8284,8 +8284,8 @@ func TestScheduleForAFS(t *testing.T) {
 			fairSharing := &config.FairSharing{
 				Enable: tc.enableFairSharing,
 			}
-			cqCache := schedulercache.New(cl, schedulercache.WithFairSharing(fairSharing.Enable), schedulercache.WithAdmissionFairSharing(afsConfig))
-			qManager := queuecache.NewManager(cl, cqCache, queuecache.WithAdmissionFairSharing(afsConfig))
+			cqCache := schdcache.New(cl, schdcache.WithFairSharing(fairSharing.Enable), schdcache.WithAdmissionFairSharing(afsConfig))
+			qManager := qcache.NewManager(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 			ctx, log := utiltesting.ContextWithLog(t)
 			for _, q := range queues {

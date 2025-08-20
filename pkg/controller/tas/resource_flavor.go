@@ -41,8 +41,8 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 )
@@ -67,8 +67,8 @@ func nodeConditionEqual(a, b corev1.NodeCondition) bool {
 
 type rfReconciler struct {
 	log      logr.Logger
-	queues   *queue.Manager
-	cache    *scheduler.Cache
+	queues   *qcache.Manager
+	cache    *schdcache.Cache
 	client   client.Client
 	recorder record.EventRecorder
 }
@@ -80,7 +80,7 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func newRfReconciler(c client.Client, queues *queue.Manager, cache *scheduler.Cache, recorder record.EventRecorder) *rfReconciler {
+func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder) *rfReconciler {
 	return &rfReconciler{
 		log:      ctrl.Log.WithName(TASResourceFlavorController),
 		client:   c,
@@ -90,7 +90,7 @@ func newRfReconciler(c client.Client, queues *queue.Manager, cache *scheduler.Ca
 	}
 }
 
-func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *scheduler.Cache, cfg *configapi.Configuration) (string, error) {
+func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
 	nodeHandler := nodeHandler{
 		cache: cache,
 	}
@@ -114,7 +114,7 @@ var _ handler.EventHandler = (*nodeHandler)(nil)
 
 // nodeHandler handles node update events.
 type nodeHandler struct {
-	cache *scheduler.Cache
+	cache *schdcache.Cache
 }
 
 func (h *nodeHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {

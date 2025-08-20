@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	cache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -84,9 +84,9 @@ func managerSetup(
 	if configuration.WaitForPodsReady != nil {
 		opts = append(opts, jobframework.WithWaitForPodsReady(configuration.WaitForPodsReady))
 	}
-	var queueOptions []queue.Option
+	var queueOptions []qcache.Option
 	if configuration.Resources != nil && len(configuration.Resources.ExcludeResourcePrefixes) > 0 {
-		queueOptions = append([]queue.Option{}, queue.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
+		queueOptions = append([]qcache.Option{}, qcache.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
 	}
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -114,8 +114,8 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		jobframework.EnableIntegration(job.FrameworkName)
 
-		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
+		cCache := schdcache.New(mgr.GetClient())
+		queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues))
 
 		mgr.GetScheme().Default(configuration)

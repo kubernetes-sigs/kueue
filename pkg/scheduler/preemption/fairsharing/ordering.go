@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,9 +41,9 @@ import (
 // TargetClusterQueueOrdering.DropQueue must be called between each
 // entry returned.
 type TargetClusterQueueOrdering struct {
-	preemptorCq *scheduler.ClusterQueueSnapshot
+	preemptorCq *schdcache.ClusterQueueSnapshot
 	// ancestor Cohorts of the preemptor ClusterQueue.
-	preemptorAncestors sets.Set[*scheduler.CohortSnapshot]
+	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
 
 	clusterQueueToTarget map[kueue.ClusterQueueReference][]*workload.Info
 
@@ -52,19 +52,19 @@ type TargetClusterQueueOrdering struct {
 	// determine our stopping condition: once the rootCohort is in
 	// the prunedCohorts list, we will not find any more
 	// preemption target candidates.
-	prunedClusterQueues sets.Set[*scheduler.ClusterQueueSnapshot]
-	prunedCohorts       sets.Set[*scheduler.CohortSnapshot]
+	prunedClusterQueues sets.Set[*schdcache.ClusterQueueSnapshot]
+	prunedCohorts       sets.Set[*schdcache.CohortSnapshot]
 }
 
-func MakeClusterQueueOrdering(cq *scheduler.ClusterQueueSnapshot, candidates []*workload.Info) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		preemptorCq:        cq,
-		preemptorAncestors: sets.New[*scheduler.CohortSnapshot](),
+		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
 
 		clusterQueueToTarget: make(map[kueue.ClusterQueueReference][]*workload.Info),
 
-		prunedClusterQueues: sets.New[*scheduler.ClusterQueueSnapshot](),
-		prunedCohorts:       sets.New[*scheduler.CohortSnapshot](),
+		prunedClusterQueues: sets.New[*schdcache.ClusterQueueSnapshot](),
+		prunedCohorts:       sets.New[*schdcache.CohortSnapshot](),
 	}
 
 	for ancestor := range cq.PathParentToRoot() {
@@ -116,11 +116,11 @@ func (t *TargetClusterQueueOrdering) DropQueue(cq *TargetClusterQueue) {
 	t.prunedClusterQueues.Insert(cq.targetCq)
 }
 
-func (t *TargetClusterQueueOrdering) onPathFromRootToPreemptorCQ(cohort *scheduler.CohortSnapshot) bool {
+func (t *TargetClusterQueueOrdering) onPathFromRootToPreemptorCQ(cohort *schdcache.CohortSnapshot) bool {
 	return t.preemptorAncestors.Has(cohort)
 }
 
-func (t *TargetClusterQueueOrdering) hasWorkload(cq *scheduler.ClusterQueueSnapshot) bool {
+func (t *TargetClusterQueueOrdering) hasWorkload(cq *schdcache.ClusterQueueSnapshot) bool {
 	return len(t.clusterQueueToTarget[cq.GetName()]) > 0
 }
 
@@ -130,8 +130,8 @@ func (t *TargetClusterQueueOrdering) hasWorkload(cq *scheduler.ClusterQueueSnaps
 // call if it is a Cohort.  The return of nil doesn't mean that there
 // are no more candidate ClusterQueues; an iteration may have only
 // pruned nodes from the tree.
-func (t *TargetClusterQueueOrdering) nextTarget(cohort *scheduler.CohortSnapshot) *TargetClusterQueue {
-	var highestCq *scheduler.ClusterQueueSnapshot = nil
+func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot) *TargetClusterQueue {
+	var highestCq *schdcache.ClusterQueueSnapshot = nil
 	highestCqDrs := -1
 	for _, cq := range cohort.ChildCQs() {
 		if t.prunedClusterQueues.Has(cq) {
@@ -149,7 +149,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *scheduler.CohortSnapshot
 		}
 	}
 
-	var highestCohort *scheduler.CohortSnapshot = nil
+	var highestCohort *schdcache.CohortSnapshot = nil
 	highestCohortDrs := -1
 	for _, cohort := range cohort.ChildCohorts() {
 		if t.prunedCohorts.Has(cohort) {

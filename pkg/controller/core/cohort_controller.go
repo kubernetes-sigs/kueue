@@ -36,8 +36,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
 )
 
@@ -59,16 +59,16 @@ func CohortReconcilerWithFairSharing(enabled bool) CohortReconcilerOption {
 type CohortReconciler struct {
 	client             client.Client
 	log                logr.Logger
-	cache              *scheduler.Cache
-	qManager           *queue.Manager
+	cache              *schdcache.Cache
+	qManager           *qcache.Manager
 	cqUpdateCh         chan event.GenericEvent
 	fairSharingEnabled bool
 }
 
 func NewCohortReconciler(
 	client client.Client,
-	cache *scheduler.Cache,
-	qManager *queue.Manager,
+	cache *schdcache.Cache,
+	qManager *qcache.Manager,
 	opts ...CohortReconcilerOption,
 ) *CohortReconciler {
 	options := CohortReconcilerOptions{}
@@ -194,7 +194,7 @@ func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQ
 }
 
 type cohortCqHandler struct {
-	cache *scheduler.Cache
+	cache *schdcache.Cache
 }
 
 func (h *cohortCqHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {

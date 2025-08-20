@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -35,7 +35,7 @@ type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
-	snapshot                          *schedulercache.Snapshot
+	snapshot                          *schdcache.Snapshot
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
@@ -44,7 +44,7 @@ type candidateIterator struct {
 type candidateElem struct {
 	wl *workload.Info
 	// lca of this queue and cq (queue to which the new workload is submitted)
-	lca *schedulercache.CohortSnapshot
+	lca *schdcache.CohortSnapshot
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
 	preemptionVariant preemptionVariant
@@ -78,7 +78,7 @@ func NewCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
-	snapshot *schedulercache.Snapshot,
+	snapshot *schdcache.Snapshot,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool,
 ) *candidateIterator {
@@ -140,7 +140,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if schedulercache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
+	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
@@ -148,7 +148,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		if node == candidate.lca {
 			break
 		}
-		if schedulercache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
+		if schdcache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
 			return false
 		}
 	}

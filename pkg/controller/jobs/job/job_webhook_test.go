@@ -35,8 +35,8 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -862,8 +862,8 @@ func TestDefault(t *testing.T) {
 				WithObjects(utiltesting.MakeNamespace("default")).
 				WithRuntimeObjects(tc.objs...)
 			cl := clientBuilder.Build()
-			cqCache := scheduler.New(cl)
-			queueManager := queue.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			queueManager := qcache.NewManager(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
