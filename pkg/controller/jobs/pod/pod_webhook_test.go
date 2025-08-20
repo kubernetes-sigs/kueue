@@ -37,8 +37,8 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -529,8 +529,8 @@ func TestDefault(t *testing.T) {
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
 
-			cqCache := scheduler.New(cli)
-			queueManager := queue.NewManager(cli, cqCache)
+			cqCache := schedulercache.New(cli)
+			queueManager := queuecache.NewManager(cli, cqCache)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 

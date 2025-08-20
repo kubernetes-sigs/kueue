@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -35,7 +35,7 @@ type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
-	snapshot                          *scheduler.Snapshot
+	snapshot                          *schedulercache.Snapshot
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
@@ -44,7 +44,7 @@ type candidateIterator struct {
 type candidateElem struct {
 	wl *workload.Info
 	// lca of this queue and cq (queue to which the new workload is submitted)
-	lca *scheduler.CohortSnapshot
+	lca *schedulercache.CohortSnapshot
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
 	preemptionVariant preemptionVariant
@@ -74,7 +74,7 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // with and without borrowing. The runs are independent which means that the same candidates
 // might be returned for both, but note that the candidates with borrrowing are a subset of
 // candidates without borrowing.
-func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *scheduler.Snapshot, clock clock.Clock, ordering func(logr.Logger, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
+func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *schedulercache.Snapshot, clock clock.Clock, ordering func(logr.Logger, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 	sort.Slice(sameQueueCandidates, func(i, j int) bool {
@@ -133,7 +133,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if scheduler.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
+	if schedulercache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
@@ -141,7 +141,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		if node == candidate.lca {
 			break
 		}
-		if scheduler.IsWithinNominalInResources(node, c.frsNeedPreemption) {
+		if schedulercache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
 			return false
 		}
 	}

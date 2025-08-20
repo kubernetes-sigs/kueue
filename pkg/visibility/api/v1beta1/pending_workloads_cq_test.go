@@ -29,7 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
+	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -317,7 +317,7 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := queue.NewManager(utiltesting.NewFakeClient(), nil)
+			manager := queuecache.NewManager(utiltesting.NewFakeClient(), nil)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			go manager.CleanUpOnContext(ctx)

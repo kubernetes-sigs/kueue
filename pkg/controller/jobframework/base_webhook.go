@@ -25,8 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 )
 
@@ -36,8 +36,8 @@ type BaseWebhook struct {
 	ManageJobsWithoutQueueName   bool
 	ManagedJobsNamespaceSelector labels.Selector
 	FromObject                   func(runtime.Object) GenericJob
-	Queues                       *queue.Manager
-	Cache                        *scheduler.Cache
+	Queues                       *queuecache.Manager
+	Cache                        *schedulercache.Cache
 }
 
 func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {

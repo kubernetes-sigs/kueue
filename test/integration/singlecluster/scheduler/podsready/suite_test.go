@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	cache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -72,8 +72,8 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 	}
 	return func(ctx context.Context, mgr manager.Manager) {
 		var (
-			cacheOpts  []cache.Option
-			queuesOpts []queue.Option
+			cacheOpts  []schedulercache.Option
+			queuesOpts []queuecache.Option
 			schedOpts  []scheduler.Option
 		)
 
@@ -86,17 +86,17 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 			podsReadyTracking := configuration.WaitForPodsReady.Enable &&
 				configuration.WaitForPodsReady.BlockAdmission != nil &&
 				*configuration.WaitForPodsReady.BlockAdmission
-			cacheOpts = append(cacheOpts, cache.WithPodsReadyTracking(podsReadyTracking))
+			cacheOpts = append(cacheOpts, schedulercache.WithPodsReadyTracking(podsReadyTracking))
 
 			if configuration.WaitForPodsReady.RequeuingStrategy != nil && configuration.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
 				timestamp := *configuration.WaitForPodsReady.RequeuingStrategy.Timestamp
-				queuesOpts = append(queuesOpts, queue.WithPodsReadyRequeuingTimestamp(timestamp))
+				queuesOpts = append(queuesOpts, queuecache.WithPodsReadyRequeuingTimestamp(timestamp))
 				schedOpts = append(schedOpts, scheduler.WithPodsReadyRequeuingTimestamp(timestamp))
 			}
 		}
 
-		cCache := cache.New(mgr.GetClient(), cacheOpts...)
-		queues := queue.NewManager(mgr.GetClient(), cCache, queuesOpts...)
+		cCache := schedulercache.New(mgr.GetClient(), cacheOpts...)
+		queues := queuecache.NewManager(mgr.GetClient(), cCache, queuesOpts...)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

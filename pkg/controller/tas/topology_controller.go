@@ -38,8 +38,8 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 )
@@ -51,15 +51,15 @@ const (
 type topologyReconciler struct {
 	log              logr.Logger
 	client           client.Client
-	queues           *queue.Manager
-	cache            *scheduler.Cache
+	queues           *queuecache.Manager
+	cache            *schedulercache.Cache
 	topologyUpdateCh chan event.GenericEvent
 }
 
 var _ reconcile.Reconciler = (*topologyReconciler)(nil)
 var _ predicate.TypedPredicate[*kueuealpha.Topology] = (*topologyReconciler)(nil)
 
-func newTopologyReconciler(c client.Client, queues *queue.Manager, cache *scheduler.Cache) *topologyReconciler {
+func newTopologyReconciler(c client.Client, queues *queuecache.Manager, cache *schedulercache.Cache) *topologyReconciler {
 	return &topologyReconciler{
 		log:              ctrl.Log.WithName(TASTopologyController),
 		client:           c,
