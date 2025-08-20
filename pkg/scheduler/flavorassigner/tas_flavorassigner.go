@@ -161,7 +161,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 		// PodSet requires TAS and the flavor supports it, so it's a match.
 		return nil
 	}
-	// PodSet doesn't requires TAS, but the flavor supports it.
+	// PodSet doesn't require TAS, but the flavor supports it.
 	if flavor.Spec.TopologyName != nil {
 		return ptr.To(fmt.Sprintf("Flavor %q supports only TopologyAwareScheduling", flavor.Name))
 	}
