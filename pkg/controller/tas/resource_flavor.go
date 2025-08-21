@@ -21,6 +21,10 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -42,6 +46,24 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
+
+var nodeSemantic = conversion.EqualitiesOrDie(
+	nodeConditionEqual,
+	// Handle metav1.Time comparison to avoid panic on unexported fields
+	func(a, b metav1.Time) bool {
+		return a.Equal(&b)
+	},
+	// Handle resource.Quantity comparison to avoid panic on unexported fields
+	func(a, b resource.Quantity) bool {
+		return a.Equal(b)
+	},
+)
+
+func nodeConditionEqual(a, b corev1.NodeCondition) bool {
+	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
+	aCopy.LastHeartbeatTime, bCopy.LastHeartbeatTime = metav1.Time{}, metav1.Time{}
+	return equality.Semantic.DeepEqual(aCopy, bCopy)
+}
 
 type rfReconciler struct {
 	log      logr.Logger
@@ -109,6 +131,12 @@ func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workque
 	if !isOldNode || !isNewNode {
 		return
 	}
+
+	if !checkNodeSchedulingPropertiesChanged(oldNode, newNode) {
+		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as new Node is semantically same as old Node", "node", newNode.Name)
+		return
+	}
+
 	h.queueReconcileForNode(oldNode, q)
 	h.queueReconcileForNode(newNode, q)
 }
@@ -202,4 +230,9 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 		}
 	}
 	return true
+}
+
+// checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
+func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
+	return !nodeSemantic.DeepEqual(oldNode, newNode)
 }
