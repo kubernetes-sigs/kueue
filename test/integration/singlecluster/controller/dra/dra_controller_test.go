@@ -586,5 +586,31 @@ var _ = ginkgo.Describe("DRA Controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				g.Expect(assignment.ResourceUsage["gpus"]).To(gomega.Equal(resource.MustParse("3")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should reject DRA config with duplicate resource names", func() {
+			ginkgo.By("Creating a DRA config with duplicate resource names")
+			duplicateDRAConfig := &kueuealpha.DynamicResourceAllocationConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default",
+				},
+				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
+					Resources: []kueuealpha.DynamicResource{
+						{
+							Name:             kueuealpha.DriverResourceName("gpus"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{kueuealpha.DriverResourceName("gpus.example.com")},
+						},
+						{
+							Name:             kueuealpha.DriverResourceName("gpus"),
+							DeviceClassNames: []kueuealpha.DriverResourceName{kueuealpha.DriverResourceName("new-gpus.example.com")},
+						},
+					},
+				},
+			}
+
+			err := k8sClient.Create(ctx, duplicateDRAConfig)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("Duplicate"))
+		})
 	})
 })
