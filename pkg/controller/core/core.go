@@ -67,15 +67,10 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		mgr.GetClient(),
 		qManager,
 		cc,
-		WithQueueVisibilityUpdateInterval(queueVisibilityUpdateInterval(cfg)),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
-		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
 		WithFairSharing(fairSharingEnabled),
 		WithWatchers(watchers...),
 	)
-	if err := mgr.Add(cqRec); err != nil {
-		return "Unable to add ClusterQueue to manager", err
-	}
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
@@ -122,18 +117,4 @@ func workloadRetention(cfg *configapi.ObjectRetentionPolicies) *workloadRetentio
 	return &workloadRetentionConfig{
 		afterFinished: &cfg.Workloads.AfterFinished.Duration,
 	}
-}
-
-func queueVisibilityUpdateInterval(cfg *configapi.Configuration) time.Duration {
-	if cfg.QueueVisibility != nil {
-		return time.Duration(cfg.QueueVisibility.UpdateIntervalSeconds) * time.Second
-	}
-	return 0
-}
-
-func queueVisibilityClusterQueuesMaxCount(cfg *configapi.Configuration) int32 {
-	if cfg.QueueVisibility != nil && cfg.QueueVisibility.ClusterQueues != nil {
-		return cfg.QueueVisibility.ClusterQueues.MaxCount
-	}
-	return 0
 }
