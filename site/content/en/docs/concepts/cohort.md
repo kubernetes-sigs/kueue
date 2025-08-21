@@ -29,7 +29,7 @@ spec:
 ## Configuring Quotas
 
 Resource quotas may be defined at the Cohort level (similarly to how they are
-defined for (ClusterQueues)[/docs/concepts/cluster_queue/#flavors-and-resources]),
+defined for [ClusterQueues](/docs/concepts/cluster_queue/#flavors-and-resources)),
 and consumed by ClusterQueues within the Cohort.  Please note that
 `nominalQuota` defined at the Cohort level represents **additional resources**
 on top of those defined by ClusterQueues within the Cohort. The Cohort's
