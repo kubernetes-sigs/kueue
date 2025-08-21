@@ -26,7 +26,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -47,7 +46,6 @@ const (
 	flavorCPUArchB = "arch-b"
 )
 
-var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
 var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
 var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -931,183 +929,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		})
-	})
-})
-
-var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	var ns *corev1.Namespace
-
-	ginkgo.BeforeAll(func() {
-		ginkgo.By("Enabling queue visibility feature", func() {
-			gomega.Expect(features.SetEnable(features.QueueVisibility, true)).To(gomega.Succeed())
-		})
-		fwk.StartManager(
-			ctx, cfg,
-			managerAndControllerSetup(
-				&config.Configuration{
-					QueueVisibility: &config.QueueVisibility{
-						UpdateIntervalSeconds: 2,
-						ClusterQueues: &config.ClusterQueueVisibility{
-							MaxCount: 3,
-						},
-					},
-				},
-			),
-		)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
-	})
-
-	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.When("Reconciling clusterQueue pending workload status", func() {
-		var (
-			clusterQueue   *kueue.ClusterQueue
-			localQueue     *kueue.LocalQueue
-			onDemandFlavor *kueue.ResourceFlavor
-		)
-
-		ginkgo.BeforeEach(func() {
-			onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
-			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(
-					*testing.MakeFlavorQuotas(flavorOnDemand).
-						Resource(corev1.ResourceCPU, "5", "5").Obj(),
-				).
-				Cohort("cohort").
-				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
-		})
-
-		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		})
-
-		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", framework.SlowSpec, func() {
-			const lowPrio, midLowerPrio, midHigherPrio, highPrio = 0, 10, 20, 100
-			workloadsFirstBatch := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(highPrio).
-					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(midHigherPrio).
-					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
-			}
-
-			ginkgo.By("Verify pending workload status before adding workloads")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.PendingWorkloadsStatus).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{}, ignoreLastChangeTime))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Creating workloads")
-			for _, w := range workloadsFirstBatch {
-				util.MustCreate(ctx, k8sClient, w)
-			}
-
-			ginkgo.By("Awaiting for the pending workloads to be updated")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.PendingWorkloadsStatus).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{
-					Head: []kueue.ClusterQueuePendingWorkload{
-						{
-							Name:      "one",
-							Namespace: ns.Name,
-						},
-						{
-							Name:      "two",
-							Namespace: ns.Name,
-						},
-					},
-				}, ignoreLastChangeTime))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Creating new workloads to so that the number of workloads exceeds the MaxCount")
-			workloadsSecondBatch := []*kueue.Workload{
-				testing.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(midLowerPrio).
-					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Priority(lowPrio).
-					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
-			}
-			for _, w := range workloadsSecondBatch {
-				util.MustCreate(ctx, k8sClient, w)
-			}
-
-			ginkgo.By("Verify the head of pending workloads when the number of pending workloads exceeds MaxCount")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.PendingWorkloadsStatus).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{
-					Head: []kueue.ClusterQueuePendingWorkload{
-						{
-							Name:      "one",
-							Namespace: ns.Name,
-						},
-						{
-							Name:      "two",
-							Namespace: ns.Name,
-						},
-						{
-							Name:      "three",
-							Namespace: ns.Name,
-						},
-					},
-				}, ignoreLastChangeTime))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Admitting workloads")
-			for _, w := range workloadsFirstBatch {
-				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission(clusterQueue.Name).Obj())).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			}
-
-			ginkgo.By("Awaiting for the pending workloads status to be updated after the workloads are admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCQ kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-				g.Expect(updatedCQ.Status.PendingWorkloadsStatus).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{
-					Head: []kueue.ClusterQueuePendingWorkload{
-						{
-							Name:      "three",
-							Namespace: ns.Name,
-						},
-						{
-							Name:      "four",
-							Namespace: ns.Name,
-						},
-					},
-				}, ignoreLastChangeTime))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Finishing workload", func() {
-				util.FinishWorkloads(ctx, k8sClient, workloadsFirstBatch...)
-				util.FinishWorkloads(ctx, k8sClient, workloadsSecondBatch...)
-			})
-
-			ginkgo.By("Awaiting for the pending workloads status to be updated after the workloads are finished")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.PendingWorkloadsStatus).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{
-					Head: []kueue.ClusterQueuePendingWorkload{},
-				}, ignoreLastChangeTime))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
