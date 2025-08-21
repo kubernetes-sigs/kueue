@@ -257,7 +257,7 @@ spec:
         args:
         - --config=/controller_manager_config.yaml
         - --zap-log-level=2
-+       - --feature-gates=PartialAdmission=true
+        - --feature-gates=PartialAdmission=true
 ```
 
 ### Feature gates for alpha and beta features
@@ -301,8 +301,6 @@ spec:
 | `ProvisioningACC`                 | `false` | Alpha      | 0.5   | 0.6   |
 | `ProvisioningACC`                 | `true`  | Beta       | 0.7   |       |
 | `ProvisioningACC`                 | `true`  | GA         | 0.14  |       |
-| `QueueVisibility`                 | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
 | `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
 | `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |

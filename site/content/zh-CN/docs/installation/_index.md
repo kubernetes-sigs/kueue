@@ -257,7 +257,7 @@ spec:
         args:
         - --config=/controller_manager_config.yaml
         - --zap-log-level=2
-+       - --feature-gates=PartialAdmission=true
+        - --feature-gates=PartialAdmission=true
 ```
 
 ### Alpha 和 Beta 级别特性的特性门控 {#feature-gates-for-alpha-and-beta-features}
