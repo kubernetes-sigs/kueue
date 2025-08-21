@@ -348,8 +348,8 @@ func (i *Info) IsUsingTAS() bool {
 		})
 }
 
-// IsRequestingTAS returns information if the workload is requesting TAS
-func (i *Info) IsRequestingTAS() bool {
+// IsExplicitlyRequestingTAS returns information if the workload is requesting TAS
+func (i *Info) IsExplicitlyRequestingTAS() bool {
 	return slices.ContainsFunc(i.Obj.Spec.PodSets,
 		func(ps kueue.PodSet) bool {
 			return IsTASExplicitlyRequested(&ps)
@@ -357,7 +357,8 @@ func (i *Info) IsRequestingTAS() bool {
 }
 
 func IsTASExplicitlyRequested(ps *kueue.PodSet) bool {
-	return ps.TopologyRequest != nil && (ps.TopologyRequest.Unconstrained != nil || ps.TopologyRequest.Required != nil || ps.TopologyRequest.Preferred != nil)
+	tr := ps.TopologyRequest
+	return tr != nil && (tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil)
 }
 
 // TASUsage returns topology usage requested by the Workload
