@@ -447,6 +447,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{
 						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 					}).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 			enableTopologyAwareScheduling: true,
@@ -464,6 +465,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{
 						kueuealpha.PodSetSliceSizeAnnotation: "1",
 					}).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 			enableTopologyAwareScheduling: true,
