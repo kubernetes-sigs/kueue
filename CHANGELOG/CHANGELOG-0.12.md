@@ -1,3 +1,14 @@
+## v0.12.8
+
+Changes since `v0.12.7`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- FS: Fixing a bug where a preemptor ClusterQueue was unable to reclaim its nominal quota when the preemptee ClusterQueue can borrow a large number of resources from the parent ClusterQueue / Cohort (#6619, @pajakd)
+- TAS: Fix a bug where new Workloads starve, caused by inadmissible workloads frequently requeueing due to unrelated Node LastHeartbeatTime update events. (#6636, @utam0k)
+
 ## v0.12.7
 
 Changes since `v0.12.6`:
