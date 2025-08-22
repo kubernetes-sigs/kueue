@@ -1311,71 +1311,25 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		createErr        error
 		wantCreated      []string
 		wantErr          bool
-		advanceClock     time.Duration
-		wantRetryAfter   time.Duration
 	}{
 		{
 			name:           "AllClusters: clone to all remotes, nominates all",
 			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:        map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			wantCreated:    []string{remoteNames[0], remoteNames[1]},
-			wantRetryAfter: 0,
 		},
 		{
 			name:           "AllClusters: workloads already created on remotes, do not create again",
 			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:        map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			wantCreated:    nil,
-			wantRetryAfter: 0,
 		},
-		{
-			name:           "Incremental: only one remote, nominates it",
-			dispatcherMode: config.MultiKueueDispatcherModeIncremental,
-			remotes:        map[string]*kueue.Workload{remoteNames[0]: nil},
-			wantCreated:    []string{remoteNames[0]},
-			wantRetryAfter: 0,
-		},
-		{
-			name:             "Incremental: no previous nomination, nominates remote1...3",
-			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          remotes,
-			nominatedWorkers: []string{""},
-			wantCreated:      remoteNames[:3],
-			wantRetryAfter:   0,
-		},
-		{
-			name:             "Incremental: keep remote1..3, nomination round still in progress",
-			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          remotes,
-			nominatedWorkers: remoteNames[:3],
-			wantCreated:      nil,
-			advanceClock:     incrementalDispatcherRoundTimeout / 2,
-			wantRetryAfter:   incrementalDispatcherRoundTimeout / 2,
-		},
-		{
-			name:             "Incremental: previously remote1..3, nomination round exceeded - increment",
-			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          remotes,
-			nominatedWorkers: remoteNames[:3],
-			advanceClock:     incrementalDispatcherRoundTimeout + time.Second,
-			wantCreated:      remoteNames[:6],
-			wantRetryAfter:   0,
-		},
-		{
-			name:             "Incremental: previously remote1..6, next nomination round all clusters",
-			dispatcherMode:   config.MultiKueueDispatcherModeIncremental,
-			remotes:          remotes,
-			nominatedWorkers: remoteNames[:6],
-			advanceClock:     incrementalDispatcherRoundTimeout + time.Second,
-			wantCreated:      remoteNames,
-			wantRetryAfter:   0,
-		},
+		// Incremental dispatcher tests were moved to a separate file.
 		{
 			name:           "External controller: no nominated workers, nothing created",
 			dispatcherMode: externalMultiKueueDispatcherController,
 			remotes:        remotes,
 			wantCreated:    nil,
-			wantRetryAfter: 0,
 		},
 		{
 			name:             "External controller: nominate remote1 and remote6",
@@ -1447,20 +1401,13 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 
 			wlRec := &wlReconciler{
-				clock:           fakeClock,
-				dispatcherName:  tt.dispatcherMode,
-				client:          wlClientBuilder.Build(),
-				roundStartTimes: make(map[types.NamespacedName]time.Time),
-			}
-
-			if tt.advanceClock > 0 {
-				key := types.NamespacedName{Name: group.local.Name, Namespace: group.local.Namespace}
-				wlRec.roundStartTimes[key] = fakeClock.Now()
-				fakeClock.SetTime(now.Add(tt.advanceClock))
+				clock:          fakeClock,
+				dispatcherName: tt.dispatcherMode,
+				client:         wlClientBuilder.Build(),
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			res, err := wlRec.nominateAndSynchronizeWorkers(ctx, group)
+			_, err := wlRec.nominateAndSynchronizeWorkers(ctx, group)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
 			}
@@ -1475,17 +1422,6 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			s2.Sort()
 			if diff := cmp.Diff(s1, s2); diff != "" {
 				t.Errorf("unexpected created remotes (-want/+got):\n%s", diff)
-			}
-
-			const timeMargin = 100 * time.Millisecond
-			if tt.wantRetryAfter == 0 {
-				if res.RequeueAfter != 0 {
-					t.Errorf("unexpected RequeueAfter, want %v, got %v", tt.wantRetryAfter, res.RequeueAfter)
-				}
-			} else {
-				if res.RequeueAfter < tt.wantRetryAfter-timeMargin || res.RequeueAfter > tt.wantRetryAfter+timeMargin {
-					t.Errorf("unexpected RequeueAfter, want %v±%v, got %v", tt.wantRetryAfter, timeMargin, res.RequeueAfter)
-				}
 			}
 		})
 	}
