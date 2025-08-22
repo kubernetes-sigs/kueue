@@ -75,7 +75,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
 你还可以使用以下命令：
 
 ```shell
-helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-chart-{{< param "version" >}}.tgz \
+helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-{{< param "version" >}}.tgz \
   --namespace kueue-system \
   --create-namespace \
   --wait --timeout 300s
