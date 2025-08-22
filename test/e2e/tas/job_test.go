@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			})
 		})
 
-		ginkgo.It("Should place pods based on the ranks-ordering even if the Job has no TAS annotation", func() {
+		ginkgo.It("Should place pods based on the ranks-ordering even if the Job has no TAS annotation (Implicit TAS)", func() {
 			numPods := 4
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
