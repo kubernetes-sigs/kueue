@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -58,13 +59,12 @@ const (
 )
 
 var (
-	realClock           = clock.RealClock{}
-	errNoActiveClusters = errors.New("no active clusters")
+	realClock = clock.RealClock{}
 )
 
 type wlReconciler struct {
 	client            client.Client
-	helper            *multiKueueStoreHelper
+	helper            *multikueuehelper.MultiKueueStoreHelper
 	clusters          *clustersReconciler
 	origin            string
 	workerLostTimeout time.Duration
@@ -268,7 +268,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 		}
 	}
 	if len(clients) == 0 {
-		return nil, errNoActiveClusters
+		return nil, multikueuehelper.ErrNoActiveClusters
 	}
 	return clients, nil
 }

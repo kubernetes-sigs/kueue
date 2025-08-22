@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -1193,7 +1194,7 @@ func TestWlReconcile(t *testing.T) {
 				cRec.remoteClients["worker2"] = w2remoteClient
 			}
 
-			helper, _ := newMultiKueueStoreHelper(managerClient)
+			helper, _ := multikueuehelper.NewMultiKueueStoreHelper(managerClient)
 			recorder := &utiltesting.EventRecorder{}
 			mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
 			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, WithClock(t, fakeClock))

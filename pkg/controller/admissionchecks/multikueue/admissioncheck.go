@@ -34,21 +34,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
 )
-
-type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
-
-func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
-	return admissioncheck.NewConfigHelper[*kueue.MultiKueueConfig](c)
-}
 
 // ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
 // Its main task being to maintain the active state of the admission checks based on the heath
 // of its referenced MultiKueueClusters.
 type ACReconciler struct {
 	client client.Client
-	helper *multiKueueStoreHelper
+	helper *multikueuehelper.MultiKueueStoreHelper
 }
 
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
@@ -137,7 +131,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconciler {
+func newACReconciler(c client.Client, helper *multikueuehelper.MultiKueueStoreHelper) *ACReconciler {
 	return &ACReconciler{
 		client: c,
 		helper: helper,
