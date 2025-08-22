@@ -51,6 +51,8 @@ if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
+git fetch "${UPSTREAM_REMOTE}" --tags
+
 # $1 - release version
 find_previous_version() {
   local release_version="$1"
@@ -73,14 +75,8 @@ function find_head_branch() {
 
   IFS='.' read -r major minor patch <<< "${release_version#v}"
 
-  # Get the latest release version tag (sorted semver)
-  latest_release_version=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
-  IFS='.' read -r latest_major latest_minor _ <<< "${latest_release_version#v}"
-
-  # Check if current major.minor is less than latest
-  if [[ "$major" -lt "$latest_major" ]] || { [[ "$major" -eq "$latest_major" ]] && [[ "$minor" -lt "$latest_minor" ]]; }; then
+  if [[ "${patch}" -ne "0" ]]; then
     candidate_branch="release-${major}.${minor}"
-
     # Use release branch if it exists
     if git ls-remote --heads "$UPSTREAM_REMOTE" "$candidate_branch" | grep -q "$candidate_branch"; then
       head_branch="$candidate_branch"
