@@ -19,8 +19,11 @@ package raycluster
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	corev1 "k8s.io/api/core/v1"
+
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -36,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -87,6 +91,13 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+
+	rjob := obj.(*rayv1.RayCluster)
+
+	if isAnElasticJob(rjob) {
+		applyWorkloadSliceSchedulingGate(rjob)
+	}
+
 	return nil
 }
 
@@ -106,6 +117,43 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Obje
 	return nil, validationErrs.ToAggregate()
 }
 
+// returns whether the RayCluster is an elastic job or not
+func isAnElasticJob(job *rayv1.RayCluster) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
+}
+
+// applyWorkloadSliceSchedulingGate ensures that the workload slice-specific
+// PodSchedulingGate is present in the Workload-slice enabled RayCluster's pod Templates for both the Head and Worker pods
+// If the scheduling gate is not already included, it appends it to the list of scheduling gates.
+//
+// This function is essential for enabling workload slice-aware scheduling
+// behavior in Kueue-managed RayClusters, allowing for fine-grained control over
+// resource allocation and scheduling decisions.
+//
+// Parameters:
+//   - job: Pointer to the RayCluster object to be modified.
+//
+// Note: This function modifies the Job in-place.
+func applyWorkloadSliceSchedulingGate(job *rayv1.RayCluster) {
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueuebeta.ElasticJobSchedulingGate,
+	}
+
+	for index := range job.Spec.WorkerGroupSpecs {
+		wgs := &job.Spec.WorkerGroupSpecs[index]
+
+		if slices.Contains(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+			continue
+		}
+
+		wgs.Template.Spec.SchedulingGates = append(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
+	}
+
+	if !slices.Contains(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+		job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates = append(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
+	}
+}
+
 func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
@@ -114,10 +162,14 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
-		// TODO revisit once Support dynamically sized (elastic) jobs #77 is implemented
-		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
-		if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
+		if isAnElasticJob(job) {
+			validationErrs := validateElasticJob(job)
+			allErrors = append(allErrors, validationErrs...)
+		} else {
+			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
+			if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
+				allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"))
+			}
 		}
 
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
@@ -143,6 +195,30 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 	}
 
 	return allErrors, nil
+}
+
+func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
+	allErrors := field.ErrorList{}
+
+	specPath := field.NewPath("spec")
+
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueuebeta.ElasticJobSchedulingGate,
+	}
+
+	for index := range job.Spec.WorkerGroupSpecs {
+		wgs := &job.Spec.WorkerGroupSpecs[index]
+
+		if !slices.Contains(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+			allErrors = append(allErrors, field.Invalid(specPath.Child("workerGroupSpecs").Index(index).Child("template").Child("spec").Child("schedulingGates"), wgs.Template.Spec.SchedulingGates, "an elastic job must have the ElasticJobSchedulingGate"))
+		}
+	}
+
+	if !slices.Contains(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
+		allErrors = append(allErrors, field.Invalid(specPath.Child("headGroupSpec").Child("template").Child("spec").Child("schedulingGates"), job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, "an elastic job must have the ElasticJobSchedulingGate"))
+	}
+
+	return allErrors
 }
 
 func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.ErrorList, error) {
