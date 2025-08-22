@@ -409,8 +409,8 @@ func TestPodSets(t *testing.T) {
 						kueuealpha.PodSetSliceSizeAnnotation:             "1",
 					}).
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
-					PodSetSliceRequiredTopology("cloud.com/block").
-					PodSetSliceSize(1).
+					SliceRequiredTopologyRequest("cloud.com/block").
+					SliceSizeTopologyRequest(1).
 					Obj(),
 			},
 			enableTopologyAwareScheduling: true,
