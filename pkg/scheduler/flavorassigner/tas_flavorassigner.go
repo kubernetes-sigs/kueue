@@ -171,11 +171,11 @@ func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.P
 
 // isTASImplied returns true if TAS is requested implicitly
 func isTASImplied(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
-	return !workload.IsPodSetRequestingTASExplicitly(ps) && cq.IsTASOnly()
+	return !workload.IsExplicitlyRequestingTAS(*ps) && cq.IsTASOnly()
 }
 
 // isTASRequested checks if TAS is requested for the input PodSet, either
 // explicitly or implicitly.
 func isTASRequested(ps *kueue.PodSet, cq *cache.ClusterQueueSnapshot) bool {
-	return workload.IsPodSetRequestingTASExplicitly(ps) || isTASImplied(ps, cq)
+	return workload.IsExplicitlyRequestingTAS(*ps) || isTASImplied(ps, cq)
 }
