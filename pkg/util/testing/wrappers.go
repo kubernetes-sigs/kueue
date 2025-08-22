@@ -464,7 +464,7 @@ func (p *PodSetWrapper) PodSetGroup(name string) *PodSetWrapper {
 	return p
 }
 
-func (p *PodSetWrapper) PodSetSliceRequiredTopology(level string) *PodSetWrapper {
+func (p *PodSetWrapper) SliceRequiredTopologyRequest(level string) *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
@@ -472,7 +472,7 @@ func (p *PodSetWrapper) PodSetSliceRequiredTopology(level string) *PodSetWrapper
 	return p
 }
 
-func (p *PodSetWrapper) PodSetSliceSize(size int32) *PodSetWrapper {
+func (p *PodSetWrapper) SliceSizeTopologyRequest(size int32) *PodSetWrapper {
 	if p.TopologyRequest == nil {
 		p.TopologyRequest = &kueue.PodSetTopologyRequest{}
 	}
