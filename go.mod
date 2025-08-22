@@ -22,18 +22,18 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
 	golang.org/x/sync v0.16.0
-	k8s.io/api v0.33.3
-	k8s.io/apimachinery v0.33.3
-	k8s.io/apiserver v0.33.3
+	k8s.io/api v0.33.4
+	k8s.io/apimachinery v0.33.4
+	k8s.io/apiserver v0.33.4
 	k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240830133931-adfbe7e45277
-	k8s.io/cli-runtime v0.33.3
-	k8s.io/client-go v0.33.3
-	k8s.io/component-base v0.33.3
-	k8s.io/component-helpers v0.33.3
+	k8s.io/cli-runtime v0.33.4
+	k8s.io/client-go v0.33.4
+	k8s.io/component-base v0.33.4
+	k8s.io/component-helpers v0.33.4
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff
-	k8s.io/kubectl v0.33.3
-	k8s.io/metrics v0.33.3
+	k8s.io/kubectl v0.33.4
+	k8s.io/metrics v0.33.4
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	sigs.k8s.io/controller-runtime v0.21.0
 	sigs.k8s.io/jobset v0.8.2
@@ -141,9 +141,9 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.33.3 // indirect
-	k8s.io/code-generator v0.33.3 // indirect
+	k8s.io/code-generator v0.33.4 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250604051438-85fd79dbfd9f // indirect
-	k8s.io/kms v0.33.3 // indirect
+	k8s.io/kms v0.33.4 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/gateway-api v1.1.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect

@@ -461,6 +461,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [x] Integration tests cover basic scale-up, scale-down, and resource flavor constraints.
 * [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/elastic-job: "true"`).
 * [x] Documented enablement steps, slice behavior, and known limitations.
+* [x] Kueue-native Deployment support leveraging WorkloadSlices.
 
 #### Beta
 
@@ -481,6 +482,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Re-evaluate the WorkloadSlice implementation to ensure compatibility with elastic workloads, considering all current and emerging alternatives within Kueue.
 * [ ] Re-evaluate currently disallowed per-job-instance combination of enabled PartialAdmission and ElasticJobs.
 * [ ] Re-evaluate the approach for removing PodSchedulingReadiness gate for admitted workload slices to use a dedicated controller rather than calling from Job reconciler (see 3. in [comment](https://github.com/kubernetes-sigs/kueue/pull/5510#issuecomment-3060737465)).
+* [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
 
 #### GA (Stable)
 

@@ -254,12 +254,12 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			continue
 		}
 		// evict workload when workload already has a different node marked for replacement
-		evicted, err := r.evictWorkload(ctx, &wl, nodeName)
+		evictedNow, err := r.evictWorkload(ctx, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		if !(evicted || workload.IsEvicted(&wl)) {
+		if !(evictedNow || workload.IsEvicted(&wl)) {
 			if err := r.addToNodeToReplace(ctx, wl, nodeName); err != nil {
 				log.V(2).Error(err, "Failed to add node to nodesToReplace")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)

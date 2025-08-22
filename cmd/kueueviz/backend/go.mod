@@ -6,14 +6,14 @@ require (
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
 	github.com/gorilla/websocket v1.5.3
-	k8s.io/api v0.32.7
-	k8s.io/apimachinery v0.32.7
-	k8s.io/client-go v0.32.7
+	k8s.io/api v0.32.8
+	k8s.io/apimachinery v0.32.8
+	k8s.io/client-go v0.32.8
 )
 
 require (
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect

@@ -82,7 +82,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	}
 
 	dws := drs * 1000 / node.fairWeight().MilliValue()
-	return int(dws), dRes
+	return max(1, int(dws)), dRes
 }
 
 // calculateLendable aggregates capacity for resources across all

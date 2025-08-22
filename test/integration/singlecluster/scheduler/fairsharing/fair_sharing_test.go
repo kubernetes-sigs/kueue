@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
-					Duration: 10 * time.Second,
+					Duration: 1 * time.Second,
 				},
 				UsageSamplingInterval: metav1.Duration{
 					Duration: 1 * time.Second,
@@ -456,23 +456,24 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkload("lq-a", "4"),
 				createWorkload("lq-b", "4"),
 			}
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, initialWls...)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
 			ginkgo.By("Creating two pending workloads for each lq")
 			lqAWls := []*kueue.Workload{
 				createWorkload("lq-a", "4"),
 				createWorkload("lq-a", "4"),
 			}
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lqAWls...)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 2)
+
 			lqBWls := []*kueue.Workload{
 				createWorkload("lq-b", "4"),
 				createWorkload("lq-b", "4"),
 			}
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lqBWls...)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 4)
 
 			ginkgo.By("Checking that LQ's resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 0)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 3_900)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 3_900)
 
 			ginkgo.By("Releasing quota")
 			util.FinishWorkloads(ctx, k8sClient, initialWls...)
@@ -488,22 +489,19 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkload("lq-a", "4"),
 				createWorkload("lq-a", "4"),
 			}
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, initialWls...)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
 			ginkgo.By("Creating pending workloads for lq-a")
-			lqAWls := []*kueue.Workload{
-				createWorkload("lq-a", "4"),
-				createWorkload("lq-a", "4"),
-				createWorkload("lq-a", "4"),
-			}
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lqAWls...)
+			_ = createWorkload("lq-a", "4")
+			_ = createWorkload("lq-a", "4")
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 2)
 
 			ginkgo.By("Creating a pending workload for lq-b")
 			wlB := createWorkload("lq-b", "4")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlB)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 3)
 
 			ginkgo.By("Checking that LQ's resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 7_500)
 			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), "==", 0)
 
 			ginkgo.By("Releasing quota")
@@ -519,27 +517,22 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkload("lq-a", "4"),
 				createWorkload("lq-b", "4"),
 			}
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, initialWls...)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
 			ginkgo.By("Creating pending workloads for lq-a and lq-b")
-			lqAWls := []*kueue.Workload{
-				createWorkload("lq-a", "4"),
-				createWorkload("lq-a", "4"),
-			}
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lqAWls...)
-			lqBWls := []*kueue.Workload{
-				createWorkload("lq-b", "4"),
-				createWorkload("lq-b", "4"),
-			}
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lqBWls...)
+			createWorkload("lq-a", "4")
+			createWorkload("lq-a", "4")
+			createWorkload("lq-b", "4")
+			createWorkload("lq-b", "4")
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 4)
 
 			ginkgo.By("Creating a pending workload for lq-c")
 			wlC := createWorkload("lq-c", "4")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 5)
 
 			ginkgo.By("Checking that LQ's resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 0)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 3_900)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 3_900)
 			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqC), "==", 0)
 
 			ginkgo.By("Releasing quota")
@@ -555,21 +548,21 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkload("lq-a", "4"),
 				createWorkload("lq-a", "4"),
 			}
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, initialWls...)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
 			ginkgo.By("Creating pending workloads for lq-b")
 			lqBWls := []*kueue.Workload{
 				createWorkload("lq-b", "4"),
 				createWorkload("lq-b", "4"),
 			}
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lqBWls...)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 2)
 
 			ginkgo.By("Creating a pending workload for lq-c")
 			wlC := createWorkload("lq-c", "4")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+			util.ExpectPendingWorkloadsMetric(cq1, 0, 3)
 
 			ginkgo.By("Checking that LQ's resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 0)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 7_500)
 			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), "==", 0)
 			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqC), "==", 0)
 
@@ -579,6 +572,46 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Verifying one workload from lq-b and one from lq-c to be admitted")
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqBWls...)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
+		})
+	})
+
+	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {
+		var (
+			cqA *kueue.ClusterQueue
+			cqB *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			cqA = createQueue(testing.MakeClusterQueue("a").
+				Cohort("all").FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).Obj())
+
+			cqB = createQueue(testing.MakeClusterQueue("b").
+				Cohort("all").FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).Obj())
+		})
+
+		ginkgo.It("Queue can reclaim its nominal quota", framework.SlowSpec, func() {
+			ginkgo.By("Adding so many workloads in cqA that it borrows some quota from cqB")
+			for range 10 {
+				createWorkload("a", "100")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 10)
+			ginkgo.By("Creating a newer workload in cqB that needs only nominal quota")
+			createWorkload("b", "500")
+			ginkgo.By("Evict the some workloads in cqA and reclaim the nominal quota in cqB")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 3)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 7)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 1)
 		})
 	})
 })
