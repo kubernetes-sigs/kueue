@@ -19,13 +19,13 @@ package cache
 import (
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
 
@@ -343,7 +343,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log, _ := logr.FromContext(t.Context())
+			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
 			for _, node := range nodes {
 				s.addNode(node)

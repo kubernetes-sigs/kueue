@@ -2425,16 +2425,13 @@ func TestAssignFlavors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
 			if tc.enableImplicitPreferenceDefault {
 				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
 			}
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
