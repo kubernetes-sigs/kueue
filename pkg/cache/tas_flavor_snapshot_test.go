@@ -421,8 +421,6 @@ func TestHasLevel(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			log, _ := logr.FromContext(t.Context())
 			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
-			s.initialize()
-
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
