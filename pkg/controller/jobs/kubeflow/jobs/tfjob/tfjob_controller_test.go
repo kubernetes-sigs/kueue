@@ -304,6 +304,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
+						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 				}
 			},
