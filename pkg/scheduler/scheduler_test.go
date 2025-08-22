@@ -5195,7 +5195,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(corev1.LabelHostname).
@@ -5246,7 +5246,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						PreferredTopologyRequest(tasRackLabel).
@@ -5309,7 +5309,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -5368,7 +5368,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -5428,7 +5428,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5491,7 +5491,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5542,7 +5542,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5613,7 +5613,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(
 						*utiltesting.MakePodSet("one", 1).
@@ -7441,7 +7441,7 @@ func TestScheduleForTAS(t *testing.T) {
 			}
 			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) && !workload.HasNodeToReplace(&w) {
+				if workload.IsAdmitted(&w) && !(len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0) {
 					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 				}
 			}

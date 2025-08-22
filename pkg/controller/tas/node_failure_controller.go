@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -42,19 +44,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
-	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s, %s"
+	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s"
 	podTerminationCheckPeriod                 = 1 * time.Second
 )
 
@@ -91,7 +91,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.removeNodeToReplaceAnnotation(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, r.removeNodesToReplaceField(ctx, req.Name, affectedWorkloads)
 	}
 	if features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return r.reconcileForReplaceNodeOnPodTermination(ctx, req.Name)
@@ -220,11 +220,12 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 
 // evictWorkload idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
-func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, log logr.Logger, wl *kueue.Workload, wlKey types.NamespacedName, nodeName string) (bool, error) {
-	if failedNode, ok := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]; ok && failedNode != nodeName && !workload.IsEvicted(wl) {
-		log = log.WithValues("failedNode", failedNode)
+func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+	if wl.Status.TopologyAssignmentRecovery != nil && !slices.Contains(wl.Status.TopologyAssignmentRecovery.NodesToReplace, nodeName) && !workload.IsEvicted(wl) {
+		log := r.log.WithValues("failedNodes", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
 		log.V(3).Info("Evicting workload due to multiple node failures")
-		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, failedNode, nodeName)
+		allFailedNodes := append(slices.Clone(wl.Status.TopologyAssignmentRecovery.NodesToReplace), nodeName)
+		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allFailedNodes, ", "))
 		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", evictionMsg, r.clock); evictionErr != nil {
 			log.V(2).Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
@@ -252,46 +253,19 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			}
 			continue
 		}
-
-		// evict workload when annotation present.
-		evictedNow, err := r.evictWorkload(ctx, log, &wl, wlKey, nodeName)
+		// evict workload when workload already has a different node marked for replacement
+		evicted, err := r.evictWorkload(ctx, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		// re-fetch workload if we evicted it.
-		if evictedNow {
-			if err := r.client.Get(ctx, wlKey, &wl); err != nil {
-				log.V(2).Error(err, "Failed to re-fetch workload after eviction")
+		if !(evicted || workload.IsEvicted(&wl)) {
+			if err := r.addToNodeToReplace(ctx, wl, nodeName); err != nil {
+				log.V(2).Error(err, "Failed to add node to nodesToReplace")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 				continue
 			}
 		}
-
-		// update annotations.
-		err = clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
-			if wl.Annotations == nil {
-				wl.Annotations = make(map[string]string)
-			}
-			failedNode, ok := wl.Annotations[kueuealpha.NodeToReplaceAnnotation]
-			if !ok {
-				log.V(4).Info(fmt.Sprintf("Adding node to %s annotation", kueuealpha.NodeToReplaceAnnotation))
-				wl.Annotations[kueuealpha.NodeToReplaceAnnotation] = nodeName
-				return true, nil
-			}
-			if evictedNow || workload.IsEvicted(&wl) {
-				log.V(4).Info(fmt.Sprintf("Removing node from %s annotation", kueuealpha.NodeToReplaceAnnotation), "failedNode", failedNode)
-				delete(wl.Annotations, kueuealpha.NodeToReplaceAnnotation)
-				return true, nil
-			}
-			return false, nil
-		})
-		if err != nil {
-			log.V(2).Error(err, "Failed to patch workload annotation")
-			workloadProcessingErrors = append(workloadProcessingErrors, err)
-			continue
-		}
-		log.V(3).Info("Successfully patched workload annotation", "nodesToReplaceAnnotation", wl.Annotations[kueuealpha.NodeToReplaceAnnotation])
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
@@ -313,9 +287,9 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 	}
 }
 
-// removeNodeToReplaceAnnotation finds workloads with the specified node in the NodeToReplaceAnnotation
-// and removes the annotation
-func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+// removeNodesToReplaceField finds workloads with the specified node in the status.nodesToReplace
+// and removes it.
+func (r *nodeFailureReconciler) removeNodesToReplaceField(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
 	log := ctrl.LoggerFrom(ctx)
 	for wlKey := range affectedWorkloads {
@@ -332,24 +306,37 @@ func (r *nodeFailureReconciler) removeNodeToReplaceAnnotation(ctx context.Contex
 			continue
 		}
 
-		if wl.Annotations != nil && wl.Annotations[kueuealpha.NodeToReplaceAnnotation] != nodeName {
+		if wl.Status.TopologyAssignmentRecovery == nil || !slices.Contains(wl.Status.TopologyAssignmentRecovery.NodesToReplace, nodeName) {
 			continue
 		}
 
-		err := clientutil.Patch(ctx, r.client, &wl, true, func() (bool, error) {
-			log.V(4).Info(fmt.Sprintf("Removing node from %s annotation", kueuealpha.NodeToReplaceAnnotation), "failedNode", nodeName)
-			delete(wl.Annotations, kueuealpha.NodeToReplaceAnnotation)
-			return true, nil
-		})
-		if err != nil {
-			log.Error(err, "Failed to patch workload annotation")
+		log.V(4).Info("Clear NodesToReplace field", "failedNode", nodeName)
+		if err := workload.ClearNodesToReplace(ctx, r.client, wl, r.clock); err != nil {
+			log.Error(err, "Failed to patch workload status")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		log.V(3).Info("Successfully cleared the NodeToReplace annotation")
+		log.V(3).Info("Successfully cleared the nodesToReplace field")
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
+	}
+	return nil
+}
+
+func (r *nodeFailureReconciler) addToNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
+	wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
+	var currentWl kueue.Workload
+	if err := r.client.Get(ctx, wlKey, &currentWl); err != nil {
+		return err
+	}
+	var nodesToReplace []string
+	if currentWl.Status.TopologyAssignmentRecovery != nil {
+		nodesToReplace = currentWl.Status.TopologyAssignmentRecovery.NodesToReplace
+	}
+	if !slices.Contains(nodesToReplace, nodeName) {
+		currentWl.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{NodesToReplace: append(nodesToReplace, nodeName)}
+		return workload.ApplyAdmissionStatus(ctx, r.client, &currentWl, true, r.clock)
 	}
 	return nil
 }

@@ -24,16 +24,17 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
-	Admission                            *AdmissionApplyConfiguration            `json:"admission,omitempty"`
-	RequeueState                         *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
-	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
-	ReclaimablePods                      []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
-	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
-	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
-	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
-	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
-	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
-	ClusterName                          *string                                 `json:"clusterName,omitempty"`
+	Admission                            *AdmissionApplyConfiguration                  `json:"admission,omitempty"`
+	RequeueState                         *RequeueStateApplyConfiguration               `json:"requeueState,omitempty"`
+	Conditions                           []v1.ConditionApplyConfiguration              `json:"conditions,omitempty"`
+	ReclaimablePods                      []ReclaimablePodApplyConfiguration            `json:"reclaimablePods,omitempty"`
+	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration       `json:"admissionChecks,omitempty"`
+	ResourceRequests                     []PodSetRequestApplyConfiguration             `json:"resourceRequests,omitempty"`
+	AccumulatedPastExexcutionTimeSeconds *int32                                        `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	SchedulingStats                      *SchedulingStatsApplyConfiguration            `json:"schedulingStats,omitempty"`
+	NominatedClusterNames                []string                                      `json:"nominatedClusterNames,omitempty"`
+	ClusterName                          *string                                       `json:"clusterName,omitempty"`
+	TopologyAssignmentRecovery           *TopologyAssignmentRecoveryApplyConfiguration `json:"topologyAssignmentRecovery,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -141,5 +142,13 @@ func (b *WorkloadStatusApplyConfiguration) WithNominatedClusterNames(values ...s
 // If called multiple times, the ClusterName field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithClusterName(value string) *WorkloadStatusApplyConfiguration {
 	b.ClusterName = &value
+	return b
+}
+
+// WithTopologyAssignmentRecovery sets the TopologyAssignmentRecovery field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TopologyAssignmentRecovery field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithTopologyAssignmentRecovery(value *TopologyAssignmentRecoveryApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	b.TopologyAssignmentRecovery = value
 	return b
 }
