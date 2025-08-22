@@ -24,6 +24,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher/incrementaldispatcher"
 	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
 )
 
@@ -123,6 +124,12 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 
 	acRec := newACReconciler(mgr.GetClient(), helper)
 	err = acRec.setupWithManager(mgr)
+	if err != nil {
+		return err
+	}
+
+	idRec := incrementaldispatcher.NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, options.dispatcherName)
+	err = idRec.SetupWithManager(mgr)
 	if err != nil {
 		return err
 	}
