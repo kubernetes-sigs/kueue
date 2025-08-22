@@ -386,16 +386,27 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
 	if !fits && len(strategies) > 1 {
+		preemptionCtx.log.V(5).Info("First fair sharing strategy failed, trying second strategy",
+			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+			"targets", workload.References(getWorkloadInfosFromTargets(targets)),
+			"retryCandidates", workload.References(retryCandidates))
 		fits, targets = runSecondFsStrategy(retryCandidates, preemptionCtx, targets)
 	}
 
 	revertSimulation()
 	if !fits {
+		preemptionCtx.log.V(5).Info("All fair sharing strategies failed",
+			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+			"targets", workload.References(getWorkloadInfosFromTargets(targets)))
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
 	}
 	targets = fillBackWorkloads(preemptionCtx, targets, true)
 	restoreSnapshot(preemptionCtx.snapshot, targets)
+
+	preemptionCtx.log.V(5).Info("Fair sharing strategies succeeded",
+		"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+		"targets", workload.References(getWorkloadInfosFromTargets(targets)))
 	return targets
 }
 
@@ -578,4 +589,13 @@ func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
 		return now
 	}
 	return cond.LastTransitionTime.Time
+}
+
+// getWorkloadInfosFromTargets extracts workload.Info from Target slice for logging
+func getWorkloadInfosFromTargets(targets []*Target) []*workload.Info {
+	workloads := make([]*workload.Info, len(targets))
+	for i, target := range targets {
+		workloads[i] = target.WorkloadInfo
+	}
+	return workloads
 }
