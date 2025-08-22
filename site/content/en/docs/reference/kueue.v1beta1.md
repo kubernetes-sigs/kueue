@@ -2894,7 +2894,7 @@ the lowest level of the topology.</p>
    <p>nodesToReplace, if specified, holds the name of failed nodes running at least one pod of this workload.
 This field is for internal use, is set by the node failure controler and should not be set by the users.
 It is used to signal kueue scheduler to search for replacement of the failed nodes.
-It is neccessary if the native kube scheduler cannot automatically replace failed nodes.
+It is necessary if the native kube scheduler cannot automatically replace failed nodes.
 Requires enabling the TASFaliedNodReplacement feature gate.</p>
 </td>
 </tr>

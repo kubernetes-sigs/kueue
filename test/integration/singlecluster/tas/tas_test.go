@@ -974,7 +974,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}
 						g.Expect(nodesToReplace).NotTo(gomega.ContainElement(nodeName))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 				})
 			})
 			ginkgo.It("should update workload TopologyAssignment when node fails", func() {

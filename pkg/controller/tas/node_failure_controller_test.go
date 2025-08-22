@@ -256,7 +256,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 	for name, tc := range tests {
 		fakeClock.SetTime(testStartTime)
 		t.Run(name, func(t *testing.T) {
-
 			for _, fg := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, true)
 			}

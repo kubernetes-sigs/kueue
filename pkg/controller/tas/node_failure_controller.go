@@ -259,7 +259,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		if !(evictedNow || workload.IsEvicted(&wl)) {
+		if !evictedNow && !workload.IsEvicted(&wl) {
 			if err := r.addToNodeToReplace(ctx, wl, nodeName); err != nil {
 				log.V(2).Error(err, "Failed to add node to nodesToReplace")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)

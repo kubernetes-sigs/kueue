@@ -6515,7 +6515,7 @@ func TestScheduleForTAS(t *testing.T) {
 			}
 			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) && !(len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0) {
+				if workload.IsAdmitted(&w) && (w.Status.TopologyAssignmentRecovery == nil || len(w.Status.TopologyAssignmentRecovery.NodesToReplace) == 0) {
 					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 				}
 			}
