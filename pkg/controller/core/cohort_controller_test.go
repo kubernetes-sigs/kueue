@@ -37,7 +37,7 @@ import (
 
 func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().Build()
-	ctx := t.Context()
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -72,7 +72,7 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
-	ctx := t.Context()
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -109,7 +109,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 		WithObjects(cohortA, cohortB).
 		WithStatusSubresource(&kueue.Cohort{}).
 		Build()
-	ctx := t.Context()
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := cache.New(cl)
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
@@ -147,7 +147,7 @@ func TestCohortReconcileCycleNoError(t *testing.T) {
 }
 
 func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
-	ctx := t.Context()
+	ctx, _ := utiltesting.ContextWithLog(t)
 	funcs := interceptor.Funcs{
 		Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			return errors.New("error")
@@ -186,7 +186,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 }
 
 func TestCohortReconcileLifecycle(t *testing.T) {
-	ctx := t.Context()
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cohort := utiltesting.MakeCohort("cohort").ResourceGroup(
 		*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 	).Obj()

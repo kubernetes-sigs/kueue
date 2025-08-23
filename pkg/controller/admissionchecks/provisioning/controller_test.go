@@ -1585,7 +1585,8 @@ func TestReconcile(t *testing.T) {
 				interceptorFuncs.Create = tc.interceptorFuncsCreate
 			}
 
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 			builder = builder.WithInterceptorFuncs(interceptorFuncs)
 			builder = builder.WithObjects(tc.workload)
 			builder = builder.WithStatusSubresource(tc.workload)
@@ -1770,7 +1771,8 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				kueue.AdmissionCheckReference(baseCheck.Name): baseConfig.DeepCopy(),
 			}
 
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 
 			builder = builder.WithObjects(workload)
 			builder = builder.WithStatusSubresource(workload)

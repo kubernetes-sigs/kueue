@@ -26,6 +26,7 @@ import (
 )
 
 func TestCohortLendable(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cache := New(utiltesting.NewFakeClient())
 
 	cq1 := utiltesting.MakeClusterQueue("cq1").
@@ -45,10 +46,10 @@ func TestCohortLendable(t *testing.T) {
 		).Cohort("test-cohort").
 		ClusterQueue
 
-	if err := cache.AddClusterQueue(t.Context(), &cq1); err != nil {
+	if err := cache.AddClusterQueue(ctx, &cq1); err != nil {
 		t.Fatal("Failed to add CQ to cache", err)
 	}
-	if err := cache.AddClusterQueue(t.Context(), &cq2); err != nil {
+	if err := cache.AddClusterQueue(ctx, &cq2); err != nil {
 		t.Fatal("Failed to add CQ to cache", err)
 	}
 

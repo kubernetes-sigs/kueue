@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestErrorChannel(t *testing.T) {
@@ -35,7 +37,8 @@ func TestErrorChannel(t *testing.T) {
 		t.Errorf("expect %v from err channel, but got %v", err, actualErr)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, cancel := context.WithCancel(ctx)
 	errCh.SendErrorWithCancel(err, cancel)
 	if actualErr := errCh.ReceiveError(); !errors.Is(actualErr, err) {
 		t.Errorf("expect %v from err channel, but got %v", err, actualErr)

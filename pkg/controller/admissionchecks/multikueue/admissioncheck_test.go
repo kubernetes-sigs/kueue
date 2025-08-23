@@ -238,7 +238,8 @@ func TestReconcile(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
 
 			builder = builder.WithLists(
 				&kueue.AdmissionCheckList{Items: tc.checks},
@@ -255,13 +256,13 @@ func TestReconcile(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper)
 
-			_, gotErr := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
 			checks := &kueue.AdmissionCheckList{}
-			listErr := c.List(t.Context(), checks)
+			listErr := c.List(ctx, checks)
 
 			if listErr != nil {
 				t.Errorf("unexpected list checks error: %s", listErr)

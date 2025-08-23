@@ -90,17 +90,18 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
 			k8sclient := builder.Build()
 			for _, req := range tc.clusters {
-				if err := k8sclient.Create(t.Context(), req); err != nil {
+				if err := k8sclient.Create(ctx, req); err != nil {
 					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
 			lst := &kueue.MultiKueueClusterList{}
 
-			gotListErr := k8sclient.List(t.Context(), lst, tc.filter)
+			gotListErr := k8sclient.List(ctx, lst, tc.filter)
 			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
@@ -147,17 +148,18 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
 			k8sclient := builder.Build()
 			for _, config := range tc.configs {
-				if err := k8sclient.Create(t.Context(), config); err != nil {
+				if err := k8sclient.Create(ctx, config); err != nil {
 					t.Fatalf("Unable to create %q config: %v", client.ObjectKeyFromObject(config), err)
 				}
 			}
 
 			lst := &kueue.MultiKueueConfigList{}
 
-			gotListErr := k8sclient.List(t.Context(), lst, tc.filter)
+			gotListErr := k8sclient.List(ctx, lst, tc.filter)
 			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}

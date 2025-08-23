@@ -114,7 +114,8 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 
 			builder = builder.WithObjects(tc.check)
 			builder = builder.WithStatusSubresource(tc.check)
