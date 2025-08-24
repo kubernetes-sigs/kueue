@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 

@@ -166,9 +166,7 @@ func testWorkload(name, jobName string, jobUID types.UID, created time.Time) *ut
 }
 
 func TestFindNotFinishedWorkloads(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
 	type args struct {
-		ctx          context.Context
 		clnt         client.Client
 		jobObject    client.Object
 		jobObjectGVK schema.GroupVersionKind
@@ -185,7 +183,6 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 	}{
 		"ListFailure": {
 			args: args{
-				ctx:          ctx,
 				clnt:         fake.NewFakeClient(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
@@ -194,7 +191,6 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		},
 		"EmptyList": {
 			args: args{
-				ctx:          ctx,
 				clnt:         testWorkloadClientBuilder().Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
@@ -203,7 +199,6 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		},
 		"SortedAndFiltered": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
 					Items: []kueue.Workload{
 						*testWorkload("test-2", testJobObject.Name, testJobObject.UID, now).ResourceVersion("200").Obj(),
@@ -222,7 +217,6 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		},
 		"TwoActiveWorkloads_WithoutTimestampCollision": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
 					// Note: the workloads names and order is deliberate to assert that workloads are sorted
 					// by creating timestamp and then (on collision) by the tiebreaker.
@@ -254,7 +248,6 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		},
 		"TwoActiveWorkloads_TimestampCollision": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithLists(&kueue.WorkloadList{
 					// Note: the workloads names and order is deliberate to assert that workloads are sorted
 					// by creating timestamp and then (on collision) by the tiebreaker.
@@ -286,7 +279,8 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := FindNotFinishedWorkloads(tt.args.ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got, err := FindNotFinishedWorkloads(ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FindActiveSlices() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -299,9 +293,7 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 }
 
 func TestFinish(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
 	type args struct {
-		ctx           context.Context
 		clnt          client.Client
 		workloadSlice *kueue.Workload
 		reason        string
@@ -319,7 +311,6 @@ func TestFinish(t *testing.T) {
 	}{
 		"FailureToApplyConditions": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
@@ -335,7 +326,6 @@ func TestFinish(t *testing.T) {
 		},
 		"AlreadyFinishedWorkload": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().
 					WithObjects(testWorkload("test", "test-job", "job-uid", now).Finished().Obj()).Build(),
 				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
@@ -348,7 +338,6 @@ func TestFinish(t *testing.T) {
 		},
 		"NotFinished": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().
 					WithObjects(testWorkload("test", "test-job", "job-uid", now).Obj()).
 					WithStatusSubresource(testWorkload("test", "test-job", "job-uid", now).Obj()).Build(),
@@ -370,11 +359,12 @@ func TestFinish(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := Finish(tt.args.ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if err := Finish(ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
 				t.Errorf("Finish() error = %v, wantErr %v", err, tt.want.err)
 			}
 			if tt.want.workload != nil {
-				if err := tt.args.clnt.Get(tt.args.ctx, client.ObjectKeyFromObject(tt.args.workloadSlice), tt.args.workloadSlice); err != nil {
+				if err := tt.args.clnt.Get(ctx, client.ObjectKeyFromObject(tt.args.workloadSlice), tt.args.workloadSlice); err != nil {
 					t.Errorf("unexpected error retrieving workload: %v", err)
 				}
 				if diff := cmp.Diff(tt.want.workload, tt.args.workloadSlice, cmpopts.SortSlices(func(a, b metav1.Condition) bool {
@@ -388,9 +378,7 @@ func TestFinish(t *testing.T) {
 }
 
 func TestEnsureWorkloadSlices(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
 	type args struct {
-		ctx          context.Context
 		clnt         client.Client
 		jobPodSets   []kueue.PodSet
 		jobObject    client.Object
@@ -468,7 +456,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	}{
 		"FailedListWorkloads": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().
 					WithInterceptorFuncs(interceptor.Funcs{
 						List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
@@ -487,7 +474,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		// No workloads.
 		"NoWorkloadSlices": {
 			args: args{
-				ctx:          ctx,
 				clnt:         testWorkloadClientBuilder().Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
@@ -499,7 +485,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		// One workload.
 		"OneWorkloadSlice_IncompatibleWithJob": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -513,7 +498,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_CurrentWorkload": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -535,7 +519,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_ReservedQuota_ScaleUp": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -553,7 +536,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_ReservedQuota_ScaleUp_MultiplePodSets": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -583,7 +565,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_ReservedQuota_ScaleDown": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -607,7 +588,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_ReservedQuota_ScaleDown_MultiplePodSets": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -644,7 +624,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_UnreservedQuota_ScaleUp": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -666,7 +645,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_UnreservedQuota_ScaleDown": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -688,7 +666,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"OneWorkloadSlice_UpdateFailure": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -710,7 +687,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		//
 		"TwoWorkloads_BothUnreserved_NewIsCurrent": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -746,7 +722,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloads_BothUnreserved_NewIsCurrent_FailureToPatchOldSliceStatus": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -777,7 +752,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloads_NewIsIncompatible": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -800,7 +774,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloads_BothWithReservedQuota": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -828,7 +801,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloads_OldWithReservedQuotaAndEvicted_NewWithoutQuotaReservation": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -856,7 +828,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndCurrent": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -887,7 +858,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndOutOfSync_ScaleUp": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -919,7 +889,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndOutOfSync_ScaleDown": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -951,7 +920,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndOutOfSync_UpdateFailure": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -988,7 +956,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		//
 		"MoreThanTwoWorkloadSlices": {
 			args: args{
-				ctx: ctx,
 				clnt: testWorkloadClientBuilder().WithObjects(
 					testWorkload(testJobObject.Name+"-1", testResourceVersion, testPodSets(1)),
 					testWorkload(testJobObject.Name+"-2", testResourceVersion+1, testPodSets(2)),
@@ -1006,7 +973,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(tt.args.ctx, tt.args.clnt, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if (gotError != nil) != tt.want.error {
 				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
 				return
@@ -1022,7 +990,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 }
 
 func Test_StartWorkloadSlicePods(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
 	clientBuilder := func() *fake.ClientBuilder {
 		return fake.NewClientBuilder().WithScheme(scheme.Scheme).
 			WithIndex(&corev1.Pod{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID)
@@ -1048,7 +1015,6 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 	}
 
 	type args struct {
-		ctx    context.Context
 		clnt   client.Client
 		object client.Object
 	}
@@ -1059,7 +1025,6 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 	}{
 		"FailureToListPods": {
 			args: args{
-				ctx: ctx,
 				clnt: clientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 					List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
 						return errors.New("test-list-pods-error")
@@ -1071,14 +1036,12 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 		},
 		"NoPods": {
 			args: args{
-				ctx:    ctx,
 				clnt:   clientBuilder().Build(),
 				object: testJobObject,
 			},
 		},
 		"ProcessPods": {
 			args: args{
-				ctx: ctx,
 				clnt: clientBuilder().WithLists(&corev1.PodList{
 					Items: []corev1.Pod{
 						// Un-gated pod should remain un-gated, i.e., no change.
@@ -1115,7 +1078,6 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 		},
 		"FailureUpdatingPod": {
 			args: args{
-				ctx: ctx,
 				clnt: clientBuilder().WithLists(&corev1.PodList{
 					Items: []corev1.Pod{
 						testPod("test", "100", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
@@ -1133,7 +1095,8 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := StartWorkloadSlicePods(tt.args.ctx, tt.args.clnt, tt.args.object); (err != nil) != tt.wantErr {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if err := StartWorkloadSlicePods(ctx, tt.args.clnt, tt.args.object); (err != nil) != tt.wantErr {
 				t.Errorf("StartWorkloadSlicePods() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantPods == nil {
@@ -1141,7 +1104,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 			}
 
 			pods := &corev1.PodList{}
-			if err := tt.args.clnt.List(tt.args.ctx, pods); err != nil {
+			if err := tt.args.clnt.List(ctx, pods); err != nil {
 				t.Errorf("unexpected list error: %v", err)
 			}
 			if diff := cmp.Diff(pods.Items, tt.wantPods.Items, cmpopts.SortSlices(func(a, b corev1.Pod) bool {
