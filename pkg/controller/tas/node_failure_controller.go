@@ -83,7 +83,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.patchWorkloadsForNodeToReplace(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, r.handleFailedNode(ctx, req.Name, affectedWorkloads)
 	}
 	readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
 	if readyCondition.Status == corev1.ConditionTrue {
@@ -91,7 +91,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.removeNodesToReplaceField(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, r.handleHealthyNode(ctx, req.Name, affectedWorkloads)
 	}
 	if features.Enabled(features.TASReplaceNodeOnPodTermination) {
 		return r.reconcileForReplaceNodeOnPodTermination(ctx, req.Name)
@@ -105,7 +105,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	patchErr := r.patchWorkloadsForNodeToReplace(ctx, req.Name, affectedWorkloads)
+	patchErr := r.handleFailedNode(ctx, req.Name, affectedWorkloads)
 	return ctrl.Result{}, patchErr
 }
 
@@ -236,9 +236,9 @@ func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, wl *kueue.Wor
 	return false, nil
 }
 
-// patchWorkloadsForNodeToReplace finds workloads with pods on the specified node
+// handleFailedNode finds workloads with pods on the specified node
 // and patches their status to indicate the node is to replace.
-func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+func (r *nodeFailureReconciler) handleFailedNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
 		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
@@ -260,7 +260,7 @@ func (r *nodeFailureReconciler) patchWorkloadsForNodeToReplace(ctx context.Conte
 			continue
 		}
 		if !evictedNow && !workload.IsEvicted(&wl) {
-			if err := r.addToNodeToReplace(ctx, wl, nodeName); err != nil {
+			if err := r.addNodeForReplacement(ctx, wl, nodeName); err != nil {
 				log.V(2).Error(err, "Failed to add node to nodesToReplace")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 				continue
@@ -282,25 +282,21 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 		return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
 	default:
 		r.log.V(3).Info("Node is not ready and has only terminating or failed pods. Marking as failed immediately", "nodeName", nodeName)
-		patchErr := r.patchWorkloadsForNodeToReplace(ctx, nodeName, workloads)
+		patchErr := r.handleFailedNode(ctx, nodeName, workloads)
 		return ctrl.Result{}, patchErr
 	}
 }
 
-// removeNodesToReplaceField finds workloads with the specified node in the status.nodesToReplace
-// and removes it.
-func (r *nodeFailureReconciler) removeNodesToReplaceField(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+// handleHealthyNode clears the nodesToReplace field for each of the specified workloads.
+func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
-	log := ctrl.LoggerFrom(ctx)
 	for wlKey := range affectedWorkloads {
-		log = log.WithValues("workload", wlKey)
-		// fetch workload.
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
-				log.V(4).Info("Workload not found, skipping")
+				r.log.V(4).Info("Workload not found, skipping")
 			} else {
-				log.Error(err, "Failed to get workload")
+				r.log.Error(err, "Failed to get workload")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 			}
 			continue
@@ -310,13 +306,13 @@ func (r *nodeFailureReconciler) removeNodesToReplaceField(ctx context.Context, n
 			continue
 		}
 
-		log.V(4).Info("Clear NodesToReplace field", "failedNode", nodeName)
-		if err := workload.ClearNodesToReplace(ctx, r.client, wl, r.clock); err != nil {
-			log.Error(err, "Failed to patch workload status")
+		r.log.V(4).Info("Clear NodesToReplace field", "failedNode", nodeName)
+		if err := r.removeNodeForReplacement(ctx, wl, nodeName); err != nil {
+			r.log.Error(err, "Failed to patch workload status")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		log.V(3).Info("Successfully cleared the nodesToReplace field")
+		r.log.V(3).Info("Successfully cleared the nodesToReplace field")
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
@@ -324,19 +320,31 @@ func (r *nodeFailureReconciler) removeNodesToReplaceField(ctx context.Context, n
 	return nil
 }
 
-func (r *nodeFailureReconciler) addToNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
-	wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
-	var currentWl kueue.Workload
-	if err := r.client.Get(ctx, wlKey, &currentWl); err != nil {
-		return err
-	}
+func (r *nodeFailureReconciler) removeNodeForReplacement(ctx context.Context, wl kueue.Workload, nodeName string) error {
 	var nodesToReplace []string
-	if currentWl.Status.TopologyAssignmentRecovery != nil {
-		nodesToReplace = currentWl.Status.TopologyAssignmentRecovery.NodesToReplace
+	if wl.Status.TopologyAssignmentRecovery != nil {
+		nodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
+	}
+	if slices.Contains(nodesToReplace, nodeName) {
+		nodesToReplace = slices.DeleteFunc(nodesToReplace, func(n string) bool { return n == nodeName })
+		if len(nodesToReplace) == 0 {
+			wl.Status.TopologyAssignmentRecovery = nil
+		} else {
+			wl.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{NodesToReplace: nodesToReplace}
+		}
+		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+	}
+	return nil
+}
+
+func (r *nodeFailureReconciler) addNodeForReplacement(ctx context.Context, wl kueue.Workload, nodeName string) error {
+	var nodesToReplace []string
+	if wl.Status.TopologyAssignmentRecovery != nil {
+		nodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
 	}
 	if !slices.Contains(nodesToReplace, nodeName) {
-		currentWl.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{NodesToReplace: append(nodesToReplace, nodeName)}
-		return workload.ApplyAdmissionStatus(ctx, r.client, &currentWl, true, r.clock)
+		wl.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{NodesToReplace: append(nodesToReplace, nodeName)}
+		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
 	}
 	return nil
 }

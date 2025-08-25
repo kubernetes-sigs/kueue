@@ -186,7 +186,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
 		if !workload.HasTopologyAssignmentWithNodeToReplace(&wl) {
 			r.log.V(3).Info("Clearing NodesToReplace field from Workload", "nodesToReplace", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
-			if err := workload.ClearNodesToReplace(ctx, r.client, wl, r.clock); err != nil {
+			if err := workload.ClearNodesToReplace(ctx, r.client, types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}, r.clock); err != nil {
 				r.log.V(3).Info("Failed to clear nodesToReplace list from Workload")
 				return ctrl.Result{}, err
 			}

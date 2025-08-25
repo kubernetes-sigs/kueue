@@ -1169,8 +1169,7 @@ func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 	return false
 }
 
-func ClearNodesToReplace(ctx context.Context, cl client.Client, wl kueue.Workload, clk clock.Clock) error {
-	wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
+func ClearNodesToReplace(ctx context.Context, cl client.Client, wlKey types.NamespacedName, clk clock.Clock) error {
 	var wlToPatch kueue.Workload
 	if err := cl.Get(ctx, wlKey, &wlToPatch); err != nil {
 		return err
