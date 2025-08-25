@@ -23,7 +23,6 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
-
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -165,11 +164,9 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 		if isAnElasticJob(job) {
 			validationErrs := validateElasticJob(job)
 			allErrors = append(allErrors, validationErrs...)
-		} else {
+		} else if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
 			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
-			if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
-				allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"))
-			}
+			allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"))
 		}
 
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
