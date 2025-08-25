@@ -47,10 +47,12 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -99,6 +101,13 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 // IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
 	return apimeta.IsStatusConditionTrue(g.local.Status.Conditions, kueue.WorkloadFinished)
+}
+
+// IsElasticWorkload returns true if the workload is considered elastic,
+// meaning the ElasticJobsViaWorkloadSlices feature is enabled and the
+// workload has the corresponding annotation set.
+func (g *wlGroup) IsElasticWorkload() bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(g.local)
 }
 
 // FirstReserving returns true if there is a workload reserving quota,
@@ -333,8 +342,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 
-	// 1. delete all remote workloads when finished or the local wl has no reservation
-	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
+	// 1.1 Handle finished local workload by removing remote workloads and jobs.
+	if group.IsFinished() {
+		// Skip replaced elastic workloads.
+		if group.IsElasticWorkload() && workloadslicing.IsReplaced(group.local.Status) {
+			return reconcile.Result{}, nil
+		}
 		var errs []error
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
@@ -345,6 +358,19 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
+	// 1.2 Handle local workload without quota reservation by removing remote workloads and jobs.
+	if !workload.HasQuotaReservation(group.local) && !group.IsElasticWorkload() {
+		var errs []error
+		for rem := range group.remotes {
+			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
+				errs = append(errs, err)
+				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
+			}
+		}
+		return reconcile.Result{}, errors.Join(errs...)
+	}
+
+	// 1.3 Sync finished remote workload.
 	if remoteFinishedCond, remote := group.RemoteFinishedCondition(); remoteFinishedCond != nil {
 		// NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
@@ -370,9 +396,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName+"-finish"), client.ForceOwnership)
 	}
 
-	// 2. delete all workloads that are out of sync or are not in the chosen worker
+	// 2. Delete all remote workloads that are out of sync.
 	for rem, remWl := range group.remotes {
 		if remWl != nil && !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec) {
+			// For elastic workloads detect a scale-down event and propagate changes to the remote.
+			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
+				remWl.Spec = group.local.Spec
+				if err := group.remoteClients[rem].client.Update(ctx, remWl); err != nil {
+					return reconcile.Result{}, fmt.Errorf("failed to update remote workload slice: %w", err)
+				}
+				continue
+			}
+
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "Deleting out of sync remote objects", "remote", rem)
 				return reconcile.Result{}, err
@@ -451,45 +486,53 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	var nominatedWorkers []string
 	var retryAfter time.Duration
 
-	switch w.dispatcherName {
-	case config.MultiKueueDispatcherModeAllAtOnce:
-		for workerName := range group.remotes {
-			nominatedWorkers = append(nominatedWorkers, workerName)
-		}
-		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+	// For elastic workloads, retrieve the remote cluster where the original workload was scheduled.
+	// For now, new workload slices will continue to be assigned to the same cluster.
+	// In the future, we may introduce more nuanced remote workload propagation policies,
+	// supporting preferred or required placement constraints.
+	if clusterName := workloadslicing.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
+		nominatedWorkers = []string{clusterName}
+	} else {
+		switch w.dispatcherName {
+		case config.MultiKueueDispatcherModeAllAtOnce:
+			for workerName := range group.remotes {
+				nominatedWorkers = append(nominatedWorkers, workerName)
+			}
+			if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+				group.local.Status.NominatedClusterNames = nominatedWorkers
+				if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
+					log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+					return reconcile.Result{}, err
+				}
+			}
+		case config.MultiKueueDispatcherModeIncremental:
+			key := client.ObjectKeyFromObject(group.local)
+			roundStart, found := w.roundStartTimes[key]
+			now := w.clock.Now()
+
+			if found && now.Sub(roundStart) <= incrementalDispatcherRoundTimeout {
+				remainingWaitTime := incrementalDispatcherRoundTimeout - now.Sub(roundStart)
+				log.V(5).Info("Incremental Dispatcher nomination round still in progress", "remainingWaitTime", remainingWaitTime)
+				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+			}
+
+			nextNominatedWorkers, err := getNextNominatedWorkers(log, group)
+			if err != nil {
+				log.Error(err, "nominating next worker clusters failed")
+				return reconcile.Result{}, err
+			}
+
+			nominatedWorkers = append(group.local.Status.NominatedClusterNames, nextNominatedWorkers...)
+			w.roundStartTimes[key] = now
 			group.local.Status.NominatedClusterNames = nominatedWorkers
 			if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
 				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
 				return reconcile.Result{}, err
 			}
+		default:
+			log.V(3).Info("External nomination of the worker clusters", "dispatcherName", w.dispatcherName)
+			nominatedWorkers = group.local.Status.NominatedClusterNames
 		}
-	case config.MultiKueueDispatcherModeIncremental:
-		key := client.ObjectKeyFromObject(group.local)
-		roundStart, found := w.roundStartTimes[key]
-		now := w.clock.Now()
-
-		if found && now.Sub(roundStart) <= incrementalDispatcherRoundTimeout {
-			remainingWaitTime := incrementalDispatcherRoundTimeout - now.Sub(roundStart)
-			log.V(5).Info("Incremental Dispatcher nomination round still in progress", "remainingWaitTime", remainingWaitTime)
-			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
-		}
-
-		nextNominatedWorkers, err := getNextNominatedWorkers(log, group)
-		if err != nil {
-			log.Error(err, "nominating next worker clusters failed")
-			return reconcile.Result{}, err
-		}
-
-		nominatedWorkers = append(group.local.Status.NominatedClusterNames, nextNominatedWorkers...)
-		w.roundStartTimes[key] = now
-		group.local.Status.NominatedClusterNames = nominatedWorkers
-		if err := workload.ApplyAdmissionStatus(ctx, w.client, group.local, true, w.clock); err != nil {
-			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-			return reconcile.Result{}, err
-		}
-	default:
-		log.V(3).Info("External nomination of the worker clusters", "dispatcherName", w.dispatcherName)
-		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
 	log.V(4).Info("Synchronize nominated worker clusters", "nominatedWorkerClusterNames", nominatedWorkers)
