@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -101,6 +102,11 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, strin
 type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
+}
+
+// GetObject implements the ObjectRefProvider interface.
+func (t *Target) GetObject() client.Object {
+	return t.WorkloadInfo.Obj
 }
 
 // GetTargets returns the list of workloads that should be evicted in
@@ -386,27 +392,33 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
 	if !fits && len(strategies) > 1 {
-		preemptionCtx.log.V(5).Info("First fair sharing strategy failed, trying second strategy",
-			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-			"targets", workload.References(getWorkloadInfosFromTargets(targets)),
-			"retryCandidates", workload.References(retryCandidates))
+		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			logV.Info("First fair sharing strategy failed, trying second strategy",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets),
+				"retryCandidates", workload.References(retryCandidates))
+		}
 		fits, targets = runSecondFsStrategy(retryCandidates, preemptionCtx, targets)
 	}
 
 	revertSimulation()
 	if !fits {
-		preemptionCtx.log.V(5).Info("All fair sharing strategies failed",
-			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-			"targets", workload.References(getWorkloadInfosFromTargets(targets)))
+		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			logV.Info("All fair sharing strategies failed",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets))
+		}
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
 	}
 	targets = fillBackWorkloads(preemptionCtx, targets, true)
 	restoreSnapshot(preemptionCtx.snapshot, targets)
 
-	preemptionCtx.log.V(5).Info("Fair sharing strategies succeeded",
-		"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-		"targets", workload.References(getWorkloadInfosFromTargets(targets)))
+	if logV := preemptionCtx.log.V(6); logV.Enabled() {
+		logV.Info("Fair sharing strategies succeeded",
+			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+			"targets", logging.GetObjectReferences(targets))
+	}
 	return targets
 }
 
@@ -589,13 +601,4 @@ func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
 		return now
 	}
 	return cond.LastTransitionTime.Time
-}
-
-// getWorkloadInfosFromTargets extracts workload.Info from Target slice for logging
-func getWorkloadInfosFromTargets(targets []*Target) []*workload.Info {
-	workloads := make([]*workload.Info, len(targets))
-	for i, target := range targets {
-		workloads[i] = target.WorkloadInfo
-	}
-	return workloads
 }
