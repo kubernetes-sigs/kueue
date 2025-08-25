@@ -998,4 +998,132 @@ var _ = ginkgo.Describe("Preemption", func() {
 			})
 		})
 	})
+
+	ginkgo.Context("When RefreshAssignmentsDuringSchedulingCycle is enabled", func() {
+		var (
+			cq *kueue.ClusterQueue
+			q  *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(features.SetEnable(features.RefreshAssignmentsDuringSchedulingCycle, true)).To(gomega.Succeed())
+
+			cq = testing.MakeClusterQueue("refresh-cq").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			q = testing.MakeLocalQueue("refresh-q", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, q)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(features.SetEnable(features.RefreshAssignmentsDuringSchedulingCycle, false)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should handle overlapping preemption targets wihin cohort", func() {
+			ginkgo.By("Creating a cohort with specific resource allocation")
+			// CQ-Borrower: 0 nominal CPU, 6 borrowing limit
+			cqBorrower := testing.MakeClusterQueue("cq-borrower").
+				Cohort("overlap-cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "0", "6").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqBorrower)
+
+			// CQ-Reclaimer-1: 3 nominal CPU
+			cqReclaimer1 := testing.MakeClusterQueue("cq-reclaimer-1").
+				Cohort("overlap-cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "3").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqReclaimer1)
+
+			// CQ-Reclaimer-2: 3 nominal CPU
+			cqReclaimer2 := testing.MakeClusterQueue("cq-reclaimer-2").
+				Cohort("overlap-cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "3").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqReclaimer2)
+
+			// Create LocalQueues
+			qBorrower := testing.MakeLocalQueue("q-borrower", ns.Name).ClusterQueue(cqBorrower.Name).Obj()
+			util.MustCreate(ctx, k8sClient, qBorrower)
+			qReclaimer1 := testing.MakeLocalQueue("q-reclaimer-1", ns.Name).ClusterQueue(cqReclaimer1.Name).Obj()
+			util.MustCreate(ctx, k8sClient, qReclaimer1)
+			qReclaimer2 := testing.MakeLocalQueue("q-reclaimer-2", ns.Name).ClusterQueue(cqReclaimer2.Name).Obj()
+			util.MustCreate(ctx, k8sClient, qReclaimer2)
+
+			ginkgo.By("Submitting 2 low-priority workloads to CQ-Borrower that consume borrowed quota")
+			lowWl1 := testing.MakeWorkload("borrower-low-1", ns.Name).
+				Queue(kueue.LocalQueueName(qBorrower.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			lowWl2 := testing.MakeWorkload("borrower-low-2", ns.Name).
+				Queue(kueue.LocalQueueName(qBorrower.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl1)
+			util.MustCreate(ctx, k8sClient, lowWl2)
+
+			ginkgo.By("Waiting for low-priority workloads to be admitted (borrowing resources)")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqBorrower.Name, lowWl1, lowWl2)
+
+			ginkgo.By("Submitting high-priority workloads to both CQ-Reclaimer-1 and CQ-Reclaimer-2 simultaneously")
+			// These create overlapping preemption targets - both reclaimers want to preempt the same borrowed workloads
+			highWl1 := testing.MakeWorkload("reclaimer-1-high", ns.Name).
+				Queue(kueue.LocalQueueName(qReclaimer1.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			highWl2 := testing.MakeWorkload("reclaimer-2-high", ns.Name).
+				Queue(kueue.LocalQueueName(qReclaimer2.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+
+			// Create both workloads in quick succession to ensure they're processed in the same scheduling cycle
+			gomega.Expect(k8sClient.Create(ctx, highWl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, highWl2)).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing evictions for preempted workloads")
+			// Both borrowed workloads should be marked for eviction since each reclaimer needs its own target
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
+
+			ginkgo.By("Verifying both high-priority workloads are admitted with optimal preemption")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, highWl1, highWl2)
+
+			ginkgo.By("Verifying that preemption skips metric shows optimal scheduling behavior")
+			// With RefreshAssignmentsDuringSchedulingCycle enabled, we should have no skipped preemptions
+			// because the feature allows both workloads to be scheduled in the same cycle with different targets
+			util.ExpectAdmissionCyclePreemptionSkipsMetric(cqReclaimer1, 0)
+			util.ExpectAdmissionCyclePreemptionSkipsMetric(cqReclaimer2, 0)
+
+			// Cleanup - delete workloads first, then ClusterQueues
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWl1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWl2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowWl1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowWl2, true)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cqBorrower, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cqReclaimer1, true, util.LongTimeout)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cqReclaimer2, true, util.LongTimeout)
+		})
+	})
 })
