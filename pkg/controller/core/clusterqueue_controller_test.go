@@ -30,10 +30,10 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	queuecache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schedulercache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
@@ -183,11 +183,11 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			},
 		},
 		"cluster queue does not exist on manager": {
-			wantError: queue.ErrClusterQueueDoesNotExist,
+			wantError: queuecache.ErrClusterQueueDoesNotExist,
 		},
 		"cluster queue does not exist on cache": {
 			insertCqIntoManager: true,
-			wantError:           cache.ErrCqNotFound,
+			wantError:           schedulercache.ErrCqNotFound,
 		},
 	}
 
@@ -204,8 +204,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
-			cqCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cqCache)
+			cqCache := schedulercache.New(cl)
+			qManager := queuecache.NewManager(cl, cqCache)
 			if tc.insertCqIntoCache {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Inserting clusterQueue in cache: %v", err)
@@ -572,8 +572,8 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
-			cCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cCache)
+			cCache := schedulercache.New(cl)
+			qManager := queuecache.NewManager(cl, cCache)
 			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in manager: %v", err)
 			}
