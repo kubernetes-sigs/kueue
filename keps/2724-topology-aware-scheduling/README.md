@@ -936,14 +936,27 @@ is neccessary to fit the workload. Since this mechanism is dedicated
 to only replace nodes, it will only work for Topologies which specify
 `kubernetes.io/hostname` at the lowest level.
 
-We propose to introduce a new Annotation at a Workload level:
+We propose to introduce a new field in Workload status to store all information relevant to
+topology recovery in case of failures. Initially it will contain only a list of failed nodes :
 
 ```golang
-const (
-	// NodeToReplaceAnnotation is an annotation on a Workload. It holds a
-	// name of a failed node running at least one pod of this workload.
-	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
-)
+type WorkloadStatus struct {
+  (...)
+	// topologyAssignmentRecovery holds the recovery information for the assigned topology
+	// in the case of failures
+	// +optional
+	TopologyAssignmentRecovery *TopologyAssignmentRecovery `json:"topologyAssignmentRecovery,omitempty"`
+}
+
+type TopologyAssignmentRecovery struct {
+	// nodesToReplace, if specified, holds the names of failed nodes running at least one pod of this workload.
+	// This field is for internal use, is set by the node failure controler and should not be set by the users.
+	// It is used to signal kueue scheduler to search for replacement of the failed nodes (if the native kube
+	// scheduler cannot do it automatically). Requires enabling the TASFaliedNodReplacement feature gate.
+	//
+	// +optional
+	NodesToReplace []string `json:"nodesToReplace,omitempty"`
+}
 ```
 
 Sometimes node failures are only transient and the node might recover, and so reacting
@@ -1421,28 +1434,6 @@ fulfilled with a dedicated indexed virtual field.
 
 Increased code complexity which could defer the 0.9 release for the Alpha
 version. We will re-evaluate the need for the label before the Beta release.
-
-### Failed nodes in WorkloadStatus
-
-Alternatively, the information about failed nodes could be stored in a dedicated 
-field in WorkloadStatus.
-
-```golang
-// WorkloadStatus defines the observed state of Workload
-type WorkloadStatus struct {
-  ...
-  // nodesToReplace lists the names of failed nodes running pods associated 
-  // with this workload. This field is populated by the node failure controller.
-  // +optional
-  // +listType=set
-  NodesToReplace []string `json:"nodesToReplace,omitempty"`
-}
-```
-**Reasons for discarding/deferring**
-
-Uncertanity about the final shape of the feature and the required format.
-We will decide on the format of this field based on the feedback from the 
-customers on the MVP.
 
 ### MostFreeCapacity algorithm
 
