@@ -177,7 +177,7 @@ func TestImportNamespace(t *testing.T) {
 				WithLists(&podsList, &cqList, &lqList)
 
 			client := builder.Build()
-			ctx := t.Context()
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
 			gotErr := Import(ctx, client, mpc, 8)

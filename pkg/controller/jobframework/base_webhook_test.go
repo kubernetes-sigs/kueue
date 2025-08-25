@@ -288,7 +288,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Queues:                     queueManager,
 				Cache:                      cqCache,
 			}
-			if err := w.Default(t.Context(), tc.job); err != nil {
+			if err := w.Default(ctx, tc.job); err != nil {
 				t.Errorf("set defaults by base webhook")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
@@ -349,7 +349,8 @@ func TestValidateOnCreate(t *testing.T) {
 			w := &jobframework.BaseWebhook{
 				FromObject: makeTestGenericJob().withValidateOnCreate(tc.validateOnCreate).fromObject,
 			}
-			gotWarn, gotErr := w.ValidateCreate(t.Context(), tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWarn, gotErr := w.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
@@ -426,7 +427,8 @@ func TestValidateOnUpdate(t *testing.T) {
 			w := &jobframework.BaseWebhook{
 				FromObject: makeTestGenericJob().withValidateOnUpdate(tc.validateOnUpdate).fromObject,
 			}
-			gotWarn, gotErr := w.ValidateUpdate(t.Context(), tc.oldJob, tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWarn, gotErr := w.ValidateUpdate(ctx, tc.oldJob, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}

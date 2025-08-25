@@ -1128,7 +1128,8 @@ func TestWlReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)
-			managerBuilder := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managerBuilder := getClientBuilder(ctx)
 			managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			workerClusters := []string{"worker1"}
@@ -1149,7 +1150,7 @@ func TestWlReconcile(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
-			worker1Builder := getClientBuilder(t.Context())
+			worker1Builder := getClientBuilder(ctx)
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
 			worker1Client := worker1Builder.Build()
 
@@ -1160,7 +1161,7 @@ func TestWlReconcile(t *testing.T) {
 
 			var worker2Client client.WithWatch
 			if tc.useSecondWorker {
-				worker2Builder := getClientBuilder(t.Context())
+				worker2Builder := getClientBuilder(ctx)
 				worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
 				worker2Builder = worker2Builder.WithInterceptorFuncs(interceptor.Funcs{
 					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -1203,7 +1204,7 @@ func TestWlReconcile(t *testing.T) {
 				})
 			}
 
-			_, gotErr := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
@@ -1213,7 +1214,7 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			gotManagersWorkloads := &kueue.WorkloadList{}
-			if err := managerClient.List(t.Context(), gotManagersWorkloads); err != nil {
+			if err := managerClient.List(ctx, gotManagersWorkloads); err != nil {
 				t.Errorf("unexpected list manager's workloads error: %s", err)
 			} else {
 				// ensure deterministic comparison
@@ -1229,7 +1230,7 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			gotWorker1Workloads := &kueue.WorkloadList{}
-			if err := worker1Client.List(t.Context(), gotWorker1Workloads); err != nil {
+			if err := worker1Client.List(ctx, gotWorker1Workloads); err != nil {
 				t.Errorf("unexpected list worker's workloads error: %s", err)
 			} else {
 				if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
@@ -1238,7 +1239,7 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			gotManagersJobs := &batchv1.JobList{}
-			if err := managerClient.List(t.Context(), gotManagersJobs); err != nil {
+			if err := managerClient.List(ctx, gotManagersJobs); err != nil {
 				t.Errorf("unexpected list manager's jobs error %s", err)
 			} else {
 				if diff := cmp.Diff(tc.wantManagersJobs, gotManagersJobs.Items, objCheckOpts...); diff != "" {
@@ -1247,7 +1248,7 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			gotWorker1Jobs := &batchv1.JobList{}
-			if err := worker1Client.List(t.Context(), gotWorker1Jobs); err != nil {
+			if err := worker1Client.List(ctx, gotWorker1Jobs); err != nil {
 				t.Error("unexpected list worker's jobs error")
 			} else {
 				if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Jobs.Items, objCheckOpts...); diff != "" {
@@ -1257,7 +1258,7 @@ func TestWlReconcile(t *testing.T) {
 
 			if tc.useSecondWorker {
 				gotWorker2Workloads := &kueue.WorkloadList{}
-				if err := worker2Client.List(t.Context(), gotWorker2Workloads); err != nil {
+				if err := worker2Client.List(ctx, gotWorker2Workloads); err != nil {
 					t.Errorf("unexpected list worker2 workloads error: %s", err)
 				} else {
 					if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Workloads.Items, objCheckOpts...); diff != "" {
@@ -1266,7 +1267,7 @@ func TestWlReconcile(t *testing.T) {
 				}
 
 				gotWorker2Jobs := &batchv1.JobList{}
-				if err := worker2Client.List(t.Context(), gotWorker2Jobs); err != nil {
+				if err := worker2Client.List(ctx, gotWorker2Jobs); err != nil {
 					t.Errorf("unexpected list worker2 jobs error: %s", err)
 				} else {
 					if diff := cmp.Diff(tc.wantWorker2Jobs, gotWorker2Jobs.Items, objCheckOpts...); diff != "" {
@@ -1457,7 +1458,8 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				fakeClock.SetTime(now.Add(tt.advanceClock))
 			}
 
-			res, err := wlRec.nominateAndSynchronizeWorkers(t.Context(), group)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			res, err := wlRec.nominateAndSynchronizeWorkers(ctx, group)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
 			}

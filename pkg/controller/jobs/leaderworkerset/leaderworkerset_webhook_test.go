@@ -727,11 +727,9 @@ func TestValidateUpdate(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
-
-			ctx := t.Context()
-
 			wh := &Webhook{}
 
+			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)

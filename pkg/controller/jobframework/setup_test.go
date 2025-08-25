@@ -259,7 +259,8 @@ func TestSetupIndexes(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			builder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace(testNamespace))

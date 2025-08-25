@@ -29,6 +29,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/utils/set"
+
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestFSWatch(t *testing.T) {
@@ -143,7 +145,8 @@ func TestFSWatch(t *testing.T) {
 					t.Fatalf("unexpected prepare error: %s", err)
 				}
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, time.Second)
 			watcher := newKubeConfigFSWatcher()
 
 			// start the recorder
@@ -193,7 +196,8 @@ func TestFSWatch(t *testing.T) {
 }
 
 func TestFSWatchAddRm(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	basePath := t.TempDir()
 	f1Path := filepath.Join(basePath, "file.one")

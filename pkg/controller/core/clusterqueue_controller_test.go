@@ -568,12 +568,12 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 				QueueingStrategy(kueue.StrictFIFO).Obj()
 			lq := utiltesting.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()
-			ctx := t.Context()
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
 			cCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cCache)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in manager: %v", err)
 			}
