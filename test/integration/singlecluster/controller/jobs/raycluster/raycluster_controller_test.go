@@ -744,6 +744,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			Queue(string(kueue.LocalQueueName(localQueue.Name))).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(ptr.To(true)).
 			ScaleFirstWorkerGroup(1).
 			Obj()
 
