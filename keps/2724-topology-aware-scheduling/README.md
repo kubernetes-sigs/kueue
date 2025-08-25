@@ -63,7 +63,6 @@
     - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
-  - [Failed nodes in WorkloadStatus](#failed-nodes-in-workloadstatus)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
     - [Example](#example-2)
 <!-- /toc -->
