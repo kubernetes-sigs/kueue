@@ -124,7 +124,7 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, erro
 		clusterSpec := spec.RayClusterSpec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 
-		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
+		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
 		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) {
 			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
 		}

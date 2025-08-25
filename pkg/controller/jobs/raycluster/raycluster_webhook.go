@@ -166,7 +166,7 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 			validationErrs := validateElasticJob(job)
 			allErrors = append(allErrors, validationErrs...)
 		} else {
-			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
+			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
 			if ptr.Deref(spec.EnableInTreeAutoscaling, false) {
 				allErrors = append(allErrors, field.Invalid(specPath.Child("enableInTreeAutoscaling"), spec.EnableInTreeAutoscaling, "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"))
 			}
