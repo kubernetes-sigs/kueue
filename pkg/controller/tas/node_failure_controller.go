@@ -260,7 +260,7 @@ func (r *nodeFailureReconciler) handleFailedNode(ctx context.Context, nodeName s
 			continue
 		}
 		if !evictedNow && !workload.IsEvicted(&wl) {
-			if err := r.addNodeForReplacement(ctx, wl, nodeName); err != nil {
+			if err := r.addNodeToReplace(ctx, wl, nodeName); err != nil {
 				log.V(2).Error(err, "Failed to add node to nodesToReplace")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 				continue
@@ -306,13 +306,13 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 			continue
 		}
 
-		r.log.V(4).Info("Clear NodesToReplace field", "failedNode", nodeName)
-		if err := r.removeNodeForReplacement(ctx, wl, nodeName); err != nil {
+		r.log.V(4).Info("Remove node from nodesToReplace", "nodeName", nodeName)
+		if err := r.removeNodeToReplace(ctx, wl, nodeName); err != nil {
 			r.log.Error(err, "Failed to patch workload status")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		r.log.V(3).Info("Successfully cleared the nodesToReplace field")
+		r.log.V(3).Info("Successfully removed node from the nodesToReplace field", "nodeName", nodeName)
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
@@ -320,7 +320,7 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 	return nil
 }
 
-func (r *nodeFailureReconciler) removeNodeForReplacement(ctx context.Context, wl kueue.Workload, nodeName string) error {
+func (r *nodeFailureReconciler) removeNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
 	var nodesToReplace []string
 	if wl.Status.TopologyAssignmentRecovery != nil {
 		nodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
@@ -337,7 +337,7 @@ func (r *nodeFailureReconciler) removeNodeForReplacement(ctx context.Context, wl
 	return nil
 }
 
-func (r *nodeFailureReconciler) addNodeForReplacement(ctx context.Context, wl kueue.Workload, nodeName string) error {
+func (r *nodeFailureReconciler) addNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
 	var nodesToReplace []string
 	if wl.Status.TopologyAssignmentRecovery != nil {
 		nodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
