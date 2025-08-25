@@ -21,12 +21,11 @@ import (
 )
 
 const (
-	KueueName                 = "kueue"
-	JobControllerName         = KueueName + "-job-controller"
-	WorkloadControllerName    = KueueName + "-workload-controller"
-	AdmissionName             = KueueName + "-admission"
-	ReclaimablePodsMgr        = KueueName + "-reclaimable-pods"
-	NodeFailureControllerName = KueueName + "-node-failure-controller"
+	KueueName              = "kueue"
+	JobControllerName      = KueueName + "-job-controller"
+	WorkloadControllerName = KueueName + "-workload-controller"
+	AdmissionName          = KueueName + "-admission"
+	ReclaimablePodsMgr     = KueueName + "-reclaimable-pods"
 
 	// UpdatesBatchPeriod is the batch period to hold workload updates
 	// before syncing a Queue and ClusterQueue objects.
