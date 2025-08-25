@@ -149,7 +149,7 @@ func TestValidateCreate(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
+				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"),
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {

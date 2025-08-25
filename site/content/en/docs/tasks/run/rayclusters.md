@@ -65,7 +65,22 @@ Note that a RayCluster will hold resource quotas while it exists. For optimal re
 
 ### c. Limitations
 - Limited Worker Groups: Because a Kueue workload can have a maximum of 8 PodSets, the maximum number of `spec.workerGroupSpecs` is 7
-- In-Tree Autoscaling Disabled: Kueue manages resource allocation for the RayCluster; therefore, the cluster's internal autoscaling mechanisms need to be disabled
+- In-Tree Autoscaling Constraints: Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) RayCluster objects. To enable in-tree autoscaling:
+
+  1. Activate the `ElasticJobsViaWorkloadSlices` feature gate.
+  2. Annotate the RayCluster object with:
+
+     ```yaml
+     metadata:
+       annotations:
+         kueue.x-k8s.io/elastic-job: "true"
+     ```
+  3. Enable the Ray autoscaler of your RayCluster object by setting:
+
+     ```yaml
+     spec:
+       enableInTreeAutoscaling: true
+     ```
 
 ## Example RayCluster
 
