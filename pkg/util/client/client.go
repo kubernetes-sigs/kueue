@@ -70,3 +70,31 @@ func updateAndPatch(obj client.Object, strict bool, update func() (bool, error),
 	}
 	return patchFn(patch)
 }
+
+func PatchWithObjOriginal(ctx context.Context, c client.Client, objOrig, obj client.Object, strict bool, update func() (bool, error)) error {
+	return updateAndPatchWithObjOriginal(objOrig, obj, strict, update, func(patch client.Patch) error {
+		return c.Patch(ctx, obj, patch)
+	})
+}
+
+func PatchStatusWithObjOriginal(ctx context.Context, c client.Client, objOrig, obj client.Object, update func() (bool, error)) error {
+	return updateAndPatchWithObjOriginal(objOrig, obj, true, update, func(patch client.Patch) error {
+		return c.Status().Patch(ctx, obj, patch)
+	})
+}
+
+func updateAndPatchWithObjOriginal(objOriginal, obj client.Object, strict bool, update func() (bool, error), patchFn func(client.Patch) error) error {
+	if strict {
+		// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
+		objOriginal.SetResourceVersion("")
+	}
+	updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+	patch, err := createPatch(objOriginal, obj)
+	if err != nil {
+		return err
+	}
+	return patchFn(patch)
+}

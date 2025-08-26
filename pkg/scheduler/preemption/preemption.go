@@ -182,10 +182,10 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	return int(successfullyPreempted.Load()), errCh.ReceiveError()
 }
 
-func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
-	w = w.DeepCopy()
-	workload.SetPreemptedCondition(w, reason, message)
-	return workload.Evict(ctx, p.client, p.recorder, w, kueue.WorkloadEvictedByPreemption, "", message, p.clock)
+func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, wl *kueue.Workload, reason, message string) error {
+	wlOrig := wl.DeepCopy()
+	workload.SetPreemptedCondition(wl, reason, message)
+	return workload.Evict(ctx, p.client, p.recorder, wlOrig, wl, kueue.WorkloadEvictedByPreemption, "", message, p.clock)
 }
 
 type preemptionAttemptOpts struct {
