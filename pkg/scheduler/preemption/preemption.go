@@ -39,7 +39,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -64,6 +63,8 @@ type Preemptor struct {
 
 	// stubs
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
+
+	enabledAfs bool
 }
 
 type preemptionCtx struct {
@@ -81,6 +82,7 @@ func New(
 	workloadOrdering workload.Ordering,
 	recorder record.EventRecorder,
 	fs config.FairSharing,
+	enabledAfs bool,
 	clock clock.Clock,
 ) *Preemptor {
 	p := &Preemptor{
@@ -90,6 +92,7 @@ func New(
 		workloadOrdering:  workloadOrdering,
 		enableFairSharing: fs.Enable,
 		fsStrategies:      parseStrategies(fs.PreemptionStrategies),
+		enabledAfs:        enabledAfs,
 	}
 	p.applyPreemption = p.applyPreemptionWithSSA
 	return p
@@ -218,7 +221,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
@@ -384,7 +387,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		return nil
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		return CandidatesOrdering(preemptionCtx.log, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
+		return CandidatesOrdering(preemptionCtx.log, p.enabledAfs, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
@@ -556,14 +559,14 @@ func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
 	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
 }
 
-// candidatesOrdering criteria:
+// CandidatesOrdering criteria:
 // 0. Workloads already marked for preemption first.
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
 // 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
-func CandidatesOrdering(log logr.Logger, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
+func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
 	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
 	if aEvicted != bEvicted {
@@ -575,7 +578,7 @@ func CandidatesOrdering(log logr.Logger, a, b *workload.Info, cq kueue.ClusterQu
 		return !aInCQ
 	}
 
-	if features.Enabled(features.AdmissionFairSharing) && resourceUsagePreemptionEnabled(a, b) {
+	if afsEnabled && resourceUsagePreemptionEnabled(a, b) {
 		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
 			log.V(3).Info("Comparing workloads by LocalQueue fair sharing usage",
 				"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
