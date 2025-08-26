@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -101,6 +102,11 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, strin
 type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
+}
+
+// GetObject implements the ObjectRefProvider interface.
+func (t *Target) GetObject() client.Object {
+	return t.WorkloadInfo.Obj
 }
 
 // GetTargets returns the list of workloads that should be evicted in
@@ -386,16 +392,33 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
 	if !fits && len(strategies) > 1 {
+		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			logV.Info("First fair sharing strategy failed, trying second strategy",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets),
+				"retryCandidates", workload.References(retryCandidates))
+		}
 		fits, targets = runSecondFsStrategy(retryCandidates, preemptionCtx, targets)
 	}
 
 	revertSimulation()
 	if !fits {
+		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			logV.Info("All fair sharing strategies failed",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets))
+		}
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
 	}
 	targets = fillBackWorkloads(preemptionCtx, targets, true)
 	restoreSnapshot(preemptionCtx.snapshot, targets)
+
+	if logV := preemptionCtx.log.V(6); logV.Enabled() {
+		logV.Info("Fair sharing strategies succeeded",
+			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+			"targets", logging.GetObjectReferences(targets))
+	}
 	return targets
 }
 
