@@ -14,17 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package multikueuehelper
+package dispatcher
 
 import (
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher/incrementaldispatcher"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
-type MultiKueueStoreHelper = admissioncheck.ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+func SetupControllers(mgr ctrl.Manager, namespace string, dispatcherName string) error {
+	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
+	if err != nil {
+		return err
+	}
 
-func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
-	return admissioncheck.NewConfigHelper[*kueue.MultiKueueConfig](c)
+	idRec := incrementaldispatcher.NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, dispatcherName)
+	err = idRec.SetupWithManager(mgr)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

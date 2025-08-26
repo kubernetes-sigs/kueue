@@ -45,10 +45,9 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher/dispatcher"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
-	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -58,7 +57,7 @@ var (
 
 type wlReconciler struct {
 	client            client.Client
-	helper            *multikueuehelper.MultiKueueStoreHelper
+	helper            *admissioncheck.MultiKueueStoreHelper
 	clusters          *clustersReconciler
 	origin            string
 	workerLostTimeout time.Duration
@@ -174,7 +173,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		isDeleted = !wl.DeletionTimestamp.IsZero()
 	}
 
-	mkAc, err := dispatcher.GetMultiKueueAdmissionCheck(ctx, w.client, wl)
+	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, w.client, wl)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -488,7 +487,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multikueuehelper.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
+func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder record.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string,
 	options ...Option,
