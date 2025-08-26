@@ -67,13 +67,15 @@ type Preemptor struct {
 }
 
 type preemptionCtx struct {
-	log               logr.Logger
-	preemptor         workload.Info
-	preemptorCQ       *cache.ClusterQueueSnapshot
-	snapshot          *cache.Snapshot
-	workloadUsage     workload.Usage
-	tasRequests       cache.WorkloadTASRequests
-	frsNeedPreemption sets.Set[resources.FlavorResource]
+	log                  logr.Logger
+	preemptor            workload.Info
+	preemptorCQ          *cache.ClusterQueueSnapshot
+	snapshot             *cache.Snapshot
+	workloadUsage        workload.Usage
+	tasRequests          cache.WorkloadTASRequests
+	frsNeedPreemption    sets.Set[resources.FlavorResource]
+	excludeWorkloads     PreemptedWorkloads
+	preemptedWorkloadsV2 *PreemptedWorkloadsV2 // For tracking partial preemptions when feature gate is enabled
 }
 
 func New(
@@ -114,16 +116,23 @@ func (t *Target) GetObject() client.Object {
 
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
-func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
+func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, excludeWorkloads PreemptedWorkloads, preemptedWorkloadsV2 *PreemptedWorkloadsV2) []*Target {
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
+
+	if excludeWorkloads == nil {
+		excludeWorkloads = make(PreemptedWorkloads)
+	}
+
 	return p.getTargets(&preemptionCtx{
-		log:               log,
-		preemptor:         wl,
-		preemptorCQ:       cq,
-		snapshot:          snapshot,
-		tasRequests:       tasRequests,
-		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
+		log:                  log,
+		preemptor:            wl,
+		preemptorCQ:          cq,
+		snapshot:             snapshot,
+		tasRequests:          tasRequests,
+		frsNeedPreemption:    flavorResourcesNeedPreemption(assignment),
+		excludeWorkloads:     excludeWorkloads,
+		preemptedWorkloadsV2: preemptedWorkloadsV2,
 		workloadUsage: workload.Usage{
 			Quota: assignment.TotalRequestsFor(&wl),
 			TAS:   wl.TASUsage(),
@@ -218,7 +227,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering, preemptionCtx.excludeWorkloads)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
@@ -262,6 +271,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		}
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 	}
+	preemptionCtx.log.V(2).Info("Classical preemption failed - no valid targets found")
 	return nil
 }
 
@@ -379,7 +389,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 }
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) []*Target {
-	candidates := p.findCandidates(preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
+	candidates := p.findCandidates(preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption, preemptionCtx.excludeWorkloads)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -440,13 +450,18 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
+func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource], excludeWorkloads PreemptedWorkloads) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
 	preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		for _, candidateWl := range cq.Workloads {
+			// Skip workloads that are already marked for preemption
+			if _, excluded := excludeWorkloads[workload.Key(candidateWl.Obj)]; excluded {
+				continue
+			}
+
 			candidatePriority := priority.Priority(candidateWl.Obj)
 			switch cq.Preemption.WithinClusterQueue {
 			case kueue.PreemptionPolicyLowerPriority:
@@ -476,6 +491,11 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 				continue
 			}
 			for _, candidateWl := range cohortCQ.Workloads {
+				// Skip workloads that are already marked for preemption
+				if _, excluded := excludeWorkloads[workload.Key(candidateWl.Obj)]; excluded {
+					continue
+				}
+
 				candidatePriority := priority.Priority(candidateWl.Obj)
 				switch cq.Preemption.ReclaimWithinCohort {
 				case kueue.PreemptionPolicyLowerPriority:
@@ -515,12 +535,27 @@ func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[re
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
+// workloadFits now needs to account for preempted workloads within the snapshot
+// (ie. add usage of preempted workloads so that new admission can fit)
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
-		if v > preemptionCtx.preemptorCQ.Available(fr) {
+		// Available returns the current capacity available, before preempting any workloads.
+		available := preemptionCtx.preemptorCQ.Available(fr)
+
+		// When RefreshAssignmentsDuringSchedulingCycle feature gate is enabled,
+		// look through all the preempted workloads that have claimed resources
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) && preemptionCtx.preemptedWorkloadsV2 != nil {
+			for _, preemptedWl := range *preemptionCtx.preemptedWorkloadsV2 {
+				if claimedUsage, exists := preemptedWl.ClaimedUsage.Quota[fr]; exists {
+					available += claimedUsage
+				}
+			}
+		}
+
+		if v > available {
 			return false
 		}
 	}
