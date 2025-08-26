@@ -47,7 +47,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -107,7 +106,7 @@ func (g *wlGroup) IsFinished() bool {
 // meaning the ElasticJobsViaWorkloadSlices feature is enabled and the
 // workload has the corresponding annotation set.
 func (g *wlGroup) IsElasticWorkload() bool {
-	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(g.local)
+	return workloadslicing.IsElasticWorkload(g.local)
 }
 
 // FirstReserving returns true if there is a workload reserving quota,
@@ -344,7 +343,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 1.1 Handle finished local workload by removing remote workloads and jobs.
 	if group.IsFinished() {
-		// Skip replaced elastic workloads.
+		// Skip replaced elastic workloads finished workload slices.
 		if group.IsElasticWorkload() && workloadslicing.IsReplaced(group.local.Status) {
 			return reconcile.Result{}, nil
 		}
@@ -490,7 +489,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// For now, new workload slices will continue to be assigned to the same cluster.
 	// In the future, we may introduce more nuanced remote workload propagation policies,
 	// supporting preferred or required placement constraints.
-	if clusterName := workloadslicing.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
+	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
 	} else {
 		switch w.dispatcherName {

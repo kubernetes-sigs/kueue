@@ -1178,3 +1178,10 @@ func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 	}
 	return false
 }
+
+// ClusterName returns the name of the remote cluster where the original workload
+// was scheduled in a multikueue context. If the corresponding annotation is not set,
+// it returns an empty string.
+func ClusterName(wl *kueue.Workload) string {
+	return ptr.Deref(wl.Status.ClusterName, "")
+}

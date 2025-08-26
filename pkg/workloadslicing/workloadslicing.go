@@ -28,7 +28,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -65,6 +64,15 @@ func Enabled(object metav1.Object) bool {
 	return object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
 }
 
+// IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
+// and the given Workload is marked as elastic (e.g., via annotations or other criteria).
+func IsElasticWorkload(workload *kueue.Workload) bool {
+	if workload == nil {
+		return false
+	}
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && Enabled(workload)
+}
+
 const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
@@ -79,13 +87,6 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	}
 	ref := workload.Reference(key)
 	return &ref
-}
-
-// ClusterName returns the name of the remote cluster where the original workload
-// was scheduled in a multikueue context. If the corresponding annotation is not set,
-// it returns an empty string.
-func ClusterName(wl *kueue.Workload) string {
-	return ptr.Deref(wl.Status.ClusterName, "")
 }
 
 // Finish updates the status of a workload slice by applying the "Finished" condition
