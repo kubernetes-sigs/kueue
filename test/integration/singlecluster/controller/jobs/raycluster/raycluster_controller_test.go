@@ -781,8 +781,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("reducing the worker replicas to 0 to emulate scale-down operation")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
-			var zero int32 = 0
-			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = &zero
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(0))
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -808,11 +807,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("increasing the job's worker replicas to 2 to emulate scale-up operation")
 		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
-			var two int32 = 2
-			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = &two
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(2))
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
