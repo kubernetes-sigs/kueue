@@ -810,7 +810,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Skip workload-in-sync check for workload-slice since this could be a
 		// scaled-up (new) workload slice for the not-yet synced job object.
 		if workloadslicing.Enabled(object) {
-			log.Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
+			log.V(3).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
 			return wl, nil
 		}
 
