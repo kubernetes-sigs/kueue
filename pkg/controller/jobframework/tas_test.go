@@ -17,7 +17,6 @@ limitations under the License.
 package jobframework
 
 import (
-	"reflect"
 	"strconv"
 	"testing"
 
@@ -30,19 +29,6 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-)
-
-var (
-	// Define a custom comparer for *strconv.NumError
-	numErrorComparer = cmp.Comparer(func(x, y *strconv.NumError) bool {
-		if x == nil && y == nil {
-			return true
-		}
-		if x == nil || y == nil {
-			return false
-		}
-		return x.Func == y.Func && x.Num == y.Num && cmp.Equal(x.Err, y.Err, cmpopts.EquateErrors())
-	})
 )
 
 func TestPodSetTopologyRequestBuilder(t *testing.T) {
@@ -196,7 +182,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueuealpha.PodSetUnconstrainedTopologyAnnotation: "invalid",
 				},
 			},
-			wantErr: &strconv.NumError{Func: "ParseBool", Num: "invalid", Err: strconv.ErrSyntax},
+			wantErr: strconv.ErrSyntax,
 		},
 		"invalid podset slice size annotation value": {
 			meta: &metav1.ObjectMeta{
@@ -205,7 +191,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueuealpha.PodSetSliceSizeAnnotation:             "invalid",
 				},
 			},
-			wantErr: &strconv.NumError{Func: "ParseInt", Num: "invalid", Err: strconv.ErrSyntax},
+			wantErr: strconv.ErrSyntax,
 		},
 	}
 	for name, tc := range testCases {
@@ -220,16 +206,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				t.Errorf("Unexpected request (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantErr, gotErr,
-				// Filter to apply EquateErrors only to non-*strconv.NumError types
-				cmp.FilterPath(func(path cmp.Path) bool {
-					return path.Last().Type() != reflect.TypeOf(&strconv.NumError{})
-				}, cmpopts.EquateErrors()),
-				// Filter to apply numErrorComparer only to *strconv.NumError
-				cmp.FilterPath(func(path cmp.Path) bool {
-					return path.Last().Type() == reflect.TypeOf(&strconv.NumError{})
-				}, numErrorComparer),
-			); len(diff) != 0 {
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
