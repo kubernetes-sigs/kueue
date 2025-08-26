@@ -34,8 +34,7 @@ import (
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher/dispatcher"
-	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -43,9 +42,11 @@ const (
 	incrementalDispatcherRoundTimeout = 5 * time.Minute
 )
 
+var ErrNoMoreWorkers = errors.New("no more workers to nominate")
+
 type IncrementalDispatcherReconciler struct {
 	client          client.Client
-	helper          *multikueuehelper.MultiKueueStoreHelper
+	helper          *admissioncheck.MultiKueueStoreHelper
 	clock           clock.Clock
 	dispatcherName  string
 	roundStartTimes map[types.NamespacedName]time.Time
@@ -54,7 +55,7 @@ type IncrementalDispatcherReconciler struct {
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
 
-func NewIncrementalDispatcherReconciler(c client.Client, helper *multikueuehelper.MultiKueueStoreHelper, dispatcherName string) *IncrementalDispatcherReconciler {
+func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, dispatcherName string) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
 		helper:          helper,
@@ -77,18 +78,18 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 	if err != nil {
 		log.Error(err, "Failed to retrieve Workload, skip the reconciliation", "namespacedName", req.NamespacedName)
 		if apierrors.IsNotFound(err) {
-			r.deleteRoundStartTime(req.NamespacedName)
+			delete(r.roundStartTimes, req.NamespacedName)
 		}
 		return reconcile.Result{}, err
 	}
 
 	if !wl.DeletionTimestamp.IsZero() {
 		log.V(3).Info("Workload is deleted, skip the reconciliation", "workload", klog.KObj(wl))
-		r.deleteRoundStartTime(req.NamespacedName)
+		delete(r.roundStartTimes, req.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 
-	mkAc, err := dispatcher.GetMultiKueueAdmissionCheck(ctx, r.client, wl)
+	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, r.client, wl)
 	if err != nil {
 		log.Error(err, "Can not get MultiKueue AdmissionCheckState", "workload", klog.KObj(wl))
 		return reconcile.Result{}, err
@@ -105,7 +106,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
-	remoteClusters, err := dispatcher.GetRemoteClusters(ctx, r.client, r.helper, wl, mkAc.Name)
+	remoteClusters, err := admissioncheck.GetRemoteClusters(ctx, r.helper, mkAc.Name)
 	if err != nil {
 		log.Error(err, "Can not get workload group", "workload", klog.KObj(wl))
 		return reconcile.Result{}, err
@@ -113,7 +114,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 
 	if workload.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
 		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation", "workload", klog.KObj(wl))
-		r.deleteRoundStartTime(req.NamespacedName)
+		delete(r.roundStartTimes, req.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 
@@ -127,11 +128,11 @@ func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager) err
 }
 
 func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters sets.Set[string], log logr.Logger) (reconcile.Result, error) {
-	log.V(3).Info("NominateWorkers called", "workload", klog.KObj(wl))
+	log.V(3).Info("NominateWorkers called")
 	key := client.ObjectKeyFromObject(wl)
 	roundStart, found := r.roundStartTimes[key]
 	now := r.clock.Now()
-	log.V(3).Info("NominateWorkers called", "workload", klog.KObj(wl), "found", found, "roundStart", roundStart, "still in round", now.Sub(roundStart) <= incrementalDispatcherRoundTimeout)
+	log.V(3).Info("NominateWorkers called", "found", found, "roundStart", roundStart, "still in round", now.Sub(roundStart) <= incrementalDispatcherRoundTimeout)
 	if found && now.Sub(roundStart) <= incrementalDispatcherRoundTimeout {
 		remainingWaitTime := incrementalDispatcherRoundTimeout - now.Sub(roundStart)
 		log.V(4).Info("Incremental Dispatcher nomination round still in progress", "remainingWaitTime", remainingWaitTime)
@@ -173,16 +174,11 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 	log.V(5).Info("getNextNominatedWorkers (incremental)", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)
 
 	if len(workers) == 0 {
-		return nil, errors.New("no more workers to nominate")
+		return nil, ErrNoMoreWorkers
 	}
 	batchSize := 3
 	if len(workers) < batchSize {
 		return workers, nil
 	}
 	return workers[:batchSize], nil
-}
-
-// Deletes the map entry when the workload has been evicted, re-created or finished.
-func (r *IncrementalDispatcherReconciler) deleteRoundStartTime(wlKey types.NamespacedName) {
-	delete(r.roundStartTimes, wlKey)
 }

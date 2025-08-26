@@ -47,6 +47,12 @@ type ConfigHelper[PtrT objAsPtr[T], T any] struct {
 	client client.Client
 }
 
+type MultiKueueStoreHelper = ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+
+func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
+	return NewConfigHelper[*kueue.MultiKueueConfig](c)
+}
+
 func NewConfigHelper[PtrT objAsPtr[T], T any](c client.Client) (*ConfigHelper[PtrT, T], error) {
 	helper := ConfigHelper[PtrT, T]{
 		client: c,
@@ -182,4 +188,39 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.Admi
 	}
 
 	return nil
+}
+
+func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, local *kueue.Workload) (*kueue.AdmissionCheckState, error) {
+	relevantChecks, err := FilterForController(ctx, c, local.Status.AdmissionChecks, kueue.MultiKueueControllerName)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(relevantChecks) == 0 {
+		return nil, nil
+	}
+
+	for _, check := range local.Status.AdmissionChecks {
+		if check.Name == relevantChecks[0] {
+			return &check, nil
+		}
+	}
+	return nil, nil
+}
+
+func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) (sets.Set[string], error) {
+	cfg, err := helper.ConfigForAdmissionCheck(ctx, acName)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.Spec.Clusters) == 0 {
+		return nil, errors.New("no active clusters")
+	}
+
+	remoteClusters := sets.New[string]()
+	for _, clusterName := range cfg.Spec.Clusters {
+		remoteClusters.Insert(clusterName)
+	}
+
+	return remoteClusters, nil
 }

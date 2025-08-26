@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/multikueuehelper"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 // ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
@@ -42,7 +42,7 @@ import (
 // of its referenced MultiKueueClusters.
 type ACReconciler struct {
 	client client.Client
-	helper *multikueuehelper.MultiKueueStoreHelper
+	helper *admissioncheck.MultiKueueStoreHelper
 }
 
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
@@ -131,7 +131,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func newACReconciler(c client.Client, helper *multikueuehelper.MultiKueueStoreHelper) *ACReconciler {
+func newACReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper) *ACReconciler {
 	return &ACReconciler{
 		client: c,
 		helper: helper,
