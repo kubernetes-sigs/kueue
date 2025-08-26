@@ -104,6 +104,9 @@ type Target struct {
 	Reason       string
 }
 
+// ensures that Target implements ObjectRefProvider interface at compile time
+var _ logging.ObjectRefProvider = (*Target)(nil)
+
 // GetObject implements the ObjectRefProvider interface.
 func (t *Target) GetObject() client.Object {
 	return t.WorkloadInfo.Obj
