@@ -623,7 +623,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
-	if features.Enabled(features.AdmissionFairSharing) {
+	if s.admissionFairSharing != nil && features.Enabled(features.AdmissionFairSharing) {
 		s.updateEntryPenalty(log, e, add)
 
 		// Trigger LocalQueue reconciler to apply any pending penalties
@@ -642,7 +642,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
 		_ = s.cache.ForgetWorkload(log, newWorkload)
-		if features.Enabled(features.AdmissionFairSharing) {
+		if s.admissionFairSharing != nil && features.Enabled(features.AdmissionFairSharing) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
 		if apierrors.IsNotFound(err) {
