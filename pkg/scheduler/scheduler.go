@@ -145,7 +145,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, options.clock),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, afs.Enabled(options.admissionFairSharing), options.clock),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
@@ -195,7 +195,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	var snapshotOpts []cache.SnapshotOption
-	if features.Enabled(features.AdmissionFairSharing) {
+	if afs.Enabled(s.admissionFairSharing) {
 		s.queues.RebuildClusterQueuesWithEntryPenalties()
 		snapshotOpts = append(snapshotOpts, cache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
 	}
@@ -623,7 +623,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
-	if s.admissionFairSharing != nil && features.Enabled(features.AdmissionFairSharing) {
+	if afs.Enabled(s.admissionFairSharing) {
 		s.updateEntryPenalty(log, e, add)
 
 		// Trigger LocalQueue reconciler to apply any pending penalties
@@ -642,7 +642,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
 		_ = s.cache.ForgetWorkload(log, newWorkload)
-		if s.admissionFairSharing != nil && features.Enabled(features.AdmissionFairSharing) {
+		if afs.Enabled(s.admissionFairSharing) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
 		if apierrors.IsNotFound(err) {
