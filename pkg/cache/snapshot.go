@@ -201,7 +201,7 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
-	if features.Enabled(features.AdmissionFairSharing) {
+	if afs.Enabled(c.admissionFairSharing) {
 		if cq.AdmissionScope != nil {
 			cc.AdmissionScope = *cq.AdmissionScope.DeepCopy()
 		}
