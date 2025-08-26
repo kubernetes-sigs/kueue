@@ -40,19 +40,17 @@ import (
 
 // Config holds the configuration for setting up the Kueue manager
 type Config struct {
-	scheme     *runtime.Scheme
-	configFile string
-	SetupLog   logr.Logger
-	Apiconf    configapi.Configuration
-	Options    ctrl.Options
+	scheme   *runtime.Scheme
+	SetupLog logr.Logger
+	Apiconf  configapi.Configuration
+	Options  ctrl.Options
 }
 
 // NewConfig creates a new Config instance with the specified config file
-func NewConfig(configfile string) *Config {
+func NewConfig() *Config {
 	config := &Config{
-		scheme:     runtime.NewScheme(),
-		configFile: configfile,
-		SetupLog:   ctrl.Log.WithName("setup"),
+		scheme:   runtime.NewScheme(),
+		SetupLog: ctrl.Log.WithName("setup"),
 	}
 
 	utilruntime.Must(clientgoscheme.AddToScheme(config.scheme))

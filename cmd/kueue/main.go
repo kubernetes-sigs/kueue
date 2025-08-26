@@ -68,7 +68,7 @@ func main() {
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	manager := manager.NewConfig(configFile)
+	manager := manager.NewConfig()
 
 	err := manager.Apply(configFile)
 	if err != nil {
