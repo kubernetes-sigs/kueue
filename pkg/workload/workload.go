@@ -857,6 +857,38 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
+// either we call the patch inside the PatchStatus
+// or we call the patch function outside before calling ApplyAdmissionStatus
+func workloadPatchCommon(ctx context.Context, client client.Client, wl *kueue.Workload, strict bool, clk clock.Clock, wlPatch func() (bool, error), patchFunc func() error) error {
+	enabled := true
+	// if features.Enabled(features.WorkloadRequestUseMergePatch) {
+	if enabled {
+		return patchFunc()
+	} else {
+		_, err := wlPatch()
+		if err != nil {
+			return err
+		}
+		err = ApplyAdmissionStatus(ctx, client, wl, strict, clk)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func WorkloadPatchStatus(ctx context.Context, client client.Client, wlOrig, wl *kueue.Workload, strict bool, clk clock.Clock, wlPatch func() (bool, error)) error {
+	return workloadPatchCommon(ctx, client, wl, strict, clk, wlPatch, func() error {
+		return clientutil.PatchStatusWithObjOriginal(ctx, client, wlOrig, wl, wlPatch)
+	})
+}
+
+func WorkloadPatch(ctx context.Context, client client.Client, wlOrig, wl *kueue.Workload, strict bool, clk clock.Clock, wlPatch func() (bool, error)) error {
+	return workloadPatchCommon(ctx, client, wl, strict, clk, wlPatch, func() error {
+		return clientutil.PatchWithObjOriginal(ctx, client, wlOrig, wl, strict, wlPatch)
+	})
+}
+
 type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
@@ -1081,10 +1113,14 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	prepareForEviction(wl, clock.Now(), reason, msg)
-	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
+	var reportWorkloadEvictedOnce bool
+	err := WorkloadPatchStatus(ctx, c, wlOrig, wl, true, clock, func() (bool, error) {
+		prepareForEviction(wl, clock.Now(), reason, msg)
+		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
+		return true, nil
+	})
+	if err != nil {
 		return err
 	}
 	if wl.Status.Admission == nil {
