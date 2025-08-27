@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -61,9 +62,7 @@ func WithClock(c clock.WithDelayedExecution) Option {
 
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
 	return func(m *Manager) {
-		if features.Enabled(features.AdmissionFairSharing) {
-			m.admissionFairSharingConfig = cfg
-		}
+		m.admissionFairSharingConfig = cfg
 	}
 }
 
@@ -182,7 +181,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 
 	var afsEntryPenalties *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList]
-	if features.Enabled(features.AdmissionFairSharing) {
+	if afs.Enabled(m.admissionFairSharingConfig) {
 		afsEntryPenalties = m.afsEntryPenalties.GetPenalties()
 	}
 	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties)

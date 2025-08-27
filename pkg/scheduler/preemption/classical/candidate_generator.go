@@ -71,19 +71,26 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // NewCandidateIterator creates a new iterator that yields candidate workloads for preemption
 // The iterator can be used to perform two independent runs over the list of candidates:
 // with and without borrowing. The runs are independent which means that the same candidates
-// might be returned for both, but note that the candidates with borrrowing are a subset of
+// might be returned for both, but note that the candidates with borrowing are a subset of
 // candidates without borrowing.
-func NewCandidateIterator(hierarchicalReclaimCtx *HierarchicalPreemptionCtx, frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot, clock clock.Clock, ordering func(*workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool) *candidateIterator {
+func NewCandidateIterator(
+	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
+	enabledAfs bool,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+	snapshot *cache.Snapshot,
+	clock clock.Clock,
+	ordering func(bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool,
+) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 	sort.Slice(sameQueueCandidates, func(i, j int) bool {
-		return ordering(sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+		return ordering(enabledAfs, sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 	sort.Slice(priorityCandidates, func(i, j int) bool {
-		return ordering(priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+		return ordering(enabledAfs, priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 	sort.Slice(hierarchyCandidates, func(i, j int) bool {
-		return ordering(hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+		return ordering(enabledAfs, hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
