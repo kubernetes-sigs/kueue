@@ -53,6 +53,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -146,6 +147,8 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -536,6 +539,42 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	return false, nil
 }
 
+// processDRAForWorkload processes DRA resources for a workload using the global DRA mapper, per PodSet, or an error if processing fails.
+func (r *WorkloadReconciler) processDRAForWorkload(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, error) {
+	templateResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, wl, dra.LookupResourceFor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process ResourceClaimTemplates for workload %s: %w", wl.Name, err)
+	}
+
+	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+	claimResources, err := dra.GetResourceRequestsForResourceClaims(ctx, r.client, wl, string(cqName), dra.LookupResourceFor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process ResourceClaims for workload %s: %w", wl.Name, err)
+	}
+
+	draResources := make(map[kueue.PodSetReference]corev1.ResourceList)
+	for podSetRef, resourceList := range templateResources {
+		draResources[podSetRef] = resourceList
+	}
+
+	for podSetRef, resourceList := range claimResources {
+		if existing, found := draResources[podSetRef]; found {
+			for resourceName, quantity := range resourceList {
+				if existingQty, hasResource := existing[resourceName]; hasResource {
+					existingQty.Add(quantity)
+					existing[resourceName] = existingQty
+				} else {
+					existing[resourceName] = quantity
+				}
+			}
+		} else {
+			draResources[podSetRef] = resourceList
+		}
+	}
+
+	return draResources, nil
+}
+
 func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[kueue.AdmissionCheckReference], c clock.Clock) ([]kueue.AdmissionCheckState, bool) {
 	if len(admissionChecks) == 0 {
 		return nil, len(conds) > 0
@@ -630,9 +669,25 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
+	var queueOptions []queue.WorkloadOptions
+	if features.Enabled(features.DynamicResourceAllocation) {
+		draResources, err := r.processDRAForWorkload(ctx, wlCopy)
+		if err != nil {
+			log.Error(err, "Failed to process DRA resources for workload")
+			if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
+				if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
+					log.Error(applyErr, "Failed to update workload status for DRA error")
+				}
+			}
+			return true
+		}
+		if len(draResources) > 0 {
+			queueOptions = append(queueOptions, queue.WithWorkloadDRAResources(draResources))
+		}
+	}
 
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
-		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+		if err := r.queues.AddOrUpdateWorkload(wlCopy, queueOptions...); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
@@ -705,6 +760,22 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	wlCopy := e.ObjectNew.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
+	var queueOptions []queue.WorkloadOptions
+	if features.Enabled(features.DynamicResourceAllocation) && status == workload.StatusPending {
+		draResources, err := r.processDRAForWorkload(ctx, wlCopy)
+		if err != nil {
+			log.Error(err, "Failed to process DRA resources for workload")
+			if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
+				if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
+					log.Error(applyErr, "Failed to update workload status for DRA error")
+				}
+			}
+			return true
+		}
+		if len(draResources) > 0 {
+			queueOptions = append(queueOptions, queue.WithWorkloadDRAResources(draResources))
+		}
+	}
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -725,7 +796,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
+		err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy, queueOptions...)
 		if err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -751,7 +822,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Here we don't take the lock as it is already taken by the wrapping
 			// function.
 			if immediate {
-				if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
+				if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy, queueOptions...); err != nil {
 					log.V(2).Info("ignored an error for now", "error", err)
 				}
 				r.queues.DeleteSecondPassWithoutLock(wlCopy)
@@ -764,7 +835,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				updatedWl := kueue.Workload{}
 				err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
 				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
-					if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+					if err = r.queues.AddOrUpdateWorkload(wlCopy, queueOptions...); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					} else {
 						log.V(3).Info("Workload requeued after backoff")
@@ -926,7 +997,29 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
-		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+		if _, ok := h.r.queues.ClusterQueueForWorkload(wlCopy); !ok {
+			log.V(4).Info("ClusterQueue not yet available; deferring workload processing")
+			continue
+		}
+
+		var queueOptions []queue.WorkloadOptions
+		if features.Enabled(features.DynamicResourceAllocation) {
+			draResources, err := h.r.processDRAForWorkload(ctx, wlCopy)
+			if err != nil {
+				log.Error(err, "Failed to process DRA resources for workload")
+				if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, err.Error(), h.r.clock.Now()) {
+					if applyErr := workload.ApplyAdmissionStatus(ctx, h.r.client, wlCopy, true, h.r.clock); applyErr != nil {
+						log.Error(applyErr, "Failed to update workload status for DRA error")
+					}
+				}
+				continue
+			}
+			if len(draResources) > 0 {
+				queueOptions = append(queueOptions, queue.WithWorkloadDRAResources(draResources))
+			}
+		}
+
+		if err = h.r.queues.AddOrUpdateWorkload(wlCopy, queueOptions...); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 	}
