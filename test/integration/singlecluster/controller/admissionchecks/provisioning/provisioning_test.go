@@ -359,7 +359,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -425,7 +425,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", 1)
 			})
 		})
 
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", 1)
 			})
 		})
 
@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadDeactivated, 0)
+				util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadDeactivated, "", 0)
 			})
 		})
 
@@ -1130,7 +1130,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "DeactivatedDueToAdmissionCheck", 1)
+					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, "Deactivated", "AdmissionCheck", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

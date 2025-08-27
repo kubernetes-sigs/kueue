@@ -566,14 +566,14 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	expectCounterMetric(metric, v)
 }
 
-func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
-	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason)
+func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause string, v int) {
+	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause)
 	expectCounterMetric(metric, v)
 }
 
-func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason string, v int) {
+func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string, v int) {
 	metric := metrics.PodsReadyToEvictedTimeSeconds
-	expectHistogramMetric(metric, cqName, reason, v)
+	expectHistogramMetric(metric, cqName, reason, underlyingCause, v)
 }
 
 func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause string, v int) {
@@ -599,9 +599,9 @@ func expectCounterMetric(metric prometheus.Counter, count int) {
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionReason string, count int) {
+func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionReason, underlyingCause string, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
-		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason))
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(cqName, preemptionReason, underlyingCause))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())

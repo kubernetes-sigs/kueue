@@ -146,8 +146,8 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
-	ReportEvictedWorkloads("cluster_queue1", "Preempted")
-	ReportEvictedWorkloads("cluster_queue1", "Evicted")
+	ReportEvictedWorkloads("cluster_queue1", "Preempted", "")
+	ReportEvictedWorkloads("cluster_queue1", "Evicted", "")
 
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
