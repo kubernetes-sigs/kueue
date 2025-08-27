@@ -1168,17 +1168,3 @@ func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 	}
 	return false
 }
-
-func ClearNodesToReplace(ctx context.Context, cl client.Client, wlKey types.NamespacedName, clk clock.Clock) error {
-	var wlToPatch kueue.Workload
-	if err := cl.Get(ctx, wlKey, &wlToPatch); err != nil {
-		return err
-	}
-	if wlToPatch.Status.TopologyAssignmentRecovery == nil || len(wlToPatch.Status.TopologyAssignmentRecovery.NodesToReplace) == 0 {
-		return nil
-	}
-	// currently TopologyAssignmentRecovery has only a single field
-	// so clearing this field means clearing the whole struct
-	wlToPatch.Status.TopologyAssignmentRecovery = nil
-	return ApplyAdmissionStatus(ctx, cl, &wlToPatch, true, clk)
-}
