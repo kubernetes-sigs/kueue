@@ -588,26 +588,6 @@ files:
     continueOnError: true
     operations:
       - type: UPDATE
-        key: .spec.tls.[].secretName
-        value: '"{{ .Values.kueueViz.backend.ingress.tlsSecretName | default \"kueueviz-backend-tls\" }}"'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
-        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
-      - type: UPDATE
-        key: .spec.tls.[].secretName
-        value: '"{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default \"kueueviz-frontend-tls\" }}"'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
-        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
-      - type: UPDATE
-        key: .spec.tls.[].hosts
-        value: '["{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"]'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
-        onItemCondition: '.spec.tls.[].hosts.[] == "backend.kueueviz.local"'
-      - type: UPDATE
-        key: .spec.tls.[].hosts
-        value: '["{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"]'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
-        onItemCondition: '.spec.tls.[].hosts.[] == "frontend.kueueviz.local"'
-      - type: UPDATE
         key: .spec.rules[0].host
         value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
@@ -690,6 +670,64 @@ files:
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.backend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.frontend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.frontend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.backend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         key: .spec.template.spec
         value: |

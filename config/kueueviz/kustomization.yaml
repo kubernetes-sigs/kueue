@@ -11,3 +11,11 @@ labels:
 
 resources:
   - ../components/kueueviz/
+
+patches:
+# Add ingress annotations and tls config for nginx backend ingress controller
+- path: backend_ingress_patch.yaml
+# Add ingress annotations and tls config for nginx frontend ingress controller
+- path: frontend_ingress_patch.yaml
+# Add environment variables for frontend deployment
+- path: frontend_deployment_patch.yaml
