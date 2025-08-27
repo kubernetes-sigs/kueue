@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -827,22 +826,24 @@ func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
 // - lastActiveTime (pods that were active last are first)
 // - creation timestamp (newer pods are first)
 func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
-	sort.Slice(inactivePods, func(i, j int) bool {
-		pi := &inactivePods[i]
-		pj := &inactivePods[j]
+	slices.SortFunc(inactivePods, func(pi, pj corev1.Pod) int {
 		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
 		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
 		if iFin != jFin {
-			return iFin
+			if iFin {
+				return -1
+			}
+			return 1
 		}
 
-		iLastActive := lastActiveTime(clock, pi)
-		jLastActive := lastActiveTime(clock, pj)
+		iLastActive := lastActiveTime(clock, &pi)
+		jLastActive := lastActiveTime(clock, &pj)
 
-		if iLastActive.Equal(jLastActive) {
-			return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
+		cmp := jLastActive.Compare(iLastActive)
+		if cmp == 0 {
+			return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
 		}
-		return jLastActive.Before(iLastActive)
+		return cmp
 	})
 }
 
@@ -852,22 +853,27 @@ func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 // - creation timestamp (newer pods are last)
 func sortActivePods(activePods []corev1.Pod) {
 	// Sort active pods by creation timestamp
-	sort.Slice(activePods, func(i, j int) bool {
-		pi := &activePods[i]
-		pj := &activePods[j]
+	slices.SortFunc(activePods, func(pi, pj corev1.Pod) int {
 		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
 		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
 		// Prefer to keep pods that have a finalizer.
 		if iFin != jFin {
-			return iFin
+			if iFin {
+				return -1
+			}
+			return 1
 		}
-		iGated := isGated(pi)
-		jGated := isGated(pj)
+		iGated := isGated(&pi)
+		jGated := isGated(&pj)
 		// Prefer to keep pods that aren't gated.
 		if iGated != jGated {
-			return !iGated
+			if !iGated {
+				return -1
+			}
+			return 1
 		}
-		return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
+
+		return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
 	})
 }
 

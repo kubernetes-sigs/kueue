@@ -17,7 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
-	"sort"
+	stdcmp "cmp"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -4159,8 +4160,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					FailureReason: ps.wantReason,
 				}
 				if ps.wantAssignment != nil {
-					sort.Slice(ps.wantAssignment.Domains, func(i, j int) bool {
-						return utiltas.DomainID(ps.wantAssignment.Domains[i].Values) < utiltas.DomainID(ps.wantAssignment.Domains[j].Values)
+					slices.SortFunc(ps.wantAssignment.Domains, func(a, b kueue.TopologyDomainAssignment) int {
+						return stdcmp.Compare(utiltas.DomainID(a.Values), utiltas.DomainID(b.Values))
 					})
 					wantPodSetResult.TopologyAssignment = ps.wantAssignment
 				}
