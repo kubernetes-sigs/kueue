@@ -14,8 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +kubebuilder:object:generate=true
-// +groupName=kueue.x-k8s.io
-// +k8s:openapi-gen=true
+// openapi generated definitions.
 
-package v1beta1
+package openapi

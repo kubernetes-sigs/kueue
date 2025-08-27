@@ -202,7 +202,7 @@ lq1    cq1            1                   1                    60m
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewClientset(tc.objs...))
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}
