@@ -222,6 +222,10 @@ kueueViz:
     imagePullSecrets: []
     # -- Enable PriorityClass for KueueViz dashboard backend deployments
     priorityClassName:
+    # -- Environment variables for KueueViz backend deployment
+    env:
+      - name: KUEUEVIZ_ALLOWED_ORIGINS
+        value: "frontend.kueueviz.local"
     ingress:
       # -- KueueViz dashboard backend ingress annotations
       annotations:
