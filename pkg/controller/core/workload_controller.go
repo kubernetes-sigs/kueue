@@ -183,16 +183,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
-		if !workload.HasTopologyAssignmentWithNodeToReplace(&wl) {
-			r.log.V(3).Info("Clearing NodesToReplace field from Workload", "nodesToReplace", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
-			if err := workload.ClearNodesToReplace(ctx, r.client, types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}, r.clock); err != nil {
-				r.log.V(3).Info("Failed to clear nodesToReplace list from Workload")
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 			wl.Spec.Active = ptr.To(false)

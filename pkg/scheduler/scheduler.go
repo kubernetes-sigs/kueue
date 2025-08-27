@@ -333,6 +333,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 		}
 
+		if features.Enabled(features.TopologyAwareScheduling) && mode == flavorassigner.Fit && e.Obj.Status.TopologyAssignmentRecovery != nil {
+			log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
+			e.Obj.Status.TopologyAssignmentRecovery = nil
+		}
+
 		e.status = nominated
 		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)

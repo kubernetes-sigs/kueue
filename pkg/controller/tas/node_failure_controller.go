@@ -218,9 +218,9 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 	return affectedWorkloads, nil
 }
 
-// evictWorkload idempotently evicts the workload when the node has failed.
+// evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
-func (r *nodeFailureReconciler) evictWorkload(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
 	if wl.Status.TopologyAssignmentRecovery != nil && !slices.Contains(wl.Status.TopologyAssignmentRecovery.NodesToReplace, nodeName) && !workload.IsEvicted(wl) {
 		log := r.log.WithValues("failedNodes", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
 		log.V(3).Info("Evicting workload due to multiple node failures")
@@ -254,7 +254,7 @@ func (r *nodeFailureReconciler) handleFailedNode(ctx context.Context, nodeName s
 			continue
 		}
 		// evict workload when workload already has a different node marked for replacement
-		evictedNow, err := r.evictWorkload(ctx, &wl, nodeName)
+		evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
