@@ -223,6 +223,10 @@ kueueViz:
     # -- Enable PriorityClass for KueueViz dashboard backend deployments
     priorityClassName:
     ingress:
+      # -- KueueViz dashboard backend ingress annotations
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
       # -- KueueViz dashboard backend ingress class name
       ingressClassName:
       # -- KueueViz dashboard backend ingress host
@@ -248,6 +252,10 @@ kueueViz:
     # -- Enable PriorityClass for KueueViz dashboard frontend deployments
     priorityClassName:
     ingress:
+      # -- KueueViz dashboard frontend ingress annotations
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
       # -- KueueViz dashboard frontend ingress class name
       ingressClassName:
       # -- KueueViz dashboard frontend ingress host
