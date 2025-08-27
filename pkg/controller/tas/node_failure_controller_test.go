@@ -259,14 +259,13 @@ func TestNodeFailureReconciler(t *testing.T) {
 			for _, fg := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, true)
 			}
-			ctx := t.Context()
 			fakeClock.SetTime(testStartTime)
 
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(tc.initObjs...).
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-
+			ctx, _ := utiltesting.ContextWithLog(t)
 			err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			if err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)

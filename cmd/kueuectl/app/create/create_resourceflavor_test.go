@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestResourceFlavorOptions_parseTaints(t *testing.T) {
@@ -357,7 +358,8 @@ func TestResourceFlavorCmd(t *testing.T) {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 
-			gotRf, err := clientset.KueueV1beta1().ResourceFlavors().Get(t.Context(), tc.rfName, metav1.GetOptions{})
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotRf, err := clientset.KueueV1beta1().ResourceFlavors().Get(ctx, tc.rfName, metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				t.Error(err)
 				return

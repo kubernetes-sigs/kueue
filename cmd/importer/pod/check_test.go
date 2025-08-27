@@ -155,7 +155,7 @@ func TestCheckNamespace(t *testing.T) {
 			builder = builder.WithLists(&podsList, &cqList, &lqList, &rfList)
 
 			client := builder.Build()
-			ctx := t.Context()
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, nil)
 			gotErr := Check(ctx, client, mpc, 8)

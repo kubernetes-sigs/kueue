@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-	testingworkload "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestWorkloadCmd(t *testing.T) {
@@ -61,14 +61,14 @@ func TestWorkloadCmd(t *testing.T) {
 		"shouldn't delete a workload and its corresponding job without confirmation": {
 			args: []string{"wl1"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -87,8 +87,8 @@ Do you want to proceed (y/n)? Deletion is canceled
 		"should delete just a workload without confirmation because there is no associated job requiring it": {
 			args: []string{"wl2"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
@@ -96,7 +96,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -121,8 +121,8 @@ Do you want to proceed (y/n)? Deletion is canceled
 			args:  []string{"wl1"},
 			input: "y\n",
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
@@ -130,8 +130,8 @@ Do you want to proceed (y/n)? Deletion is canceled
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				*testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -150,8 +150,8 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 		"should delete jobs corresponding to the workload with yes flag": {
 			args: []string{"wl1", "--yes"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
@@ -159,8 +159,8 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				*testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -176,9 +176,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 		"should delete all jobs corresponding to the workloads and any workloads without corresponding jobs in default namespace": {
 			args: []string{"--all", "--yes"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
-				testingworkload.MakeWorkload("wl3", "test").Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				utiltesting.MakeWorkload("wl3", "test").Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
@@ -186,8 +186,8 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				*testingworkload.MakeWorkload("wl3", "test").Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl3", "test").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -204,9 +204,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 		"should delete all jobs corresponding to the workloads and any workloads without corresponding jobs in all namespaces": {
 			args: []string{"--all", "-y", "-A"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
-				testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
-				testingworkload.MakeWorkload("wl3", "test").Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+				utiltesting.MakeWorkload("wl3", "test").Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
@@ -214,7 +214,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -231,14 +231,14 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 		"shouldn't delete the jobs corresponding to the workloads jobs when using client dry-run flag": {
 			args: []string{"wl1", "--dry-run", "client"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -254,14 +254,14 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 		"shouldn't delete the jobs corresponding to the workloads jobs when using server dry-run flag": {
 			args: []string{"wl1", "--dry-run", "server"},
 			workloads: []runtime.Object{
-				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			jobs: []runtime.Object{
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
-				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
@@ -351,8 +351,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
 				t.Errorf("Unexpected error output (-want/+got)\n%s", diff)
 			}
+			ctx, _ := utiltesting.ContextWithLog(t)
 
-			gotWorkloadList, err := clientset.KueueV1beta1().Workloads(tc.ns).List(t.Context(), metav1.ListOptions{})
+			gotWorkloadList, err := clientset.KueueV1beta1().Workloads(tc.ns).List(ctx, metav1.ListOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -365,7 +366,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			}
 
 			unstructured, err := dynamicClient.Resource(mapping.Resource).Namespace(metav1.NamespaceDefault).
-				List(t.Context(), metav1.ListOptions{})
+				List(ctx, metav1.ListOptions{})
 			if err != nil {
 				t.Error(err)
 				return

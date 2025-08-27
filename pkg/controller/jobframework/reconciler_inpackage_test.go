@@ -17,7 +17,6 @@ limitations under the License.
 package jobframework
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -32,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -133,7 +133,6 @@ func testWorkload(t *testing.T, job GenericJob) *kueue.Workload {
 
 func Test_prepareWorkloadSlice(t *testing.T) {
 	type args struct {
-		ctx  context.Context
 		clnt client.Client
 		job  GenericJob
 		wl   *kueue.Workload
@@ -156,7 +155,6 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 	}{
 		"FailureRetrievingWorkloads": {
 			args: args{
-				ctx: t.Context(),
 				// Intentionally using a scheme that doesn’t register Kueue types to trigger a failure.
 				clnt: fake.NewClientBuilder().Build(),
 				job: &mockJob{
@@ -168,7 +166,6 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 		},
 		"NoExistingWorkloads": {
 			args: args{
-				ctx:  t.Context(),
 				clnt: testClient().Build(),
 				job:  testJob(1),
 				wl:   testWorkload(t, testJob(1)),
@@ -179,7 +176,6 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 		},
 		"OneExistingWorkload": {
 			args: args{
-				ctx: t.Context(),
 				clnt: testClient().WithLists(&kueue.WorkloadList{
 					Items: []kueue.Workload{
 						*testWorkload(t, testJob(1)),
@@ -198,7 +194,6 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 		},
 		"MoreThanOneExistingWorkload": {
 			args: args{
-				ctx: t.Context(),
 				clnt: testClient().WithLists(&kueue.WorkloadList{
 					Items: []kueue.Workload{
 						*testWorkload(t, testJob(1)),
@@ -216,7 +211,8 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := prepareWorkloadSlice(tt.args.ctx, tt.args.clnt, tt.args.job, tt.args.wl)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			err := prepareWorkloadSlice(ctx, tt.args.clnt, tt.args.job, tt.args.wl)
 			if (err != nil) != tt.want.err {
 				t.Errorf("prepareWorkloadSlice() error = %v, wantErr %v", err, tt.want.err)
 				return

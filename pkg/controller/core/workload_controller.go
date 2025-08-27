@@ -217,12 +217,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	} else {
 		var updated, evicted bool
+		var underlyingCause string
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 			if dtCond != nil {
-				reason = fmt.Sprintf("%sDueTo%s", reason, dtCond.Reason)
+				underlyingCause = dtCond.Reason
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 			}
 			updated = true
@@ -237,7 +238,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		if updated {
 			if evicted {
-				if err := workload.Evict(ctx, r.client, r.recorder, &wl, reason, "", message, r.clock); err != nil {
+				if err := workload.Evict(ctx, r.client, r.recorder, &wl, reason, underlyingCause, message, r.clock); err != nil {
 					if !apierrors.IsNotFound(err) {
 						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 					}

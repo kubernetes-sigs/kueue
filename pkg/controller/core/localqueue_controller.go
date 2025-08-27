@@ -172,7 +172,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if r.admissionFSConfig != nil && features.Enabled(features.AdmissionFairSharing) {
+	if afs.Enabled(r.admissionFSConfig) {
 		updated := r.initializeAdmissionFsStatus(&queueObj)
 		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time)
 		lqKey := utilqueue.Key(&queueObj)

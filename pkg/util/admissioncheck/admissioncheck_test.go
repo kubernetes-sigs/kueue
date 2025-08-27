@@ -32,6 +32,7 @@ import (
 )
 
 func TestConfigHelper(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
 	testConfig := utiltesting.MakeProvisioningRequestConfig("config").
 		ProvisioningClass("className").
 		WithParameter("p1", "v1").
@@ -104,7 +105,7 @@ func TestConfigHelper(t *testing.T) {
 				builder = builder.WithObjects(tc.config)
 			}
 			client := builder.Build()
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			helper, err := NewConfigHelper[*kueue.ProvisioningRequestConfig](client)
@@ -207,7 +208,8 @@ func TestFilterCheckStates(t *testing.T) {
 				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionchecks})
 			}
 			client := builder.Build()
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			gotResult, _ := FilterForController(ctx, client, tc.states, "test-controller")

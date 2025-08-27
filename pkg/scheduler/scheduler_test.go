@@ -3697,7 +3697,8 @@ func TestEntryOrdering(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
-			iter := makeIterator(t.Context(), tc.input, tc.workloadOrdering, false)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))
 			for i := range tc.input {
 				order[i] = iter.pop().Obj.Name

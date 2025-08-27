@@ -19,13 +19,14 @@ package cache
 import (
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
 
@@ -343,7 +344,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log, _ := logr.FromContext(t.Context())
+			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
 			for _, node := range nodes {
 				s.addNode(node)
@@ -353,6 +354,76 @@ func TestMergeTopologyAssignments(t *testing.T) {
 			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestHasLevel(t *testing.T) {
+	levels := []string{"level-1", "level-2"}
+
+	testCases := map[string]struct {
+		podSetTopologyRequest *kueue.PodSetTopologyRequest
+		want                  bool
+	}{
+		"topology request nil": {
+			podSetTopologyRequest: nil,
+			want:                  false,
+		},
+		"topology request empty": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{},
+			want:                  false,
+		},
+		"required": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To("level-1"),
+			},
+			want: true,
+		},
+		"required – invalid level": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To("invalid-level"),
+			},
+			want: false,
+		},
+		"preferred": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				Preferred: ptr.To("level-1"),
+			},
+			want: true,
+		},
+		"preferred – invalid level": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				Preferred: ptr.To("invalid-level"),
+			},
+			want: false,
+		},
+		"unconstrained": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				Unconstrained: ptr.To(true),
+			},
+			want: true,
+		},
+		"slice-only": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To("level-1"),
+			},
+			want: true,
+		},
+		"slice-only – invalid level": {
+			podSetTopologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To("invalid-level"),
+			},
+			want: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			got := s.HasLevel(tc.podSetTopologyRequest)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
 			}
 		})
 	}

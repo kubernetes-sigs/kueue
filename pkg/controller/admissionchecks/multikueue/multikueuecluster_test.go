@@ -98,6 +98,7 @@ func makeTestSecret(name string, kubeconfig string) corev1.Secret {
 }
 
 func TestUpdateConfig(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cancelCalledCount := 0
 	cancelCalled := func() { cancelCalledCount++ }
 
@@ -148,7 +149,7 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "worker1 kubeconfig"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -173,7 +174,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -201,10 +202,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "invalid"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "invalid", nil),
+				"worker1": newTestClient(ctx, "invalid", nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -224,7 +225,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -244,8 +245,8 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "worker1 kubeconfig", cancelCalled),
-				"worker2": newTestClient(t.Context(), "worker2 kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, "worker1 kubeconfig", cancelCalled),
+				"worker2": newTestClient(ctx, "worker2 kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -272,10 +273,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "nowatch"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(t.Context(), "nowatch", nil), 1),
+				"worker1": setReconnectState(newTestClient(ctx, "nowatch", nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -300,10 +301,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "nowatch"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(t.Context(), "nowatch", cancelCalled), 2),
+				"worker1": setReconnectState(newTestClient(ctx, "nowatch", cancelCalled), 2),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(t.Context(), "nowatch", nil), 3),
+				"worker1": setReconnectState(newTestClient(ctx, "nowatch", nil), 3),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -328,10 +329,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "good config"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(t.Context(), "nowatch", cancelCalled), 5),
+				"worker1": setReconnectState(newTestClient(ctx, "nowatch", cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "good config", nil),
+				"worker1": newTestClient(ctx, "good config", nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -355,10 +356,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "invalid"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(t.Context(), "nowatch", cancelCalled), 5),
+				"worker1": setReconnectState(newTestClient(ctx, "nowatch", cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(t.Context(), "invalid", nil),
+				"worker1": newTestClient(ctx, "invalid", nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -373,7 +374,8 @@ func TestUpdateConfig(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
 			builder = builder.WithLists(&kueue.MultiKueueClusterList{Items: tc.clusters})
 			builder = builder.WithLists(&corev1.SecretList{Items: tc.secrets})
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
@@ -382,15 +384,15 @@ func TestUpdateConfig(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters)
 
-			reconciler.rootContext = t.Context()
+			reconciler.rootContext = ctx
 
 			if len(tc.remoteClients) > 0 {
 				reconciler.remoteClients = tc.remoteClients
 			}
-			reconciler.builderOverride = fakeClientBuilder(t.Context())
+			reconciler.builderOverride = fakeClientBuilder(ctx)
 
 			cancelCalledCount = 0
-			res, gotErr := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if gotErr != nil {
 				t.Errorf("unexpected reconcile error: %s", gotErr)
 			}
@@ -404,7 +406,7 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			lst := &kueue.MultiKueueClusterList{}
-			gotErr = c.List(t.Context(), lst)
+			gotErr = c.List(ctx, lst)
 			if gotErr != nil {
 				t.Errorf("unexpected list clusters error: %s", gotErr)
 			}
@@ -532,11 +534,12 @@ func TestRemoteClientGC(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manageBuilder := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			manageBuilder := getClientBuilder(ctx)
 			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
 			managerClient := manageBuilder.Build()
 
-			worker1Builder := getClientBuilder(t.Context())
+			worker1Builder := getClientBuilder(ctx)
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
 			worker1Client := worker1Builder.Build()
 
@@ -545,10 +548,10 @@ func TestRemoteClientGC(t *testing.T) {
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)
 
-			w1remoteClient.runGC(t.Context())
+			w1remoteClient.runGC(ctx)
 
 			gotWorker1Workloads := &kueue.WorkloadList{}
-			err := worker1Client.List(t.Context(), gotWorker1Workloads)
+			err := worker1Client.List(ctx, gotWorker1Workloads)
 			if err != nil {
 				t.Error("unexpected list worker's workloads error")
 			}
@@ -558,7 +561,7 @@ func TestRemoteClientGC(t *testing.T) {
 			}
 
 			gotWorker1Job := &batchv1.JobList{}
-			err = worker1Client.List(t.Context(), gotWorker1Job)
+			err = worker1Client.List(ctx, gotWorker1Job)
 			if err != nil {
 				t.Error("unexpected list worker's jobs error")
 			}

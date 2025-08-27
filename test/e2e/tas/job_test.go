@@ -303,5 +303,61 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
 			})
 		})
+
+		ginkgo.It("Should place pods based on the ranks-ordering even if the Job has no TAS annotation (Implicit TAS)", func() {
+			numPods := 4
+			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Parallelism(int32(numPods)).
+				Completions(int32(numPods)).
+				Indexed(true).
+				RequestAndLimit(extraResource, "1").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+			util.MustCreate(ctx, k8sClient, sampleJob)
+
+			ginkgo.By("Job is unsuspended, and has all Pods active and ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					g.Expect(sampleJob.Status.Active).Should(gomega.Equal(int32(numPods)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					g.Expect(sampleJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](int32(numPods))))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are created and scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+					client.MatchingLabels(sampleJob.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+				gotAssignment := make(map[string]string, numPods)
+				for _, pod := range pods.Items {
+					index := pod.Labels[batchv1.JobCompletionIndexAnnotation]
+					gotAssignment[index] = pod.Spec.NodeName
+				}
+				wantAssignment := map[string]string{
+					"0": "kind-worker",
+					"1": "kind-worker2",
+					"2": "kind-worker3",
+					"3": "kind-worker4",
+				}
+				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+			})
+		})
 	})
 })
