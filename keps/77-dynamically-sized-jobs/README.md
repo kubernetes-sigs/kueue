@@ -30,13 +30,15 @@
     - [Scale Down](#scale-down)
     - [Scale Up](#scale-up)
   - [Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration](#phase-2--raycluster-workloadslice-support-in-single-cluster-configuration)
+    - [Scale Down](#scale-down-1)
+    - [Scale Up](#scale-up-1)
   - [Phase 3 – Enabling Workload Slicing for batch/v1.Job in Multi-Cluster Configuration](#phase-3--enabling-workload-slicing-for-batchv1job-in-multi-cluster-configuration)
 - [Additional Details](#additional-details)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
-    - [Scale-down](#scale-down-1)
-    - [Scale-Down](#scale-down-2)
+    - [Scale-down](#scale-down-2)
+    - [Scale-Down](#scale-down-3)
     - [Resource Flavor Handling](#resource-flavor-handling)
   - [Graduation Criteria](#graduation-criteria)
   - [PodScheduling Readiness and ResourceQuota](#podscheduling-readiness-and-resourcequota)
@@ -325,6 +327,29 @@ Scaling up and down for `batch/v1.Job` will be the initial phase of the MVP, as 
 
 ### Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration
 This phase mirrors the steps from Phase 1 but is adapted specifically for RayCluster workloads, taking into account their autoscaling behavior and internal lifecycle management.
+
+
+#### Scale Down
+
+1. Create a `RayCluster` with workload-slice enablement, consisting of a head node and a worker group with 2 replicas. Both the head node and each replica in the worker group request 1 CPU core for a total of 3 CPU cores.
+2. Verify that a corresponding `Workload` is created, containing 2 `PodSets`, and that it is admitted. You should observe 3 pods in the `Running` state: one for the head node and two for the two worker group replicas.
+3. Update the job by reducing the number of replicas in the worker group from 2 to 1.
+4. Confirm that the existing `Workload` is updated accordingly:
+   - `WorkloadSpec.PodSets[0].Count` (for the head node) remains equal to 1.
+   - `WorkloadSpec.PodSets[1].Count` (for the worker group) is equal to 1 (down from 2).
+5. Observe that the number of running pods is reduced, while the remaining pods continue to run uninterrupted.
+6. Also observe that the ClusterQueue reflects the 2 CPUs that the RayCluster uses.
+
+#### Scale Up
+
+1. Create a `RayCluster` with workload-slice enablement, consisting of a head node and a worker group with 1 replica. Both the head node and each replica in the worker group request 1 CPU core.
+2. Verify that a corresponding `Workload` is created and admitted, and that there are 2 pods belonging to the `RayCluster` in the Running state: one for the head node and one for the worker group replica.
+3. Update the job by increasing the number of replicas in the worker group from 1 to 2.
+4. Confirm that a new `Workload` slice is created and admitted, reflecting the increased pod count, while the previous slice is marked as `Finished`. The new `Workload` reflects the current state of the `RayCluster`:
+   - `WorkloadSpec.PodSets[0].Count` (for the head node) is equal to 1.
+   - `WorkloadSpec.PodSets[1].Count` (for the worker group) is equal to 2.
+5. Observe that the total number of running pods increases to 3 to match the updated replica count, with the original pods continuing to run without disruption.
+6. Also observe that the ClusterQueue reflects the 3 CPUs that the RayCluster uses.
 
 ### Phase 3 – Enabling Workload Slicing for batch/v1.Job in Multi-Cluster Configuration
 In this phase, Workload Slicing support for batch/v1.Job will be extended to multi-cluster environments using Kueue’s MultiKueue architecture. 
