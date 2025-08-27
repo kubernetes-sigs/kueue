@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -84,14 +85,23 @@ func NewCandidateIterator(
 ) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
-	sort.Slice(sameQueueCandidates, func(i, j int) bool {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	slices.SortFunc(sameQueueCandidates, func(a, b *candidateElem) int {
+		if ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now()) {
+			return -1
+		}
+		return 1
 	})
-	sort.Slice(priorityCandidates, func(i, j int) bool {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	slices.SortFunc(priorityCandidates, func(a, b *candidateElem) int {
+		if ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now()) {
+			return -1
+		}
+		return 1
 	})
-	sort.Slice(hierarchyCandidates, func(i, j int) bool {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	slices.SortFunc(hierarchyCandidates, func(a, b *candidateElem) int {
+		if ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now()) {
+			return -1
+		}
+		return 1
 	})
 
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
