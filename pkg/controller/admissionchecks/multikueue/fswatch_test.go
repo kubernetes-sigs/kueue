@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/utils/set"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -145,8 +146,11 @@ func TestFSWatch(t *testing.T) {
 					t.Fatalf("unexpected prepare error: %s", err)
 				}
 			}
-			ctx, _ := utiltesting.ContextWithLog(t)
+			// Using an empty context here to avoid a race condition with the test context when setting the logger.
+			ctx := context.Background()
+			ctrl.LoggerInto(ctx, utiltesting.NewLogger(t))
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
+			defer cancel()
 			watcher := newKubeConfigFSWatcher()
 
 			// start the recorder
@@ -196,7 +200,9 @@ func TestFSWatch(t *testing.T) {
 }
 
 func TestFSWatchAddRm(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	// Using an empty context here to avoid a race condition with the test context when setting the logger.
+	ctx := context.Background()
+	ctrl.LoggerInto(ctx, utiltesting.NewLogger(t))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	basePath := t.TempDir()
