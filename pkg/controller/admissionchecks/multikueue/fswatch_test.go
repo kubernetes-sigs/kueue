@@ -212,7 +212,6 @@ func TestFSWatchAddRm(t *testing.T) {
 	f3Path := filepath.Join(f3Dir, "file.three")
 	steps := []struct {
 		name               string
-		skipOnDarwin       bool
 		opFnc              func(*KubeConfigFSWatcher) error
 		wantOpErr          error
 		wantClustersToFile map[string]string
@@ -316,12 +315,6 @@ func TestFSWatchAddRm(t *testing.T) {
 		},
 		{
 			name: "add fourth cluster, missing dir ",
-			// For some reason on the Darwin platform, when we try to add an invalid directory,
-			// an error is returned, but it is also added to the watchlist, so we don't have
-			// the same result as we expected.
-			// It's not critical to test it on MacOS, so we can skip it for now until it's
-			// fixed https://github.com/fsnotify/fsnotify/issues/637.
-			skipOnDarwin: true,
 			opFnc: func(kcf *KubeConfigFSWatcher) error {
 				return kcf.AddOrUpdate("c4", f3Path)
 			},
@@ -450,10 +443,6 @@ func TestFSWatchAddRm(t *testing.T) {
 	w := newKubeConfigFSWatcher()
 
 	for _, tc := range steps {
-		if tc.skipOnDarwin && runtime.GOOS == "darwin" {
-			continue
-		}
-
 		t.Run(tc.name, func(t *testing.T) {
 			gotErr := tc.opFnc(w)
 			if diff := cmp.Diff(tc.wantOpErr, gotErr, cmpopts.EquateErrors()); diff != "" {
