@@ -2897,10 +2897,7 @@ func TestCandidatesOrdering(t *testing.T) {
 	for _, tc := range cases {
 		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
 		stdslices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			if CandidatesOrdering(log, tc.admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now) {
-				return -1
-			}
-			return 1
+			return CandidatesOrdering(log, tc.admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)

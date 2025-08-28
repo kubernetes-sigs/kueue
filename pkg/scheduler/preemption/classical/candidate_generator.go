@@ -81,27 +81,18 @@ func NewCandidateIterator(
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	snapshot *schdcache.Snapshot,
 	clock clock.Clock,
-	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool,
+	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 	slices.SortFunc(sameQueueCandidates, func(a, b *candidateElem) int {
-		if ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now()) {
-			return -1
-		}
-		return 1
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 	slices.SortFunc(priorityCandidates, func(a, b *candidateElem) int {
-		if ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now()) {
-			return -1
-		}
-		return 1
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 	slices.SortFunc(hierarchyCandidates, func(a, b *candidateElem) int {
-		if ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now()) {
-			return -1
-		}
-		return 1
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
