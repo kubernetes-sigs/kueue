@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package incrementaldispatcher
+package dispatcher
 
 import (
 	"context"
@@ -24,10 +24,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,16 +43,14 @@ import (
 
 func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	const (
-		workloadName  = "test-workload"
-		testNamespace = "test-namespace"
+		workloadName = "test-workload"
 	)
 
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	baseWorkloadBuilder := utiltesting.MakeWorkload(workloadName, testNamespace)
+	baseWorkload := utiltesting.MakeWorkload(workloadName, metav1.NamespaceDefault)
 
-	tests := []struct {
-		name           string
+	tests := map[string]struct {
 		dispatcherName string
 		workload       *kueue.Workload
 		mkAcState      *kueue.AdmissionCheckState
@@ -60,58 +58,50 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		remoteClusters []string
 		clusters       []kueue.MultiKueueCluster
 	}{
-		{
-			name:           "dispatcher name mismatch",
+		"dispatcher name mismatch": {
 			dispatcherName: "other",
-			workload:       baseWorkloadBuilder.DeepCopy(),
+			workload:       baseWorkload.DeepCopy(),
 		},
-		{
-			name:           "workload not found",
+		"workload not found": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
 			workload:       nil,
 			wantErr:        apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "workloads"}, workloadName),
 		},
-		{
-			name:           "workload deleted",
+		"workload deleted": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
+			workload:       baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
 		},
-		{
-			name:           "admission check nil",
+		"admission check nil": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.DeepCopy(),
+			workload:       baseWorkload.DeepCopy(),
 		},
-		{
-			name:           "admission check is rejected",
+		"admission check is rejected": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.DeepCopy(),
+			workload:       baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateRejected,
 			},
 		},
-		{
-			name:           "admission check is ready",
+		"admission check is ready": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.DeepCopy(),
+			workload:       baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateReady,
 			},
 		},
-		{
-			name:           "already assigned to cluster",
+		"already assigned to cluster": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.Clone().ClusterName("assigned").Obj(),
+			workload:       baseWorkload.Clone().ClusterName("assigned").Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
 			},
 		},
-		{
-			name:           "workload is already finished",
+		"workload is already finished": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.Clone().Finished().Obj(),
+			workload:       baseWorkload.Clone().Finished().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -124,10 +114,9 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		{
-			name:           "workload has quota reserved",
+		"workload has quota reserved": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkloadBuilder.DeepCopy(),
+			workload:       baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -142,9 +131,9 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			objs := []runtime.Object{}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			objs := []client.Object{}
 			if tc.mkAcState != nil {
 				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
 				ac := utiltesting.MakeAdmissionCheck(string(tc.mkAcState.Name)).
@@ -164,14 +153,16 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				objs = append(objs, mkConfig)
 			}
 			scheme := runtime.NewScheme()
-			utilruntime.Must(kueue.AddToScheme(scheme))
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Fail to add to scheme %s", err)
+			}
 
 			if tc.clusters != nil {
 				for _, cluster := range tc.clusters {
 					objs = append(objs, &cluster)
 				}
 			}
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objs...).Build()
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(cl)
 			rec := &IncrementalDispatcherReconciler{
 				client:          cl,
@@ -181,7 +172,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				roundStartTimes: make(map[types.NamespacedName]time.Time),
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: workloadName, Namespace: testNamespace}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: workloadName, Namespace: metav1.NamespaceDefault}}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
@@ -193,43 +184,105 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 
 func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 	const (
-		testNamespace = "default"
-		testName      = "test-wl"
+		testName = "test-wl"
 	)
 
-	testCases := []struct {
-		name               string
-		remoteCount        int
-		preNominated       []string
-		expectNominated    int
-		wantErr            error
-		advanceRoundTime   bool
-		expectNominatedSet []string
+	testCases := map[string]struct {
+		remoteClusters                 sets.Set[string]
+		previousRoundNominatedClusters []string
+		wantNominatedClustersCount     int
+		wantErr                        error
+		advanceRoundTime               bool
+		wantNominatedClusters          []string
 	}{
-		{"one remote", 1, nil, 1, nil, false, []string{"A"}},
-		{"two remotes", 2, nil, 2, nil, false, []string{"A", "B"}},
-		{"three remotes", 3, nil, 3, nil, false, []string{"A", "B", "C"}},
-		{"fifteen remotes", 15, nil, 3, nil, false, []string{"A", "B", "C"}},
-		{"all already nominated (3)", 3, []string{"A", "B", "C"}, 3, ErrNoMoreWorkers, true, []string{"A", "B", "C"}},
-		{"all already nominated (1)", 1, []string{"A"}, 1, ErrNoMoreWorkers, true, []string{"A"}},
-		{"round expired, next set nominated", 6, []string{"A", "B", "C"}, 6, nil, true, []string{"A", "B", "C", "D", "E", "F"}},
-		{"round in progress, keep current", 6, []string{"A", "B", "C"}, 3, nil, false, []string{"A", "B", "C"}},
-		{"round expired, nominate all", 8, []string{"A", "B", "C", "D", "E", "F"}, 8, nil, true, []string{"A", "B", "C", "D", "E", "F", "G", "H"}},
-		{"no remotes", 0, nil, 0, ErrNoMoreWorkers, false, []string{}},
+		"one remote": {
+			remoteClusters:                 sets.New("A"),
+			previousRoundNominatedClusters: nil,
+			wantNominatedClustersCount:     1,
+			wantErr:                        nil,
+			advanceRoundTime:               false,
+			wantNominatedClusters:          []string{"A"},
+		},
+		"two remotes": {
+			remoteClusters:                 sets.New("A", "B"),
+			previousRoundNominatedClusters: nil,
+			wantNominatedClustersCount:     2,
+			wantErr:                        nil,
+			advanceRoundTime:               false,
+			wantNominatedClusters:          []string{"A", "B"},
+		},
+		"three remotes": {
+			remoteClusters:                 sets.New("A", "B", "C"),
+			previousRoundNominatedClusters: nil,
+			wantNominatedClustersCount:     3,
+			wantErr:                        nil,
+			advanceRoundTime:               false,
+			wantNominatedClusters:          []string{"A", "B", "C"},
+		},
+		"fifteen remotes": {
+			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
+			previousRoundNominatedClusters: nil,
+			wantNominatedClustersCount:     3,
+			wantErr:                        nil,
+			advanceRoundTime:               false,
+			wantNominatedClusters:          []string{"A", "B", "C"},
+		},
+		"all already nominated (3)": {
+			remoteClusters:                 sets.New("A", "B", "C"),
+			previousRoundNominatedClusters: []string{"A", "B", "C"},
+			wantNominatedClustersCount:     3,
+			wantErr:                        ErrNoMoreWorkers,
+			advanceRoundTime:               true,
+			wantNominatedClusters:          []string{"A", "B", "C"},
+		},
+		"all already nominated (1)": {
+			remoteClusters:                 sets.New("A"),
+			previousRoundNominatedClusters: []string{"A"},
+			wantNominatedClustersCount:     1,
+			wantErr:                        ErrNoMoreWorkers,
+			advanceRoundTime:               true,
+			wantNominatedClusters:          []string{"A"},
+		},
+		"round expired, next set nominated": {
+			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F"),
+			previousRoundNominatedClusters: []string{"A", "B", "C"},
+			wantNominatedClustersCount:     6,
+			wantErr:                        nil,
+			advanceRoundTime:               true,
+			wantNominatedClusters:          []string{"A", "B", "C", "D", "E", "F"},
+		},
+		"round in progress, keep current": {
+			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F"),
+			previousRoundNominatedClusters: []string{"A", "B", "C"},
+			wantNominatedClustersCount:     3,
+			wantErr:                        nil,
+			advanceRoundTime:               false,
+			wantNominatedClusters:          []string{"A", "B", "C"},
+		},
+		"round expired, nominate all": {
+			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F", "G", "H"),
+			previousRoundNominatedClusters: []string{"A", "B", "C", "D", "E", "F"},
+			wantNominatedClustersCount:     8,
+			wantErr:                        nil,
+			advanceRoundTime:               true,
+			wantNominatedClusters:          []string{"A", "B", "C", "D", "E", "F", "G", "H"},
+		},
+		"no remotes": {
+			remoteClusters:                 make(sets.Set[string]),
+			previousRoundNominatedClusters: nil,
+			wantNominatedClustersCount:     0,
+			wantErr:                        ErrNoMoreWorkers,
+			advanceRoundTime:               false,
+			wantNominatedClusters:          []string{},
+		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			remotes := sets.New[string]()
-			for i := 1; i <= tc.remoteCount; i++ {
-				name := string(rune('A' + i - 1))
-				remotes.Insert(name)
-			}
-
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			wl := &kueue.Workload{}
-			wl.Namespace = testNamespace
+			wl.Namespace = metav1.NamespaceDefault
 			wl.Name = testName
-			wl.Status.NominatedClusterNames = tc.preNominated
+			wl.Status.NominatedClusterNames = tc.previousRoundNominatedClusters
 			wl.Status.AdmissionChecks = []kueue.AdmissionCheckState{
 				{
 					Name:  "ac1",
@@ -238,7 +291,9 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			}
 
 			scheme := runtime.NewScheme()
-			utilruntime.Must(kueue.AddToScheme(scheme))
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Fail to add to scheme %s", err)
+			}
 
 			objs := []client.Object{wl}
 			client := fake.NewClientBuilder().WithScheme(scheme).
@@ -260,29 +315,29 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			key := types.NamespacedName{Namespace: wl.Namespace, Name: wl.Name}
 			if tc.advanceRoundTime {
 				reconciler.roundStartTimes[key] = fakeClock.Now().Add(-incrementalDispatcherRoundTimeout - time.Second)
-			} else if tc.preNominated != nil {
+			} else if tc.previousRoundNominatedClusters != nil {
 				reconciler.roundStartTimes[key] = fakeClock.Now()
 			}
 
 			ctx, log := utiltesting.ContextWithLog(t)
-			_, gotErr := reconciler.nominateWorkers(ctx, wl, remotes, log)
+			_, gotErr := reconciler.nominateWorkers(ctx, wl, tc.remoteClusters, log)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 
-			if tc.wantErr != nil && tc.preNominated != nil {
-				if len(wl.Status.NominatedClusterNames) != len(tc.preNominated) {
+			if tc.wantErr != nil && tc.previousRoundNominatedClusters != nil {
+				if len(wl.Status.NominatedClusterNames) != len(tc.previousRoundNominatedClusters) {
 					t.Errorf("expected nominated clusters to remain unchanged, got %v", wl.Status.NominatedClusterNames)
 				}
 			}
 
-			if tc.advanceRoundTime && tc.expectNominatedSet != nil {
-				if diff := cmp.Diff(tc.expectNominatedSet, wl.Status.NominatedClusterNames); diff != "" {
+			if tc.advanceRoundTime && tc.wantNominatedClusters != nil {
+				if diff := cmp.Diff(tc.wantNominatedClusters, wl.Status.NominatedClusterNames); diff != "" {
 					t.Errorf("unexpected nominated clusters (-want/+got):\n%s", diff)
 				}
-			} else if len(wl.Status.NominatedClusterNames) != tc.expectNominated {
-				t.Errorf("expected %d nominated clusters, got %d: %v", tc.expectNominated, len(wl.Status.NominatedClusterNames), wl.Status.NominatedClusterNames)
+			} else if len(wl.Status.NominatedClusterNames) != tc.wantNominatedClustersCount {
+				t.Errorf("expected %d nominated clusters, got %d: %v", tc.wantNominatedClustersCount, len(wl.Status.NominatedClusterNames), wl.Status.NominatedClusterNames)
 			}
 		})
 	}

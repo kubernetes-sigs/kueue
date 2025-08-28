@@ -22,8 +22,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -213,6 +217,152 @@ func TestFilterCheckStates(t *testing.T) {
 			defer cancel()
 
 			gotResult, _ := FilterForController(ctx, client, tc.states, "test-controller")
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetMultiKueueAdmissionCheck(t *testing.T) {
+	cases := map[string]struct {
+		admissionChecks []kueue.AdmissionCheck
+		workloadACS     []kueue.AdmissionCheckState
+		wantResult      *kueue.AdmissionCheckState
+		wantErr         error
+	}{
+		"empty workload states": {
+			workloadACS: []kueue.AdmissionCheckState{},
+			wantResult:  nil,
+			wantErr:     nil,
+		},
+		"no relevant checks": {
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("check1").ControllerName("other-controller").Obj(),
+				*utiltesting.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
+			},
+			workloadACS: []kueue.AdmissionCheckState{
+				{Name: "check1"},
+				{Name: "check2"},
+			},
+			wantResult: nil,
+			wantErr:    nil,
+		},
+		"one relevant check": {
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("check1").ControllerName(kueue.MultiKueueControllerName).Obj(),
+				*utiltesting.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
+			},
+			workloadACS: []kueue.AdmissionCheckState{
+				{Name: "check1"},
+				{Name: "check2"},
+			},
+			wantResult: &kueue.AdmissionCheckState{Name: "check1"},
+			wantErr:    nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(kueue.AddToScheme(scheme))
+			builder := fake.NewClientBuilder().WithScheme(scheme)
+			if len(tc.admissionChecks) > 0 {
+				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionChecks})
+			}
+			client := builder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
+			workload := &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					AdmissionChecks: tc.workloadACS,
+				},
+			}
+
+			gotResult, err := GetMultiKueueAdmissionCheck(ctx, client, workload)
+
+			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected result (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+func TestGetRemoteClusters(t *testing.T) {
+	acTest := "test-admission-check"
+	cases := map[string]struct {
+		multiKueueConfig *kueue.MultiKueueConfig
+		wantResult       sets.Set[string]
+		wantErr          string
+	}{
+		"no clusters": {
+			multiKueueConfig: &kueue.MultiKueueConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: acTest,
+				},
+				Spec: kueue.MultiKueueConfigSpec{
+					Clusters: []string{},
+				},
+			},
+			wantResult: nil,
+			wantErr:    ErrNoActiveClusters.Error(),
+		},
+		"multiple clusters": {
+			multiKueueConfig: &kueue.MultiKueueConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: acTest,
+				},
+				Spec: kueue.MultiKueueConfigSpec{
+					Clusters: []string{"cluster1", "cluster2"},
+				},
+			},
+			wantResult: sets.New("cluster1", "cluster2"),
+		},
+		"error fetching config": {
+			multiKueueConfig: nil,
+			wantResult:       nil,
+			wantErr:          apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "multikueueconfigs"}, acTest).Error(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(kueue.AddToScheme(scheme))
+
+			builder := fake.NewClientBuilder().WithScheme(scheme)
+			ac := utiltesting.MakeAdmissionCheck(acTest).
+				ControllerName(kueue.MultiKueueControllerName).
+				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", acTest).
+				Obj()
+			builder = builder.WithObjects(ac)
+
+			if tc.multiKueueConfig != nil {
+				builder = builder.WithObjects(tc.multiKueueConfig)
+			}
+			client := builder.Build()
+
+			helper, err := NewMultiKueueStoreHelper(client)
+			if err != nil {
+				t.Fatalf("failed to create MultiKueueStoreHelper: %v", err)
+			}
+
+			ctx := context.Background()
+			gotResult, err := GetRemoteClusters(ctx, helper, kueue.AdmissionCheckReference(acTest))
+
+			if err != nil {
+				if diff := cmp.Diff(tc.wantErr, err.Error()); diff != "" {
+					t.Errorf("unexpected error (-want/+got):\n%s", diff)
+				}
+			}
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected result (-want/+got):\n%s", diff)

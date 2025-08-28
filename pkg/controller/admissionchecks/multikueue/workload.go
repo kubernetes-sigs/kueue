@@ -260,7 +260,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 		}
 	}
 	if len(clients) == 0 {
-		return nil, errors.New("no active clusters")
+		return nil, admissioncheck.ErrNoActiveClusters
 	}
 	return clients, nil
 }
