@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -827,23 +828,20 @@ func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
 // - creation timestamp (newer pods are first)
 func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 	slices.SortFunc(inactivePods, func(pi, pj corev1.Pod) int {
-		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
-		if iFin != jFin {
-			if iFin {
-				return -1
-			}
-			return 1
-		}
-
-		iLastActive := lastActiveTime(clock, &pi)
-		jLastActive := lastActiveTime(clock, &pj)
-
-		cmp := jLastActive.Compare(iLastActive)
-		if cmp == 0 {
-			return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
-		}
-		return cmp
+		return cmputil.LazyOr(
+			func() int {
+				return cmputil.CompareBool(
+					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
+					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
+				)
+			},
+			func() int {
+				return lastActiveTime(clock, &pj).Compare(lastActiveTime(clock, &pi))
+			},
+			func() int {
+				return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+			},
+		)
 	})
 }
 
@@ -854,26 +852,25 @@ func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 func sortActivePods(activePods []corev1.Pod) {
 	// Sort active pods by creation timestamp
 	slices.SortFunc(activePods, func(pi, pj corev1.Pod) int {
-		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
-		// Prefer to keep pods that have a finalizer.
-		if iFin != jFin {
-			if iFin {
-				return -1
-			}
-			return 1
-		}
-		iGated := isGated(&pi)
-		jGated := isGated(&pj)
-		// Prefer to keep pods that aren't gated.
-		if iGated != jGated {
-			if !iGated {
-				return -1
-			}
-			return 1
-		}
-
-		return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+		return cmputil.LazyOr(
+			func() int {
+				// Prefer to keep pods that have a finalizer.
+				return cmputil.CompareBool(
+					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
+					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
+				)
+			},
+			func() int {
+				// Prefer to keep pods that aren't gated.
+				return cmputil.CompareBool(
+					isGated(&pj),
+					isGated(&pi),
+				)
+			},
+			func() int {
+				return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+			},
+		)
 	})
 }
 
