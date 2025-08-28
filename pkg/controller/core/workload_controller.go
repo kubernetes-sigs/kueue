@@ -183,6 +183,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
+		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "nodesToReplace", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
+		return ctrl.Result{}, nil
+	}
+
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 			wl.Spec.Active = ptr.To(false)
