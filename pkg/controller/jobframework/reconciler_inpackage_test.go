@@ -17,6 +17,8 @@ limitations under the License.
 package jobframework
 
 import (
+	"go.uber.org/mock/gomock"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/mock"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -225,42 +227,26 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 }
 
 func TestWorkloadSliceEnabled(t *testing.T) {
-	type args struct {
-		job GenericJob
-	}
 	tests := map[string]struct {
 		featureEnabled bool
-		args           args
+		job            *batchv1.Job
 		want           bool
 	}{
 		"FeatureIsNotEnabled": {
-			args: args{
-				job: &testGenericJob{
-					Job: &batchv1.Job{},
-				},
-			},
+			job: &batchv1.Job{},
 		},
 		"JobIsNil": {
 			featureEnabled: true,
-			args:           args{},
 		},
 		"NotOptIn": {
 			featureEnabled: true,
-			args: args{
-				job: &testGenericJob{
-					Job: &batchv1.Job{},
-				},
-			},
+			job:            &batchv1.Job{},
 		},
 		"OptIn": {
 			featureEnabled: true,
-			args: args{
-				job: &testGenericJob{
-					Job: &batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue},
-						},
-					},
+			job: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue},
 				},
 			},
 			want: true,
@@ -268,12 +254,22 @@ func TestWorkloadSliceEnabled(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			var gj GenericJob
+
+			if tt.job != nil {
+				mgj := mock.NewMockGenericJob(ctrl)
+				mgj.EXPECT().Object().Return(tt.job).AnyTimes()
+				gj = mgj
+			}
+
 			if tt.featureEnabled {
 				if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, true); err != nil {
 					t.Errorf("workloadSliceEnabled() unexpected error enbabling features: %v", err)
 				}
 			}
-			if got := workloadSliceEnabled(tt.args.job); got != tt.want {
+			if got := workloadSliceEnabled(gj); got != tt.want {
 				t.Errorf("workloadSliceEnabled() = %v, want %v", got, tt.want)
 			}
 		})
