@@ -53,7 +53,7 @@ import (
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher/dispatcher"
+	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -299,7 +299,9 @@ func managerAndMultiKueueSetup(
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = dispatcher.SetupControllers(mgr, managersConfigNamespace.Name, dispatcherName)
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+	_, err = dispatcher.SetupControllers(mgr, configuration, dispatcherName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

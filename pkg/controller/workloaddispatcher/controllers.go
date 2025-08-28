@@ -19,21 +19,21 @@ package dispatcher
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher/incrementaldispatcher"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
-func SetupControllers(mgr ctrl.Manager, namespace string, dispatcherName string) error {
+func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, dispatcherName string) (string, error) {
 	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	idRec := incrementaldispatcher.NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, dispatcherName)
-	err = idRec.SetupWithManager(mgr)
+	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, dispatcherName)
+	err = idRec.SetupWithManager(mgr, cfg)
 	if err != nil {
-		return err
+		return "multikueue-incremental-dispatcher", err
 	}
 
-	return nil
+	return "", nil
 }

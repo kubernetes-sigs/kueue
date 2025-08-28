@@ -35,6 +35,7 @@ import (
 var (
 	ErrNilParametersRef = errors.New("missing parameters reference")
 	ErrBadParametersRef = errors.New("bad parameters reference")
+	ErrNoActiveClusters = errors.New("no active clusters")
 )
 
 type objAsPtr[T any] interface {
@@ -179,8 +180,8 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 	return checks
 }
 
-func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, local *kueue.Workload) (*kueue.AdmissionCheckState, error) {
-	relevantChecks, err := FilterForController(ctx, c, local.Status.AdmissionChecks, kueue.MultiKueueControllerName)
+func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.AdmissionCheckState, error) {
+	relevantChecks, err := FilterForController(ctx, c, wl.Status.AdmissionChecks, kueue.MultiKueueControllerName)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +190,7 @@ func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, local *ku
 		return nil, nil
 	}
 
-	for _, check := range local.Status.AdmissionChecks {
+	for _, check := range wl.Status.AdmissionChecks {
 		if check.Name == relevantChecks[0] {
 			return &check, nil
 		}
@@ -203,13 +204,8 @@ func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acNam
 		return nil, err
 	}
 	if len(cfg.Spec.Clusters) == 0 {
-		return nil, errors.New("no active clusters")
+		return nil, ErrNoActiveClusters
 	}
 
-	remoteClusters := sets.New[string]()
-	for _, clusterName := range cfg.Spec.Clusters {
-		remoteClusters.Insert(clusterName)
-	}
-
-	return remoteClusters, nil
+	return sets.New(cfg.Spec.Clusters...), nil
 }
