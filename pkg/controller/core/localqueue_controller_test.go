@@ -35,9 +35,9 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -513,7 +513,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Build()
 
 			ctxWithLogger, log := utiltesting.ContextWithLog(t)
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -521,7 +521,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			for _, wl := range tc.runningWls {
 				cqCache.AddOrUpdateWorkload(log, &wl)
 			}
-			qManager := queue.NewManager(cl, cqCache)
+			qManager := qcache.NewManager(cl, cqCache)
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

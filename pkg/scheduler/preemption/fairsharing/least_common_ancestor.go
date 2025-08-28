@@ -14,7 +14,7 @@
 
 package fairsharing
 
-import "sigs.k8s.io/kueue/pkg/cache"
+import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 
 // almostLCA is defined on two ClusterQueues, as the two nodes before
 // the lowest shared node - the LeastCommonAncestor (LCA). While LCA
@@ -32,7 +32,7 @@ func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
 // getLCA traverses from a ClusterQueue towards the root Cohort,
 // returning the first Cohort which contains the preemptor
 // ClusterQueue in its subtree.
-func getLCA(t *TargetClusterQueue) *cache.CohortSnapshot {
+func getLCA(t *TargetClusterQueue) *schdcache.CohortSnapshot {
 	for ancestor := range t.targetCq.PathParentToRoot() {
 		if t.ordering.onPathFromRootToPreemptorCQ(ancestor) {
 			return ancestor
@@ -45,7 +45,7 @@ func getLCA(t *TargetClusterQueue) *cache.CohortSnapshot {
 // getAlmostLCA traverses from a ClusterQueue towards the root,
 // returning the first Cohort or ClusterQueue that has the
 // LeastCommonAncestor as its parent.
-func getAlmostLCA(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot) almostLCA {
+func getAlmostLCA(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot) almostLCA {
 	var aLca almostLCA = cq
 	for ancestor := range cq.PathParentToRoot() {
 		if ancestor == lca {

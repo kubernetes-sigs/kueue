@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -61,13 +61,13 @@ func (m preemptionVariant) PreemptionReason() string {
 type HierarchicalPreemptionCtx struct {
 	Log               logr.Logger
 	Wl                *kueue.Workload
-	Cq                *cache.ClusterQueueSnapshot
+	Cq                *schdcache.ClusterQueueSnapshot
 	FrsNeedPreemption sets.Set[resources.FlavorResource]
 	Requests          resources.FlavorResourceQuantities
 	WorkloadOrdering  workload.Ordering
 }
 
-func IsBorrowingWithinCohortForbidden(cq *cache.ClusterQueueSnapshot) (bool, *int32) {
+func IsBorrowingWithinCohortForbidden(cq *schdcache.ClusterQueueSnapshot) (bool, *int32) {
 	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
 	if borrowWithinCohort == nil || borrowWithinCohort.Policy == kueue.BorrowWithinCohortPolicyNever {
 		return true, nil
@@ -138,7 +138,7 @@ func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem
 	return getCandidatesFromCQ(ctx.Cq, nil, ctx, false)
 }
 
-func getCandidatesFromCQ(cq *cache.ClusterQueueSnapshot, lca *cache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
+func getCandidatesFromCQ(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
 	candidates := []*candidateElem{}
 	for _, candidateWl := range cq.Workloads {
 		preemptionVariant := classifyPreemptionVariant(ctx, candidateWl, hasHiearchicalAdvantage)
@@ -161,10 +161,10 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 	if !ctx.Cq.HasParent() || ctx.Cq.Preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever {
 		return hierarchyCandidates, priorityCandidates
 	}
-	var previousSubtreeRoot *cache.CohortSnapshot
+	var previousSubtreeRoot *schdcache.CohortSnapshot
 	var candidateList *[]*candidateElem
 	var fits bool
-	hasHierarchicalAdvantage, remainingRequests := cache.QuantitiesFitInQuota(ctx.Cq, ctx.Requests)
+	hasHierarchicalAdvantage, remainingRequests := schdcache.QuantitiesFitInQuota(ctx.Cq, ctx.Requests)
 	for currentSubtreeRoot := range ctx.Cq.PathParentToRoot() {
 		if hasHierarchicalAdvantage {
 			candidateList = &hierarchyCandidates
@@ -172,7 +172,7 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 			candidateList = &priorityCandidates
 		}
 		collectCandidatesInSubtree(ctx, currentSubtreeRoot, currentSubtreeRoot, previousSubtreeRoot, hasHierarchicalAdvantage, candidateList)
-		fits, remainingRequests = cache.QuantitiesFitInQuota(currentSubtreeRoot, remainingRequests)
+		fits, remainingRequests = schdcache.QuantitiesFitInQuota(currentSubtreeRoot, remainingRequests)
 		// Once we find a subtree sT that fits the requests, we will look for workloads that use quota
 		// of that subtree. The preemptor will have hierarchical advantage over all such workloads
 		// because it belongs to subtree sT. For that reason variable hasHierarchicalAdvantage
@@ -185,14 +185,14 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 
 // visit the nodes in the hierarchy and collect the ones that exceed quota
 // avoid subtrees that are within quota and the skipped subtree
-func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, currentCohort *cache.CohortSnapshot, subtreeRoot *cache.CohortSnapshot, skipSubtree *cache.CohortSnapshot, hasHierarchicalAdvantage bool, result *[]*candidateElem) {
+func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, currentCohort *schdcache.CohortSnapshot, subtreeRoot *schdcache.CohortSnapshot, skipSubtree *schdcache.CohortSnapshot, hasHierarchicalAdvantage bool, result *[]*candidateElem) {
 	for _, childCohort := range currentCohort.ChildCohorts() {
 		// we already processed this subtree
 		if childCohort == skipSubtree {
 			continue
 		}
 		// don't look for candidates in subtrees that are not exceeding their quotas
-		if cache.IsWithinNominalInResources(childCohort, ctx.FrsNeedPreemption) {
+		if schdcache.IsWithinNominalInResources(childCohort, ctx.FrsNeedPreemption) {
 			continue
 		}
 		collectCandidatesInSubtree(ctx, childCohort, subtreeRoot, skipSubtree, hasHierarchicalAdvantage, result)
@@ -201,14 +201,14 @@ func collectCandidatesInSubtree(ctx *HierarchicalPreemptionCtx, currentCohort *c
 		if childCq == ctx.Cq {
 			continue
 		}
-		if !cache.IsWithinNominalInResources(childCq, ctx.FrsNeedPreemption) {
+		if !schdcache.IsWithinNominalInResources(childCq, ctx.FrsNeedPreemption) {
 			*result = append(*result, getCandidatesFromCQ(childCq, subtreeRoot, ctx, hasHierarchicalAdvantage)...)
 		}
 	}
 }
 
 // getNodeHeight calculates the distance to the furthest leaf
-func getNodeHeight(node *cache.CohortSnapshot) int {
+func getNodeHeight(node *schdcache.CohortSnapshot) int {
 	maxHeight := min(node.ChildCount(), 1)
 	for _, childCohort := range node.ChildCohorts() {
 		maxHeight = max(maxHeight, getNodeHeight(childCohort)+1)
@@ -220,16 +220,16 @@ func getNodeHeight(node *cache.CohortSnapshot) int {
 // that fits additional val of resource fr. If no such subtree exists, it returns
 // height the whole cohort hierarchy. Note that height of a trivial subtree
 // with only one node is 0. It also returns if the returned subtree is smaller than the whole cohort tree.
-func FindHeightOfLowestSubtreeThatFits(c *cache.ClusterQueueSnapshot, fr resources.FlavorResource, val int64) (int, bool) {
+func FindHeightOfLowestSubtreeThatFits(c *schdcache.ClusterQueueSnapshot, fr resources.FlavorResource, val int64) (int, bool) {
 	if !c.BorrowingWith(fr, val) || !c.HasParent() {
 		return 0, c.HasParent()
 	}
-	remaining := val - cache.LocalAvailable(c, fr)
+	remaining := val - schdcache.LocalAvailable(c, fr)
 	for trackingNode := range c.PathParentToRoot() {
 		if !trackingNode.BorrowingWith(fr, remaining) {
 			return getNodeHeight(trackingNode), trackingNode.HasParent()
 		}
-		remaining -= cache.LocalAvailable(trackingNode, fr)
+		remaining -= schdcache.LocalAvailable(trackingNode, fr)
 	}
 	// no fit found
 	return getNodeHeight(c.Parent().Root()), false

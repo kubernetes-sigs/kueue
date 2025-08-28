@@ -38,8 +38,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/queue"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 )
 
 type ResourceFlavorUpdateWatcher interface {
@@ -49,8 +49,8 @@ type ResourceFlavorUpdateWatcher interface {
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
 type ResourceFlavorReconciler struct {
 	log        logr.Logger
-	qManager   *queue.Manager
-	cache      *cache.Cache
+	qManager   *qcache.Manager
+	cache      *schdcache.Cache
 	client     client.Client
 	cqUpdateCh chan event.GenericEvent
 	watchers   []ResourceFlavorUpdateWatcher
@@ -61,8 +61,8 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*ResourceFlavorReconcil
 
 func NewResourceFlavorReconciler(
 	client client.Client,
-	qMgr *queue.Manager,
-	cache *cache.Cache,
+	qMgr *qcache.Manager,
+	cache *schdcache.Cache,
 ) *ResourceFlavorReconciler {
 	return &ResourceFlavorReconciler{
 		log:        ctrl.Log.WithName("resourceflavor-reconciler"),
@@ -205,7 +205,7 @@ func (r *ResourceFlavorReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.
 // Since the events come from a channel Source, only the Generic handler will
 // receive events.
 type cqHandler struct {
-	cache *cache.Cache
+	cache *schdcache.Cache
 }
 
 func (h *cqHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
