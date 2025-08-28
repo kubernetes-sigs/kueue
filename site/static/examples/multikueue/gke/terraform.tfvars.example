@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars and modify the values as needed
+
+# Required: Your GCP project ID
+project_id = "your-gcp-project-id"
+
+# Optional: Override default values
+# location_manager = "europe-west4-a"
+# cluster_manager_name_prefix = "manager"
+# region_worker = "us-east4-a"
+# region_worker_2 = "asia-southeast1-a"
+# cluster_worker_names_prefix = "worker"
+# enable_dws = false
