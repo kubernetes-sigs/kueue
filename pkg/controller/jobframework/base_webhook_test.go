@@ -20,126 +20,24 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiljob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
-
-type testGenericJob struct {
-	*batchv1.Job
-
-	validateOnCreate func() (field.ErrorList, error)
-	validateOnUpdate func(jobframework.GenericJob) (field.ErrorList, error)
-}
-
-var _ jobframework.GenericJob = (*testGenericJob)(nil)
-var _ jobframework.JobWithCustomValidation = (*testGenericJob)(nil)
-var _ jobframework.JobWithManagedBy = (*testGenericJob)(nil)
-
-func (j *testGenericJob) Object() client.Object {
-	return j.Job
-}
-
-func (j *testGenericJob) IsSuspended() bool {
-	return ptr.Deref(j.Spec.Suspend, false)
-}
-
-func (j *testGenericJob) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
-}
-
-func (j *testGenericJob) RunWithPodSetsInfo([]podset.PodSetInfo) error {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) RestorePodSetsInfo([]podset.PodSetInfo) bool {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) Finished() (string, bool, bool) {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) PodSets() ([]kueue.PodSet, error) {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) IsActive() bool {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) PodsReady() bool {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) CanDefaultManagedBy() bool {
-	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
-}
-
-func (j *testGenericJob) ManagedBy() *string {
-	return j.Spec.ManagedBy
-}
-
-func (j *testGenericJob) SetManagedBy(managedBy *string) {
-	j.Spec.ManagedBy = managedBy
-}
-
-func (j *testGenericJob) GVK() schema.GroupVersionKind {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) ValidateOnCreate() (field.ErrorList, error) {
-	if j.validateOnCreate != nil {
-		return j.validateOnCreate()
-	}
-	return nil, nil
-}
-
-func (j *testGenericJob) ValidateOnUpdate(oldJob jobframework.GenericJob) (field.ErrorList, error) {
-	if j.validateOnUpdate != nil {
-		return j.validateOnUpdate(oldJob)
-	}
-	return nil, nil
-}
-
-func (j *testGenericJob) withValidateOnCreate(validateOnCreate func() (field.ErrorList, error)) *testGenericJob {
-	j.validateOnCreate = validateOnCreate
-	return j
-}
-
-func (j *testGenericJob) withValidateOnUpdate(validateOnUpdate func(jobframework.GenericJob) (field.ErrorList, error)) *testGenericJob {
-	j.validateOnUpdate = validateOnUpdate
-	return j
-}
-
-func (j *testGenericJob) fromObject(o runtime.Object) jobframework.GenericJob {
-	if o == nil {
-		return nil
-	}
-	j.Job = o.(*batchv1.Job)
-	return j
-}
-
-func makeTestGenericJob() *testGenericJob {
-	return &testGenericJob{}
-}
 
 func TestBaseWebhookDefault(t *testing.T) {
 	testcases := map[string]struct {
@@ -282,13 +180,43 @@ func TestBaseWebhookDefault(t *testing.T) {
 				}
 			}
 
+			mockctrl := gomock.NewController(t)
+
+			type mockJob struct {
+				*batchv1.Job
+				*mocks.MockGenericJob
+				*mocks.MockJobWithManagedBy
+			}
+
+			mj := &mockJob{
+				Job:                  tc.job,
+				MockGenericJob:       mocks.NewMockGenericJob(mockctrl),
+				MockJobWithManagedBy: mocks.NewMockJobWithManagedBy(mockctrl),
+			}
+
+			mj.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
+			mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
+			mj.MockGenericJob.EXPECT().Suspend().Do(func() {
+				tc.job.Spec.Suspend = ptr.To(true)
+			}).AnyTimes()
+
+			mj.MockJobWithManagedBy.EXPECT().ManagedBy().Return(tc.job.Spec.ManagedBy).AnyTimes()
+			mj.MockJobWithManagedBy.EXPECT().SetManagedBy(gomock.Any()).Do(func(manageBy *string) {
+				tc.job.Spec.ManagedBy = manageBy
+			}).AnyTimes()
+			mj.MockJobWithManagedBy.EXPECT().CanDefaultManagedBy().
+				Return(features.Enabled(features.MultiKueue) && (tc.job.Spec.ManagedBy == nil || *tc.job.Spec.ManagedBy == batchv1.JobControllerName)).
+				AnyTimes()
+
 			w := &jobframework.BaseWebhook{
 				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				FromObject:                 makeTestGenericJob().fromObject,
-				Queues:                     queueManager,
-				Cache:                      cqCache,
+				FromObject: func(object runtime.Object) jobframework.GenericJob {
+					return object.(*mockJob)
+				},
+				Queues: queueManager,
+				Cache:  cqCache,
 			}
-			if err := w.Default(ctx, tc.job); err != nil {
+			if err := w.Default(ctx, mj); err != nil {
 				t.Errorf("set defaults by base webhook")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
@@ -302,7 +230,7 @@ func TestValidateOnCreate(t *testing.T) {
 	testcases := []struct {
 		name             string
 		job              *batchv1.Job
-		validateOnCreate func() (field.ErrorList, error)
+		validateOnCreate field.ErrorList
 		wantErr          error
 		wantWarn         admission.Warnings
 	}{
@@ -325,14 +253,12 @@ func TestValidateOnCreate(t *testing.T) {
 					Labels:    map[string]string{constants.QueueLabel: "queue"},
 				},
 			},
-			validateOnCreate: func() (field.ErrorList, error) {
-				return field.ErrorList{
-					field.Invalid(
-						field.NewPath("metadata.annotations"),
-						field.OmitValueType{},
-						`invalid annotation`,
-					),
-				}, nil
+			validateOnCreate: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata.annotations"),
+					field.OmitValueType{},
+					`invalid annotation`,
+				),
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -346,11 +272,31 @@ func TestValidateOnCreate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			mockctrl := gomock.NewController(t)
+
+			type mockJob struct {
+				// A dummy place-holder to make it "runtime.Object".
+				*batchv1.Job
+				*mocks.MockGenericJob
+				*mocks.MockJobWithCustomValidation
+			}
+
+			job := &mockJob{
+				Job:                         tc.job,
+				MockGenericJob:              mocks.NewMockGenericJob(mockctrl),
+				MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
+			}
+
+			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
+			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate().Return(tc.validateOnCreate, nil).AnyTimes()
+
 			w := &jobframework.BaseWebhook{
-				FromObject: makeTestGenericJob().withValidateOnCreate(tc.validateOnCreate).fromObject,
+				FromObject: func(object runtime.Object) jobframework.GenericJob {
+					return object.(*mockJob)
+				},
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWarn, gotErr := w.ValidateCreate(ctx, tc.job)
+			gotWarn, gotErr := w.ValidateCreate(ctx, job)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
@@ -366,7 +312,7 @@ func TestValidateOnUpdate(t *testing.T) {
 		name             string
 		oldJob           *batchv1.Job
 		job              *batchv1.Job
-		validateOnUpdate func(jobframework.GenericJob) (field.ErrorList, error)
+		validateOnUpdate field.ErrorList
 		wantErr          error
 		wantWarn         admission.Warnings
 	}{
@@ -403,14 +349,12 @@ func TestValidateOnUpdate(t *testing.T) {
 					Labels:    map[string]string{constants.QueueLabel: "queue"},
 				},
 			},
-			validateOnUpdate: func(jobframework.GenericJob) (field.ErrorList, error) {
-				return field.ErrorList{
-					field.Invalid(
-						field.NewPath("metadata.annotations"),
-						field.OmitValueType{},
-						`invalid annotation`,
-					),
-				}, nil
+			validateOnUpdate: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata.annotations"),
+					field.OmitValueType{},
+					`invalid annotation`,
+				),
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -424,11 +368,38 @@ func TestValidateOnUpdate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
+			mockctrl := gomock.NewController(t)
+
+			type mockJob struct {
+				// A dummy place-holder to make it "runtime.Object".
+				*batchv1.Job
+				*mocks.MockGenericJob
+				*mocks.MockJobWithCustomValidation
+			}
+
+			newMockJob := func(job *batchv1.Job, validationErrList field.ErrorList) *mockJob {
+				mj := &mockJob{
+					Job:                         job,
+					MockGenericJob:              mocks.NewMockGenericJob(mockctrl),
+					MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
+				}
+				mj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
+				mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any()).Return(validationErrList, nil).AnyTimes()
+				return mj
+			}
+
 			w := &jobframework.BaseWebhook{
-				FromObject: makeTestGenericJob().withValidateOnUpdate(tc.validateOnUpdate).fromObject,
+				FromObject: func(object runtime.Object) jobframework.GenericJob {
+					return object.(*mockJob)
+				},
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWarn, gotErr := w.ValidateUpdate(ctx, tc.oldJob, tc.job)
+			gotWarn, gotErr := w.ValidateUpdate(
+				ctx,
+				newMockJob(tc.oldJob, nil),
+				newMockJob(tc.job, tc.validateOnUpdate),
+			)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}

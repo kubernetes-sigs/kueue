@@ -14,77 +14,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework
+package jobframework_test
 
 import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/podset"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
 var (
 	testPath = field.NewPath("spec")
 )
-
-type testGenericJob struct {
-	*batchv1.Job
-}
-
-var _ GenericJob = (*testGenericJob)(nil)
-
-func (j *testGenericJob) Object() client.Object {
-	return j.Job
-}
-
-func (j *testGenericJob) IsSuspended() bool {
-	return ptr.Deref(j.Spec.Suspend, false)
-}
-
-func (j *testGenericJob) Suspend() {
-	j.Spec.Suspend = ptr.To(true)
-}
-
-func (j *testGenericJob) RunWithPodSetsInfo([]podset.PodSetInfo) error {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) RestorePodSetsInfo([]podset.PodSetInfo) bool {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) Finished() (string, bool, bool) {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) PodSets() ([]kueue.PodSet, error) {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) IsActive() bool {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) PodsReady() bool {
-	panic("not implemented")
-}
-
-func (j *testGenericJob) GVK() schema.GroupVersionKind {
-	panic("not implemented")
-}
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
@@ -288,7 +241,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotErr := ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, testPath)
+			gotErr := jobframework.ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, testPath)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
@@ -296,8 +249,8 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 	}
 }
 
-func TestValidateUpdateForQueueName(t *testing.T) {
-	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+func TestValidateJobOnUpdate(t *testing.T) {
+	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	fieldString := field.NewPath("metadata").Child("labels").Key(constants.QueueLabel).String()
 	testCases := map[string]struct {
 		oldJob                   *batchv1.Job
@@ -358,9 +311,20 @@ func TestValidateUpdateForQueueName(t *testing.T) {
 	for tcName, tc := range testCases {
 		t.Run(tcName, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.defaultLocalQueueEnabled)
-			oldGJ := &testGenericJob{Job: tc.oldJob}
-			newGJ := &testGenericJob{Job: tc.newJob}
-			gotErr := validateUpdateForQueueName(oldGJ, newGJ, func(string) bool { return tc.nsHasDefaultQueue })
+
+			mockctrl := gomock.NewController(t)
+
+			newMockJob := func(job *batchv1.Job) *mocks.MockGenericJob {
+				mj := mocks.NewMockGenericJob(mockctrl)
+				mj.EXPECT().Object().Return(job).AnyTimes()
+				mj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+				return mj
+			}
+
+			oldMJ := newMockJob(tc.oldJob)
+			newMJ := newMockJob(tc.newJob)
+
+			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue })
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
