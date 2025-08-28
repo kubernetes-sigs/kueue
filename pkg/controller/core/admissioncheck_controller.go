@@ -38,8 +38,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/queue"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -50,9 +50,9 @@ type AdmissionCheckUpdateWatcher interface {
 // AdmissionCheckReconciler reconciles a AdmissionCheck object
 type AdmissionCheckReconciler struct {
 	log        logr.Logger
-	qManager   *queue.Manager
+	qManager   *qcache.Manager
 	client     client.Client
-	cache      *cache.Cache
+	cache      *schdcache.Cache
 	cqUpdateCh chan event.GenericEvent
 	watchers   []AdmissionCheckUpdateWatcher
 }
@@ -62,8 +62,8 @@ var _ predicate.TypedPredicate[*kueue.AdmissionCheck] = (*AdmissionCheckReconcil
 
 func NewAdmissionCheckReconciler(
 	client client.Client,
-	qMgr *queue.Manager,
-	cache *cache.Cache,
+	qMgr *qcache.Manager,
+	cache *schdcache.Cache,
 ) *AdmissionCheckReconciler {
 	return &AdmissionCheckReconciler{
 		log:        ctrl.Log.WithName("admissioncheck-reconciler"),
@@ -179,7 +179,7 @@ func (r *AdmissionCheckReconciler) NotifyClusterQueueUpdate(oldCq *kueue.Cluster
 }
 
 type acCqHandler struct {
-	cache *cache.Cache
+	cache *schdcache.Cache
 }
 
 func (h *acCqHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {

@@ -39,11 +39,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -68,8 +68,8 @@ var (
 )
 
 type Scheduler struct {
-	queues                  *queue.Manager
-	cache                   *cache.Cache
+	queues                  *qcache.Manager
+	cache                   *schdcache.Cache
 	client                  client.Client
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
@@ -130,7 +130,7 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 	}
 }
 
-func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
+func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -193,10 +193,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	var snapshotOpts []cache.SnapshotOption
+	var snapshotOpts []schdcache.SnapshotOption
 	if afs.Enabled(s.admissionFairSharing) {
 		s.queues.RebuildClusterQueuesWithEntryPenalties()
-		snapshotOpts = append(snapshotOpts, cache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
 	}
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
@@ -307,7 +307,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			if preempted != 0 {
 				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-				e.requeueReason = queue.RequeueReasonPendingPreemption
+				e.requeueReason = qcache.RequeueReasonPendingPreemption
 			}
 			continue
 		}
@@ -387,9 +387,9 @@ type entry struct {
 	assignment           flavorassigner.Assignment
 	status               entryStatus
 	inadmissibleMsg      string
-	requeueReason        queue.RequeueReason
+	requeueReason        qcache.RequeueReason
 	preemptionTargets    []*preemption.Target
-	clusterQueueSnapshot *cache.ClusterQueueSnapshot
+	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 }
 
 func (e *entry) assignmentUsage() workload.Usage {
@@ -399,7 +399,7 @@ func (e *entry) assignmentUsage() workload.Usage {
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *cache.Snapshot) ([]entry, []entry) {
+func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot) ([]entry, []entry) {
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	var inadmissibleEntries []entry
@@ -421,7 +421,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = fmt.Sprintf("Could not obtain workload namespace: %v", err)
 		} else if !e.clusterQueueSnapshot.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
-			e.requeueReason = queue.RequeueReasonNamespaceMismatch
+			e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 		} else if err := workload.ValidateResources(&w); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errInvalidWLResources, err.ToAggregate())
 		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
@@ -438,7 +438,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
+func fits(cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)
@@ -449,7 +449,7 @@ func fits(cq *cache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorklo
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) workload.Usage {
+func resourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) workload.Usage {
 	return netUsage(e, quotaResourcesToReserve(e, cq))
 }
 
@@ -465,7 +465,7 @@ func netUsage(e *entry, netQuota resources.FlavorResourceQuantities) workload.Us
 	return result
 }
 
-func quotaResourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
+func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage.Quota
 	}
@@ -490,7 +490,7 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	updateAssignmentForTAS(cq, wl, &assignment, targets)
@@ -519,7 +519,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
@@ -571,11 +571,11 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	return nil
 }
 
-func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
+func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithNodeToReplace(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
-		var tasResult cache.TASAssignmentsResult
+		var tasResult schdcache.TASAssignmentsResult
 		if len(targets) > 0 {
 			var targetWorkloads []*workload.Info
 			for _, target := range targets {
@@ -591,7 +591,7 @@ func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, a
 			// in the next scheduling cycle by the waiting workload. To obtain
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, cache.WithSimulateEmpty(true))
+			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
 		}
 		assignment.UpdateForTASResult(tasResult)
 	}
@@ -600,7 +600,7 @@ func updateAssignmentForTAS(cq *cache.ClusterQueueSnapshot, wl *workload.Info, a
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueSnapshot) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -755,9 +755,9 @@ func makeClassicalIterator(entries []entry, workloadOrdering workload.Ordering) 
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log := ctrl.LoggerFrom(ctx)
-	if e.status != notNominated && e.requeueReason == queue.RequeueReasonGeneric {
+	if e.status != notNominated && e.requeueReason == qcache.RequeueReasonGeneric {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
-		e.requeueReason = queue.RequeueReasonFailedAfterNomination
+		e.requeueReason = qcache.RequeueReasonFailedAfterNomination
 	}
 
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj) {

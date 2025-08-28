@@ -25,7 +25,7 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
-	"sigs.k8s.io/kueue/pkg/queue"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	apiv1beta1 "sigs.k8s.io/kueue/pkg/visibility/api/v1beta1"
 )
 
@@ -42,7 +42,7 @@ func init() {
 }
 
 // Install installs API scheme and registers storages
-func Install(server *genericapiserver.GenericAPIServer, kueueMgr *queue.Manager) error {
+func Install(server *genericapiserver.GenericAPIServer, kueueMgr *qcache.Manager) error {
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(visibilityv1beta1.GroupVersion.Group, Scheme, ParameterCodec, Codecs)
 	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta1.GroupVersion.Version] = apiv1beta1.NewStorage(kueueMgr)
 	return server.InstallAPIGroups(&apiGroupInfo)

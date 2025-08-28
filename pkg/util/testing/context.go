@@ -35,9 +35,13 @@ func LogLevelWithDefault(defaultLogLevel int) int {
 	return level
 }
 
-func ContextWithLog(t *testing.T) (context.Context, logr.Logger) {
-	logger := testr.NewWithOptions(t, testr.Options{
+func NewLogger(t *testing.T) logr.Logger {
+	return testr.NewWithOptions(t, testr.Options{
 		Verbosity: LogLevelWithDefault(2),
 	})
+}
+
+func ContextWithLog(t *testing.T) (context.Context, logr.Logger) {
+	logger := NewLogger(t)
 	return ctrl.LoggerInto(t.Context(), logger), logger
 }

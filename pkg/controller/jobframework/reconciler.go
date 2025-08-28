@@ -46,14 +46,14 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/queue"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -103,8 +103,8 @@ type Options struct {
 	EnabledExternalFrameworks    sets.Set[string]
 	ManagerName                  string
 	LabelKeysToCopy              []string
-	Queues                       *queue.Manager
-	Cache                        *cache.Cache
+	Queues                       *qcache.Manager
+	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 }
@@ -196,14 +196,14 @@ func WithLabelKeysToCopy(n []string) Option {
 }
 
 // WithQueues adds the queue manager.
-func WithQueues(q *queue.Manager) Option {
+func WithQueues(q *qcache.Manager) Option {
 	return func(o *Options) {
 		o.Queues = q
 	}
 }
 
 // WithCache adds the cache manager.
-func WithCache(c *cache.Cache) Option {
+func WithCache(c *schdcache.Cache) Option {
 	return func(o *Options) {
 		o.Cache = c
 	}

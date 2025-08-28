@@ -20,12 +20,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 )
 
-func SetupControllers(mgr ctrl.Manager, queues *queue.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
+func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
 	recorder := mgr.GetEventRecorderFor(TASResourceFlavorController)
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {

@@ -42,12 +42,12 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -92,8 +92,8 @@ var defaultLQOptions = LocalQueueReconcilerOptions{
 type LocalQueueReconciler struct {
 	client            client.Client
 	log               logr.Logger
-	queues            *queue.Manager
-	cache             *cache.Cache
+	queues            *qcache.Manager
+	cache             *schdcache.Cache
 	wlUpdateCh        chan event.GenericEvent
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
@@ -104,8 +104,8 @@ var _ predicate.TypedPredicate[*kueue.LocalQueue] = (*LocalQueueReconciler)(nil)
 
 func NewLocalQueueReconciler(
 	client client.Client,
-	queues *queue.Manager,
-	cache *cache.Cache,
+	queues *qcache.Manager,
+	cache *schdcache.Cache,
 	opts ...LocalQueueReconcilerOption,
 ) *LocalQueueReconciler {
 	options := defaultLQOptions
