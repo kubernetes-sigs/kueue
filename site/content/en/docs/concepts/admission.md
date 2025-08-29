@@ -18,8 +18,8 @@ Kueue implements this through a two-phase admission cycle:
 1. **Quota Reservation:** When a user submits a Workload, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue checks if the targeted ClusterQueue's available quota and resource flavors can accomodate requested resources (CPU, memory, GPUs, etc.). If the quota is available, the Kueue reserves resources for this Workload and prevents other Workloads from using the same resources. This phase also includes checking the availability of physical resources when 
     Topology-Aware Scheduling is enabled.
 
-2. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. can be either built-in like [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request/), or are the pluggable
-controllers that can perform validations such as policy checks, compliance, etc.
+2. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. Checks can be either built-in like [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request/), or plugins created by users.
+
 The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are in the `Ready` state.
 
 ## [Provisioning AdmissionCheck ](docs/concepts/admission_check/provisioning_request)
@@ -34,7 +34,7 @@ When neither AdmissionChecks nor [TopologyAwareScheduling](docs/concepts/topolog
 - For temporary issues (e.g., cloud capacity shortages):
   - The system **releases** the reserved quota immediately.
   - It **requeues** the workload.
-  - It triggers exponential backoff retries via [`retryStrategy`](/docs/concepts/admission_check/provisioning_request/#retry-strategy) in ProvisioningRequestConfig.
+  - It triggers exponential backoff retries via [`retryStrategy`](/docs/concepts/admission_check/provisioning_request/#retry-strategy) in [ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig).
   - Kueue creates new `ProvisioningRequest` with `-attempt<N>` suffix each retry.
 
 - For permanent failures:
