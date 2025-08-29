@@ -74,6 +74,8 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	if err != nil {
 		return err
 	}
+
+	queueName := jobframework.QueueNameForObject(deployment.Object())
 	if suspend {
 		if deployment.Spec.Template.Annotations == nil {
 			deployment.Spec.Template.Annotations = make(map[string]string, 1)
@@ -83,13 +85,16 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 			deployment.Spec.Template.Labels = make(map[string]string, 1)
 		}
 		deployment.Spec.Template.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-		queueName := jobframework.QueueNameForObject(deployment.Object())
 		if queueName != "" {
 			deployment.Spec.Template.Labels[controllerconstants.QueueLabel] = string(queueName)
 		}
 		if priorityClass := jobframework.WorkloadPriorityClassName(deployment.Object()); priorityClass != "" {
 			deployment.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
 		}
+	}
+
+	if queueName == "" {
+		delete(deployment.Spec.Template.Labels, controllerconstants.QueueLabel)
 	}
 
 	return nil
@@ -130,7 +135,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.
 	isSuspended := oldDeployment.Status.ReadyReplicas == 0
-	if !isSuspended || newQueueName == "" {
+	if !isSuspended {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
 	}
 	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newDeployment.Object()) {
