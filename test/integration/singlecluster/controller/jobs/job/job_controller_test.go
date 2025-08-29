@@ -3220,7 +3220,6 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
 					continue
 				}
-				testJobWorkload = &workloads.Items[i]
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
 			}
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
