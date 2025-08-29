@@ -393,6 +393,83 @@ func TestPodSets(t *testing.T) {
 			},
 			enableTopologyAwareScheduling: true,
 		},
+		"with slice-only topology": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+					PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						kueuealpha.PodSetSliceSizeAnnotation:             "1",
+					}).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					SliceRequiredTopologyRequest("cloud.com/block").
+					SliceSizeTopologyRequest(1).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: true,
+		},
+		"with slice-only topology if TAS is disabled": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+					PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						kueuealpha.PodSetSliceSizeAnnotation:             "1",
+					}).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: false,
+		},
+		"with slice-only topology – only podset slice required topology annotation": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{
+						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					}).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: true,
+		},
+		"with slice-only topology – only podset slice size annotation": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetSliceSizeAnnotation, "1").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					Annotations(map[string]string{
+						kueuealpha.PodSetSliceSizeAnnotation: "1",
+					}).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj(),
+			},
+			enableTopologyAwareScheduling: true,
+		},
 		"without preferred topology annotation if TAS is disabled": {
 			job: (*Job)(
 				jobTemplate.Clone().

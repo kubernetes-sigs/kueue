@@ -41,10 +41,11 @@ KUEUE_VIZ_PORT=8181 ./kueue_ws_app
 
 ## Variables
 
-| Environment variables | Description              | Default value |
-| --------------------- | ------------------------ | ------------- |
-| `KUEUE_VIZ_PORT`      | Default application port | 8080          |
-| `GIN_MODE`            | Gin mode                 | debug         |
+| Environment variables      | Description                          | Default value |
+| -------------------------- | ------------------------------------ | ------------- |
+| `KUEUE_VIZ_PORT`           | Default application port             | 8080          |
+| `GIN_MODE`                 | Gin mode                             | debug         |
+| `KUEUEVIZ_ALLOWED_ORIGINS` | Comma-separated list of CORS origins | `*` (dev only)|
 
 ## Endpoints
 

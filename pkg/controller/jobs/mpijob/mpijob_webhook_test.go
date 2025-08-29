@@ -29,10 +29,10 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
@@ -156,7 +156,8 @@ func TestValidateCreate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
 			jsw := &MpiJobWebhook{}
-			_, gotErr := jsw.ValidateCreate(t.Context(), tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, gotErr := jsw.ValidateCreate(ctx, tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
@@ -404,8 +405,8 @@ func TestDefault(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("default"))
 			cl := clientBuilder.Build()
-			cqCache := cache.New(cl)
-			queueManager := queue.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			queueManager := qcache.NewManager(cl, cqCache)
 
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").

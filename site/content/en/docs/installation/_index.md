@@ -7,6 +7,7 @@ description: >
 ---
 
 <!-- toc -->
+
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
   - [Install by kubectl](#install-by-kubectl)
@@ -41,7 +42,7 @@ Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
-  a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
+a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
@@ -76,7 +77,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
 You can also use the following command:
 
 ```shell
-helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-chart-{{< param "version" >}}.tgz \
+helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-{{< param "chart_version" >}}.tgz \
   --namespace kueue-system \
   --create-namespace \
   --wait --timeout 300s
@@ -127,9 +128,9 @@ wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "versi
 
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
-`controller_manager_config.yaml` data entry. The entry represents
-the default [KueueConfiguration](/docs/reference/kueue-config.v1beta1).
-The contents of the ConfigMap are similar to the following:
+   `controller_manager_config.yaml` data entry. The entry represents
+   the default [KueueConfiguration](/docs/reference/kueue-config.v1beta1).
+   The contents of the ConfigMap are similar to the following:
 
 ```yaml
 apiVersion: v1
@@ -162,7 +163,7 @@ data:
       - "batch/job"
 ```
 
-__The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
+**The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.**
 
 {{% alert title="Note" color="primary" %}}
 See [All-or-nothing with ready Pods](/docs/tasks/manage/setup_wait_for_pods_ready) to learn
@@ -263,16 +264,13 @@ spec:
 ### Feature gates for alpha and beta features
 
 | Feature                                       | Default | Stage | Since | Until |
-|-----------------------------------------------|---------|-------|-------|-------|
+| --------------------------------------------- | ------- | ----- | ----- | ----- |
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
 | `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   |       |
 | `PartialAdmission`                            | `false` | Alpha | 0.4   | 0.4   |
 | `PartialAdmission`                            | `true`  | Beta  | 0.5   |       |
-| `ProvisioningACC`                             | `false` | Alpha | 0.5   | 0.6   |
-| `ProvisioningACC`                             | `true`  | Beta  | 0.7   | 0.14  |
-| `QueueVisibility`                             | `false` | Alpha | 0.5   | 0.9   |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6   | 0.8   |
 | `VisibilityOnDemand`                          | `true`  | Beta  | 0.9   |       |
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6   |       |
@@ -281,7 +279,6 @@ spec:
 | `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   |       |
 | `ConfigurableResourceTransformations`         | `false` | Alpha | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations`         | `true`  | Beta  | 0.10  |       |
-| `ManagedJobsNamespaceSelector`                | `true`  | Beta  | 0.10  | 0.13  |
 | `LocalQueueDefaulting`                        | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                           | `false` | Alpha | 0.10  |       |
@@ -298,16 +295,19 @@ spec:
 
 ### Feature gates for graduated or deprecated features
 
-| Feature                           | Default | Stage      | Since | Until |
-| --------------------------------- | ------- | ---------- | ----- | ----- |
-| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13  |       |
-| `ProvisioningACC`                 | `true`  | GA         | 0.14  |       |
-| `QueueVisibility`                 | `false` | Alpha      | 0.4   | 0.9   |
-| `QueueVisibility`                 | `false` | Deprecated | 0.9   |       |
-| `TASProfileMostFreeCapacity`      | `false` | Deprecated | 0.11  | 0.13  |
-| `TASProfileLeastFreeCapacity`     | `false` | Deprecated | 0.11  |       |
-| `TASProfileMixed`                 | `false` | Deprecated | 0.11  |       |
+| Feature                        | Default | Stage      | Since | Until |
+| ------------------------------ | ------- | ---------- | ----- | ----- |
+| `ManagedJobsNamespaceSelector` | `true`  | Beta       | 0.10  | 0.13  |
+| `ManagedJobsNamespaceSelector` | `true`  | GA         | 0.13  |       |
+| `ProvisioningACC`              | `false` | Alpha      | 0.5   | 0.6   |
+| `ProvisioningACC`              | `true`  | Beta       | 0.7   |       |
+| `ProvisioningACC`              | `true`  | GA         | 0.14  |       |
+| `QueueVisibility`              | `false` | Alpha      | 0.5   | 0.9   |
+| `QueueVisibility`              | `false` | Deprecated | 0.9   |       |
+| `TASProfileMostFreeCapacity`   | `false` | Deprecated | 0.11  | 0.13  |
+| `TASProfileLeastFreeCapacity`  | `false` | Deprecated | 0.11  |       |
+| `TASProfileMixed`              | `false` | Deprecated | 0.11  |       |
 
 ## What's next
 
-- Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for  `Configuration`
+- Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for `Configuration`

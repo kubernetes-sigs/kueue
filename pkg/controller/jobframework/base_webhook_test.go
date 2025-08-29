@@ -30,12 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiljob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -253,8 +253,8 @@ func TestBaseWebhookDefault(t *testing.T) {
 					utiltesting.MakeNamespace("default"),
 				)
 			cl := clientBuilder.Build()
-			cqCache := cache.New(cl)
-			queueManager := queue.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			queueManager := qcache.NewManager(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
@@ -288,7 +288,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Queues:                     queueManager,
 				Cache:                      cqCache,
 			}
-			if err := w.Default(t.Context(), tc.job); err != nil {
+			if err := w.Default(ctx, tc.job); err != nil {
 				t.Errorf("set defaults by base webhook")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
@@ -349,7 +349,8 @@ func TestValidateOnCreate(t *testing.T) {
 			w := &jobframework.BaseWebhook{
 				FromObject: makeTestGenericJob().withValidateOnCreate(tc.validateOnCreate).fromObject,
 			}
-			gotWarn, gotErr := w.ValidateCreate(t.Context(), tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWarn, gotErr := w.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
@@ -426,7 +427,8 @@ func TestValidateOnUpdate(t *testing.T) {
 			w := &jobframework.BaseWebhook{
 				FromObject: makeTestGenericJob().withValidateOnUpdate(tc.validateOnUpdate).fromObject,
 			}
-			gotWarn, gotErr := w.ValidateUpdate(t.Context(), tc.oldJob, tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWarn, gotErr := w.ValidateUpdate(ctx, tc.oldJob, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}

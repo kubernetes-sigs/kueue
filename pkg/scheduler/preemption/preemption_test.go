@@ -33,17 +33,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -55,11 +54,11 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
-	cmp.AllowUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
-	cmpopts.IgnoreFields(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}, "cohortFactory"),
-	cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort"),
-	cmp.AllowUnexported(cache.ClusterQueueSnapshot{}),
-	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue"),
+	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
+	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
+	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
+	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),
 }
 
 func TestPreemption(t *testing.T) {
@@ -1815,7 +1814,7 @@ func TestPreemption(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
 
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flv := range flavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
@@ -1838,7 +1837,7 @@ func TestPreemption(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{}, clocktesting.NewFakeClock(now))
+			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{}, false, clocktesting.NewFakeClock(now))
 			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, reason, _ string) error {
 				lock.Lock()
 				gotPreempted.Insert(targetKeyReason(workload.Key(w), reason))
@@ -2733,7 +2732,7 @@ func TestFairPreemptions(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flv := range flavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
@@ -2754,7 +2753,7 @@ func TestFairPreemptions(t *testing.T) {
 			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{
 				Enable:               true,
 				PreemptionStrategies: tc.strategies,
-			}, clocktesting.NewFakeClock(now))
+			}, false, clocktesting.NewFakeClock(now))
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
@@ -2817,9 +2816,9 @@ func TestCandidatesOrdering(t *testing.T) {
 	wlHighUsageLqDifCQ.LocalQueueFSUsage = ptr.To(1.0)
 
 	cases := map[string]struct {
-		candidates         []workload.Info
-		wantCandidates     []workload.Reference
-		enableFeatureGates []featuregate.Feature
+		candidates                  []workload.Info
+		wantCandidates              []workload.Reference
+		admissionFairSharingEnabled bool
 	}{
 		"workloads sorted by priority": {
 			candidates: []workload.Info{
@@ -2882,25 +2881,23 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlLowUsageLq,
 				*wlMidUsageLq,
 			},
-			wantCandidates:     []workload.Reference{"mid_lq_usage", "low_lq_usage"},
-			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
+			wantCandidates:              []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			admissionFairSharingEnabled: true,
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {
 			candidates: []workload.Info{
 				*wlMidUsageLq,
 				*wlHighUsageLqDifCQ,
 			},
-			wantCandidates:     []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
-			enableFeatureGates: []featuregate.Feature{features.AdmissionFairSharing},
+			wantCandidates:              []workload.Reference{"high_lq_usage_different_cq", "mid_lq_usage"},
+			admissionFairSharingEnabled: true,
 		}}
 
 	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
-		for _, gate := range tc.enableFeatureGates {
-			features.SetFeatureGateDuringTest(t, gate, true)
-		}
+		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
 		sort.Slice(tc.candidates, func(i int, j int) bool {
-			return CandidatesOrdering(log, &tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
+			return CandidatesOrdering(log, tc.admissionFairSharingEnabled, &tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
@@ -4101,7 +4098,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
 
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flv := range flavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
@@ -4124,7 +4121,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{}, clocktesting.NewFakeClock(now))
+			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{}, false, clocktesting.NewFakeClock(now))
 			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, reason, _ string) error {
 				lock.Lock()
 				gotPreempted.Insert(targetKeyReason(workload.Key(w), reason))

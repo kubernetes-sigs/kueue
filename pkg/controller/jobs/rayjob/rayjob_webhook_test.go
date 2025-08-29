@@ -30,10 +30,10 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
@@ -104,8 +104,8 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
-			cqCache := cache.New(cli)
-			queueManager := queue.NewManager(cli, cqCache)
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManager(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
@@ -118,7 +118,7 @@ func TestDefault(t *testing.T) {
 				cache:                      cqCache,
 			}
 			result := tc.oldJob.DeepCopy()
-			if err := wh.Default(t.Context(), result); err != nil {
+			if err := wh.Default(ctx, result); err != nil {
 				t.Errorf("unexpected Default() error: %v", err)
 			}
 			if diff := cmp.Diff(tc.newJob, result); diff != "" {
@@ -342,7 +342,8 @@ func TestValidateCreate(t *testing.T) {
 			}
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.localQueueDefaulting)
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-			_, result := wh.ValidateCreate(t.Context(), tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
 			}
@@ -436,7 +437,8 @@ func TestValidateUpdate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, result := wh.ValidateUpdate(t.Context(), tc.oldJob, tc.newJob)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}

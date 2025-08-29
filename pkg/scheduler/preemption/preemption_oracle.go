@@ -20,25 +20,25 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func NewOracle(preemptor *Preemptor, snapshot *cache.Snapshot) *PreemptionOracle {
+func NewOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *PreemptionOracle {
 	return &PreemptionOracle{preemptor, snapshot}
 }
 
 type PreemptionOracle struct {
 	preemptor *Preemptor
-	snapshot  *cache.Snapshot
+	snapshot  *schdcache.Snapshot
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
-func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
+func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int) {
 	candidates := p.preemptor.getTargets(&preemptionCtx{
 		log:               log,
 		preemptor:         wl,

@@ -73,7 +73,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
-		if !sliceRequiredTopologyFound || !sliceSizeFound {
+		if (!sliceRequiredTopologyFound || !sliceSizeFound) && (p.podIndexLabel == nil && p.subGroupIndexLabel == nil && p.subGroupCount == nil) {
 			return nil, nil
 		}
 	}

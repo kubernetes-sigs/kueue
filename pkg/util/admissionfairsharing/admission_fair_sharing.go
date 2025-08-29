@@ -29,7 +29,7 @@ import (
 
 func ResourceWeights(cqAdmissionScope *kueue.AdmissionScope, afsConfig *config.AdmissionFairSharing) (bool, map[corev1.ResourceName]float64) {
 	enableAdmissionFs, fsResWeights := false, make(map[corev1.ResourceName]float64)
-	if features.Enabled(features.AdmissionFairSharing) && afsConfig != nil && cqAdmissionScope != nil && cqAdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing {
+	if Enabled(afsConfig) && cqAdmissionScope != nil && cqAdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing {
 		enableAdmissionFs = true
 		fsResWeights = afsConfig.ResourceWeights
 	}
@@ -51,4 +51,8 @@ func CalculateEntryPenalty(totalRequests corev1.ResourceList, afs *config.Admiss
 	)
 
 	return resource.MulByFloat(totalRequests, alpha)
+}
+
+func Enabled(afsConfig *config.AdmissionFairSharing) bool {
+	return afsConfig != nil && features.Enabled(features.AdmissionFairSharing)
 }

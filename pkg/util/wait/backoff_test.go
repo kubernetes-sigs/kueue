@@ -24,6 +24,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 type SpyTimer struct {
@@ -88,7 +90,8 @@ func TestUntilWithBackoff(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			timer := makeSpyTimer()
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			i := 0

@@ -37,9 +37,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -677,8 +677,9 @@ func TestReconcile(t *testing.T) {
 				).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToAdmissionCheck",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "AdmissionCheck",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1344,7 +1345,11 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEviction{Reason: "DeactivatedDueToRequeuingLimitExceeded", Count: 1},
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
 				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1408,8 +1413,9 @@ func TestReconcile(t *testing.T) {
 				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1477,8 +1483,9 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -1546,8 +1553,9 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
-						Reason: "DeactivatedDueToRequeuingLimitExceeded",
-						Count:  1,
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
 					},
 				).
 				Obj(),
@@ -2006,8 +2014,8 @@ func TestReconcile(t *testing.T) {
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 
-			cqCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 			// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 			reconciler.clock = fakeClock

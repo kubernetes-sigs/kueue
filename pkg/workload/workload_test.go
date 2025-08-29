@@ -304,27 +304,27 @@ func TestNewInfo(t *testing.T) {
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
-					Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
+					Input:    "nvidia.com/mig-1g.5gb",
 					Strategy: ptr.To(config.Replace),
 					Outputs: corev1.ResourceList{
-						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("5Ki"),
-						corev1.ResourceName("example.com/credits"):            resource.MustParse("10"),
+						"example.com/accelerator-memory": resource.MustParse("5Ki"),
+						"example.com/credits":            resource.MustParse("10"),
 					},
 				},
 				{
-					Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
+					Input:    "nvidia.com/mig-2g.10gb",
 					Strategy: ptr.To(config.Replace),
 					Outputs: corev1.ResourceList{
-						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("10Ki"),
-						corev1.ResourceName("example.com/credits"):            resource.MustParse("15"),
+						"example.com/accelerator-memory": resource.MustParse("10Ki"),
+						"example.com/credits":            resource.MustParse("15"),
 					},
 				},
 				{
-					Input:    corev1.ResourceName("nvidia.com/gpu"),
+					Input:    "nvidia.com/gpu",
 					Strategy: ptr.To(config.Retain),
 					Outputs: corev1.ResourceList{
-						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("40Ki"),
-						corev1.ResourceName("example.com/credits"):            resource.MustParse("100"),
+						"example.com/accelerator-memory": resource.MustParse("40Ki"),
+						"example.com/credits":            resource.MustParse("100"),
 					},
 				},
 			})},
@@ -421,10 +421,10 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			workload := utiltesting.MakeWorkload("foo", "bar").Generation(1).Obj()
 			workload.Status = tc.oldStatus
 			cl := utiltesting.NewFakeClientSSAAsSM(workload)
-			ctx := t.Context()
 			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
 			if err != nil {
 				t.Fatalf("Failed updating status: %v", err)

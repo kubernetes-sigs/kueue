@@ -348,11 +348,12 @@ func (i *Info) IsUsingTAS() bool {
 		})
 }
 
-// IsRequestingTAS returns information if the workload is requesting TAS
-func (i *Info) IsRequestingTAS() bool {
-	return slices.ContainsFunc(i.Obj.Spec.PodSets,
+// IsExplicitlyRequestingTAS returns information if the workload is requesting TAS
+func IsExplicitlyRequestingTAS(podSets ...kueue.PodSet) bool {
+	return slices.ContainsFunc(podSets,
 		func(ps kueue.PodSet) bool {
-			return ps.TopologyRequest != nil
+			tr := ps.TopologyRequest
+			return tr != nil && (tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil)
 		})
 }
 
@@ -1081,7 +1082,11 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	prepareForEviction(wl, clock.Now(), reason, msg)
+	evictionReason := reason
+	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+	}
+	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
 	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
 		return err
@@ -1094,7 +1099,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, underlyingCause, msg)
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause)
 	}
@@ -1112,15 +1117,19 @@ func resetClusterNomination(w *kueue.Workload) {
 	w.Status.NominatedClusterNames = nil
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string) {
-	metrics.ReportEvictedWorkloads(cqName, reason)
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {
+	metrics.ReportEvictedWorkloads(cqName, reason, underlyingCause)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
-		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason).Observe(podsReadyToEvictionTime.Seconds())
+		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, underlyingCause).Observe(podsReadyToEvictionTime.Seconds())
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason)
+		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, underlyingCause)
 	}
-	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
+	eventReason := fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason)
+	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+		eventReason = fmt.Sprintf("%sDueTo%s", eventReason, underlyingCause)
+	}
+	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {

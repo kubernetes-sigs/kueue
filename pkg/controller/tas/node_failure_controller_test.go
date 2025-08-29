@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -43,14 +42,6 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
-
-// newNodeTest is a helper to create a Node object for testing
-func newNodeTest(name string, readyStatus corev1.ConditionStatus, clock clock.Clock, transitionTimeOffset time.Duration) *corev1.Node {
-	return testingnode.MakeNode(name).StatusConditions(corev1.NodeCondition{
-		Type:               corev1.NodeReady,
-		Status:             readyStatus,
-		LastTransitionTime: metav1.NewTime(clock.Now().Add(-transitionTimeOffset))}).Obj()
-}
 
 func TestNodeFailureReconciler(t *testing.T) {
 	testStartTime := time.Now().Truncate(time.Second)
@@ -108,6 +99,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Admitted(true).
 		Obj()
 
+	now := metav1.NewTime(fakeClock.Now())
+	earlierTime := metav1.NewTime(now.Add(-NodeFailureDelay))
+
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueuealpha.WorkloadAnnotation, wlName).
 		Label(kueuealpha.TASLabel, "true").
@@ -115,7 +109,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Obj()
 
 	terminatingPod := basePod.DeepCopy()
-	terminatingPod.DeletionTimestamp = &metav1.Time{Time: fakeClock.Now()}
+	terminatingPod.DeletionTimestamp = &now
 	terminatingPod.Finalizers = []string{podcontroller.PodFinalizer}
 
 	failedPod := basePod.DeepCopy()
@@ -123,17 +117,19 @@ func TestNodeFailureReconciler(t *testing.T) {
 	failedPod.Status.ContainerStatuses = []corev1.ContainerStatus{
 		{
 			State: corev1.ContainerState{
-				Terminated: &corev1.ContainerStateTerminated{FinishedAt: metav1.NewTime(fakeClock.Now())},
+				Terminated: &corev1.ContainerStateTerminated{FinishedAt: now},
 			},
 		},
 	}
 	failedPod.Status.ContainerStatuses = []corev1.ContainerStatus{
 		{
 			State: corev1.ContainerState{
-				Terminated: &corev1.ContainerStateTerminated{FinishedAt: metav1.NewTime(fakeClock.Now())},
+				Terminated: &corev1.ContainerStateTerminated{FinishedAt: now},
 			},
 		},
 	}
+
+	baseNode := testingnode.MakeNode(nodeName)
 
 	tests := map[string]struct {
 		initObjs          []client.Object
@@ -146,7 +142,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -155,7 +154,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 		},
 		"Node becomes healthy, annotation is removed": {
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionTrue, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
 				workloadWithAnnotation.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -165,7 +167,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -175,7 +180,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 		},
 		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -185,7 +193,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 		"Node NotReady, pod terminating, marked as unavailable": {
 			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
 				baseWorkload.DeepCopy(),
 				terminatingPod,
 			},
@@ -195,7 +206,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 		"Node NotReady, pod failed, marked as unavailable": {
 			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				failedPod,
 			},
@@ -204,7 +218,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 		},
 		"Node NotReady, pod failed, ReplaceNodeOnPodTermination feature gate off, requeued": {
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				failedPod,
 			},
@@ -215,7 +232,10 @@ func TestNodeFailureReconciler(t *testing.T) {
 		"Node NotReady, pod running, not marked as unavailable, requeued": {
 			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, time.Duration(0)),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -234,8 +254,14 @@ func TestNodeFailureReconciler(t *testing.T) {
 		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
 			featureGates: []featuregate.Feature{features.TASFailedNodeReplacement},
 			initObjs: []client.Object{
-				newNodeTest(nodeName, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
-				newNodeTest(nodeName2, corev1.ConditionFalse, fakeClock, NodeFailureDelay),
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
+				baseNode.Clone().Name(nodeName2).StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
 				workloadWithTwoNodes.DeepCopy(),
 				testingpod.MakePod("pod1", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName).Obj(),
 				testingpod.MakePod("pod2", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName2).Obj(),
@@ -258,14 +284,13 @@ func TestNodeFailureReconciler(t *testing.T) {
 			for _, fg := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, true)
 			}
-			ctx := t.Context()
 			fakeClock.SetTime(testStartTime)
 
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(tc.initObjs...).
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-
+			ctx, _ := utiltesting.ContextWithLog(t)
 			err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			if err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)

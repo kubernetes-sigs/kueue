@@ -574,6 +574,46 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
 		})
 	})
+
+	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {
+		var (
+			cqA *kueue.ClusterQueue
+			cqB *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			cqA = createQueue(testing.MakeClusterQueue("a").
+				Cohort("all").FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).Obj())
+
+			cqB = createQueue(testing.MakeClusterQueue("b").
+				Cohort("all").FairWeight(resource.MustParse("300")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).Obj())
+		})
+
+		ginkgo.It("Queue can reclaim its nominal quota", framework.SlowSpec, func() {
+			ginkgo.By("Adding so many workloads in cqA that it borrows some quota from cqB")
+			for range 10 {
+				createWorkload("a", "100")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 10)
+			ginkgo.By("Creating a newer workload in cqB that needs only nominal quota")
+			createWorkload("b", "500")
+			ginkgo.By("Evict the some workloads in cqA and reclaim the nominal quota in cqB")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 3)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 7)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 1)
+		})
+	})
 })
 
 func expectCohortWeightedShare(cohortName string, weightedShare int64) {
@@ -751,6 +791,104 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 			ginkgo.By("Checking that the workload from lq-A is preempted despite having bigger priority")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlHighA)
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		defaultFlavor *kueue.ResourceFlavor
+		ns            *corev1.Namespace
+
+		cohorts []*kueue.Cohort
+		cqs     []*kueue.ClusterQueue
+		lqs     []*kueue.LocalQueue
+		wls     []*kueue.Workload
+	)
+
+	var createWorkloadWithPriority = func(queue kueue.LocalQueueName, cpuRequests string, priority int32) *kueue.Workload {
+		wl := testing.MakeWorkloadWithGeneratedName("workload-", ns.Name).
+			Priority(priority).
+			Queue(queue).
+			Request(corev1.ResourceCPU, cpuRequests).Obj()
+		wls = append(wls, wl)
+		util.MustCreate(ctx, k8sClient, wl)
+		return wl
+	}
+
+	var createWorkload = func(queue kueue.LocalQueueName, cpuRequests string) *kueue.Workload {
+		return createWorkloadWithPriority(queue, cpuRequests, 0)
+	}
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, defaultFlavor)
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+	})
+
+	ginkgo.AfterEach(func() {
+		for _, wl := range wls {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+		}
+		for _, lq := range lqs {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+		}
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		for _, cq := range cqs {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		}
+		for _, cohort := range cohorts {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		}
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+	})
+
+	ginkgo.When("Using AdmissionFairSharing at Cohort level", func() {
+		var (
+			cq1 *kueue.ClusterQueue
+			lqA *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
+
+			cq1 = testing.MakeClusterQueue("cq1").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "32").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyNever}).
+				QueueingStrategy(kueue.StrictFIFO).
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq1)
+			cqs = append(cqs, cq1)
+
+			lqA = testing.MakeLocalQueue("lq-a", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				ClusterQueue(cq1.Name).Obj()
+			lqs = append(lqs, lqA)
+			util.MustCreate(ctx, k8sClient, lqA)
+		})
+
+		ginkgo.It("should ignore FairSharing", func() {
+			ginkgo.By("Creating a workload")
+			wl := createWorkload(kueue.LocalQueueName(lqA.Name), "32")
+
+			ginkgo.By("Admitting the workload")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+
+			ginkgo.By("Checking that FairSharing status is nil")
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).To(gomega.Succeed())
+			gomega.Expect(lqA.Status.FairSharing).Should(gomega.BeNil())
 		})
 	})
 })

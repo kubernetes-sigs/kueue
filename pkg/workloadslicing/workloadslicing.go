@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -284,7 +284,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 // - The input workload or snapshot is nil
 // - The workload has no replacement slice key
 // - The referenced replacement workload is not found in the ClusterQueue snapshot
-func ReplacedWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
+func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*preemption.Target, *workload.Info) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || snap == nil {
 		return nil, nil
 	}

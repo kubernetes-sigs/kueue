@@ -21,6 +21,10 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -37,16 +41,34 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/queue"
 )
+
+var nodeSemantic = conversion.EqualitiesOrDie(
+	nodeConditionEqual,
+	// Handle metav1.Time comparison to avoid panic on unexported fields
+	func(a, b metav1.Time) bool {
+		return a.Equal(&b)
+	},
+	// Handle resource.Quantity comparison to avoid panic on unexported fields
+	func(a, b resource.Quantity) bool {
+		return a.Equal(b)
+	},
+)
+
+func nodeConditionEqual(a, b corev1.NodeCondition) bool {
+	aCopy, bCopy := a.DeepCopy(), b.DeepCopy()
+	aCopy.LastHeartbeatTime, bCopy.LastHeartbeatTime = metav1.Time{}, metav1.Time{}
+	return equality.Semantic.DeepEqual(aCopy, bCopy)
+}
 
 type rfReconciler struct {
 	log      logr.Logger
-	queues   *queue.Manager
-	cache    *cache.Cache
+	queues   *qcache.Manager
+	cache    *schdcache.Cache
 	client   client.Client
 	recorder record.EventRecorder
 }
@@ -58,7 +80,7 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func newRfReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder) *rfReconciler {
+func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder) *rfReconciler {
 	return &rfReconciler{
 		log:      ctrl.Log.WithName(TASResourceFlavorController),
 		client:   c,
@@ -68,7 +90,7 @@ func newRfReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache,
 	}
 }
 
-func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
+func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
 	nodeHandler := nodeHandler{
 		cache: cache,
 	}
@@ -92,7 +114,7 @@ var _ handler.EventHandler = (*nodeHandler)(nil)
 
 // nodeHandler handles node update events.
 type nodeHandler struct {
-	cache *cache.Cache
+	cache *schdcache.Cache
 }
 
 func (h *nodeHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -109,6 +131,12 @@ func (h *nodeHandler) Update(ctx context.Context, e event.UpdateEvent, q workque
 	if !isOldNode || !isNewNode {
 		return
 	}
+
+	if !checkNodeSchedulingPropertiesChanged(oldNode, newNode) {
+		ctrl.LoggerFrom(ctx).V(5).Info("Skipping node update as new Node is semantically same as old Node", "node", newNode.Name)
+		return
+	}
+
 	h.queueReconcileForNode(oldNode, q)
 	h.queueReconcileForNode(newNode, q)
 }
@@ -202,4 +230,9 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 		}
 	}
 	return true
+}
+
+// checkNodeSchedulingPropertiesChanged checks if the node update affects TAS scheduling.
+func checkNodeSchedulingPropertiesChanged(oldNode, newNode *corev1.Node) bool {
+	return !nodeSemantic.DeepEqual(oldNode, newNode)
 }
