@@ -58,33 +58,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 	//   /      \             /      \
 	//  r1       r2          r1       r2
 	//  |      /  |  \       |         |
-	//  x1    x2  x3  x4     x5       x6
+	//  x3    x5  x1  x6     x2       x4
 	defaultNodes := []corev1.Node{
-		*testingnode.MakeNode("b1-r1-x1").
+		*testingnode.MakeNode("b1-r1-x3").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x1").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b1-r2-x2").
-			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r2").
-			Label(corev1.LabelHostname, "x2").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b1-r2-x3").
-			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r2").
 			Label(corev1.LabelHostname, "x3").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
@@ -93,20 +71,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b1-r2-x4").
+		*testingnode.MakeNode("b1-r2-x5").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r2").
-			Label(corev1.LabelHostname, "x4").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b2-r2-x5").
-			Label(tasBlockLabel, "b2").
-			Label(tasRackLabel, "r1").
 			Label(corev1.LabelHostname, "x5").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
@@ -115,10 +82,43 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b2-r2-x6").
-			Label(tasBlockLabel, "b2").
+		*testingnode.MakeNode("b1-r2-x1").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x6").
+			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r2").
 			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x2").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x4").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x4").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2"),
 				corev1.ResourceMemory: resource.MustParse("4Gi"),
@@ -132,12 +132,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 	//       |             |
 	//       r1           r1
 	//     /  |  \       /  \
-	//   x1  x2  x3     x4  x5
+	//   x3  x5  x1     x6  x2
 	scatteredNodes := []corev1.Node{
-		*testingnode.MakeNode("b1-r1-x1").
+		*testingnode.MakeNode("b1-r1-x3").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x1").
+			Label(corev1.LabelHostname, "x3").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("4"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -145,10 +145,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b1-r1-x2").
+		*testingnode.MakeNode("b1-r1-x5").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x2").
+			Label(corev1.LabelHostname, "x5").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -156,10 +156,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b1-r1-x3").
+		*testingnode.MakeNode("b1-r1-x1").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x3").
+			Label(corev1.LabelHostname, "x1").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -167,10 +167,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b2-r1-x4").
+		*testingnode.MakeNode("b2-r1-x6").
 			Label(tasBlockLabel, "b2").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x4").
+			Label(corev1.LabelHostname, "x6").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -178,10 +178,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b2-r1-x5").
+		*testingnode.MakeNode("b2-r1-x2").
 			Label(tasBlockLabel, "b2").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x5").
+			Label(corev1.LabelHostname, "x2").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -195,11 +195,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 	//	   /     \           /     \
 	//	 r1      r2        r1      r2
 	//	 |    /  |  \      |        |
-	//	x1  x2  x3  x4    x5       x6
-	multipodNodeset := []corev1.Node{*testingnode.MakeNode("b1-r1-x1").
+	//	x3  x5  x1  x6    x2       x4
+	multipodNodeset := []corev1.Node{*testingnode.MakeNode("b1-r1-x3").
 		Label(tasBlockLabel, "b1").
 		Label(tasRackLabel, "r1").
-		Label(corev1.LabelHostname, "x1").
+		Label(corev1.LabelHostname, "x3").
 		StatusAllocatable(corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("10"),
 			corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -207,42 +207,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		}).
 		Ready().
 		Obj(),
-		*testingnode.MakeNode("b1-r2-x2").
+		*testingnode.MakeNode("b1-r2-x5").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r2").
-			Label(corev1.LabelHostname, "x2").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("10"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b1-r2-x3").
-			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r2").
-			Label(corev1.LabelHostname, "x3").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("10"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b1-r2-x4").
-			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r2").
-			Label(corev1.LabelHostname, "x4").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("10"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b2-r1-x5").
-			Label(tasBlockLabel, "b2").
-			Label(tasRackLabel, "r1").
 			Label(corev1.LabelHostname, "x5").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("10"),
@@ -251,10 +218,43 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b2-r2-x6").
-			Label(tasBlockLabel, "b2").
+		*testingnode.MakeNode("b1-r2-x1").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x6").
+			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r2").
 			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x2").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r2-x4").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x4").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("20"),
 				corev1.ResourceMemory: resource.MustParse("4Gi"),
@@ -281,33 +281,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 	//       /        \             /      \
 	//      r1         r2          r1       r2
 	//     /  \      /   \        /   \    /   \
-	//    x1   x2   x3    x4     x5   x6  x7    x6
+	//    x3   x5   x1    x6     x2   x4  x7    x4
 	binaryTreesNodes := []corev1.Node{
-		*testingnode.MakeNode("b1-r1-x1").
+		*testingnode.MakeNode("b1-r1-x3").
 			Label(tasBlockLabel, "b1").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x1").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b1-r1-x2").
-			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x2").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b1-r2-x3").
-			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r2").
 			Label(corev1.LabelHostname, "x3").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
@@ -316,19 +294,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b1-r2-x4").
+		*testingnode.MakeNode("b1-r1-x5").
 			Label(tasBlockLabel, "b1").
-			Label(tasRackLabel, "r2").
-			Label(corev1.LabelHostname, "x4").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("1"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-				corev1.ResourcePods:   resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("b2-r1-x5").
-			Label(tasBlockLabel, "b2").
 			Label(tasRackLabel, "r1").
 			Label(corev1.LabelHostname, "x5").
 			StatusAllocatable(corev1.ResourceList{
@@ -338,10 +305,43 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}).
 			Ready().
 			Obj(),
-		*testingnode.MakeNode("b2-r1-x6").
+		*testingnode.MakeNode("b1-r2-x1").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b1-r2-x6").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r2").
+			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x2").
 			Label(tasBlockLabel, "b2").
 			Label(tasRackLabel, "r1").
-			Label(corev1.LabelHostname, "x6").
+			Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("b2-r1-x4").
+			Label(tasBlockLabel, "b2").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "x4").
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("1"),
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -382,60 +382,40 @@ func TestFindTopologyAssignments(t *testing.T) {
 		podSets            []PodSetTestCase
 	}{
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
-			// Solution by optimizing the number of racks then nodes: [r3]: [x3,x4,x5,x6]
-			// Solution by optimizing the number of nodes: [r1,r2]: [x1,x2]
+			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
+			// Solution by optimizing the number of nodes: [r1,r2]: [x3,x5]
 			//
 			//       b1
 			//   /   |    \
 			//  r1   r2   r3
 			//  |     |    |   \   \     \
-			// x1:2,x2:2,x3:1,x4:1,x5:1,x6:1
+			// x3:2,x5:2,x1:1,x6:1,x2:1,x4:1
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x2").
+				*testingnode.MakeNode("b1-r2-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("20"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r3-x3").
+				*testingnode.MakeNode("b1-r3-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r3").
-					Label(corev1.LabelHostname, "x3").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r3-x4").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r3").
-					Label(corev1.LabelHostname, "x4").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r3-x5").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r3").
-					Label(corev1.LabelHostname, "x5").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -446,6 +426,26 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -468,19 +468,19 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x1",
+							},
+						},
+						{
+							Count: 1,
+							Values: []string{
+								"x2",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
 								"x4",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
-								"x5",
 							},
 						},
 						{
@@ -499,33 +499,33 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:2, x2:1, x3:1
+			// x3:2, x5:1, x1:1
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -548,13 +548,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x2",
+								"x1",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 					},
@@ -567,32 +567,32 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:2, x2:1, x3:1
+			// x3:2, x5:1, x1:1
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -615,7 +615,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -639,7 +639,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 					},
@@ -661,13 +661,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 4,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 					},
@@ -691,13 +691,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 4,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 					},
@@ -721,7 +721,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -745,7 +745,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -770,7 +770,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -795,25 +795,25 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
-								"x2",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
 								"x3",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
-								"x4",
+								"x5",
+							},
+						},
+						{
+							Count: 1,
+							Values: []string{
+								"x1",
+							},
+						},
+						{
+							Count: 1,
+							Values: []string{
+								"x6",
 							},
 						},
 					},
@@ -837,7 +837,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -862,7 +862,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -886,7 +886,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -911,7 +911,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x6",
+								"x4",
 							},
 						},
 					},
@@ -936,7 +936,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x6",
+								"x4",
 							},
 						},
 					},
@@ -976,7 +976,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -1026,7 +1026,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -1196,7 +1196,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x5",
+								"x2",
 							},
 						},
 					},
@@ -1221,13 +1221,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x5",
+								"x2",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
-								"x6",
+								"x4",
 							},
 						},
 					},
@@ -1509,9 +1509,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"only nodes with matching labels are considered; no matching node; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1536,9 +1536,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"only nodes with matching labels are considered; matching node is found; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1562,7 +1562,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -1574,7 +1574,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"only nodes with matching levels are considered; no host label on node; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
 					// the node doesn't have the 'kubernetes.io/hostname' required by topology
@@ -1601,8 +1601,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 		"don't consider unscheduled Pods when computing capacity; BestFit": {
 			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label(corev1.LabelHostname, "x1").
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1631,7 +1631,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -1640,8 +1640,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"don't consider terminal pods when computing the capacity; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label(corev1.LabelHostname, "x1").
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1651,11 +1651,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			pods: []corev1.Pod{
-				*testingpod.MakePod("test-failed", "test-ns").NodeName("x1").
+				*testingpod.MakePod("test-failed", "test-ns").NodeName("x3").
 					Request(corev1.ResourceCPU, "600m").
 					StatusPhase(corev1.PodFailed).
 					Obj(),
-				*testingpod.MakePod("test-succeeded", "test-ns").NodeName("x1").
+				*testingpod.MakePod("test-succeeded", "test-ns").NodeName("x3").
 					Request(corev1.ResourceCPU, "600m").
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
@@ -1675,7 +1675,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -1683,10 +1683,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"include usage from pending scheduled non-TAS pods, blocked assignment; BestFit": {
-			// there is not enough free capacity on the only node x1
+			// there is not enough free capacity on the only node x3
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label(corev1.LabelHostname, "x1").
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1696,7 +1696,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			pods: []corev1.Pod{
-				*testingpod.MakePod("test-pending", "test-ns").NodeName("x1").
+				*testingpod.MakePod("test-pending", "test-ns").NodeName("x3").
 					StatusPhase(corev1.PodPending).
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
@@ -1714,10 +1714,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"include usage from running non-TAS pods, blocked assignment; BestFit": {
-			// there is not enough free capacity on the only node x1
+			// there is not enough free capacity on the only node x3
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label(corev1.LabelHostname, "x1").
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1727,7 +1727,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			pods: []corev1.Pod{
-				*testingpod.MakePod("test-running", "test-ns").NodeName("x1").
+				*testingpod.MakePod("test-running", "test-ns").NodeName("x3").
 					StatusPhase(corev1.PodRunning).
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
@@ -1745,11 +1745,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"include usage from running non-TAS pods, found free capacity on another node; BestFit": {
-			// there is not enough free capacity on the node x1 as the
-			// assignments lends on the free x2
+			// there is not enough free capacity on the node x3 as the
+			// assignments lends on the free x5
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label(corev1.LabelHostname, "x1").
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1757,8 +1757,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("x2").
-					Label(corev1.LabelHostname, "x2").
+				*testingnode.MakeNode("x5").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1768,7 +1768,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Obj(),
 			},
 			pods: []corev1.Pod{
-				*testingpod.MakePod("test-pod", "test-ns").NodeName("x1").
+				*testingpod.MakePod("test-pod", "test-ns").NodeName("x3").
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
@@ -1787,7 +1787,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x2",
+								"x5",
 							},
 						},
 					},
@@ -1796,9 +1796,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"no assignment as node is not ready; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1828,9 +1828,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"no assignment as node is unschedulable; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1857,9 +1857,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"skip node which has untolerated taint; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
+				*testingnode.MakeNode("x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1890,9 +1890,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"allow to schedule on node with tolerated taint; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					Taints(corev1.Taint{
 						Key:    "example.com/gpu",
 						Value:  "present",
@@ -1921,7 +1921,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -1940,9 +1940,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"no assignment as node does not have enough allocatable pods (.status.allocatable['pods']); BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1000m"),
 						corev1.ResourcePods: resource.MustParse("1"),
@@ -1952,7 +1952,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("test-running", "test-ns").
-					NodeName("b1-r1-x1").
+					NodeName("b1-r1-x3").
 					StatusPhase(corev1.PodRunning).
 					Request(corev1.ResourceCPU, "300m").
 					Obj(),
@@ -1974,9 +1974,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"skip node which doesn't match node selector, missing label; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
+				*testingnode.MakeNode("x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -2006,9 +2006,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"skip node which doesn't match node selector, label exists, value doesn't match; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
+				*testingnode.MakeNode("x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					Label("custom-label-1", "value-1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2038,9 +2038,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 		"allow to schedule on node which matches node; BestFit": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					Label("custom-label-1", "value-1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2049,9 +2049,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label("zone", "zone-a").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					Label("custom-label-1", "value-2").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1"),
@@ -2080,7 +2080,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x2",
+								"x5",
 							},
 						},
 					},
@@ -2095,33 +2095,33 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:3, x2:3, x3:3
+			// x3:3, x5:3, x1:3
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
 				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2152,13 +2152,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x2",
+								"x3",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 					},
@@ -2170,43 +2170,43 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//            |
 			//           r1
 			//    /    /    \    \
-			// x1:6  x2:5   x3:4  x4:2
+			// x3:6  x5:5   x1:4  x6:2
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("6"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("5"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x4").
+				*testingnode.MakeNode("b1-r1-x6").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x4").
+					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2229,13 +2229,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
-							Count: 6,
+							Count: 4,
 							Values: []string{
 								"x1",
 							},
 						},
 						{
-							Count: 4,
+							Count: 6,
 							Values: []string{
 								"x3",
 							},
@@ -2243,7 +2243,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 					},
@@ -2255,33 +2255,33 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:3, x2:2, x3:2
+			// x3:3, x5:2, x1:2
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2306,13 +2306,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x2",
+								"x1",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 					},
@@ -2325,31 +2325,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//    /       \          |
 			//   r1        r2       r1
 			//  / \     /  / \     /  \
-			// x1 x2  x3 x4  x5   x6   x7
+			// x3 x5  x1 x6  x2   x4   x7
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r2-x3").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
 					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
@@ -2357,19 +2337,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x4").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x4").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r2-x5").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
+					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
@@ -2377,10 +2347,40 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r1-x6").
+				*testingnode.MakeNode("b1-r2-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x6").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x4").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x6").
+					Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2415,6 +2415,18 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
+								"x3",
+							},
+						},
+						{
+							Count: 1,
+							Values: []string{
+								"x5",
+							},
+						},
+						{
+							Count: 1,
+							Values: []string{
 								"x1",
 							},
 						},
@@ -2422,18 +2434,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 							Count: 1,
 							Values: []string{
 								"x2",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
-								"x3",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
-								"x4",
 							},
 						},
 					},
@@ -2459,19 +2459,19 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x2",
+								"x1",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x6",
+								"x4",
 							},
 						},
 					},
@@ -2483,33 +2483,33 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:4, x2:3, x3:2
+			// x3:4, x5:3, x1:2
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2532,13 +2532,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
-							Count: 4,
+							Count: 2,
 							Values: []string{
 								"x1",
 							},
 						},
 						{
-							Count: 2,
+							Count: 4,
 							Values: []string{
 								"x3",
 							},
@@ -2552,33 +2552,33 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:4, x2:3, x3:2
+			// x3:4, x5:3, x1:2
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2603,13 +2603,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x2",
+								"x1",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 					},
@@ -2623,53 +2623,53 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |                 |
 			//        r1                r1
 			//    /    |    \        /   |
-			// x1:4, x2:3, x3:2   x4:4  x5:2
+			// x3:4, x5:3, x1:2   x6:4  x2:2
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x3").
+				*testingnode.MakeNode("b1-r1-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r1-x4").
+				*testingnode.MakeNode("b2-r1-x6").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x4").
+					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("4"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r1-x5").
+				*testingnode.MakeNode("b2-r1-x2").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x5").
+					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2692,21 +2692,21 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
-							Count: 4,
+							Count: 2,
 							Values: []string{
 								"x1",
 							},
 						},
 						{
-							Count: 2,
+							Count: 4,
 							Values: []string{
-								"x2",
+								"x3",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 					},
@@ -2720,29 +2720,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |                 |
 			//        r1                r1
 			//    /    |    \            |
-			// x1:3, x2:3, x3:3   		x4:6
+			// x3:3, x5:3, x1:3   		x6:6
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
 				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
@@ -2753,10 +2733,30 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r1-x4").
+				*testingnode.MakeNode("b1-r1-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x6").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x4").
+					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("6"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2787,13 +2787,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 3,
 							Values: []string{
-								"x2",
+								"x3",
 							},
 						},
 						{
 							Count: 6,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 					},
@@ -2806,32 +2806,32 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//     /    |    \
 			//   r1    r2    r3
 			//   |      |     |
-			//   x1:2  x2:2  x3:2
+			//   x3:2  x5:2  x1:2
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x2").
+				*testingnode.MakeNode("b1-r2-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r3-x3").
+				*testingnode.MakeNode("b1-r3-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r3").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2859,42 +2859,42 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//     /    /    \    \
 			//   r1    r2    r3    r4
 			//   |      |     |     |
-			//   x1:3  x2:1  x3:1  x4:1
+			//   x3:3  x5:1  x1:1  x6:1
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
+					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x2").
+				*testingnode.MakeNode("b1-r2-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x2").
+					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r3-x3").
+				*testingnode.MakeNode("b1-r3-x1").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r3").
-					Label(corev1.LabelHostname, "x3").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r4-x4").
+				*testingnode.MakeNode("b1-r4-x6").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r4").
-					Label(corev1.LabelHostname, "x4").
+					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2922,31 +2922,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//    /    |    \      |    \
 			//   r1    r2    r3    r4    r5
 			//    |    |     |     |     |
-			//   x1:2  x2:2  x3:2  x4:3  x5:3
+			//   x3:2  x5:2  x1:2  x6:3  x2:3
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("2"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r2-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("2"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r3-x3").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r3").
 					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
@@ -2954,20 +2934,40 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r4-x4").
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r3-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r4-x6").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r4").
-					Label(corev1.LabelHostname, "x4").
+					Label(corev1.LabelHostname, "x6").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r5-x5").
+				*testingnode.MakeNode("b2-r5-x2").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r5").
-					Label(corev1.LabelHostname, "x5").
+					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -2992,13 +2992,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 3,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 						{
 							Count: 3,
 							Values: []string{
-								"x5",
+								"x2",
 							},
 						},
 					},
@@ -3057,33 +3057,33 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//         |
 			//        r1
 			//    /    |    \
-			// x1:3, x2:3, x3:3
+			// x3:3, x5:3, x1:3
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("3"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
 				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -3113,13 +3113,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x2",
+								"x3",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 					},
@@ -3144,13 +3144,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 4,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x4",
+								"x6",
 							},
 						},
 					},
@@ -3175,19 +3175,19 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x2",
+								"x1",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x5",
 							},
 						},
 						{
 							Count: 2,
 							Values: []string{
-								"x6",
+								"x4",
 							},
 						},
 					},
@@ -3609,31 +3609,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//        |               |
 			//       r1              r2
 			//    /   |   \       /   |   \
-			//  x1   x2   x3    x4   x5   x6
+			//  x3   x5   x1    x6   x2   x4
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("2"),
-						corev1.ResourcePods: resource.MustParse("10"),
-						"example.com/gpu":   resource.MustParse("1"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("2"),
-						corev1.ResourcePods: resource.MustParse("10"),
-						"example.com/gpu":   resource.MustParse("1"),
-					}).
-					Ready().
-					Obj(),
 				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
@@ -3645,20 +3623,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r4-x4").
-					Label(tasBlockLabel, "b2").
-					Label(tasRackLabel, "r4").
-					Label(corev1.LabelHostname, "x4").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-						"example.com/gpu":   resource.MustParse("1"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b2-r5-x5").
-					Label(tasBlockLabel, "b2").
-					Label(tasRackLabel, "r5").
+				*testingnode.MakeNode("b1-r1-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
@@ -3667,10 +3634,43 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r6-x6").
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r4-x6").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r4").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r5-x2").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r5").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r6-x4").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r6").
-					Label(corev1.LabelHostname, "x6").
+					Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("2"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -3720,13 +3720,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{
 								Count: 1,
 								Values: []string{
-									"x2",
+									"x3",
 								},
 							},
 							{
 								Count: 1,
 								Values: []string{
-									"x3",
+									"x5",
 								},
 							},
 						},
@@ -3739,34 +3739,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 			//        /   \             /    \
 			//      r1     r2         r3     r4
 			//    /  |     |  \     /  |     |  \
-			//  x1  x2    x3  x4  x5   x6   x7   x8
+			//  x3  x5    x1  x6  x2   x4   x7   x8
 			//
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
+				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-						"example.com/gpu":   resource.MustParse("1"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-						"example.com/gpu":   resource.MustParse("1"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r2-x3").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
 					Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
@@ -3775,20 +3753,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x4").
+				*testingnode.MakeNode("b1-r1-x5").
 					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x4").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-						"example.com/gpu":   resource.MustParse("1"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b2-r3-x5").
-					Label(tasBlockLabel, "b2").
-					Label(tasRackLabel, "r3").
+					Label(tasRackLabel, "r1").
 					Label(corev1.LabelHostname, "x5").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
@@ -3797,10 +3764,43 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b2-r3-x6").
+				*testingnode.MakeNode("b1-r2-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x6").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r3-x2").
 					Label(tasBlockLabel, "b2").
 					Label(tasRackLabel, "r3").
-					Label(corev1.LabelHostname, "x6").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r3-x4").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r3").
+					Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("1"),
 						corev1.ResourcePods: resource.MustParse("10"),
@@ -3850,7 +3850,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{
 								Count: 1,
 								Values: []string{
-									"x1",
+									"x3",
 								},
 							},
 						},
@@ -3873,13 +3873,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{
 								Count: 1,
 								Values: []string{
-									"x2",
+									"x5",
 								},
 							},
 							{
 								Count: 1,
 								Values: []string{
-									"x3",
+									"x1",
 								},
 							},
 						},
@@ -3949,7 +3949,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
-							{Count: 9, Values: []string{"x5"}},
+							{Count: 9, Values: []string{"x2"}},
 						},
 					},
 				},
@@ -3965,7 +3965,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
-							{Count: 2, Values: []string{"x1"}},
+							{Count: 2, Values: []string{"x3"}},
 						},
 					},
 				},
@@ -4070,7 +4070,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
-							{Count: 8, Values: []string{"x5"}},
+							{Count: 8, Values: []string{"x2"}},
 						},
 					},
 				},
@@ -4086,7 +4086,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
-							{Count: 2, Values: []string{"x5"}},
+							{Count: 2, Values: []string{"x2"}},
 						},
 					},
 				},
