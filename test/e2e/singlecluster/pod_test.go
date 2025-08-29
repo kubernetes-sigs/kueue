@@ -19,7 +19,6 @@ package e2e
 import (
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -333,7 +332,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						Type:   corev1.PodScheduled,
 						Status: corev1.ConditionFalse,
 						Reason: corev1.PodReasonUnschedulable,
-					}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastProbeTime", "LastTransitionTime", "Message"))))
+					}, util.IgnorePodConditionTimestampsMessageAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
