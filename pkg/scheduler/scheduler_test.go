@@ -7456,7 +7456,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		cqs                            []kueue.ClusterQueue
 		admittedWorkloads              []kueue.Workload
 		workloads                      []kueue.Workload
-		deleteWorkloads                []kueue.Workload
+		deleteWorkloads                []*kueue.Workload
 		wantPreempted                  sets.Set[workload.Reference]
 		wantAdmissionsOnFirstSchedule  map[workload.Reference]kueue.Admission
 		wantAdmissionsOnSecondSchedule map[workload.Reference]kueue.Admission
@@ -7500,8 +7500,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("low-1", "default").
+			deleteWorkloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("low-1", "default").
 					Queue("main").
 					Request(corev1.ResourceCPU, "50").
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).Obj()).
@@ -7542,7 +7542,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{},
+			deleteWorkloads: []*kueue.Workload{},
 			wantPreempted:   sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload1": *utiltesting.MakeAdmission("eng-cohort-beta").
@@ -7603,7 +7603,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{},
+			deleteWorkloads: []*kueue.Workload{},
 			wantPreempted:   sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").
@@ -7668,7 +7668,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{},
+			deleteWorkloads: []*kueue.Workload{},
 			wantPreempted:   sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").
@@ -7730,7 +7730,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads:               []kueue.Workload{*utiltesting.MakeWorkload("placeholder-alpha", "default").Obj()},
+			deleteWorkloads:               []*kueue.Workload{utiltesting.MakeWorkload("placeholder-alpha", "default").Obj()},
 			wantPreempted:                 sets.New[workload.Reference]("default/placeholder-alpha"),
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{},
 			wantAdmissionsOnSecondSchedule: map[workload.Reference]kueue.Admission{
@@ -7821,7 +7821,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "22").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{*utiltesting.MakeWorkload("alpha2", "default").Obj()},
+			deleteWorkloads: []*kueue.Workload{utiltesting.MakeWorkload("alpha2", "default").Obj()},
 			wantPreempted:   sets.New[workload.Reference]("default/alpha2"),
 			wantAdmissionsOnSecondSchedule: map[workload.Reference]kueue.Admission{
 				"default/alpha1": *utiltesting.MakeAdmission("eng-cohort-alpha").
@@ -7921,15 +7921,15 @@ func TestLastSchedulingContext(t *testing.T) {
 			}
 
 			for _, wl := range tc.deleteWorkloads {
-				err := cl.Delete(ctx, &wl)
+				err := cl.Delete(ctx, wl)
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
-				err = cqCache.DeleteWorkload(log, &wl)
+				err = cqCache.DeleteWorkload(log, wl)
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
-				qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, &wl, nil)
+				qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, nil)
 			}
 
 			scheduler.schedule(ctx)
