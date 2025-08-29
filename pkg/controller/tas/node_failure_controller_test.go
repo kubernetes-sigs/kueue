@@ -99,6 +99,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Admitted(true).
 		Obj()
 
+	now := metav1.NewTime(fakeClock.Now())
+	earlierTime := metav1.NewTime(now.Add(-NodeFailureDelay))
+
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueuealpha.WorkloadAnnotation, wlName).
 		Label(kueuealpha.TASLabel, "true").
@@ -106,7 +109,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Obj()
 
 	terminatingPod := basePod.DeepCopy()
-	terminatingPod.DeletionTimestamp = &metav1.Time{Time: fakeClock.Now()}
+	terminatingPod.DeletionTimestamp = &now
 	terminatingPod.Finalizers = []string{podcontroller.PodFinalizer}
 
 	failedPod := basePod.DeepCopy()
@@ -114,14 +117,14 @@ func TestNodeFailureReconciler(t *testing.T) {
 	failedPod.Status.ContainerStatuses = []corev1.ContainerStatus{
 		{
 			State: corev1.ContainerState{
-				Terminated: &corev1.ContainerStateTerminated{FinishedAt: metav1.NewTime(fakeClock.Now())},
+				Terminated: &corev1.ContainerStateTerminated{FinishedAt: now},
 			},
 		},
 	}
 	failedPod.Status.ContainerStatuses = []corev1.ContainerStatus{
 		{
 			State: corev1.ContainerState{
-				Terminated: &corev1.ContainerStateTerminated{FinishedAt: metav1.NewTime(fakeClock.Now())},
+				Terminated: &corev1.ContainerStateTerminated{FinishedAt: now},
 			},
 		},
 	}
@@ -142,7 +145,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -154,7 +157,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				workloadWithAnnotation.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -167,7 +170,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -180,7 +183,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now().Add(-NodeFailureDelay))}).Obj(),
+					LastTransitionTime: earlierTime}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -193,7 +196,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: earlierTime}).Obj(),
 				baseWorkload.DeepCopy(),
 				terminatingPod,
 			},
@@ -206,7 +209,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				failedPod,
 			},
@@ -218,7 +221,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				failedPod,
 			},
@@ -232,7 +235,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now())}).Obj(),
+					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				basePod.DeepCopy(),
 			},
@@ -254,11 +257,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now().Add(-NodeFailureDelay))}).Obj(),
+					LastTransitionTime: earlierTime}).Obj(),
 				baseNode.Clone().Name(nodeName2).StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(fakeClock.Now().Add(-NodeFailureDelay))}).Obj(),
+					LastTransitionTime: earlierTime}).Obj(),
 				workloadWithTwoNodes.DeepCopy(),
 				testingpod.MakePod("pod1", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName).Obj(),
 				testingpod.MakePod("pod2", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName2).Obj(),
