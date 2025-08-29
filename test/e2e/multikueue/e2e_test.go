@@ -237,7 +237,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				{
 					Type:   corev1.PodInitialized,
 					Status: corev1.ConditionTrue,
-					Reason: finishReason},
+					Reason: finishReason,
+				},
 				{
 					Type:   corev1.PodReady,
 					Status: corev1.ConditionFalse,
@@ -246,7 +247,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				{
 					Type:   corev1.ContainersReady,
 					Status: corev1.ConditionFalse,
-					Reason: finishReason},
+					Reason: finishReason,
+				},
 				{
 					Type:   corev1.PodScheduled,
 					Status: corev1.ConditionTrue,
@@ -258,7 +260,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					createdPod := corev1.Pod{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), &createdPod)).To(gomega.Succeed())
 					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
-					g.Expect(createdPod.Status.Conditions).To(gomega.BeComparableTo(finishPodConditions, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime")))
+					g.Expect(createdPod.Status.Conditions).To(gomega.BeComparableTo(finishPodConditions, util.IgnorePodConditionTimestampsMessageAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
