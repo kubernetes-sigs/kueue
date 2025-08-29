@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -31,7 +30,6 @@ import (
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -550,13 +548,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 						{
 							Count: 1,
 							Values: []string{
-								"x2",
+								"x3",
 							},
 						},
 					},
@@ -1283,17 +1281,17 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					Domains: []kueue.TopologyDomainAssignment{
 						{
-							Count: 3,
-							Values: []string{
-								"b1",
-								"r2",
-							},
-						},
-						{
 							Count: 1,
 							Values: []string{
 								"b1",
 								"r1",
+							},
+						},
+						{
+							Count: 3,
+							Values: []string{
+								"b1",
+								"r2",
 							},
 						},
 					},
@@ -1315,17 +1313,17 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultTwoLevels,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
-							Count: 3,
-							Values: []string{
-								"b1",
-								"r2",
-							},
-						},
-						{
 							Count: 1,
 							Values: []string{
 								"b1",
 								"r1",
+							},
+						},
+						{
+							Count: 3,
+							Values: []string{
+								"b1",
+								"r2",
 							},
 						},
 					},
@@ -1400,17 +1398,17 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultTwoLevels,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
-							Count: 3,
-							Values: []string{
-								"b1",
-								"r2",
-							},
-						},
-						{
 							Count: 1,
 							Values: []string{
 								"b1",
 								"r1",
+							},
+						},
+						{
+							Count: 3,
+							Values: []string{
+								"b1",
+								"r2",
 							},
 						},
 					},
@@ -1432,6 +1430,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultTwoLevels,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
+							Count: 1,
+							Values: []string{
+								"b1",
+								"r1",
+							},
+						},
+						{
 							Count: 3,
 							Values: []string{
 								"b1",
@@ -1443,13 +1448,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 							Values: []string{
 								"b2",
 								"r2",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
-								"b1",
-								"r1",
 							},
 						},
 					},
@@ -1471,6 +1469,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultTwoLevels,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
+							Count: 1,
+							Values: []string{
+								"b1",
+								"r1",
+							},
+						},
+						{
 							Count: 3,
 							Values: []string{
 								"b1",
@@ -1482,13 +1487,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 							Values: []string{
 								"b2",
 								"r2",
-							},
-						},
-						{
-							Count: 1,
-							Values: []string{
-								"b1",
-								"r1",
 							},
 						},
 					},
@@ -2148,7 +2146,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x1",
 							},
 						},
 						{
@@ -2160,7 +2158,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -2694,6 +2692,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
 						{
+							Count: 4,
+							Values: []string{
+								"x1",
+							},
+						},
+						{
 							Count: 2,
 							Values: []string{
 								"x2",
@@ -2703,12 +2707,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 							Count: 2,
 							Values: []string{
 								"x3",
-							},
-						},
-						{
-							Count: 4,
-							Values: []string{
-								"x1",
 							},
 						},
 					},
@@ -3109,7 +3107,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x3",
+								"x1",
 							},
 						},
 						{
@@ -3121,7 +3119,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 2,
 							Values: []string{
-								"x1",
+								"x3",
 							},
 						},
 					},
@@ -4159,9 +4157,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 					FailureReason: ps.wantReason,
 				}
 				if ps.wantAssignment != nil {
-					sort.Slice(ps.wantAssignment.Domains, func(i, j int) bool {
-						return utiltas.DomainID(ps.wantAssignment.Domains[i].Values) < utiltas.DomainID(ps.wantAssignment.Domains[j].Values)
-					})
 					wantPodSetResult.TopologyAssignment = ps.wantAssignment
 				}
 				wantResult[kueue.PodSetReference(ps.podSetName)] = wantPodSetResult
