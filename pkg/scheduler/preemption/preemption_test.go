@@ -19,7 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
-	"sort"
+	stdslices "slices"
 	"sync"
 	"testing"
 	"time"
@@ -2896,8 +2896,11 @@ func TestCandidatesOrdering(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
 		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
-		sort.Slice(tc.candidates, func(i int, j int) bool {
-			return CandidatesOrdering(log, tc.admissionFairSharingEnabled, &tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
+		stdslices.SortFunc(tc.candidates, func(a, b workload.Info) int {
+			if CandidatesOrdering(log, tc.admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now) {
+				return -1
+			}
+			return 1
 		})
 		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
