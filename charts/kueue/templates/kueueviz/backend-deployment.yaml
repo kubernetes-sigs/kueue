@@ -37,6 +37,10 @@ spec:
           imagePullPolicy: '{{ .Values.kueueViz.backend.image.pullPolicy }}'
           ports:
             - containerPort: 8080
+          {{- with .Values.kueueViz.backend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
             limits:
               cpu: 500m

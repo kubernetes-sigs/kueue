@@ -6,17 +6,20 @@ kind: Ingress
 metadata:
   name: '{{ include "kueue.fullname" . }}-kueueviz-backend-ingress'
   namespace: '{{ .Release.Namespace }}'
+  {{- if .Values.kueueViz.backend.ingress.annotations }}
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- toYaml .Values.kueueViz.backend.ingress.annotations | nindent 4 }}
+  {{- end }}
 spec:
   {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
   ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
   {{- end }}
+  {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
   tls:
     - hosts:
         - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
-      secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName | default "kueueviz-backend-tls" }}'
+      secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+  {{- end }}
   rules:
     - host: '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
       http:
