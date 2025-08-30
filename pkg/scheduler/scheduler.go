@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -565,12 +564,9 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
-	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.NodeToReplace(wl))
+	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.TopologyAssignmentRecovery.NodesToReplace[0])
 	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", msg, s.clock); err != nil {
 		return err
-	}
-	if err := workload.RemoveAnnotation(ctx, s.client, wl, kueuealpha.NodeToReplaceAnnotation); err != nil {
-		return fmt.Errorf("failed to remove annotation for node replacement %s", kueuealpha.NodeToReplaceAnnotation)
 	}
 	return nil
 }
@@ -628,6 +624,11 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 		// Trigger LocalQueue reconciler to apply any pending penalties
 		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, newWorkload)
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) && e.Obj.Status.TopologyAssignmentRecovery != nil {
+		log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
+		newWorkload.Status.TopologyAssignmentRecovery = nil
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
