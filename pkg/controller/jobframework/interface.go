@@ -36,6 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
+//go:generate mockgen -destination mock/interface.go -package mock sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob
+
 // GenericJob if the interface which needs to be implemented by all jobs
 // managed by the kueue's jobframework.
 type GenericJob interface {
