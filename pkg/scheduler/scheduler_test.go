@@ -2468,6 +2468,27 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload submitted to a CQ with empty resource groups": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("cq-with-empty-rg").
+					QueueingStrategy(kueue.StrictFIFO).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-with-empty-rg").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-workload", "sales").
+					Queue("local-q").
+					PodSets(*utiltesting.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-with-empty-rg": {"sales/test-workload"},
+			},
+			wantEvents: nil,
+		},
+
 		"not enough resources with fair sharing enabled": {
 			enableFairSharing: true,
 			workloads: []kueue.Workload{

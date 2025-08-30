@@ -216,6 +216,7 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
+		len(c.ResourceGroups) == 0 ||
 		len(c.missingAdmissionChecks) > 0 ||
 		len(c.inactiveAdmissionChecks) > 0 ||
 		c.isTASViolated() ||
