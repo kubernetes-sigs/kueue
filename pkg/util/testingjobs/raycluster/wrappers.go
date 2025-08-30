@@ -133,6 +133,11 @@ func (j *ClusterWrapper) Queue(queue string) *ClusterWrapper {
 	return j
 }
 
+func (j *ClusterWrapper) SetAnnotation(key, content string) *ClusterWrapper {
+	j.Annotations[key] = content
+	return j
+}
+
 // Clone returns deep copy of the Job.
 func (j *ClusterWrapper) Clone() *ClusterWrapper {
 	return &ClusterWrapper{RayCluster: *j.DeepCopy()}
@@ -140,6 +145,11 @@ func (j *ClusterWrapper) Clone() *ClusterWrapper {
 
 func (j *ClusterWrapper) WithEnableAutoscaling(value *bool) *ClusterWrapper {
 	j.Spec.EnableInTreeAutoscaling = value
+	return j
+}
+
+func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
+	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
 	return j
 }
 
