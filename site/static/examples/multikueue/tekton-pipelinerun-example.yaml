@@ -1,0 +1,125 @@
+# Example: MultiKueue with Tekton PipelineRun
+# This example shows how to configure MultiKueue to work with Tekton PipelineRun
+
+---
+# 1. Kueue Configuration with external frameworks enabled
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+metadata:
+  name: kueue-manager-config
+  namespace: kueue-system
+data:
+  multikueue:
+    gcInterval: 1m
+    origin: "multikueue-manager"
+    workerLostTimeout: 15m
+    externalFrameworks:
+      - group: "tekton.dev"
+        version: "v1"
+        kind: "PipelineRun"
+        managedBy: ".spec.managedBy"
+        creationPatches:
+          - op: replace
+            path: /spec/managedBy
+            value: null
+        syncPatches:
+          - op: replace
+            path: /status
+            from: /status
+
+---
+# 2. Resource Flavor for the worker cluster
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "worker-cluster"
+spec:
+  nodeLabels:
+    - key: "kubernetes.io/hostname"
+      operator: Exists
+
+---
+# 3. Cluster Queue that can use the worker cluster
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "tekton-queue"
+spec:
+  namespaceSelector: {} # match all namespaces
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "worker-cluster"
+      resources:
+      - name: "cpu"
+        nominalQuota: 10
+      - name: "memory"
+        nominalQuota: 20Gi
+  admissionChecks:
+  - "multikueue-tekton"
+
+---
+# 4. Local Queue for the user
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue"
+spec:
+  clusterQueue: "tekton-queue"
+
+---
+# 5. MultiKueue Admission Check
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: multikueue-tekton
+spec:
+  controllerName: kueue.x-k8s.io/multikueue
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: multikueue-tekton-config
+
+---
+# 6. MultiKueue Configuration
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: MultiKueueConfig
+metadata:
+  name: multikueue-tekton-config
+spec:
+  clusters:
+  - worker-cluster-1
+
+---
+# 7. MultiKueue Cluster (worker cluster)
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: MultiKueueCluster
+metadata:
+  name: worker-cluster-1
+spec:
+  kubeConfig:
+    locationType: Secret
+    location: worker-cluster-1-secret
+    # Note: You need to create a secret named "worker-cluster-1-secret" 
+    # in the kueue-system namespace with the kubeconfig for the worker cluster
+
+---
+# 8. Example Tekton PipelineRun that will be managed by MultiKueue
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: example-pipeline
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  managedBy: "kueue.x-k8s.io/multikueue"  # This tells Kueue to manage this PipelineRun
+  pipelineRef:
+    name: example-pipeline
+  params:
+  - name: message
+    value: "Hello from MultiKueue!"
+  workspaces:
+  - name: shared-workspace
+    emptyDir: {}

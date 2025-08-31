@@ -1,0 +1,73 @@
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+metadata:
+  name: kueue-manager-config
+  namespace: kueue-system
+data:
+  multikueue:
+    gcInterval: 1m
+    origin: "multikueue-manager"
+    workerLostTimeout: 15m
+    externalFrameworks:
+      # Example 1: Tekton PipelineRun with minimal configuration
+      - group: "tekton.dev"
+        version: "v1"
+        kind: "PipelineRun"
+      
+      # Example 2: Tekton PipelineRun with custom configuration
+      - group: "tekton.dev"
+        version: "v1"
+        kind: "PipelineRun"
+        managedBy: ".spec.managedBy"
+        creationPatches:
+          - op: replace
+            path: /spec/managedBy
+            value: null
+          - op: replace
+            path: /spec/pipelineRef
+            value:
+              name: "remote-pipeline"
+        syncPatches:
+          - op: replace
+            path: /status
+            from: /status
+      
+      # Example 3: Custom Job with different managedBy path
+      - group: "custom.example.com"
+        version: "v1alpha1"
+        kind: "CustomJob"
+        managedBy: ".metadata.labels.managedBy"
+        creationPatches:
+          - op: replace
+            path: /metadata/labels/managedBy
+            value: null
+          - op: add
+            path: /spec/clusterName
+            value: "worker-cluster"
+        syncPatches:
+          - op: replace
+            path: /status
+            from: /status
+          - op: replace
+            path: /status/conditions
+            from: /status/conditions
+      
+      # Example 4: Argo Workflow example
+      - group: "argoproj.io"
+        version: "v1alpha1"
+        kind: "Workflow"
+        managedBy: ".spec.managedBy"
+        creationPatches:
+          - op: replace
+            path: /spec/managedBy
+            value: null
+          - op: replace
+            path: /spec/entrypoint
+            value: "remote-entrypoint"
+        syncPatches:
+          - op: replace
+            path: /status
+            from: /status
+          - op: replace
+            path: /status/nodes
+            from: /status/nodes

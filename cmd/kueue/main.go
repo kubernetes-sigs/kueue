@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"flag"
 	"net/http"
 	"os"
@@ -58,6 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/generic"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/debugger"
@@ -326,6 +328,34 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 			setupLog.Error(err, "Could not get the enabled multikueue adapters")
 			os.Exit(1)
 		}
+
+		// Add generic adapters if the feature gate is enabled
+		setupLog.Info("Checking MultiKueue config",
+			"featureGateEnabled", features.Enabled(features.MultiKueueAdaptersForCustomJobs),
+			"isNil", cfg.MultiKueue == nil)
+		if cfg.MultiKueue != nil {
+			setupLog.Info("MultiKueue config details", "externalFrameworksCount", len(cfg.MultiKueue.ExternalFrameworks))
+		}
+		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
+			genericConfigManager := generic.NewConfigManager()
+			if err := genericConfigManager.LoadConfigurations(cfg.MultiKueue.ExternalFrameworks); err != nil {
+				setupLog.Error(err, "Could not load generic adapter configurations")
+				os.Exit(1)
+			}
+			setupLog.Info("inside generic creation")
+
+			// Add generic adapters to the adapters map
+			for _, adapter := range genericConfigManager.GetAllAdapters() {
+				gvkStr := adapter.GVK().String()
+				if _, exists := adapters[gvkStr]; exists {
+					setupLog.Error(fmt.Errorf("duplicate adapter for GVK %s", gvkStr), "Generic adapter conflicts with built-in adapter")
+					os.Exit(1)
+				}
+				setupLog.Info("Creating generic MultiKueue adapter", "gvk", gvkStr)
+				adapters[gvkStr] = adapter
+			}
+		}
+
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
