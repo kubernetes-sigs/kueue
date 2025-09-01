@@ -7724,7 +7724,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 			deleteWorkloads: []client.ObjectKey{{
-				Namespace: "default",
+				Namespace: metav1.NamespaceDefault,
 				Name:      "placeholder-alpha",
 			}},
 			wantPreempted:                 sets.New[workload.Reference]("default/placeholder-alpha"),
@@ -7818,7 +7818,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 			deleteWorkloads: []client.ObjectKey{{
-				Namespace: "default",
+				Namespace: metav1.NamespaceDefault,
 				Name:      "alpha2",
 			}},
 			wantPreempted: sets.New[workload.Reference]("default/alpha2"),
