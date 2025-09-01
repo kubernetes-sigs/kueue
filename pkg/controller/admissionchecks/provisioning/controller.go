@@ -236,7 +236,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
-		ac := workload.FindAdmissionCheck(wlInfo.checkStates, checkName)
+		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
 		if ac != nil && ac.State == kueue.CheckStateReady {
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
 			continue
@@ -593,7 +593,7 @@ func (c *Controller) syncCheckStates(
 			}
 		}
 
-		existingCondition := workload.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
+		existingCondition := admissioncheck.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
 		if existingCondition != nil && existingCondition.State != checkState.State {
 			message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
 			if checkState.Message != "" {
