@@ -3856,8 +3856,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []client.ObjectKey{},
-			wantPreempted:   sets.Set[workload.Reference]{},
+			wantPreempted: sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload1": *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 				"default/borrower":  *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
@@ -3889,8 +3888,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []client.ObjectKey{},
-			wantPreempted:   sets.Set[workload.Reference]{},
+			wantPreempted: sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
 			},
@@ -3926,8 +3924,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []client.ObjectKey{},
-			wantPreempted:   sets.Set[workload.Reference]{},
+			wantPreempted: sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
