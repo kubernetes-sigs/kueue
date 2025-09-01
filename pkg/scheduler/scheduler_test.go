@@ -3827,7 +3827,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 			deleteWorkloads: []client.ObjectKey{{
-				Namespace: "default",
+				Namespace: metav1.NamespaceDefault,
 				Name:      "low-1",
 			}},
 			wantPreempted:                 sets.Set[workload.Reference]{},
