@@ -18,14 +18,14 @@ Kueue implements this through a two-phase admission cycle:
 1. **Quota Reservation:** When a user submits a Workload, it enters a LocalQueue first. This LocalQueue points to a ClusterQueue which is responsible for managing the available resources. The Kueue checks if the targeted ClusterQueue's available quota and resource flavors can accomodate requested resources (CPU, memory, GPUs, etc.). If the quota is available, the Kueue reserves resources for this Workload and prevents other Workloads from using the same resources. This phase also includes checking the availability of physical resources when 
     Topology-Aware Scheduling is enabled.
 
-2. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. Checks can be either built-in like [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request/), or plugins created by users.
+2. **Admission Checks:** Await for [AdmissionChecks](/docs/concepts/admission_check) configured in the ClusterQueue. Checks can be either built-in such as [MultiKueue](/docs/concepts/multikueue/) or [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request/), or user-created plugins.
 
 The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are in the `Ready` state.
 
 ## [Provisioning AdmissionCheck ](docs/concepts/admission_check/provisioning_request)
 
-When neither AdmissionChecks nor [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were configured, Admissions were mainly based on quota checks. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) addresses this in cluster-autoscaler environments through the following sequential checks:
-- First reserving ClusterQue resources (**Quota Reservation**),
+When neither AdmissionChecks nor [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were configured, Admissions were mainly based on quota checks. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) addresses this in cluster-autoscaler environments through the following sequence of checks:
+- First reserving ClusterQueue resources (**Quota Reservation**),
 - Then confirming the physical capacity via ProvisioningRequest and Cluster Autoscaler(CA) (**Capacity Guarantee**)
 
 
