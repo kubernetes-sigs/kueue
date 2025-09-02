@@ -1127,7 +1127,8 @@ current state.</p>
 <td>
    <p>PendingWorkloadsStatus contains the information exposed about the current
 status of the pending workloads in the cluster queue.
-Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
+You can migrate to VisibilityOnDemand
 (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
 instead.</p>
 </td>

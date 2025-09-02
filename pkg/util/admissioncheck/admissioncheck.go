@@ -172,3 +172,14 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 	}
 	return checks
 }
+
+// FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
+func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
+	for i := range checks {
+		if checks[i].Name == checkName {
+			return &checks[i]
+		}
+	}
+
+	return nil
+}
