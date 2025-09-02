@@ -194,12 +194,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	var snapshotOpts []schdcache.SnapshotOption
-	if afs.Enabled(s.admissionFairSharing) {
-		s.queues.RebuildClusterQueuesWithEntryPenalties()
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
-	}
-
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
@@ -210,6 +204,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	startTime := s.clock.Now()
 
 	// 2. Take a snapshot of the cache.
+	var snapshotOpts []schdcache.SnapshotOption
+	if afs.Enabled(s.admissionFairSharing) {
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.GetAfsEntryPenalties()))
+	}
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
 		log.Error(err, "failed to build snapshot for scheduling")

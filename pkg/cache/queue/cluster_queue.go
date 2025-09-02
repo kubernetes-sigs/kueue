@@ -39,6 +39,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -86,6 +87,9 @@ type ClusterQueue struct {
 	clock clock.Clock
 
 	AdmissionScope *kueue.AdmissionScope
+
+	afsEntryPenalties         *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
+	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -109,12 +113,14 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) *ClusterQueue {
 	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties)
 	return &ClusterQueue{
-		heap:                   *heap.New(workloadKey, lessFunc),
-		inadmissibleWorkloads:  make(map[workload.Reference]*workload.Info),
-		queueInadmissibleCycle: -1,
-		lessFunc:               lessFunc,
-		rwm:                    sync.RWMutex{},
-		clock:                  clock,
+		heap:                      *heap.New(workloadKey, lessFunc),
+		inadmissibleWorkloads:     make(map[workload.Reference]*workload.Info),
+		queueInadmissibleCycle:    -1,
+		lessFunc:                  lessFunc,
+		rwm:                       sync.RWMutex{},
+		clock:                     clock,
+		afsEntryPenalties:         afsEntryPenalties,
+		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
 	}
 }
 
@@ -330,6 +336,11 @@ func (c *ClusterQueue) PendingInadmissible() int {
 func (c *ClusterQueue) Pop() *workload.Info {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+
+	if c.hasPendingPenalties() {
+		c.rebuildAll()
+	}
+
 	c.popCycle++
 	if c.heap.Len() == 0 {
 		c.inflight = nil
@@ -337,6 +348,27 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	}
 	c.inflight = c.heap.Pop()
 	return c.inflight
+}
+
+// rebuildAll rebuilds the entire heap. Must be called with lock held.
+func (c *ClusterQueue) rebuildAll() {
+	for _, wl := range c.heap.List() {
+		c.heap.PushOrUpdate(wl)
+	}
+}
+
+func (c *ClusterQueue) hasPendingPenalties() bool {
+	if c.afsEntryPenalties == nil {
+		return false
+	}
+
+	for lqKey := range c.localQueuesInClusterQueue {
+		lqPenalty, hasPenalty := c.afsEntryPenalties.Get(lqKey)
+		if hasPenalty && !resource.IsZero(lqPenalty) {
+			return true
+		}
+	}
+	return false
 }
 
 // Dump produces a dump of the current workloads in the heap of
@@ -460,10 +492,14 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 	}
 }
 
-func (c *ClusterQueue) RebuildAll() {
+func (c *ClusterQueue) addLocalQueue(lqKey utilqueue.LocalQueueReference) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	for _, wl := range c.heap.List() {
-		c.heap.PushOrUpdate(wl)
-	}
+	c.localQueuesInClusterQueue[lqKey] = true
+}
+
+func (c *ClusterQueue) deleteLocalQueue(lqKey utilqueue.LocalQueueReference) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	delete(c.localQueuesInClusterQueue, lqKey)
 }
