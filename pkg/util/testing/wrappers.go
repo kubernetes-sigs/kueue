@@ -348,11 +348,11 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 	return w
 }
 
-func (w *WorkloadWrapper) NodesToReplace(nodesToReplace ...string) *WorkloadWrapper {
+func (w *WorkloadWrapper) NodeNamesToReplace(nodeNamesToReplace ...string) *WorkloadWrapper {
 	if w.Status.TopologyAssignmentRecovery == nil {
 		w.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{}
 	}
-	w.Status.TopologyAssignmentRecovery.NodesToReplace = nodesToReplace
+	w.Status.TopologyAssignmentRecovery.NodeNamesToReplace = nodeNamesToReplace
 	return w
 }
 

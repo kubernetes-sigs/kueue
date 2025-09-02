@@ -61,7 +61,7 @@ func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
 		return false
 	}
 	for _, domain := range psa.TopologyAssignment.Domains {
-		if slices.Contains(wl.Obj.Status.TopologyAssignmentRecovery.NodesToReplace, domain.Values[len(domain.Values)-1]) {
+		if slices.Contains(wl.Obj.Status.TopologyAssignmentRecovery.NodeNamesToReplace, domain.Values[len(domain.Values)-1]) {
 			return true
 		}
 	}

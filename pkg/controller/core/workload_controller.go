@@ -184,7 +184,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
-		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "nodesToReplace", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
+		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "nodeNamesToReplace", wl.Status.TopologyAssignmentRecovery.NodeNamesToReplace)
 		return ctrl.Result{}, nil
 	}
 

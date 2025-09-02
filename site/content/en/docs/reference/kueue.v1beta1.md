@@ -2887,7 +2887,7 @@ the lowest level of the topology.</p>
 <tbody>
     
   
-<tr><td><code>nodesToReplace</code><br/>
+<tr><td><code>nodeNamesToReplace</code><br/>
 <code>[]string</code>
 </td>
 <td>

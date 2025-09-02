@@ -20,7 +20,7 @@ package v1beta1
 // TopologyAssignmentRecoveryApplyConfiguration represents a declarative configuration of the TopologyAssignmentRecovery type for use
 // with apply.
 type TopologyAssignmentRecoveryApplyConfiguration struct {
-	NodesToReplace []string `json:"nodesToReplace,omitempty"`
+	NodeNamesToReplace []string `json:"nodeNamesToReplace,omitempty"`
 }
 
 // TopologyAssignmentRecoveryApplyConfiguration constructs a declarative configuration of the TopologyAssignmentRecovery type for use with
@@ -29,12 +29,12 @@ func TopologyAssignmentRecovery() *TopologyAssignmentRecoveryApplyConfiguration 
 	return &TopologyAssignmentRecoveryApplyConfiguration{}
 }
 
-// WithNodesToReplace adds the given value to the NodesToReplace field in the declarative configuration
+// WithNodeNamesToReplace adds the given value to the NodeNamesToReplace field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the NodesToReplace field.
-func (b *TopologyAssignmentRecoveryApplyConfiguration) WithNodesToReplace(values ...string) *TopologyAssignmentRecoveryApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the NodeNamesToReplace field.
+func (b *TopologyAssignmentRecoveryApplyConfiguration) WithNodeNamesToReplace(values ...string) *TopologyAssignmentRecoveryApplyConfiguration {
 	for i := range values {
-		b.NodesToReplace = append(b.NodesToReplace, values[i])
+		b.NodeNamesToReplace = append(b.NodeNamesToReplace, values[i])
 	}
 	return b
 }

@@ -968,11 +968,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							},
 						))
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						g.Expect(nodesToReplace).NotTo(gomega.ContainElement(nodeName))
+						g.Expect(nodeNamesToReplace).NotTo(gomega.ContainElement(nodeName))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -1026,15 +1026,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							},
 						))
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						g.Expect(nodesToReplace).NotTo(gomega.ContainElement(nodeName))
+						g.Expect(nodeNamesToReplace).NotTo(gomega.ContainElement(nodeName))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
-			ginkgo.It("should remove node from nodesToReplace when the node recovers", func() {
+			ginkgo.It("should remove node from nodeNamesToReplace when the node recovers", func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -1073,14 +1073,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 				})
 
-				ginkgo.By("verify the workload eventually gets an entry in nodesToReplace list", func() {
+				ginkgo.By("verify the workload eventually gets an entry in nodeNamesToReplace list", func() {
 					gomega.Eventually(func(g gomega.Gomega) []string {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						return nodesToReplace
+						return nodeNamesToReplace
 					}, util.Timeout, util.Interval).Should(gomega.ContainElement(nodeName))
 				})
 
@@ -1095,19 +1095,19 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 				})
 
-				ginkgo.By("verify the node is removed from nodesToReplace", func() {
+				ginkgo.By("verify the node is removed from nodeNamesToReplace", func() {
 					gomega.Eventually(func(g gomega.Gomega) []string {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						return nodesToReplace
+						return nodeNamesToReplace
 					}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement(nodeName))
 				})
 			})
 
-			ginkgo.It("should remove the node from nodesToReplace when node reappears", func() {
+			ginkgo.It("should remove the node from nodeNamesToReplace when node reappears", func() {
 				var wl1 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -1143,11 +1143,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("verify the workload eventually gets the NodeToReplaceAnnotation", func() {
 					gomega.Eventually(func(g gomega.Gomega) []string {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						return nodesToReplace
+						return nodeNamesToReplace
 					}, util.Timeout, util.Interval).Should(gomega.ContainElement(nodeName))
 				})
 
@@ -1156,14 +1156,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(k8sClient.Create(ctx, nodeToDelete)).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("verify the NodesToReplace is cleared", func() {
+				ginkgo.By("verify the NodeNamesToReplace is cleared", func() {
 					gomega.Eventually(func(g gomega.Gomega) []string {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						return nodesToReplace
+						return nodeNamesToReplace
 					}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement(nodeName))
 				})
 			})
@@ -1247,7 +1247,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("Finishing second workload")
 				util.FinishWorkloads(ctx, k8sClient, wl2)
 
-				ginkgo.By("verify the workload has corrected TopologyAssignment and no node in NodesToReplace", func() {
+				ginkgo.By("verify the workload has corrected TopologyAssignment and no node in NodeNamesToReplace", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 						g.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
@@ -1259,11 +1259,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							},
 						))
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if wl1.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = wl1.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = wl1.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						g.Expect(nodesToReplace).NotTo(gomega.ContainElement(nodeName))
+						g.Expect(nodeNamesToReplace).NotTo(gomega.ContainElement(nodeName))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -1314,11 +1314,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if updatedWl.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = updatedWl.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = updatedWl.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						g.Expect(nodesToReplace).To(gomega.BeEmpty(), "NodesToReplace should be cleared after eviction due to multiple node failures")
+						g.Expect(nodeNamesToReplace).To(gomega.BeEmpty(), "NodeNamesToReplace should be cleared after eviction due to multiple node failures")
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -1375,11 +1375,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if updatedWl.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = updatedWl.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = updatedWl.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						g.Expect(nodesToReplace).To(gomega.BeEmpty(), "NodesToReplace should be cleared after eviction due to multiple node failures")
+						g.Expect(nodeNamesToReplace).To(gomega.BeEmpty(), "NodeNamesToReplace should be cleared after eviction due to multiple node failures")
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -1520,11 +1520,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
-						var nodesToReplace []string
+						var nodeNamesToReplace []string
 						if updatedWl.Status.TopologyAssignmentRecovery != nil {
-							nodesToReplace = updatedWl.Status.TopologyAssignmentRecovery.NodesToReplace
+							nodeNamesToReplace = updatedWl.Status.TopologyAssignmentRecovery.NodeNamesToReplace
 						}
-						g.Expect(nodesToReplace).To(gomega.BeEmpty())
+						g.Expect(nodeNamesToReplace).To(gomega.BeEmpty())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
