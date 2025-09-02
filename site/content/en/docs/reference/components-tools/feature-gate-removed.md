@@ -23,7 +23,7 @@ In the following table:
   is removed.
 
 | Feature                           | Default | Stage      | From | To   |
-| --------------------------------- |---------|------------|------|------|
+|-----------------------------------|---------|------------|------|------|
 | `AdmissionCheckValidationRules`   | `false` | Deprecated | 0.9  | 0.12 |
 | `KeepQuotaForProvReqRetry`        | `false` | Deprecated | 0.9  | 0.12 |
 | `MultiplePreemptions`             | `false` | Alpha      | 0.8  | 0.8  |
@@ -32,3 +32,5 @@ In the following table:
 | `WorkloadResourceRequestsSummary` | `false` | Alpha      | 0.9  | 0.10 |
 | `WorkloadResourceRequestsSummary` | `true`  | Beta       | 0.10 | 0.11 |
 | `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11 | 0.13 |
+| `QueueVisibility`                 | `false` | Alpha      | 0.5  | 0.9  |
+| `QueueVisibility`                 | `false` | Deprecated | 0.9  | 0.14 |
