@@ -1,7 +1,8 @@
 ---
 title: "Admission Check"
 linkTitle: "Admission Check"
-weight: 
+date: 2024-06-13
+weight: 6
 description: >
   Mechanism allowing internal or external components to influence the workload's admission.
 no_list: true
