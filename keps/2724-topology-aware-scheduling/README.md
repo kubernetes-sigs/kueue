@@ -33,6 +33,8 @@
     - [PodSet Slice size validation](#podset-slice-size-validation)
   - [Internal APIs](#internal-apis)
     - [Node failures](#node-failures)
+      - [Until v0.13](#until-v013)
+      - [Since v0.14](#since-v014)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
