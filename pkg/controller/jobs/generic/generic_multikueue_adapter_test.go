@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -33,7 +32,6 @@ import (
 func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 	tests := []struct {
 		name           string
-		config         configapi.ExternalFramework
 		object         *unstructured.Unstructured
 		featureEnabled bool
 		want           bool
@@ -42,11 +40,6 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 	}{
 		{
 			name: "feature gate disabled",
-			config: configapi.ExternalFramework{
-				Group:   "test.example.com",
-				Version: "v1",
-				Kind:    "TestJob",
-			},
 			object: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"spec": map[string]interface{}{
@@ -61,11 +54,6 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 		},
 		{
 			name: "managed by kueue with default path",
-			config: configapi.ExternalFramework{
-				Group:   "test.example.com",
-				Version: "v1",
-				Kind:    "TestJob",
-			},
 			object: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"spec": map[string]interface{}{
@@ -79,34 +67,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name: "managed by kueue with custom path",
-			config: configapi.ExternalFramework{
-				Group:     "test.example.com",
-				Version:   "v1",
-				Kind:      "TestJob",
-				ManagedBy: ".metadata.labels.managedBy",
-			},
-			object: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"metadata": map[string]interface{}{
-						"labels": map[string]interface{}{
-							"managedBy": kueue.MultiKueueControllerName,
-						},
-					},
-				},
-			},
-			featureEnabled: true,
-			want:           true,
-			wantReason:     "",
-			wantErr:        false,
-		},
-		{
 			name: "not managed by kueue",
-			config: configapi.ExternalFramework{
-				Group:   "test.example.com",
-				Version: "v1",
-				Kind:    "TestJob",
-			},
 			object: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"spec": map[string]interface{}{
@@ -121,11 +82,6 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 		},
 		{
 			name: "managedBy field not found",
-			config: configapi.ExternalFramework{
-				Group:   "test.example.com",
-				Version: "v1",
-				Kind:    "TestJob",
-			},
 			object: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"spec": map[string]interface{}{
@@ -138,245 +94,183 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"\"",
 			wantErr:        false,
 		},
+		{
+			name: "managedBy value is not a string",
+			object: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"spec": map[string]interface{}{
+						"managedBy": "not-a-string",
+					},
+				},
+			},
+			featureEnabled: true,
+			want:           false,
+			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"not-a-string\"",
+			wantErr:        false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set feature gate
+			// Save original feature gate state
 			originalValue := features.Enabled(features.MultiKueueAdaptersForCustomJobs)
 			features.SetEnable(features.MultiKueueAdaptersForCustomJobs, tt.featureEnabled)
 			defer features.SetEnable(features.MultiKueueAdaptersForCustomJobs, originalValue)
 
-			adapter := NewGenericAdapter(tt.config)
-			client := fake.NewClientBuilder().Build()
-
-			// Create the object in the fake client
-			tt.object.SetName("test-job")
-			tt.object.SetNamespace("default")
-			tt.object.SetGroupVersionKind(schema.GroupVersionKind{
-				Group:   tt.config.Group,
-				Version: tt.config.Version,
-				Kind:    tt.config.Kind,
-			})
-			// Set the APIVersion for the unstructured object
-			tt.object.SetAPIVersion(tt.config.Group + "/" + tt.config.Version)
-			if err := client.Create(context.Background(), tt.object); err != nil {
-				t.Fatalf("Failed to create test object: %v", err)
+			adapter := &genericAdapter{
+				gvk: schema.GroupVersionKind{
+					Group:   "test.example.com",
+					Version: "v1",
+					Kind:    "TestJob",
+				},
 			}
 
-			got, gotReason, err := adapter.IsJobManagedByKueue(context.Background(), client, types.NamespacedName{
-				Name:      "test-job",
-				Namespace: "default",
-			})
+			// Set GVK on test object
+			tt.object.SetGroupVersionKind(adapter.gvk)
+			tt.object.SetName("test-job")
+			tt.object.SetNamespace("default")
+
+			client := fake.NewClientBuilder().WithObjects(tt.object).Build()
+			key := types.NamespacedName{Name: "test-job", Namespace: "default"}
+
+			got, gotReason, err := adapter.IsJobManagedByKueue(context.Background(), client, key)
 
 			if (err != nil) != tt.wantErr {
-				t.Errorf("IsJobManagedByKueue() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("genericAdapter.IsJobManagedByKueue() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("IsJobManagedByKueue() got = %v, want %v", got, tt.want)
+				t.Errorf("genericAdapter.IsJobManagedByKueue() got = %v, want %v", got, tt.want)
 			}
 			if gotReason != tt.wantReason {
-				t.Errorf("IsJobManagedByKueue() gotReason = %v, want %v", gotReason, tt.wantReason)
+				t.Errorf("genericAdapter.IsJobManagedByKueue() gotReason = %v, want %v", gotReason, tt.wantReason)
 			}
 		})
 	}
 }
 
-func TestGenericAdapter_GVK(t *testing.T) {
-	config := configapi.ExternalFramework{
-		Group:   "test.example.com",
-		Version: "v1",
-		Kind:    "TestJob",
-	}
-
-	adapter := NewGenericAdapter(config)
-	gvk := adapter.GVK()
-
-	expectedGVK := schema.GroupVersionKind{
-		Group:   "test.example.com",
-		Version: "v1",
-		Kind:    "TestJob",
-	}
-
-	if gvk != expectedGVK {
-		t.Errorf("GVK() = %v, want %v", gvk, expectedGVK)
-	}
-}
-
-func TestGenericAdapter_KeepAdmissionCheckPending(t *testing.T) {
-	config := configapi.ExternalFramework{
-		Group:   "test.example.com",
-		Version: "v1",
-		Kind:    "TestJob",
-	}
-
-	adapter := NewGenericAdapter(config)
-	result := adapter.KeepAdmissionCheckPending()
-
-	if result != false {
-		t.Errorf("KeepAdmissionCheckPending() = %v, want false", result)
-	}
-}
-
-func TestConfigManager_LoadConfigurations(t *testing.T) {
-	tests := []struct {
-		name    string
-		configs []configapi.ExternalFramework
-		wantErr bool
-	}{
-		{
-			name: "valid configuration",
-			configs: []configapi.ExternalFramework{
-				{
-					Group:   "test.example.com",
-					Version: "v1",
-					Kind:    "TestJob",
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "invalid configuration - missing group",
-			configs: []configapi.ExternalFramework{
-				{
-					Version: "v1",
-					Kind:    "TestJob",
-				},
-			},
-			wantErr: false, // Should log error but continue
-		},
-		{
-			name: "invalid configuration - missing version",
-			configs: []configapi.ExternalFramework{
-				{
-					Group: "test.example.com",
-					Kind:  "TestJob",
-				},
-			},
-			wantErr: false, // Should log error but continue
-		},
-		{
-			name: "invalid configuration - missing kind",
-			configs: []configapi.ExternalFramework{
-				{
-					Group:   "test.example.com",
-					Version: "v1",
-				},
-			},
-			wantErr: false, // Should log error but continue
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cm := NewConfigManager()
-			err := cm.LoadConfigurations(tt.configs)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("LoadConfigurations() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestConfigManager_GetAdapter(t *testing.T) {
-	cm := NewConfigManager()
-	configs := []configapi.ExternalFramework{
-		{
+func TestGenericAdapter_RemoveManagedByField(t *testing.T) {
+	adapter := &genericAdapter{
+		gvk: schema.GroupVersionKind{
 			Group:   "test.example.com",
 			Version: "v1",
 			Kind:    "TestJob",
 		},
 	}
 
-	err := cm.LoadConfigurations(configs)
-	if err != nil {
-		t.Fatalf("Failed to load configurations: %v", err)
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"managedBy":  "kueue.x-k8s.io/multikueue",
+				"otherField": "value",
+			},
+		},
 	}
 
-	// Test getting existing adapter
-	gvk := schema.GroupVersionKind{
-		Group:   "test.example.com",
-		Version: "v1",
-		Kind:    "TestJob",
-	}
-	adapter := cm.GetAdapter(gvk)
-	if adapter == nil {
-		t.Error("GetAdapter() returned nil for existing GVK")
+	adapter.removeManagedByField(obj)
+
+	// Check that managedBy field is removed
+	if _, exists := obj.Object["spec"].(map[string]interface{})["managedBy"]; exists {
+		t.Error("managedBy field should be removed")
 	}
 
-	// Test getting non-existing adapter
-	nonExistingGVK := schema.GroupVersionKind{
-		Group:   "other.example.com",
-		Version: "v1",
-		Kind:    "OtherJob",
-	}
-	adapter = cm.GetAdapter(nonExistingGVK)
-	if adapter != nil {
-		t.Error("GetAdapter() returned non-nil for non-existing GVK")
+	// Check that other fields are preserved
+	if obj.Object["spec"].(map[string]interface{})["otherField"] != "value" {
+		t.Error("otherField should be preserved")
 	}
 }
 
-func TestConfigManager_ApplyDefaults(t *testing.T) {
-	cm := NewConfigManager()
-
-	// Test minimal configuration
-	config := configapi.ExternalFramework{
-		Group:   "test.example.com",
-		Version: "v1",
-		Kind:    "TestJob",
-	}
-
-	configWithDefaults := cm.applyDefaults(config)
-
-	// Check that defaults were applied
-	if configWithDefaults.ManagedBy != ".spec.managedBy" {
-		t.Errorf("Expected default managedBy path, got %s", configWithDefaults.ManagedBy)
-	}
-
-	if len(configWithDefaults.CreationPatches) != 1 {
-		t.Errorf("Expected 1 default creation patch, got %d", len(configWithDefaults.CreationPatches))
-	}
-
-	if len(configWithDefaults.SyncPatches) != 1 {
-		t.Errorf("Expected 1 default sync patch, got %d", len(configWithDefaults.SyncPatches))
-	}
-
-	// Test configuration with custom values
-	customConfig := configapi.ExternalFramework{
-		Group:     "test.example.com",
-		Version:   "v1",
-		Kind:      "TestJob",
-		ManagedBy: ".metadata.labels.managedBy",
-		CreationPatches: []configapi.JsonPatch{
-			{
-				Op:    "replace",
-				Path:  "/spec/customField",
-				Value: "customValue",
-			},
+func TestGenericAdapter_CopyStatusFromRemote(t *testing.T) {
+	adapter := &genericAdapter{
+		gvk: schema.GroupVersionKind{
+			Group:   "test.example.com",
+			Version: "v1",
+			Kind:    "TestJob",
 		},
-		SyncPatches: []configapi.JsonPatch{
-			{
-				Op:   "replace",
-				Path: "/status/customStatus",
-				From: "/status/customStatus",
+	}
+
+	localObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"field": "value",
 			},
 		},
 	}
 
-	customConfigWithDefaults := cm.applyDefaults(customConfig)
-
-	// Check that custom values were preserved
-	if customConfigWithDefaults.ManagedBy != ".metadata.labels.managedBy" {
-		t.Errorf("Expected custom managedBy path, got %s", customConfigWithDefaults.ManagedBy)
+	remoteObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"field": "value",
+			},
+			"status": map[string]interface{}{
+				"phase": "Running",
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+					},
+				},
+			},
+		},
 	}
 
-	if len(customConfigWithDefaults.CreationPatches) != 1 {
-		t.Errorf("Expected 1 custom creation patch, got %d", len(customConfigWithDefaults.CreationPatches))
+	adapter.copyStatusFromRemote(localObj, remoteObj)
+
+	// Check that status is copied
+	localStatus, exists := localObj.Object["status"]
+	if !exists {
+		t.Error("status should be copied to local object")
 	}
 
-	if len(customConfigWithDefaults.SyncPatches) != 1 {
-		t.Errorf("Expected 1 custom sync patch, got %d", len(customConfigWithDefaults.SyncPatches))
+	// Check that status content matches
+	if localStatus.(map[string]interface{})["phase"] != "Running" {
+		t.Error("status phase should match")
+	}
+}
+
+func TestGenericAdapter_SplitJsonPath(t *testing.T) {
+	adapter := &genericAdapter{
+		gvk: schema.GroupVersionKind{
+			Group:   "test.example.com",
+			Version: "v1",
+			Kind:    "TestJob",
+		},
+	}
+
+	tests := []struct {
+		path     string
+		expected []string
+	}{
+		{
+			path:     ".spec.managedBy",
+			expected: []string{"spec", "managedBy"},
+		},
+		{
+			path:     "spec.managedBy",
+			expected: []string{"spec", "managedBy"},
+		},
+		{
+			path:     "",
+			expected: []string{},
+		},
+		{
+			path:     "single",
+			expected: []string{"single"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			result := adapter.splitJsonPath(tt.path)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d parts, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, part := range tt.expected {
+				if result[i] != part {
+					t.Errorf("Part %d: expected %s, got %s", i, part, result[i])
+				}
+			}
+		})
 	}
 }

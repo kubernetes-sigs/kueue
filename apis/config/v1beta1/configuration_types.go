@@ -278,60 +278,16 @@ type MultiKueue struct {
 	// by the generic MultiKueue adapter. Each entry defines how to handle a specific
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
-	ExternalFrameworks []ExternalFramework `json:"externalFrameworks,omitempty"`
+	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
 }
 
-// ExternalFramework defines how to handle a specific GroupVersionKind (GVK) for MultiKueue operations.
-type ExternalFramework struct {
-	// Group is the API group of the custom resource.
+// MultiKueueExternalFramework defines a framework that is not built-in.
+type MultiKueueExternalFramework struct {
+	// Name is the GVK of the resource that are
+	// managed by external controllers
+	// the expected format is `Kind.version.group.com`.
 	// +kubebuilder:validation:Required
-	Group string `json:"group"`
-
-	// Version is the API version of the custom resource.
-	// +kubebuilder:validation:Required
-	Version string `json:"version"`
-
-	// Kind is the kind of the custom resource.
-	// +kubebuilder:validation:Required
-	Kind string `json:"kind"`
-
-	// ManagedBy defines the JSONPath expression to check if the object is managed by Kueue.
-	// This field is used to determine if a job object is managed by Kueue and can be delegated.
-	// Defaults to ".spec.managedBy".
-	// +optional
-	ManagedBy string `json:"managedBy,omitempty"`
-
-	// CreationPatches defines a list of JSON patches to apply when creating the object in the worker cluster.
-	// These patches are applied to the local object before creating it in the remote cluster.
-	// +optional
-	CreationPatches []JsonPatch `json:"creationPatches,omitempty"`
-
-	// SyncPatches defines a list of JSON patches to apply when synchronizing status from the worker cluster.
-	// These patches are used to copy status information from the remote object to the local object.
-	// +optional
-	SyncPatches []JsonPatch `json:"syncPatches,omitempty"`
-}
-
-// JsonPatch represents a JSON patch operation as defined in RFC 6902.
-type JsonPatch struct {
-	// Op is the operation to be performed.
-	// +kubebuilder:validation:Enum=add;remove;replace;move;copy;test
-	// +kubebuilder:validation:Required
-	Op string `json:"op"`
-
-	// Path is the JSON pointer path to the target location.
-	// +kubebuilder:validation:Required
-	Path string `json:"path"`
-
-	// Value is the value to be used in the operation.
-	// This field is required for "add" and "replace" operations.
-	// +optional
-	Value interface{} `json:"value,omitempty"`
-
-	// From is the JSON pointer path to the source location.
-	// This field is required for "move" and "copy" operations.
-	// +optional
-	From string `json:"from,omitempty"`
+	Name string `json:"name"`
 }
 
 type RequeuingStrategy struct {

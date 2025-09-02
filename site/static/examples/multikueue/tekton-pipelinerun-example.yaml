@@ -14,18 +14,7 @@ data:
     origin: "multikueue-manager"
     workerLostTimeout: 15m
     externalFrameworks:
-      - group: "tekton.dev"
-        version: "v1"
-        kind: "PipelineRun"
-        managedBy: ".spec.managedBy"
-        creationPatches:
-          - op: replace
-            path: /spec/managedBy
-            value: null
-        syncPatches:
-          - op: replace
-            path: /status
-            from: /status
+      - name: "PipelineRun.v1.tekton.dev"
 
 ---
 # 2. Resource Flavor for the worker cluster
