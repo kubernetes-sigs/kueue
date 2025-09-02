@@ -182,7 +182,7 @@ description: >
   An admission check controller providing kueue integration with cluster autoscaler.
 ---
 
-When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it did't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioning-admissioncheck-controller) addresses this in cluster-autoscaler environments.
+When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it didn't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioning-admissioncheck-controller) addresses this in cluster-autoscaler environments.
 
 Kueue's enhanced admission requires two sequential checks:
 
@@ -208,7 +208,7 @@ Scenario: *AI training job requiring 16 GPUs :*
 - **Step 2** *(Admission Check)*: Kueue creates a ProvisioningRequest requesting for 16 GPUs. 
   - Cluster Autoscaler checks cloud provider GPU inventory and initiates scaling of 4x GPU nodes (4 GPUs each). It sets `Provisioned=true` when nodes are ready.
 
-  - Kueue sees the `Provisioned=true` proceeds to mark the AdmissionCheck `Ready` and admits workload.
+  - Kueue sees the `Provisioned=true` marks the AdmissionCheck `Ready` and admits workload.
 
 Outcome:
 *Job starts immediately with all 16 GPUs available.*
