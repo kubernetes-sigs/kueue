@@ -19,7 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
-	stdslices "slices"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -45,7 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -2772,7 +2772,7 @@ func TestFairPreemptions(t *testing.T) {
 					},
 				},
 			), snapshotWorkingCopy)
-			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
+			gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
 			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
@@ -2896,10 +2896,10 @@ func TestCandidatesOrdering(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	for _, tc := range cases {
 		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
-		stdslices.SortFunc(tc.candidates, func(a, b workload.Info) int {
+		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
 			return CandidatesOrdering(log, tc.admissionFairSharingEnabled, &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
-		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
+		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
 		})
 		if diff := cmp.Diff(tc.wantCandidates, got); diff != "" {
