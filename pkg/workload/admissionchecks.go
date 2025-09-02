@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 // SyncAdmittedCondition sync the state of the Admitted condition based on the
@@ -81,17 +82,6 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
 }
 
-// FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
-func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
-	for i := range checks {
-		if checks[i].Name == checkName {
-			return &checks[i]
-		}
-	}
-
-	return nil
-}
-
 // resetChecksOnEviction sets all AdmissionChecks to Pending
 func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	checks := w.Status.AdmissionChecks
@@ -113,7 +103,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	if checks == nil {
 		return
 	}
-	existingCondition := FindAdmissionCheck(*checks, newCheck.Name)
+	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
 		if newCheck.LastTransitionTime.IsZero() {
 			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())

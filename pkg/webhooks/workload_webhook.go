@@ -301,10 +301,8 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
 			return apivalidation.ValidateImmutableField(new, old, path)
 		}
-		// Allow to update (set) TopologyAssignment when DelayedTopologyRequest
-		// transitions from Pending to Ready.
+		// Allow to update (set) TopologyAssignments
 		for i := range new.PodSetAssignments {
-			// allow to update TopologyAssignments
 			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}

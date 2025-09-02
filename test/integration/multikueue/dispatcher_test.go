@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -679,7 +680,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Ordered, ginkgo.
 						Message: "The workload is admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
-				state := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+				state := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(state).NotTo(gomega.BeNil())
 				g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -727,7 +728,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Ordered, ginkgo.
 						Message: "The workload is admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
-				state := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+				state := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(state).NotTo(gomega.BeNil())
 				g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

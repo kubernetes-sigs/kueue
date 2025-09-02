@@ -282,7 +282,7 @@ func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) 
 	if len(relevantChecks) == 0 {
 		return nil, nil
 	}
-	return workload.FindAdmissionCheck(local.Status.AdmissionChecks, relevantChecks[0]), nil
+	return admissioncheck.FindAdmissionCheck(local.Status.AdmissionChecks, relevantChecks[0]), nil
 }
 
 func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
@@ -331,7 +331,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "reconcileGroup")
 	log.V(3).Info("Reconcile Workload Group")
 
-	acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
+	acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 
 	// 1. delete all remote workloads when finished or the local wl has no reservation
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
@@ -395,7 +395,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
+		acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.

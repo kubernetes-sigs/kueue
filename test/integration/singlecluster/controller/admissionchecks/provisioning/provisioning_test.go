@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -270,7 +271,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking that the ETA is propagated to workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStatePending))
 					g.Expect(state.Message).To(gomega.Equal("Not provisioned, ETA: 2024-02-22T10:36:40Z."))
@@ -292,7 +293,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 					g.Expect(state.PodSetUpdates).To(gomega.BeComparableTo([]kueue.PodSetUpdate{
@@ -697,7 +698,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check state indicates an inactive check", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.Message).To(gomega.Equal(provisioning.CheckInactiveMessage))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -733,7 +734,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 					g.Expect(state.PodSetUpdates).To(gomega.BeComparableTo([]kueue.PodSetUpdate{
@@ -777,7 +778,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check remains ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -901,7 +902,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the AdmissionChecks are reset to Pending and remain this way", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending), fmt.Sprintf("status: %v", updatedWl.Status))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
@@ -945,7 +946,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1004,7 +1005,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1048,7 +1049,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1172,7 +1173,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1231,7 +1232,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1342,7 +1343,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1391,7 +1392,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					_, evicted := workload.IsEvictedByAdmissionCheck(&updatedWl)
 					g.Expect(evicted).To(gomega.BeTrue())
-					check := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
 					g.Expect(check).NotTo(gomega.BeNil())
 					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

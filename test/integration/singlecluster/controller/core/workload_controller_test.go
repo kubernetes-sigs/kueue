@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -236,7 +237,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 
 			// save check2 condition
-			oldCheck2Cond := workload.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
+			oldCheck2Cond := admissioncheck.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
 			gomega.Expect(oldCheck2Cond).NotTo(gomega.BeNil())
 
 			ginkgo.By("updating the queue checks, the changes should propagate to the workload", func() {
@@ -256,7 +257,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					})).Should(gomega.ConsistOf("check2", "check3"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				check2Cond := workload.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
+				check2Cond := admissioncheck.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
 				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
 			})
 		})

@@ -51,6 +51,9 @@ E2E_USE_HELM ?= false
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
+# For restricting to a specific directory
+GO_TEST_TARGET ?= .
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
@@ -62,7 +65,7 @@ endif
 
 .PHONY: test
 test: gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
