@@ -2468,11 +2468,43 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload submitted to a CQ with empty resource groups": {
+		"workload submitted to a CQ with no resource groups": {
 			additionalClusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cq-with-empty-rg").
+				*utiltesting.MakeClusterQueue("cq-no-rg").
 					QueueingStrategy(kueue.StrictFIFO).
 					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-no-rg").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-workload", "sales").
+					Queue("local-q").
+					PodSets(*utiltesting.MakePodSet("main", 1).Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-no-rg": {"sales/test-workload"},
+			},
+			wantEvents: nil,
+		},
+
+		"workload submitted to a CQ with a resource group with empty flavors": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cq-with-empty-rg",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.StrictFIFO,
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{"cpu"},
+								Flavors:          []kueue.FlavorQuotas{},
+							},
+						},
+					},
+				},
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				*utiltesting.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-with-empty-rg").Obj(),
