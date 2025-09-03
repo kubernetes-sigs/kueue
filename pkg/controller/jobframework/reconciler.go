@@ -1498,7 +1498,7 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
 func workloadSliceEnabled(job GenericJob) bool {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || job == nil {
+	if job == nil {
 		return false
 	}
 	jobObject := job.Object()
