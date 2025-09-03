@@ -3322,7 +3322,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           1,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -3345,7 +3345,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           4,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -3465,7 +3465,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           1,
 					wantAssignment:  nil,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
@@ -3479,7 +3479,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           4,
 					wantAssignment:  nil,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
@@ -3517,7 +3517,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 1000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           1,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -3540,7 +3540,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           4,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -3587,7 +3587,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 10000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           1,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
 				},
@@ -3600,7 +3600,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           4,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
 				},
@@ -3691,7 +3691,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: resources.Requests{
 						corev1.ResourceCPU: 2000,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           1,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -3714,7 +3714,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           2,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -3844,7 +3844,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           1,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -3867,7 +3867,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
 					},
-					podSetGroupName: ptr.To("sameGroup"),
+					podSetGroupName: ptr.To("samegroup"),
 					count:           2,
 					wantAssignment: &kueue.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
