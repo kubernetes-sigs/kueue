@@ -338,7 +338,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					NominatedClusterNames([]string{"worker1", "worker2"}).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
@@ -371,7 +371,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					NominatedClusterNames([]string{"worker1", "worker2"}).
+					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
