@@ -309,11 +309,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 				// If there's still overlapping targets, check if newTargets has sufficient remaining capacity to fit usage
 				// no need to skip if there's not overlapping targets. It will go through fitness check below.
-				if preemptedWorkloadsV2.HasAny(newTargets) && !preemptedWorkloadsV2.CanClaim(newTargets, usage) {
-					log.V(3).Info("Workload preemption targets has insufficient capacity after retry", "workload", klog.KObj(e.Obj), "newTargets", len(newTargets), "preemptedWorkloads", len(preemptedWorkloadsV2))
-					setSkipped(e, "Workload preemption targets has insufficient remaining capacity")
-					skippedPreemptions[cq.Name]++
-					continue
+				if preemptedWorkloadsV2.HasAny(newTargets) {
+					canClaim := preemptedWorkloadsV2.CanClaim(newTargets, usage)
+					if !canClaim {
+						log.V(3).Info("Workload preemption targets has insufficient capacity after retry", "workload", klog.KObj(e.Obj), "newTargets", len(newTargets), "preemptedWorkloads", len(preemptedWorkloadsV2))
+						setSkipped(e, "Workload preemption targets has insufficient remaining capacity")
+						skippedPreemptions[cq.Name]++
+						continue
+					}
 				}
 			}
 		} else {
@@ -352,6 +355,26 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			preemptedWorkloads.Insert(e.preemptionTargets)
 		}
 		cq.AddUsage(usage)
+
+		// When RefreshAssignmentsDuringSchedulingCycle is enabled, we need to account for
+		// claimed usage from preemption targets. We remove the claimed usage from the
+		// snapshot to reflect that this capacity will become available when the targets are preempted.
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) {
+			// Calculate the claimed usage from the current preemptor's targets only
+			claimedUsage := workload.Usage{Quota: make(map[resources.FlavorResource]int64)}
+			for _, target := range e.preemptionTargets {
+				targetKey := workload.Key(target.WorkloadInfo.Obj)
+				if preemptedWl, found := preemptedWorkloadsV2[targetKey]; found {
+					for fr, claimed := range preemptedWl.ClaimedUsage.Quota {
+						claimedUsage.Quota[fr] += claimed
+					}
+				}
+			}
+			// Remove the claimed usage to reflect capacity that will become available
+			if len(claimedUsage.Quota) > 0 {
+				cq.RemoveUsage(claimedUsage)
+			}
+		}
 
 		// Filter out the old workload slice from the preemption targets.
 		// The old workload slice is initially included in the preemption targets because it is treated

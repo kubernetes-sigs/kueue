@@ -128,7 +128,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 		excludeWorkloads = make(PreemptedWorkloads)
 	}
 
-	return p.getTargets(&preemptionCtx{
+	targets := p.getTargets(&preemptionCtx{
 		log:                  log,
 		preemptor:            wl,
 		preemptorCQ:          cq,
@@ -142,6 +142,8 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 			TAS:   wl.TASUsage(),
 		},
 	})
+
+	return targets
 }
 
 func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
@@ -268,6 +270,16 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 				Reason:       reason,
 			})
 			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
+				// Check if these specific preemption targets can actually provide the capacity, if not collect more preemption targets
+				if preemptionCtx.preemptedWorkloadsV2 != nil &&
+					len(targets) > 0 {
+					if !preemptionCtx.preemptedWorkloadsV2.CanClaim(targets, preemptionCtx.workloadUsage) {
+						preemptionCtx.log.V(3).Info("Classical preemption: targets found but insufficient claimable capacity, continuing search",
+							"currentTargets", len(targets),
+							"needed", preemptionCtx.workloadUsage.Quota)
+						continue
+					}
+				}
 				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
 				restoreSnapshot(preemptionCtx.snapshot, targets)
 				return targets
@@ -335,6 +347,16 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				Reason:       kueue.InClusterQueueReason,
 			})
 			if workloadFitsForFairSharing(preemptionCtx) {
+				// Check if we can actually claim sufficient resources from current targets
+				// when RefreshAssignmentsDuringSchedulingCycle is enabled
+				if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) &&
+					preemptionCtx.preemptedWorkloadsV2 != nil &&
+					len(targets) > 0 {
+					if !preemptionCtx.preemptedWorkloadsV2.CanClaim(targets, preemptionCtx.workloadUsage) {
+						// Current targets don't have sufficient claimable capacity, continue looking
+						continue
+					}
+				}
 				return true, targets, nil
 			}
 			continue
@@ -353,6 +375,16 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					Reason:       reason,
 				})
 				if workloadFitsForFairSharing(preemptionCtx) {
+					// Check if we can actually claim sufficient resources from current targets
+					// when RefreshAssignmentsDuringSchedulingCycle is enabled
+					if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) &&
+						preemptionCtx.preemptedWorkloadsV2 != nil &&
+						len(targets) > 0 {
+						if !preemptionCtx.preemptedWorkloadsV2.CanClaim(targets, preemptionCtx.workloadUsage) {
+							// Current targets don't have sufficient claimable capacity, continue looking
+							break // Break to try next CQ
+						}
+					}
 					return true, targets, nil
 				}
 				// Might need to pick a different CQ due to changing values.
@@ -539,27 +571,12 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
-// workloadFits now needs to account for preempted workloads within the snapshot
-// (ie. add usage of preempted workloads so that new admission can fit)
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
-		// Available returns the current capacity available, before preempting any workloads.
-		available := preemptionCtx.preemptorCQ.Available(fr)
-
-		// When RefreshAssignmentsDuringSchedulingCycle feature gate is enabled,
-		// look through all the preempted workloads that have claimed resources
-		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) && preemptionCtx.preemptedWorkloadsV2 != nil {
-			for _, preemptedWl := range *preemptionCtx.preemptedWorkloadsV2 {
-				if claimedUsage, exists := preemptedWl.ClaimedUsage.Quota[fr]; exists {
-					available += claimedUsage
-				}
-			}
-		}
-
-		if v > available {
+		if v > preemptionCtx.preemptorCQ.Available(fr) {
 			return false
 		}
 	}
