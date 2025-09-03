@@ -108,7 +108,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
 				return oldParallelism != newParallelism || labelsChanged, nil
 			}); err != nil {
-				return fmt.Errorf("failed to update remote job: %w", err)
+				return fmt.Errorf("failed to patch remote job: %w", err)
 			}
 		}
 

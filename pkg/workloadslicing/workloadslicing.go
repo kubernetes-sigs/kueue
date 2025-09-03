@@ -61,7 +61,7 @@ func Enabled(object metav1.Object) bool {
 	if object == nil {
 		return false
 	}
-	return object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
 }
 
 // IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
@@ -70,16 +70,7 @@ func IsElasticWorkload(workload *kueue.Workload) bool {
 	if workload == nil {
 		return false
 	}
-	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && Enabled(workload)
-}
-
-// IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
-// and the given Workload is marked as elastic (e.g., via annotations or other criteria).
-func IsElasticWorkload(workload *kueue.Workload) bool {
-	if workload == nil {
-		return false
-	}
-	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && Enabled(workload)
+	return Enabled(workload)
 }
 
 const (

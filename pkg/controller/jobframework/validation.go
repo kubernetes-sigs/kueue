@@ -154,6 +154,12 @@ func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) fi
 	return allErrs
 }
 
+// validatedUpdateForEnabledWorkloadSlice validates that the workload-slicing toggle remains immutable on update.
+//
+// It compares the boolean returned by workloadslicing.Enabled for the old and new Job objects.
+// If the value changed, it returns a field.ErrorList with a single field.Invalid pointing at
+// labels[workloadslicing.EnabledAnnotationKey] and using apivalidation.FieldImmutableErrorMsg.
+// If the value did not change, // it returns nil.
 func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.ErrorList {
 	if oldEnabled, newEnabled := workloadslicing.Enabled(oldJob.Object()), workloadslicing.Enabled(newJob.Object()); oldEnabled != newEnabled {
 		return field.ErrorList{field.Invalid(labelsPath.Key(workloadslicing.EnabledAnnotationKey), newEnabled, apivalidation.FieldImmutableErrorMsg)}
