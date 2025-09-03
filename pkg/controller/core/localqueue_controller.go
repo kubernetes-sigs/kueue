@@ -295,7 +295,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	sum := resource.MergeResourceListKeepSum(scaledOldUsage, scaledNewUsage)
 	// Add penalty to the final usage
 	lqKey := utilqueue.Key(lq)
-	err = r.queues.WithPenaltyLocked(lqKey, func(penalty corev1.ResourceList) error {
+	err = r.queues.UpdateWithPenalty(lqKey, func(penalty corev1.ResourceList) error {
 		sum = resource.MergeResourceListKeepSum(sum, penalty)
 
 		// update status

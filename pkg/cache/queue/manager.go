@@ -182,7 +182,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 
 	var afsEntryPenalties *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList]
 	if afs.Enabled(m.admissionFairSharingConfig) {
-		afsEntryPenalties = m.afsEntryPenalties.GetPenalties()
+		afsEntryPenalties = m.afsEntryPenalties.getPenalties()
 	}
 	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties)
 	if err != nil {
@@ -812,7 +812,7 @@ func (m *Manager) RebuildClusterQueuesWithEntryPenalties() {
 	defer m.Unlock()
 
 	clusterQueuesWithPenalties := sets.New[kueue.ClusterQueueReference]()
-	for _, lqKey := range m.afsEntryPenalties.GetLocalQueueKeysWithPenalties() {
+	for _, lqKey := range m.afsEntryPenalties.getLocalQueueKeysWithPenalties() {
 		if lq, exists := m.localQueues[lqKey]; exists {
 			clusterQueuesWithPenalties.Insert(lq.ClusterQueue)
 		}
@@ -826,27 +826,23 @@ func (m *Manager) RebuildClusterQueuesWithEntryPenalties() {
 }
 
 func (m *Manager) PushEntryPenalty(lqKey queue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.afsEntryPenalties.Push(lqKey, penalty)
+	m.afsEntryPenalties.push(lqKey, penalty)
 }
 
 func (m *Manager) SubEntryPenalty(lqKey queue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.afsEntryPenalties.Sub(lqKey, penalty)
+	m.afsEntryPenalties.sub(lqKey, penalty)
 }
 
-func (m *Manager) WithPenaltyLocked(lqKey queue.LocalQueueReference, fn func(penalty corev1.ResourceList) error) error {
-	return m.afsEntryPenalties.WithPenaltyLocked(lqKey, fn)
+func (m *Manager) UpdateWithPenalty(lqKey queue.LocalQueueReference, fn func(penalty corev1.ResourceList) error) error {
+	return m.afsEntryPenalties.updateWithPenalty(lqKey, fn)
 }
 
 func (m *Manager) HasPendingPenaltyFor(lqKey queue.LocalQueueReference) bool {
-	return m.afsEntryPenalties.HasPendingFor(lqKey)
-}
-
-func (m *Manager) HasAnyEntryPenalty() bool {
-	return m.afsEntryPenalties.HasAny()
+	return m.afsEntryPenalties.hasPendingFor(lqKey)
 }
 
 func (m *Manager) GetAfsEntryPenalties() *utilmaps.SyncMap[queue.LocalQueueReference, corev1.ResourceList] {
-	return m.afsEntryPenalties.GetPenalties()
+	return m.afsEntryPenalties.getPenalties()
 }
 
 type WorkloadUpdateWatcher interface {
