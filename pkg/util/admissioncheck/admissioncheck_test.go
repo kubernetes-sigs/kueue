@@ -18,25 +18,24 @@ package admissioncheck
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestConfigHelper(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
 	testConfig := utiltesting.MakeProvisioningRequestConfig("config").
 		ProvisioningClass("className").
 		WithParameter("p1", "v1").
@@ -98,10 +97,7 @@ func TestConfigHelper(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-			utilruntime.Must(kueue.AddToScheme(scheme))
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := utiltesting.NewClientBuilder()
 			if tc.admissioncheck != nil {
 				builder = builder.WithObjects(tc.admissioncheck)
 			}
@@ -109,8 +105,7 @@ func TestConfigHelper(t *testing.T) {
 				builder = builder.WithObjects(tc.config)
 			}
 			client := builder.Build()
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			helper, err := NewConfigHelper[*kueue.ProvisioningRequestConfig](client)
 
@@ -204,18 +199,12 @@ func TestFilterCheckStates(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-			utilruntime.Must(kueue.AddToScheme(scheme))
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := utiltesting.NewClientBuilder()
 			if len(tc.admissionchecks) > 0 {
 				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionchecks})
 			}
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
 			gotResult, _ := FilterForController(ctx, client, tc.states, "test-controller")
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
@@ -265,17 +254,12 @@ func TestGetMultiKueueAdmissionCheck(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-			utilruntime.Must(kueue.AddToScheme(scheme))
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := utiltesting.NewClientBuilder()
 			if len(tc.admissionChecks) > 0 {
 				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionChecks})
 			}
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
 
 			workload := &kueue.Workload{
 				Status: kueue.WorkloadStatus{
@@ -296,11 +280,12 @@ func TestGetMultiKueueAdmissionCheck(t *testing.T) {
 	}
 }
 func TestGetRemoteClusters(t *testing.T) {
+	multiKueueConfigGetError := errors.New("failed to get MultiKueueConfig")
 	acTest := "test-admission-check"
 	cases := map[string]struct {
 		multiKueueConfig *kueue.MultiKueueConfig
 		wantResult       sets.Set[string]
-		wantErr          string
+		wantErr          error
 	}{
 		"no clusters": {
 			multiKueueConfig: &kueue.MultiKueueConfig{
@@ -312,7 +297,7 @@ func TestGetRemoteClusters(t *testing.T) {
 				},
 			},
 			wantResult: nil,
-			wantErr:    ErrNoActiveClusters.Error(),
+			wantErr:    ErrNoActiveClusters,
 		},
 		"multiple clusters": {
 			multiKueueConfig: &kueue.MultiKueueConfig{
@@ -328,17 +313,20 @@ func TestGetRemoteClusters(t *testing.T) {
 		"error fetching config": {
 			multiKueueConfig: nil,
 			wantResult:       nil,
-			wantErr:          apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "multikueueconfigs"}, acTest).Error(),
+			wantErr:          multiKueueConfigGetError,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-			utilruntime.Must(kueue.AddToScheme(scheme))
-
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isMKCfg := obj.(*kueue.MultiKueueConfig); isMKCfg && errors.Is(tc.wantErr, multiKueueConfigGetError) {
+						return tc.wantErr
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			})
 			ac := utiltesting.MakeAdmissionCheck(acTest).
 				ControllerName(kueue.MultiKueueControllerName).
 				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", acTest).
@@ -355,11 +343,11 @@ func TestGetRemoteClusters(t *testing.T) {
 				t.Fatalf("failed to create MultiKueueStoreHelper: %v", err)
 			}
 
-			ctx := context.Background()
+			ctx, _ := utiltesting.ContextWithLog(t)
 			gotResult, err := GetRemoteClusters(ctx, helper, kueue.AdmissionCheckReference(acTest))
 
 			if err != nil {
-				if diff := cmp.Diff(tc.wantErr, err.Error()); diff != "" {
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("unexpected error (-want/+got):\n%s", diff)
 				}
 			}

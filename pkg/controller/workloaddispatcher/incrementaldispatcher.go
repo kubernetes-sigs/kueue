@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -49,11 +50,18 @@ type IncrementalDispatcherReconciler struct {
 	helper          *admissioncheck.MultiKueueStoreHelper
 	clock           clock.Clock
 	dispatcherName  string
-	roundStartTimes map[types.NamespacedName]time.Time
+	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
 }
 
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
+
+func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("multikueue_incremental_dispatcher").
+		For(&kueue.Workload{}).
+		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
+}
 
 func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, dispatcherName string) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
@@ -61,7 +69,7 @@ func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.
 		helper:          helper,
 		clock:           realClock,
 		dispatcherName:  dispatcherName,
-		roundStartTimes: make(map[types.NamespacedName]time.Time),
+		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 	}
 }
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -78,14 +86,14 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 	if err != nil {
 		log.Error(err, "Failed to retrieve Workload, skip the reconciliation")
 		if apierrors.IsNotFound(err) {
-			delete(r.roundStartTimes, req.NamespacedName)
+			r.clearRoundStartTime(req.NamespacedName)
 		}
 		return reconcile.Result{}, err
 	}
 
 	if !wl.DeletionTimestamp.IsZero() {
 		log.V(3).Info("Workload is deleted, skip the reconciliation")
-		delete(r.roundStartTimes, req.NamespacedName)
+		r.clearRoundStartTime(req.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 
@@ -114,23 +122,16 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 
 	if workload.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
 		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation")
-		delete(r.roundStartTimes, req.NamespacedName)
+		r.clearRoundStartTime(req.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 
 	return r.nominateWorkers(ctx, wl, remoteClusters, log)
 }
 
-func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("multikueue_incremental_dispatcher").
-		For(&kueue.Workload{}).
-		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
-}
-
 func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters sets.Set[string], log logr.Logger) (reconcile.Result, error) {
 	key := client.ObjectKeyFromObject(wl)
-	roundStart, found := r.roundStartTimes[key]
+	roundStart, found := r.getRoundStartTime(key)
 	now := r.clock.Now()
 	log.V(5).Info("nominating worker clusters", "nominatedAt", roundStart, "revokedAt", roundStart.Add(incrementalDispatcherRoundTimeout))
 	if found && now.Sub(roundStart) <= incrementalDispatcherRoundTimeout {
@@ -153,7 +154,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 		return reconcile.Result{}, err
 	}
 	// only update the round start time if we successfully nominated workers
-	r.roundStartTimes[key] = now
+	r.setRoundStartTime(key, now)
 
 	return reconcile.Result{}, nil
 }
@@ -181,4 +182,18 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 		return workers, nil
 	}
 	return workers[:batchSize], nil
+}
+
+func (r *IncrementalDispatcherReconciler) setRoundStartTime(key types.NamespacedName, t time.Time) {
+	r.roundStartTimes.Add(key, t)
+}
+
+func (r *IncrementalDispatcherReconciler) getRoundStartTime(key types.NamespacedName) (time.Time, bool) {
+	t, found := r.roundStartTimes.Get(key)
+	return t, found
+}
+
+// clearRoundStartTime removes the round start time for the given workload key.
+func (r *IncrementalDispatcherReconciler) clearRoundStartTime(key types.NamespacedName) {
+	r.roundStartTimes.Delete(key)
 }

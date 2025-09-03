@@ -38,13 +38,12 @@ import (
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
-	const (
-		workloadName = "test-workload"
-	)
+	const workloadName = "test-workload"
 
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -60,7 +59,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	}{
 		"dispatcher name mismatch": {
 			dispatcherName: "other",
-			workload:       baseWorkload.DeepCopy(),
+			workload:       baseWorkload.Clone().Obj(),
 		},
 		"workload not found": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
@@ -73,11 +72,11 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		},
 		"admission check nil": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.DeepCopy(),
+			workload:       baseWorkload.Clone().Obj(),
 		},
 		"admission check is rejected": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.DeepCopy(),
+			workload:       baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateRejected,
@@ -85,7 +84,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		},
 		"admission check is ready": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.DeepCopy(),
+			workload:       baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStateReady,
@@ -116,7 +115,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		},
 		"workload has quota reserved": {
 			dispatcherName: kueueconfig.MultiKueueDispatcherModeIncremental,
-			workload:       baseWorkload.DeepCopy(),
+			workload:       baseWorkload.Clone().Obj(),
 			mkAcState: &kueue.AdmissionCheckState{
 				Name:  "ac1",
 				State: kueue.CheckStatePending,
@@ -169,10 +168,10 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				helper:          helper,
 				clock:           fakeClock,
 				dispatcherName:  tc.dispatcherName,
-				roundStartTimes: make(map[types.NamespacedName]time.Time),
+				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: workloadName, Namespace: metav1.NamespaceDefault}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: workloadName}}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
@@ -183,161 +182,155 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 }
 
 func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
-	const (
-		testName = "test-wl"
-	)
+	const testName = "test-wl"
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	baseWl := utiltesting.MakeWorkload(testName, metav1.NamespaceDefault).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "ac1",
+			State: kueue.CheckStatePending,
+		})
 
 	testCases := map[string]struct {
-		remoteClusters                 sets.Set[string]
-		previousRoundNominatedClusters []string
-		wantNominatedClustersCount     int
-		wantErr                        error
-		advanceRoundTime               bool
-		wantNominatedClusters          []string
+		remoteClusters             sets.Set[string]
+		workload                   *kueue.Workload
+		wantNominatedClustersCount int
+		wantErr                    error
+		advanceRoundTime           bool
+		wantNominatedClusters      []string
 	}{
 		"one remote": {
-			remoteClusters:                 sets.New("A"),
-			previousRoundNominatedClusters: nil,
-			wantNominatedClustersCount:     1,
-			wantErr:                        nil,
-			advanceRoundTime:               false,
-			wantNominatedClusters:          []string{"A"},
+			remoteClusters:             sets.New("A"),
+			workload:                   baseWl.Clone().Obj(),
+			wantNominatedClustersCount: 1,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A"},
 		},
 		"two remotes": {
-			remoteClusters:                 sets.New("A", "B"),
-			previousRoundNominatedClusters: nil,
-			wantNominatedClustersCount:     2,
-			wantErr:                        nil,
-			advanceRoundTime:               false,
-			wantNominatedClusters:          []string{"A", "B"},
+			remoteClusters:             sets.New("A", "B"),
+			workload:                   baseWl.Clone().Obj(),
+			wantNominatedClustersCount: 2,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A", "B"},
 		},
 		"three remotes": {
-			remoteClusters:                 sets.New("A", "B", "C"),
-			previousRoundNominatedClusters: nil,
-			wantNominatedClustersCount:     3,
-			wantErr:                        nil,
-			advanceRoundTime:               false,
-			wantNominatedClusters:          []string{"A", "B", "C"},
+			remoteClusters:             sets.New("A", "B", "C"),
+			workload:                   baseWl.Clone().Obj(),
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A", "B", "C"},
 		},
 		"fifteen remotes": {
-			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
-			previousRoundNominatedClusters: nil,
-			wantNominatedClustersCount:     3,
-			wantErr:                        nil,
-			advanceRoundTime:               false,
-			wantNominatedClusters:          []string{"A", "B", "C"},
+			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
+			workload:                   baseWl.Clone().Obj(),
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A", "B", "C"},
 		},
 		"all already nominated (3)": {
-			remoteClusters:                 sets.New("A", "B", "C"),
-			previousRoundNominatedClusters: []string{"A", "B", "C"},
-			wantNominatedClustersCount:     3,
-			wantErr:                        ErrNoMoreWorkers,
-			advanceRoundTime:               true,
-			wantNominatedClusters:          []string{"A", "B", "C"},
+			remoteClusters:             sets.New("A", "B", "C"),
+			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C").Obj(),
+			wantNominatedClustersCount: 3,
+			wantErr:                    ErrNoMoreWorkers,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"A", "B", "C"},
 		},
 		"all already nominated (1)": {
-			remoteClusters:                 sets.New("A"),
-			previousRoundNominatedClusters: []string{"A"},
-			wantNominatedClustersCount:     1,
-			wantErr:                        ErrNoMoreWorkers,
-			advanceRoundTime:               true,
-			wantNominatedClusters:          []string{"A"},
+			remoteClusters:             sets.New("A"),
+			workload:                   baseWl.Clone().NominatedClusterNames("A").Obj(),
+			wantNominatedClustersCount: 1,
+			wantErr:                    ErrNoMoreWorkers,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"A"},
 		},
 		"round expired, next set nominated": {
-			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F"),
-			previousRoundNominatedClusters: []string{"A", "B", "C"},
-			wantNominatedClustersCount:     6,
-			wantErr:                        nil,
-			advanceRoundTime:               true,
-			wantNominatedClusters:          []string{"A", "B", "C", "D", "E", "F"},
+			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F"),
+			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C").Obj(),
+			wantNominatedClustersCount: 6,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"A", "B", "C", "D", "E", "F"},
 		},
 		"round in progress, keep current": {
-			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F"),
-			previousRoundNominatedClusters: []string{"A", "B", "C"},
-			wantNominatedClustersCount:     3,
-			wantErr:                        nil,
-			advanceRoundTime:               false,
-			wantNominatedClusters:          []string{"A", "B", "C"},
+			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F"),
+			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C").Obj(),
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{"A", "B", "C"},
 		},
 		"round expired, nominate all": {
-			remoteClusters:                 sets.New("A", "B", "C", "D", "E", "F", "G", "H"),
-			previousRoundNominatedClusters: []string{"A", "B", "C", "D", "E", "F"},
-			wantNominatedClustersCount:     8,
-			wantErr:                        nil,
-			advanceRoundTime:               true,
-			wantNominatedClusters:          []string{"A", "B", "C", "D", "E", "F", "G", "H"},
+			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H"),
+			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C", "D", "E", "F").Obj(),
+			wantNominatedClustersCount: 8,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"A", "B", "C", "D", "E", "F", "G", "H"},
 		},
 		"no remotes": {
-			remoteClusters:                 make(sets.Set[string]),
-			previousRoundNominatedClusters: nil,
-			wantNominatedClustersCount:     0,
-			wantErr:                        ErrNoMoreWorkers,
-			advanceRoundTime:               false,
-			wantNominatedClusters:          []string{},
+			remoteClusters:             make(sets.Set[string]),
+			workload:                   baseWl.Clone().Obj(),
+			wantNominatedClustersCount: 0,
+			wantErr:                    ErrNoMoreWorkers,
+			advanceRoundTime:           false,
+			wantNominatedClusters:      []string{},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			wl := &kueue.Workload{}
-			wl.Namespace = metav1.NamespaceDefault
-			wl.Name = testName
-			wl.Status.NominatedClusterNames = tc.previousRoundNominatedClusters
-			wl.Status.AdmissionChecks = []kueue.AdmissionCheckState{
-				{
-					Name:  "ac1",
-					State: kueue.CheckStatePending,
-				},
-			}
-
 			scheme := runtime.NewScheme()
 			if err := kueue.AddToScheme(scheme); err != nil {
 				t.Fatalf("Fail to add to scheme %s", err)
 			}
 
-			objs := []client.Object{wl}
+			objs := []client.Object{tc.workload}
 			client := fake.NewClientBuilder().WithScheme(scheme).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						wl.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
+						tc.workload.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
 						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 					},
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 
-			now := time.Now()
-			fakeClock := testingclock.NewFakeClock(now)
 			reconciler := &IncrementalDispatcherReconciler{
 				client:          client,
 				clock:           fakeClock,
-				roundStartTimes: make(map[types.NamespacedName]time.Time),
+				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 			}
 
-			key := types.NamespacedName{Namespace: wl.Namespace, Name: wl.Name}
+			key := types.NamespacedName{Namespace: tc.workload.Namespace, Name: tc.workload.Name}
 			if tc.advanceRoundTime {
-				reconciler.roundStartTimes[key] = fakeClock.Now().Add(-incrementalDispatcherRoundTimeout - time.Second)
-			} else if tc.previousRoundNominatedClusters != nil {
-				reconciler.roundStartTimes[key] = fakeClock.Now()
+				reconciler.setRoundStartTime(key, fakeClock.Now().Add(-incrementalDispatcherRoundTimeout-time.Second))
+			} else if tc.workload.Status.NominatedClusterNames != nil {
+				reconciler.setRoundStartTime(key, fakeClock.Now())
 			}
+
+			previousRoundNominatedClusters := tc.workload.Status.NominatedClusterNames
 
 			ctx, log := utiltesting.ContextWithLog(t)
-			_, gotErr := reconciler.nominateWorkers(ctx, wl, tc.remoteClusters, log)
+			_, gotErr := reconciler.nominateWorkers(ctx, tc.workload, tc.remoteClusters, log)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 
-			if tc.wantErr != nil && tc.previousRoundNominatedClusters != nil {
-				if len(wl.Status.NominatedClusterNames) != len(tc.previousRoundNominatedClusters) {
-					t.Errorf("expected nominated clusters to remain unchanged, got %v", wl.Status.NominatedClusterNames)
+			if tc.wantErr != nil && tc.workload.Status.NominatedClusterNames != nil {
+				if len(tc.workload.Status.NominatedClusterNames) != len(previousRoundNominatedClusters) {
+					t.Errorf("expected nominated clusters to remain unchanged, got %v", tc.workload.Status.NominatedClusterNames)
 				}
 			}
 
 			if tc.advanceRoundTime && tc.wantNominatedClusters != nil {
-				if diff := cmp.Diff(tc.wantNominatedClusters, wl.Status.NominatedClusterNames); diff != "" {
+				if diff := cmp.Diff(tc.wantNominatedClusters, tc.workload.Status.NominatedClusterNames); diff != "" {
 					t.Errorf("unexpected nominated clusters (-want/+got):\n%s", diff)
 				}
-			} else if len(wl.Status.NominatedClusterNames) != tc.wantNominatedClustersCount {
-				t.Errorf("expected %d nominated clusters, got %d: %v", tc.wantNominatedClustersCount, len(wl.Status.NominatedClusterNames), wl.Status.NominatedClusterNames)
+			} else if len(tc.workload.Status.NominatedClusterNames) != tc.wantNominatedClustersCount {
+				t.Errorf("expected %d nominated clusters, got %d: %v", tc.wantNominatedClustersCount, len(tc.workload.Status.NominatedClusterNames), tc.workload.Status.NominatedClusterNames)
 			}
 		})
 	}
