@@ -39,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -68,14 +69,15 @@ type Preemptor struct {
 }
 
 type preemptionCtx struct {
-	log               logr.Logger
-	preemptor         workload.Info
-	preemptorCQ       *schdcache.ClusterQueueSnapshot
-	snapshot          *schdcache.Snapshot
-	workloadUsage     workload.Usage
-	tasRequests       schdcache.WorkloadTASRequests
-	frsNeedPreemption sets.Set[resources.FlavorResource]
-	excludeWorkloads  PreemptedWorkloads
+	log                  logr.Logger
+	preemptor            workload.Info
+	preemptorCQ          *schdcache.ClusterQueueSnapshot
+	snapshot             *schdcache.Snapshot
+	workloadUsage        workload.Usage
+	tasRequests          schdcache.WorkloadTASRequests
+	frsNeedPreemption    sets.Set[resources.FlavorResource]
+	excludeWorkloads     PreemptedWorkloads
+	preemptedWorkloadsV2 *PreemptedWorkloadsV2 // For tracking partial preemptions when feature gate is enabled
 }
 
 func New(
@@ -118,7 +120,7 @@ func (t *Target) GetObject() client.Object {
 
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
-func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot, excludeWorkloads PreemptedWorkloads) []*Target {
+func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot, excludeWorkloads PreemptedWorkloads, preemptedWorkloadsV2 *PreemptedWorkloadsV2) []*Target {
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
 
@@ -127,13 +129,14 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 	}
 
 	return p.getTargets(&preemptionCtx{
-		log:               log,
-		preemptor:         wl,
-		preemptorCQ:       cq,
-		snapshot:          snapshot,
-		tasRequests:       tasRequests,
-		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
-		excludeWorkloads:  excludeWorkloads,
+		log:                  log,
+		preemptor:            wl,
+		preemptorCQ:          cq,
+		snapshot:             snapshot,
+		tasRequests:          tasRequests,
+		frsNeedPreemption:    flavorResourcesNeedPreemption(assignment),
+		excludeWorkloads:     excludeWorkloads,
+		preemptedWorkloadsV2: preemptedWorkloadsV2,
 		workloadUsage: workload.Usage{
 			Quota: assignment.TotalRequestsFor(&wl),
 			TAS:   wl.TASUsage(),
@@ -272,6 +275,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		}
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 	}
+	preemptionCtx.log.V(2).Info("Classical preemption failed - no valid targets found")
 	return nil
 }
 
@@ -535,12 +539,27 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
+// workloadFits now needs to account for preempted workloads within the snapshot
+// (ie. add usage of preempted workloads so that new admission can fit)
 func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
 		}
-		if v > preemptionCtx.preemptorCQ.Available(fr) {
+		// Available returns the current capacity available, before preempting any workloads.
+		available := preemptionCtx.preemptorCQ.Available(fr)
+
+		// When RefreshAssignmentsDuringSchedulingCycle feature gate is enabled,
+		// look through all the preempted workloads that have claimed resources
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) && preemptionCtx.preemptedWorkloadsV2 != nil {
+			for _, preemptedWl := range *preemptionCtx.preemptedWorkloadsV2 {
+				if claimedUsage, exists := preemptedWl.ClaimedUsage.Quota[fr]; exists {
+					available += claimedUsage
+				}
+			}
+		}
+
+		if v > available {
 			return false
 		}
 	}
