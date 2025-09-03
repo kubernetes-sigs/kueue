@@ -142,7 +142,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	// or if the queue-name has been deleted.
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
 	if !isSuspended || newQueueName == "" {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
 	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newStatefulSet.Object()) {
 		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
