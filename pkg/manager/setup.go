@@ -32,7 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -42,7 +43,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -82,7 +82,7 @@ func (c *Config) SetupIndexes(ctx context.Context, mgr ctrl.Manager) error {
 }
 
 // SetupControllers sets up all the controllers for the manager
-func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
+func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, certsReady chan struct{}, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	cert.WaitForCertsReady(c.SetupLog, certsReady)
@@ -189,7 +189,7 @@ func (c *Config) SetupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{
 }
 
 // SetupScheduler sets up the scheduler for the manager
-func (c *Config) SetupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager) error {
+func (c *Config) SetupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager) error {
 	sched := scheduler.New(
 		queues,
 		cCache,

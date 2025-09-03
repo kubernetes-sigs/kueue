@@ -32,13 +32,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/manager"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -157,22 +157,22 @@ func main() {
 	} else {
 		close(certsReady)
 	}
-	cacheOptions := []cache.Option{cache.WithPodsReadyTracking(manager.BlockForPodsReady())}
-	queueOptions := []queue.Option{queue.WithPodsReadyRequeuingTimestamp(manager.PodsReadyRequeuingTimestamp())}
+	cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(manager.BlockForPodsReady())}
+	queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(manager.PodsReadyRequeuingTimestamp())}
 	if manager.Apiconf.Resources != nil && len(manager.Apiconf.Resources.ExcludeResourcePrefixes) > 0 {
-		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(manager.Apiconf.Resources.ExcludeResourcePrefixes))
-		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(manager.Apiconf.Resources.ExcludeResourcePrefixes))
+		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(manager.Apiconf.Resources.ExcludeResourcePrefixes))
+		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(manager.Apiconf.Resources.ExcludeResourcePrefixes))
 	}
 	if features.Enabled(features.ConfigurableResourceTransformations) && manager.Apiconf.Resources != nil && len(manager.Apiconf.Resources.Transformations) > 0 {
-		cacheOptions = append(cacheOptions, cache.WithResourceTransformations(manager.Apiconf.Resources.Transformations))
-		queueOptions = append(queueOptions, queue.WithResourceTransformations(manager.Apiconf.Resources.Transformations))
+		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(manager.Apiconf.Resources.Transformations))
+		queueOptions = append(queueOptions, qcache.WithResourceTransformations(manager.Apiconf.Resources.Transformations))
 	}
 	if manager.Apiconf.FairSharing != nil {
-		cacheOptions = append(cacheOptions, cache.WithFairSharing(manager.Apiconf.FairSharing.Enable))
+		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(manager.Apiconf.FairSharing.Enable))
 	}
 	if manager.Apiconf.AdmissionFairSharing != nil {
-		queueOptions = append(queueOptions, queue.WithAdmissionFairSharing(manager.Apiconf.AdmissionFairSharing))
-		cacheOptions = append(cacheOptions, cache.WithAdmissionFairSharing(manager.Apiconf.AdmissionFairSharing))
+		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(manager.Apiconf.AdmissionFairSharing))
+		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(manager.Apiconf.AdmissionFairSharing))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)

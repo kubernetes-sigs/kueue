@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package manager
 
 import (
@@ -8,27 +24,25 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	batchv1 "k8s.io/api/batch/v1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
-	indexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	jobframework "sigs.k8s.io/kueue/pkg/controller/jobframework"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/manager"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-
-	"sigs.k8s.io/kueue/pkg/manager"
 )
 
 var _ = ginkgo.Describe("SetupIndexes", func() {
@@ -279,8 +293,8 @@ var _ = ginkgo.Describe("SetupControllers", func() {
 		mgr    ctrl.Manager
 		mgrCfg *manager.Config
 		cl     client.Client
-		cCache *cache.Cache
-		queues *queue.Manager
+		cCache *schdcache.Cache
+		queues *qcache.Manager
 		ctx    context.Context
 		cancel context.CancelFunc
 	)
@@ -368,34 +382,32 @@ WBR6QR1OiJANLk5gid3x34imLg==
 
 		certsReady := make(chan struct{})
 		if mgrCfg.Apiconf.InternalCertManagement != nil && *mgrCfg.Apiconf.InternalCertManagement.Enable {
-			if err = cert.ManageCerts(mgr, mgrCfg.Apiconf, certsReady); err != nil {
-				mgrCfg.SetupLog.Error(err, "Unable to set up cert rotation")
-				os.Exit(1)
-			}
+			err = cert.ManageCerts(mgr, mgrCfg.Apiconf, certsReady)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Unable to set up cert rotation")
 		} else {
 			close(certsReady)
 		}
 
-		cacheOptions := []cache.Option{cache.WithPodsReadyTracking(mgrCfg.BlockForPodsReady())}
-		queueOptions := []queue.Option{queue.WithPodsReadyRequeuingTimestamp(mgrCfg.PodsReadyRequeuingTimestamp())}
+		cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(mgrCfg.BlockForPodsReady())}
+		queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(mgrCfg.PodsReadyRequeuingTimestamp())}
 		if mgrCfg.Apiconf.Resources != nil && len(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes) > 0 {
-			cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
-			queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
+			cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
+			queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
 		}
 		if features.Enabled(features.ConfigurableResourceTransformations) && mgrCfg.Apiconf.Resources != nil && len(mgrCfg.Apiconf.Resources.Transformations) > 0 {
-			cacheOptions = append(cacheOptions, cache.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
-			queueOptions = append(queueOptions, queue.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
+			cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
+			queueOptions = append(queueOptions, qcache.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
 		}
 		if mgrCfg.Apiconf.FairSharing != nil {
-			cacheOptions = append(cacheOptions, cache.WithFairSharing(mgrCfg.Apiconf.FairSharing.Enable))
+			cacheOptions = append(cacheOptions, schdcache.WithFairSharing(mgrCfg.Apiconf.FairSharing.Enable))
 		}
 		if mgrCfg.Apiconf.AdmissionFairSharing != nil {
-			queueOptions = append(queueOptions, queue.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
-			cacheOptions = append(cacheOptions, cache.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
+			queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
+			cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
 		}
 
-		cCache = cache.New(mgr.GetClient(), cacheOptions...)
-		queues = queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
+		cCache = schdcache.New(mgr.GetClient(), cacheOptions...)
+		queues = qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 		serverVersionFetcher, err := mgrCfg.SetupServerVersionFetcher(mgr, cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -705,8 +717,8 @@ var _ = ginkgo.Describe("SetupScheduler", func() {
 	var (
 		mgr    ctrl.Manager
 		mgrCfg *manager.Config
-		cCache *cache.Cache
-		queues *queue.Manager
+		cCache *schdcache.Cache
+		queues *qcache.Manager
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -722,26 +734,26 @@ var _ = ginkgo.Describe("SetupScheduler", func() {
 		mgr, err = ctrl.NewManager(cfg, mgrCfg.Options)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cacheOptions := []cache.Option{cache.WithPodsReadyTracking(mgrCfg.BlockForPodsReady())}
-		queueOptions := []queue.Option{queue.WithPodsReadyRequeuingTimestamp(mgrCfg.PodsReadyRequeuingTimestamp())}
+		cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(mgrCfg.BlockForPodsReady())}
+		queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(mgrCfg.PodsReadyRequeuingTimestamp())}
 		if mgrCfg.Apiconf.Resources != nil && len(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes) > 0 {
-			cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
-			queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
+			cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
+			queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(mgrCfg.Apiconf.Resources.ExcludeResourcePrefixes))
 		}
 		if features.Enabled(features.ConfigurableResourceTransformations) && mgrCfg.Apiconf.Resources != nil && len(mgrCfg.Apiconf.Resources.Transformations) > 0 {
-			cacheOptions = append(cacheOptions, cache.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
-			queueOptions = append(queueOptions, queue.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
+			cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
+			queueOptions = append(queueOptions, qcache.WithResourceTransformations(mgrCfg.Apiconf.Resources.Transformations))
 		}
 		if mgrCfg.Apiconf.FairSharing != nil {
-			cacheOptions = append(cacheOptions, cache.WithFairSharing(mgrCfg.Apiconf.FairSharing.Enable))
+			cacheOptions = append(cacheOptions, schdcache.WithFairSharing(mgrCfg.Apiconf.FairSharing.Enable))
 		}
 		if mgrCfg.Apiconf.AdmissionFairSharing != nil {
-			queueOptions = append(queueOptions, queue.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
-			cacheOptions = append(cacheOptions, cache.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
+			queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
+			cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(mgrCfg.Apiconf.AdmissionFairSharing))
 		}
 
-		cCache = cache.New(mgr.GetClient(), cacheOptions...)
-		queues = queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
+		cCache = schdcache.New(mgr.GetClient(), cacheOptions...)
+		queues = qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 	})
 
 	ginkgo.Context("Basic Scheduler Setup", func() {
@@ -753,7 +765,7 @@ var _ = ginkgo.Describe("SetupScheduler", func() {
 
 		ginkgo.It("panics with nil manager", func() {
 			gomega.Expect(func() {
-				mgrCfg.SetupScheduler(nil, cCache, queues)
+				_ = mgrCfg.SetupScheduler(nil, cCache, queues)
 			}).To(gomega.Panic())
 		})
 
@@ -769,7 +781,7 @@ var _ = ginkgo.Describe("SetupScheduler", func() {
 
 		ginkgo.It("panics with all nil arguments", func() {
 			gomega.Expect(func() {
-				mgrCfg.SetupScheduler(nil, nil, nil)
+				_ = mgrCfg.SetupScheduler(nil, nil, nil)
 			}).To(gomega.Panic())
 		})
 
