@@ -841,8 +841,8 @@ func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clo
 // If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock) error {
-	wlCopy := PrepareWorkloadPatch(w, strict, clk)
-	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
+	patch := PrepareWorkloadPatch(w, strict, clk)
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueue.Workload {
@@ -852,9 +852,19 @@ func PrepareWorkloadPatch(w *kueue.Workload, strict bool, clk clock.Clock) *kueu
 	return wlCopy
 }
 
-// ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
-func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (bool, error)) error {
+	return PatchAdmissionStatusWithOriginalWorkload(ctx, c, w.DeepCopy(), w, strict, clk, update)
+}
+
+func PatchAdmissionStatusWithOriginalWorkload(ctx context.Context, c client.Client, wOrig *kueue.Workload, w *kueue.Workload, strict bool, clk clock.Clock, update func() (bool, error)) error {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		return clientutil.PatchStatusWithStrict(ctx, c, strict, wOrig, w, update)
+	}
+	updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+	return ApplyAdmissionStatus(ctx, c, w, strict, clk)
 }
 
 type Ordering struct {
@@ -1066,14 +1076,18 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	evictionReason := reason
-	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
-	}
-	prepareForEviction(wl, clock.Now(), evictionReason, msg)
-	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+func evictHelper(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig *kueue.Workload, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock, patchFunc func(context.Context, client.Client, *kueue.Workload, *kueue.Workload, bool, clock.Clock, func() (bool, error)) error) error {
+	var reportWorkloadEvictedOnce bool
+	err := patchFunc(ctx, c, wlOrig, wl, true, clock, func() (bool, error) {
+		evictionReason := reason
+		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+			evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+		}
+		prepareForEviction(wl, clock.Now(), evictionReason, msg)
+		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
+		return true, nil
+	})
+	if err != nil {
 		return err
 	}
 	if wl.Status.Admission == nil {
@@ -1089,6 +1103,14 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause)
 	}
 	return nil
+}
+
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clk clock.Clock) error {
+	return evictHelper(ctx, c, recorder, wl.DeepCopy(), wl, reason, underlyingCause, msg, clk, PatchAdmissionStatusWithOriginalWorkload)
+}
+
+func EvictWithOrig(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig, wl *kueue.Workload, reason, underlyingCause, msg string, clk clock.Clock) error {
+	return evictHelper(ctx, c, recorder, wlOrig, wl, reason, underlyingCause, msg, clk, PatchAdmissionStatusWithOriginalWorkload)
 }
 
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {

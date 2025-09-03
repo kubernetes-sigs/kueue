@@ -18,6 +18,7 @@ package client
 
 import (
 	"context"
+	"errors"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -35,7 +36,7 @@ func createPatch(before, after client.Object) (client.Patch, error) {
 // If strict is true, the resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
 func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (bool, error)) error {
-	return updateAndPatch(obj, strict, update, func(patch client.Patch) error {
+	return updateAndPatch(nil, obj, strict, update, func(patch client.Patch) error {
 		return c.Patch(ctx, obj, patch)
 	})
 }
@@ -44,27 +45,33 @@ func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool,
 // The resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
 func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (bool, error)) error {
-	return updateAndPatch(obj, true, update, func(patch client.Patch) error {
+	return PatchStatusWithStrict(ctx, c, true, nil, obj, update)
+}
+
+func PatchStatusWithStrict(ctx context.Context, c client.Client, strict bool, objOrig, obj client.Object, update func() (bool, error)) error {
+	return updateAndPatch(objOrig, obj, true, update, func(patch client.Patch) error {
 		return c.Status().Patch(ctx, obj, patch)
 	})
 }
 
-func getOriginalObject(obj client.Object, strict bool) client.Object {
-	objOriginal := obj.DeepCopyObject().(client.Object)
-	if strict {
-		// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
-		objOriginal.SetResourceVersion("")
+func updateAndPatch(objOrig, obj client.Object, strict bool, update func() (bool, error), patchFn func(client.Patch) error) error {
+	if obj == nil {
+		return errors.New("obj can not be nil")
 	}
-	return objOriginal
-}
 
-func updateAndPatch(obj client.Object, strict bool, update func() (bool, error), patchFn func(client.Patch) error) error {
-	objOriginal := getOriginalObject(obj, strict)
+	if objOrig == nil {
+		objOrig = obj.DeepCopyObject().(client.Object)
+	}
+
+	if strict {
+		objOrig.SetResourceVersion("")
+	}
+
 	updated, err := update()
 	if err != nil || !updated {
 		return err
 	}
-	patch, err := createPatch(objOriginal, obj)
+	patch, err := createPatch(objOrig, obj)
 	if err != nil {
 		return err
 	}
