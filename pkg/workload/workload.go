@@ -968,7 +968,7 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 }
 
 func HasNodeToReplace(w *kueue.Workload) bool {
-	return w.Status.TopologyAssignmentRecovery != nil && len(w.Status.TopologyAssignmentRecovery.NodeNamesToReplace) > 0
+	return w.Status.TopologyAssignmentRecovery != nil && len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0
 }
 
 func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
@@ -980,7 +980,7 @@ func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
 			continue
 		}
 		for _, domain := range psa.TopologyAssignment.Domains {
-			if slices.Contains(w.Status.TopologyAssignmentRecovery.NodeNamesToReplace, domain.Values[len(domain.Values)-1]) {
+			if slices.Contains(w.Status.TopologyAssignmentRecovery.NodesToReplace, domain.Values[len(domain.Values)-1]) {
 				return true
 			}
 		}

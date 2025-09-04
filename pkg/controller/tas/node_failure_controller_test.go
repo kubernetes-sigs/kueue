@@ -77,7 +77,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	workloadWithNodeToReplace := baseWorkload.DeepCopy()
 	workloadWithNodeToReplace.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{
-		NodeNamesToReplace: []string{nodeName},
+		NodesToReplace: []string{nodeName},
 	}
 
 	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
@@ -315,7 +315,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 			var gotNodesToReplace []string
 			if wl.Status.TopologyAssignmentRecovery != nil {
-				gotNodesToReplace = wl.Status.TopologyAssignmentRecovery.NodeNamesToReplace
+				gotNodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
 			}
 			if len(tc.wantFailedNodes) > 0 {
 				if diff := cmp.Diff(tc.wantFailedNodes, gotNodesToReplace, cmpopts.EquateEmpty()); diff != "" {

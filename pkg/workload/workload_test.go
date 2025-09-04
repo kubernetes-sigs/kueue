@@ -1095,7 +1095,7 @@ func TestNeedsSecondPass(t *testing.T) {
 	}{
 		"admitted workload with NodeToReplace": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodeNamesToReplace("x0").
+				NodesToReplace("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
@@ -1152,7 +1152,7 @@ func TestNeedsSecondPass(t *testing.T) {
 		},
 		"admitted workload with NodeToReplace, but no node in the assignment": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodeNamesToReplace("x0").
+				NodesToReplace("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
@@ -1181,7 +1181,7 @@ func TestNeedsSecondPass(t *testing.T) {
 		},
 		"finished workload with NodeToReplace": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodeNamesToReplace("x0").
+				NodesToReplace("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
@@ -1211,7 +1211,7 @@ func TestNeedsSecondPass(t *testing.T) {
 		},
 		"evicted workload with NodeToReplace": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodeNamesToReplace("x0").
+				NodesToReplace("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
