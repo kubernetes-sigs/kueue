@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -94,7 +95,14 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	rjob := obj.(*rayv1.RayCluster)
 
 	if isAnElasticJob(rjob) {
-		applyWorkloadSliceSchedulingGate(rjob)
+		// Ensure that the PodSchedulingGate is present in the RayCluster's pod Templates for its Head and all its Workers
+		utilpod.GateTemplate(&job.Spec.HeadGroupSpec.Template, kueuebeta.ElasticJobSchedulingGate)
+
+		for index := range job.Spec.WorkerGroupSpecs {
+			wgs := &job.Spec.WorkerGroupSpecs[index]
+
+			utilpod.GateTemplate(&wgs.Template, kueuebeta.ElasticJobSchedulingGate)
+		}
 	}
 
 	return nil
@@ -119,38 +127,6 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Obje
 // returns whether the RayCluster is an elastic job or not
 func isAnElasticJob(job *rayv1.RayCluster) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
-}
-
-// applyWorkloadSliceSchedulingGate ensures that the workload slice-specific
-// PodSchedulingGate is present in the Workload-slice enabled RayCluster's pod Templates for both the Head and Worker pods
-// If the scheduling gate is not already included, it appends it to the list of scheduling gates.
-//
-// This function is essential for enabling workload slice-aware scheduling
-// behavior in Kueue-managed RayClusters, allowing for fine-grained control over
-// resource allocation and scheduling decisions.
-//
-// Parameters:
-//   - job: Pointer to the RayCluster object to be modified.
-//
-// Note: This function modifies the Job in-place.
-func applyWorkloadSliceSchedulingGate(job *rayv1.RayCluster) {
-	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
-		Name: kueuebeta.ElasticJobSchedulingGate,
-	}
-
-	for index := range job.Spec.WorkerGroupSpecs {
-		wgs := &job.Spec.WorkerGroupSpecs[index]
-
-		if slices.Contains(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-			continue
-		}
-
-		wgs.Template.Spec.SchedulingGates = append(wgs.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
-	}
-
-	if !slices.Contains(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-		job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates = append(job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
-	}
 }
 
 func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorList, error) {
