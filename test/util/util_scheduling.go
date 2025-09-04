@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int, clk clock.Clock) {
+func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
 	var wList kueue.WorkloadList
 	gomega.ExpectWithOffset(1, k8sClient.List(ctx, &wList)).To(gomega.Succeed())
 	finished := 0

@@ -511,8 +511,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					workload.SetEvictedCondition(wl, "ByTest", "by test")
-					g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock)).To(gomega.Succeed())
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, false, realClock, func() (bool, error) {
+						workload.SetEvictedCondition(wl, "ByTest", "by test")
+						return true, nil
+					})).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 
@@ -615,8 +617,10 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 			ginkgo.By("simulating workload admission", func() {
 				admission := testing.MakeAdmission("cq").Obj()
-				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWorkload, admission)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWorkload, admission)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &createdWorkload)
 			})
 
@@ -706,8 +710,10 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 
 			ginkgo.By("simulating workload admission", func() {
 				admission := testing.MakeAdmission("cq").Obj()
-				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWorkload, admission)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWorkload, admission)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &createdWorkload)
 			})
 

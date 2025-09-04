@@ -616,12 +616,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("setting the check as successful", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					patch := util.BaseSSAWorkload(createdWorkload)
-					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateReady,
-					}, realClock)
-					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, true, realClock, func() (bool, error) {
+						workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+							Name:  "check1",
+							State: kueue.CheckStateReady,
+						}, realClock)
+						return true, nil
+					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -654,12 +655,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("setting the check as successful", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					patch := util.BaseSSAWorkload(createdWorkload)
-					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateReady,
-					}, realClock)
-					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, true, realClock, func() (bool, error) {
+						workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+							Name:  "check1",
+							State: kueue.CheckStateReady,
+						}, realClock)
+						return true, nil
+					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -670,14 +672,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("setting the check as Rejected", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					patch := util.BaseSSAWorkload(createdWorkload)
-					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateRejected,
-					}, realClock)
-					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply,
-						client.FieldOwner("test-admission-check-controller"),
-						client.ForceOwnership)).Should(gomega.Succeed())
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, true, realClock, func() (bool, error) {
+						workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+							Name:  "check1",
+							State: kueue.CheckStateRejected,
+						}, realClock)
+						return true, nil
+					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

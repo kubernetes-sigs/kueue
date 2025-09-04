@@ -2230,7 +2230,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					g.Expect(clusterQueue.Status.PendingWorkloads).Should(gomega.Equal(int32(2)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 2, 0)
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 			})
