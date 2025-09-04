@@ -52,6 +52,7 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+MOCKS_DIR := $(PROJECT_DIR)/internal/mocks
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -132,12 +133,18 @@ update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
+generate: gomod-download generate-apiref generate-code generate-mocks generate-kueuectl-docs generate-helm-docs
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+
+.PHONY: generate-mocks
+generate-mocks: mockgen
+	# Clean up previously generated mocks to keep generated mocks up-to-date.
+	rm -rf $(MOCKS_DIR)
+	$(MOCKGEN) -source=pkg/controller/jobframework/interface.go -destination=$(MOCKS_DIR)/internal/mocks/controller/jobframework/interface.go -package mocks
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

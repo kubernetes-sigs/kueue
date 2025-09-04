@@ -9,6 +9,7 @@ tool (
 	github.com/mikefarah/yq/v4
 	github.com/norwoodj/helm-docs/cmd/helm-docs
 	github.com/onsi/ginkgo/v2/ginkgo
+	go.uber.org/mock/mockgen
 	gotest.tools/gotestsum
 	helm.sh/helm/v3/cmd/helm
 	k8s.io/code-generator
@@ -427,6 +428,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.36.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
+	go.uber.org/mock v0.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
