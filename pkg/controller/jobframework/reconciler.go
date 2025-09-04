@@ -603,7 +603,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// The job must be suspended if the workload is not yet admitted,
 		// unless this job is workload-slicing enabled. In workload-slicing we rely
 		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
-		if WorkloadSliceEnabled(job) {
+		if workloadSliceEnabled(job) {
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
@@ -614,7 +614,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	if WorkloadSliceEnabled(job) {
+	if workloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
 		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
@@ -783,7 +783,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	log := ctrl.LoggerFrom(ctx)
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
-	if WorkloadSliceEnabled(job) {
+	if workloadSliceEnabled(job) {
 		podSets, err := job.PodSets()
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
@@ -1170,7 +1170,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 // in the generated workload name.
 func newWorkloadName(job GenericJob) string {
 	object := job.Object()
-	if WorkloadSliceEnabled(job) {
+	if workloadSliceEnabled(job) {
 		return GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration())
 	}
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
@@ -1206,8 +1206,8 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	return wl, nil
 }
 
-// PrepareWorkloadSlice adds necessary workload slice annotations.
-func PrepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+// prepareWorkloadSlice adds necessary workload slice annotations.
+func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
 	// Lookup existing slice for a given job.
 	workloadSlices, err := workloadslicing.FindNotFinishedWorkloads(ctx, clnt, job.Object(), job.GVK())
 	if err != nil {
@@ -1245,8 +1245,8 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	wl.Spec.PriorityClassSource = source
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
-	if WorkloadSliceEnabled(job) {
-		return PrepareWorkloadSlice(ctx, r.client, job, wl)
+	if workloadSliceEnabled(job) {
+		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
 	return nil
 }
@@ -1327,7 +1327,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
 	// the scale-up case, where the new workload slice replaces the old workload slice.
-	if job.IsActive() && !WorkloadSliceEnabled(job) {
+	if job.IsActive() && !workloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}
@@ -1476,12 +1476,12 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 	return in
 }
 
-// WorkloadSliceEnabled returns true if all the following conditions are met:
+// workloadSliceEnabled returns true if all the following conditions are met:
 //   - The ElasticJobsViaWorkloadSlices feature is enabled.
 //   - The provided job is not nil.
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
-func WorkloadSliceEnabled(job GenericJob) bool {
+func workloadSliceEnabled(job GenericJob) bool {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || job == nil {
 		return false
 	}
