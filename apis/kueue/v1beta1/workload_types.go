@@ -442,7 +442,7 @@ type TopologyAssignmentRecovery struct {
 	// scheduler cannot do it automatically). Requires enabling the TASFaliedNodReplacement feature gate.
 	//
 	// +optional
-	NodeNamesToReplace []string `json:"nodeNamesToReplace,omitempty"`
+	NodesToReplace []string `json:"nodesToReplace,omitempty"`
 }
 
 type SchedulingStats struct {
