@@ -41,7 +41,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestNodeFailureReconciler(t *testing.T) {
@@ -77,10 +76,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Obj()
 
 	workloadWithNodeToReplace := baseWorkload.DeepCopy()
-	workloadWithNodeToReplace.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{
-		NodesToReplace: []string{nodeName},
-	}
-
+	workloadWithNodeToReplace.Status.NodesToReplace = []string{nodeName}
 	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -314,7 +310,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Fatalf("Failed to get workload %q: %v", wlName, err)
 			}
 
-			gotNodesToReplace := workload.GetNodesToReplace(wl)
+			gotNodesToReplace := wl.Status.NodesToReplace
 			if len(tc.wantFailedNodes) > 0 {
 				if diff := cmp.Diff(tc.wantFailedNodes, gotNodesToReplace, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected nodesToReplace in status (-want/+got):\n%s", diff)

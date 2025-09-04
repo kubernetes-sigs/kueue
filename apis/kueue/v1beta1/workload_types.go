@@ -429,13 +429,6 @@ type WorkloadStatus struct {
 	// +optional
 	ClusterName *string `json:"clusterName,omitempty"`
 
-	// topologyAssignmentRecovery holds the recovery information for the assigned topology
-	// in the case of failures
-	// +optional
-	TopologyAssignmentRecovery *TopologyAssignmentRecovery `json:"topologyAssignmentRecovery,omitempty"`
-}
-
-type TopologyAssignmentRecovery struct {
 	// nodesToReplace, if specified, holds the names of failed nodes running at least one pod of this workload.
 	// This field is for internal use, is set by the node failure controler and should not be set by the users.
 	// It is used to signal kueue scheduler to search for replacement of the failed nodes (if the native kube

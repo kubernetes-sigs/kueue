@@ -349,10 +349,7 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 }
 
 func (w *WorkloadWrapper) NodesToReplace(nodesToReplace ...string) *WorkloadWrapper {
-	if w.Status.TopologyAssignmentRecovery == nil {
-		w.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{}
-	}
-	w.Status.TopologyAssignmentRecovery.NodesToReplace = nodesToReplace
+	w.Status.NodesToReplace = nodesToReplace
 	return w
 }
 

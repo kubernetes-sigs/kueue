@@ -825,7 +825,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	}
 	wlCopy.Status.ClusterName = w.Status.ClusterName
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
-	wlCopy.Status.TopologyAssignmentRecovery = w.Status.TopologyAssignmentRecovery.DeepCopy()
+	wlCopy.Status.NodesToReplace = w.Status.NodesToReplace
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -968,15 +968,7 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 }
 
 func HasNodeToReplace(w *kueue.Workload) bool {
-	return w != nil && w.Status.TopologyAssignmentRecovery != nil && len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0
-}
-
-// GetNodesToReplace returns the list of nodes to replace.
-func GetNodesToReplace(w *kueue.Workload) []string {
-	if w.Status.TopologyAssignmentRecovery == nil {
-		return nil
-	}
-	return w.Status.TopologyAssignmentRecovery.NodesToReplace
+	return w != nil && len(w.Status.NodesToReplace) > 0
 }
 
 func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
@@ -988,7 +980,7 @@ func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
 			continue
 		}
 		for _, domain := range psa.TopologyAssignment.Domains {
-			if slices.Contains(w.Status.TopologyAssignmentRecovery.NodesToReplace, domain.Values[len(domain.Values)-1]) {
+			if slices.Contains(w.Status.NodesToReplace, domain.Values[len(domain.Values)-1]) {
 				return true
 			}
 		}
@@ -1103,7 +1095,7 @@ func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string
 	SetEvictedCondition(w, reason, message)
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
-	resetTopologyAssignmentRecovery(w)
+	resetNodesToReplace(w)
 }
 
 func resetClusterNomination(w *kueue.Workload) {
@@ -1111,8 +1103,8 @@ func resetClusterNomination(w *kueue.Workload) {
 	w.Status.NominatedClusterNames = nil
 }
 
-func resetTopologyAssignmentRecovery(w *kueue.Workload) {
-	w.Status.TopologyAssignmentRecovery = nil
+func resetNodesToReplace(w *kueue.Workload) {
+	w.Status.NodesToReplace = nil
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {

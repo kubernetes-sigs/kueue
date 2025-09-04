@@ -155,8 +155,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.SchedulingStatsApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta1.TopologyAssignmentApplyConfiguration{}
-	case v1beta1.SchemeGroupVersion.WithKind("TopologyAssignmentRecovery"):
-		return &kueuev1beta1.TopologyAssignmentRecoveryApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
 		return &kueuev1beta1.TopologyDomainAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyInfo"):

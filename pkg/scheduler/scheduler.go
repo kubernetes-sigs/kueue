@@ -564,7 +564,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
-	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", workload.GetNodesToReplace(wl)[0])
+	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.NodesToReplace[0])
 	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", msg, s.clock); err != nil {
 		return err
 	}
@@ -626,9 +626,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, newWorkload)
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) && e.Obj.Status.TopologyAssignmentRecovery != nil {
+	if features.Enabled(features.TopologyAwareScheduling) && len(e.Obj.Status.NodesToReplace) > 0 {
 		log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
-		newWorkload.Status.TopologyAssignmentRecovery = nil
+		newWorkload.Status.NodesToReplace = nil
 	}
 
 	s.admissionRoutineWrapper.Run(func() {

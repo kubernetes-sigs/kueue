@@ -2873,33 +2873,6 @@ the lowest level of the topology.</p>
 </tbody>
 </table>
 
-## `TopologyAssignmentRecovery`     {#kueue-x-k8s-io-v1beta1-TopologyAssignmentRecovery}
-    
-
-**Appears in:**
-
-- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>nodesToReplace</code><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>nodesToReplace, if specified, holds the names of failed nodes running at least one pod of this workload.
-This field is for internal use, is set by the node failure controler and should not be set by the users.
-It is used to signal kueue scheduler to search for replacement of the failed nodes (if the native kube
-scheduler cannot do it automatically). Requires enabling the TASFaliedNodReplacement feature gate.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `TopologyDomainAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyDomainAssignment}
     
 
@@ -3218,12 +3191,14 @@ This field is optional.</p>
 This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>topologyAssignmentRecovery</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-TopologyAssignmentRecovery"><code>TopologyAssignmentRecovery</code></a>
+<tr><td><code>nodesToReplace</code><br/>
+<code>[]string</code>
 </td>
 <td>
-   <p>topologyAssignmentRecovery holds the recovery information for the assigned topology
-in the case of failures</p>
+   <p>nodesToReplace, if specified, holds the names of failed nodes running at least one pod of this workload.
+This field is for internal use, is set by the node failure controler and should not be set by the users.
+It is used to signal kueue scheduler to search for replacement of the failed nodes (if the native kube
+scheduler cannot do it automatically). Requires enabling the TASFaliedNodReplacement feature gate.</p>
 </td>
 </tr>
 </tbody>
