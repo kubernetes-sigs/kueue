@@ -968,7 +968,7 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 }
 
 func HasNodeToReplace(w *kueue.Workload) bool {
-	return w.Status.TopologyAssignmentRecovery != nil && len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0
+	return w != nil && w.Status.TopologyAssignmentRecovery != nil && len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0
 }
 
 // GetNodesToReplace returns the list of nodes to replace.
