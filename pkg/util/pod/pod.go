@@ -51,7 +51,7 @@ func Gate(pod *corev1.Pod, gateName string) bool {
 	return gateSpec(&pod.Spec, gateName)
 }
 
-// Gate adds scheduling gate to the PodTemplate.
+// GateTemplate adds scheduling gate to the PodTemplate.
 // Returns true if the pod has been updated and false otherwise.
 func GateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
 	return gateSpec(&template.Spec, gateName)
