@@ -949,20 +949,12 @@ const (
 ```
 The annotation contains the name of (a single) failed node to replace.
 ##### Since v0.14
-We propose to remove the Annotation and replace it with a new field in Workload status to store
-all information relevant to topology recovery in case of failures. Initially it will contain
-only a list of failed nodes:
+We propose to remove the Annotation and replace it with new field in Workload status that will it will contain
+a list of failed nodes:
 
 ```golang
 type WorkloadStatus struct {
   (...)
-	// topologyAssignmentRecovery holds the recovery information for the assigned topology
-	// in the case of failures
-	// +optional
-	TopologyAssignmentRecovery *TopologyAssignmentRecovery `json:"topologyAssignmentRecovery,omitempty"`
-}
-
-type TopologyAssignmentRecovery struct {
 	// nodeNamesToReplace, if specified, holds the names of failed nodes running at least one pod of this workload.
 	// This field is for internal use, is set by the node failure controler and should not be set by the users.
 	// It is used to signal kueue scheduler to search for replacement of the failed nodes (if the native kube
