@@ -221,10 +221,11 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
 func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	if wl.Status.TopologyAssignmentRecovery != nil && !slices.Contains(wl.Status.TopologyAssignmentRecovery.NodesToReplace, nodeName) && !workload.IsEvicted(wl) {
-		log := r.log.WithValues("failedNodes", wl.Status.TopologyAssignmentRecovery.NodesToReplace)
+	nodesToReplace := workload.GetNodesToReplace(wl)
+	if len(nodesToReplace) > 0 && !slices.Contains(nodesToReplace, nodeName) && !workload.IsEvicted(wl) {
+		log := r.log.WithValues("failedNodes", nodesToReplace)
 		log.V(3).Info("Evicting workload due to multiple node failures")
-		allFailedNodes := append(slices.Clone(wl.Status.TopologyAssignmentRecovery.NodesToReplace), nodeName)
+		allFailedNodes := append(slices.Clone(nodesToReplace), nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allFailedNodes, ", "))
 		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", evictionMsg, r.clock); evictionErr != nil {
 			log.V(2).Error(evictionErr, "Failed to complete eviction process")
@@ -302,7 +303,7 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 			continue
 		}
 
-		if wl.Status.TopologyAssignmentRecovery == nil || !slices.Contains(wl.Status.TopologyAssignmentRecovery.NodesToReplace, nodeName) {
+		if !slices.Contains(workload.GetNodesToReplace(&wl), nodeName) {
 			continue
 		}
 
@@ -321,10 +322,7 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 }
 
 func (r *nodeFailureReconciler) removeNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
-	var nodesToReplace []string
-	if wl.Status.TopologyAssignmentRecovery != nil {
-		nodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
-	}
+	nodesToReplace := workload.GetNodesToReplace(&wl)
 	if slices.Contains(nodesToReplace, nodeName) {
 		nodesToReplace = slices.DeleteFunc(nodesToReplace, func(n string) bool { return n == nodeName })
 		if len(nodesToReplace) == 0 {
@@ -338,10 +336,7 @@ func (r *nodeFailureReconciler) removeNodeToReplace(ctx context.Context, wl kueu
 }
 
 func (r *nodeFailureReconciler) addNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
-	var nodesToReplace []string
-	if wl.Status.TopologyAssignmentRecovery != nil {
-		nodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
-	}
+	nodesToReplace := workload.GetNodesToReplace(&wl)
 	if !slices.Contains(nodesToReplace, nodeName) {
 		wl.Status.TopologyAssignmentRecovery = &kueue.TopologyAssignmentRecovery{NodesToReplace: append(nodesToReplace, nodeName)}
 		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)

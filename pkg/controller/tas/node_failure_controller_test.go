@@ -41,6 +41,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestNodeFailureReconciler(t *testing.T) {
@@ -313,10 +314,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Fatalf("Failed to get workload %q: %v", wlName, err)
 			}
 
-			var gotNodesToReplace []string
-			if wl.Status.TopologyAssignmentRecovery != nil {
-				gotNodesToReplace = wl.Status.TopologyAssignmentRecovery.NodesToReplace
-			}
+			gotNodesToReplace := workload.GetNodesToReplace(wl)
 			if len(tc.wantFailedNodes) > 0 {
 				if diff := cmp.Diff(tc.wantFailedNodes, gotNodesToReplace, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected nodesToReplace in status (-want/+got):\n%s", diff)

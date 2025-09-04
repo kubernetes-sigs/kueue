@@ -971,6 +971,14 @@ func HasNodeToReplace(w *kueue.Workload) bool {
 	return w.Status.TopologyAssignmentRecovery != nil && len(w.Status.TopologyAssignmentRecovery.NodesToReplace) > 0
 }
 
+// GetNodesToReplace returns the list of nodes to replace.
+func GetNodesToReplace(w *kueue.Workload) []string {
+	if w.Status.TopologyAssignmentRecovery == nil {
+		return nil
+	}
+	return w.Status.TopologyAssignmentRecovery.NodesToReplace
+}
+
 func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
 	if !HasNodeToReplace(w) || !IsAdmitted(w) {
 		return false
