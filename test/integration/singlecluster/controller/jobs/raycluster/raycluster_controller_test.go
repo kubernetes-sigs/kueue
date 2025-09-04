@@ -51,12 +51,10 @@ import (
 )
 
 const (
-	jobName                     = "test-job"
-	instanceKey                 = "cloud.provider.com/instance"
-	priorityClassName           = "test-priority-class"
-	priorityValue         int32 = 10
-	highPriorityClassName       = "high-priority-class"
-	highPriorityValue           = 20
+	jobName                 = "test-job"
+	instanceKey             = "cloud.provider.com/instance"
+	priorityClassName       = "test-priority-class"
+	priorityValue     int32 = 10
 )
 
 var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
