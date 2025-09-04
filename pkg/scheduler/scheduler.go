@@ -84,7 +84,7 @@ type Scheduler struct {
 	schedulingCycle int64
 
 	// Stubs.
-	applyAdmission func(context.Context, *kueue.Workload) error
+	patchAdmission func(context.Context, *kueue.Workload, *kueue.Workload) error
 }
 
 type options struct {
@@ -150,7 +150,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
 	}
-	s.applyAdmission = s.applyAdmissionWithSSA
+	s.patchAdmission = s.patchAdmissionStatus
 	return s
 }
 
@@ -314,8 +314,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
-			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
-			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false, s.clock); err != nil {
+			err := workload.PatchAdmissionStatus(ctx, s.client, e.Obj, true, s.clock, func() (bool, error) {
+				workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
+				return true, nil
+			})
+			if err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -630,7 +633,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.applyAdmission(ctx, newWorkload)
+		err := s.patchAdmission(ctx, e.Obj, newWorkload)
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
@@ -656,8 +659,18 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	return nil
 }
 
-func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
-	return workload.ApplyAdmissionStatus(ctx, s.client, w, false, s.clock)
+func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wlOrig, wlCopy *kueue.Workload) error {
+	return workload.PatchAdmissionStatusWithOriginalWorkload(ctx, s.client, wlOrig, wlCopy, false, s.clock, func() (bool, error) {
+		if wlCopy.Status.Admission != nil {
+			// Clear ResourceRequests; Assignment.PodSetAssignment[].ResourceUsage supercedes it
+			wlCopy.Status.ResourceRequests = []kueue.PodSetRequest{}
+		} else {
+			for _, rr := range wlOrig.Status.ResourceRequests {
+				wlCopy.Status.ResourceRequests = append(wlCopy.Status.ResourceRequests, *rr.DeepCopy())
+			}
+		}
+		return true, nil
+	})
 }
 
 type entryOrdering struct {
@@ -768,13 +781,15 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		patch := workload.PrepareWorkloadPatch(e.Obj, true, s.clock)
-		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
-		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
-		if reservationIsChanged || resourceRequestsIsChanged {
-			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
-				log.Error(err, "Could not update Workload status")
-			}
+		wl := e.Obj
+		err := workload.PatchAdmissionStatus(ctx, s.client, wl, true, s.clock, func() (bool, error) {
+			workload.SetRequeuedCondition(wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
+			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
+			resourceRequestsIsChanged := workload.PropagateResourceRequests(wl, &e.Info)
+			return reservationIsChanged || resourceRequestsIsChanged, nil
+		})
+		if err != nil {
+			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}

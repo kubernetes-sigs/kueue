@@ -74,6 +74,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return false, fmt.Errorf("construct workload: %w", err)
 		}
 
+		wlOrig := wl.DeepCopy()
 		maps.Copy(wl.Labels, cache.AddLabels)
 
 		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
@@ -120,7 +121,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
-		if err := admitWorkload(ctx, c, wl); err != nil {
+		if err := admitWorkload(ctx, c, wlOrig, wl); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -199,9 +200,11 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	return err
 }
 
-func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+func admitWorkload(ctx context.Context, c client.Client, wlOrig, wl *kueue.Workload) error {
 	var realClock = clock.RealClock{}
-	err := workload.ApplyAdmissionStatus(ctx, c, wl, false, realClock)
+	err := workload.PatchAdmissionStatusWithOriginalWorkload(ctx, c, wlOrig, wl, false, realClock, func() (bool, error) {
+		return true, nil
+	})
 	retry, _, timeout := checkError(err)
 	for retry {
 		if timeout >= 0 {
@@ -211,7 +214,9 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) err
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.ApplyAdmissionStatus(ctx, c, wl, false, realClock)
+		err = workload.PatchAdmissionStatusWithOriginalWorkload(ctx, c, wlOrig, wl, false, realClock, func() (bool, error) {
+			return true, nil
+		})
 		retry, _, timeout = checkError(err)
 	}
 	return err
