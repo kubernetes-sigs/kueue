@@ -1,9 +1,11 @@
 ---
 title: "Admission Check"
+linkTitle: "Admission Check"
 date: 2024-06-13
 weight: 6
 description: >
   Mechanism allowing internal or external components to influence the workload's admission.
+no_list: true
 ---
 
 AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
