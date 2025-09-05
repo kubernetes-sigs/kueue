@@ -21,6 +21,7 @@ linters:
     - perfsprint
     - revive
     - unconvert
+    - forbidigo
   settings:
     gocritic:
       enabled-checks:
@@ -70,6 +71,10 @@ linters:
         - name: var-naming
         - name: redundant-import-alias
         - name: use-any
+    forbidigo:
+      forbid:
+        - pattern: ^sort\.Slice$
+          msg: Please use slices.SortFunc instead of sort.Slice for better performance and consistency
   exclusions:
     generated: lax
     presets:

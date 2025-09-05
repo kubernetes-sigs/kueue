@@ -24,7 +24,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -775,10 +774,10 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *kueue.TopologyAssignm
 	sortedDomains := make([]kueue.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
-	sort.Slice(sortedDomains, func(i, j int) bool {
-		a, b := sortedDomains[i], sortedDomains[j]
-		aDomain, bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)], s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
-		return utiltas.DomainID(aDomain.levelValues) < utiltas.DomainID(bDomain.levelValues)
+	slices.SortFunc(sortedDomains, func(a, b kueue.TopologyDomainAssignment) int {
+		aDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)]
+		bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
+		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
 	})
 	mergedDomains := make([]kueue.TopologyDomainAssignment, 0, len(sortedDomains))
 	for _, domain := range sortedDomains {

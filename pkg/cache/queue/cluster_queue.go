@@ -18,7 +18,7 @@ package queue
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -404,8 +404,11 @@ func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 // this ClusterQueue.
 func (c *ClusterQueue) Snapshot() []*workload.Info {
 	elements := c.totalElements()
-	sort.Slice(elements, func(i, j int) bool {
-		return c.lessFunc(elements[i], elements[j])
+	slices.SortFunc(elements, func(a, b *workload.Info) int {
+		if c.lessFunc(a, b) {
+			return -1
+		}
+		return 1
 	})
 	return elements
 }
