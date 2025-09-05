@@ -1,0 +1,33 @@
+title: Delayed Admission Check Retries
+kep-number: 3258
+authors:
+  - "@dhenkel92"
+status: provisional
+creation-date: 2025-09-04
+reviewers:
+  - "@mimowo"
+  - "@PBundyra"
+approvers:
+  - "@mimowo"
+
+# The target maturity stage. Valid values are:
+# - "alpha"
+# - "beta"
+# - "stable"
+# To determine the maturity level for the feature please see:
+# https://github.com/kubernetes-sigs/kueue/blob/main/docs/concepts/features.md#feature-gates-and-maturity
+stage: alpha
+
+latest-milestone: "v0.14"
+
+milestone:
+  alpha: "v0.14"
+  beta: TBD
+  stable: TBD
+
+# List the feature gate name and the components for which it must be enabled
+feature-gates: {}
+# No associated feature gates. The feature can be disabled through the Configuration API.
+disable-supported: true
+
+metrics: {}
