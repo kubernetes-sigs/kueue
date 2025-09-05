@@ -3192,6 +3192,16 @@ This field is optional.</p>
 This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
+<tr><td><code>nodesToReplace</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>nodesToReplace holds the names of failed nodes running at least one pod of this workload
+when Topology-Aware Scheduling is used. This field should not be set by the users.
+It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+Requires enabling the TASFaliedNodReplacement feature gate.</p>
+</td>
+</tr>
 </tbody>
 </table>
   

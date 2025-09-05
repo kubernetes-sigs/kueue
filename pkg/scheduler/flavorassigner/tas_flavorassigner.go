@@ -19,10 +19,10 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -60,9 +60,9 @@ func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
 	if !workload.HasNodeToReplace(wl.Obj) {
 		return false
 	}
-	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]
+	nodesToReplace := wl.Obj.Status.NodesToReplace
 	for _, domain := range psa.TopologyAssignment.Domains {
-		if domain.Values[len(domain.Values)-1] == failedNode {
+		if slices.Contains(nodesToReplace, domain.Values[len(domain.Values)-1]) {
 			return true
 		}
 	}

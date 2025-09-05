@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -826,6 +825,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	}
 	wlCopy.Status.ClusterName = w.Status.ClusterName
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
+	wlCopy.Status.NodesToReplace = w.Status.NodesToReplace
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -968,34 +968,19 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 }
 
 func HasNodeToReplace(w *kueue.Workload) bool {
-	if w == nil {
-		return false
-	}
-	annotations := w.GetAnnotations()
-	_, found := annotations[kueuealpha.NodeToReplaceAnnotation]
-	return found
-}
-
-func NodeToReplace(w *kueue.Workload) string {
-	if !HasNodeToReplace(w) {
-		return ""
-	}
-	annotations := w.GetAnnotations()
-	return annotations[kueuealpha.NodeToReplaceAnnotation]
+	return w != nil && len(w.Status.NodesToReplace) > 0
 }
 
 func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
 	if !HasNodeToReplace(w) || !IsAdmitted(w) {
 		return false
 	}
-	annotations := w.GetAnnotations()
-	failedNode := annotations[kueuealpha.NodeToReplaceAnnotation]
 	for _, psa := range w.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment == nil {
 			continue
 		}
 		for _, domain := range psa.TopologyAssignment.Domains {
-			if domain.Values[len(domain.Values)-1] == failedNode {
+			if slices.Contains(w.Status.NodesToReplace, domain.Values[len(domain.Values)-1]) {
 				return true
 			}
 		}
@@ -1110,11 +1095,16 @@ func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string
 	SetEvictedCondition(w, reason, message)
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
+	resetNodesToReplace(w)
 }
 
 func resetClusterNomination(w *kueue.Workload) {
 	w.Status.ClusterName = nil
 	w.Status.NominatedClusterNames = nil
+}
+
+func resetNodesToReplace(w *kueue.Workload) {
+	w.Status.NodesToReplace = nil
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {
