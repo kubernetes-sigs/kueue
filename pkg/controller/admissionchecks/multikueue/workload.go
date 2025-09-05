@@ -584,6 +584,54 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 	return r
 }
 
+type mkConfig struct {
+	client client.Client
+}
+
+func (c *mkConfig) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// no-op as we don't need to react to new configs
+}
+
+func (c *mkConfig) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldMKC, isOldMKC := e.ObjectOld.(*kueue.MultiKueueConfig)
+	newMKC, isNewMKC := e.ObjectNew.(*kueue.MultiKueueConfig)
+	if !isOldMKC || !isNewMKC {
+		return
+	}
+	if equality.Semantic.DeepEqual(oldMKC.Spec.Clusters, newMKC.Spec.Clusters) {
+		return
+	}
+	c.queueWorkloadsForConfig(ctx, oldMKC.Name, q)
+}
+
+func (c *mkConfig) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := e.Object.(*kueue.MultiKueueConfig)
+	if !isMKC {
+		return
+	}
+	c.queueWorkloadsForConfig(ctx, mkc.Name, q)
+}
+
+func (c *mkConfig) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// no-op as we don't need to react to generic
+}
+
+func (c *mkConfig) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	admissionChecks := &kueue.AdmissionCheckList{}
+	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
+		return
+	}
+	for _, ac := range admissionChecks.Items {
+		workloads := &kueue.WorkloadList{}
+		if err := c.client.List(ctx, workloads, client.MatchingFields{WorkloadsWithAdmissionCheckKey: ac.Name}); err != nil {
+			continue
+		}
+		for _, wl := range workloads.Items {
+			q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wl)})
+		}
+	}
+}
+
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -598,6 +646,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
+		Watches(&kueue.MultiKueueConfig{}, &mkConfig{client: w.client}).
 		WithEventFilter(w).
 		Complete(w)
 }

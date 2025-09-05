@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -1485,6 +1486,37 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				if res.RequeueAfter < tt.wantRetryAfter-timeMargin || res.RequeueAfter > tt.wantRetryAfter+timeMargin {
 					t.Errorf("unexpected RequeueAfter, want %v±%v, got %v", tt.wantRetryAfter, timeMargin, res.RequeueAfter)
 				}
+			}
+		})
+	}
+}
+
+func TestConfigHandlerUpdate(t *testing.T) {
+	cases := map[string]struct {
+		oldConfig      *kueue.MultiKueueConfig
+		newConfig      *kueue.MultiKueueConfig
+		expectCallback bool
+	}{
+		"clusters unchanged": {
+			oldConfig:      utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			newConfig:      utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			expectCallback: false,
+		},
+		"clusters changed": {
+			oldConfig:      utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
+			newConfig:      utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			expectCallback: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.oldConfig == nil || tc.newConfig == nil {
+				return
+			}
+			changed := !equality.Semantic.DeepEqual(tc.oldConfig.Spec.Clusters, tc.newConfig.Spec.Clusters)
+			if changed != tc.expectCallback {
+				t.Errorf("expected callback=%v, got=%v", tc.expectCallback, changed)
 			}
 		})
 	}

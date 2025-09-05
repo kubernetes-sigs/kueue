@@ -25,12 +25,14 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
-	UsingKubeConfigs             = "spec.kubeconfigs"
-	UsingMultiKueueClusters      = "spec.multiKueueClusters"
-	AdmissionCheckUsingConfigKey = "spec.multiKueueConfig"
+	UsingKubeConfigs               = "spec.kubeconfigs"
+	UsingMultiKueueClusters        = "spec.multiKueueClusters"
+	AdmissionCheckUsingConfigKey   = "spec.multiKueueConfig"
+	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
 )
 
 var (
@@ -55,6 +57,16 @@ func indexUsingMultiKueueClusters(obj client.Object) []string {
 	return config.Spec.Clusters
 }
 
+func indexWorkloadsChecks(obj client.Object) []string {
+	wl, isWl := obj.(*kueue.Workload)
+	if !isWl || len(wl.Status.AdmissionChecks) == 0 {
+		return nil
+	}
+	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+		return string(c.Name)
+	})
+}
+
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, getIndexUsingKubeConfigs(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
@@ -64,6 +76,9 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	}
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil {
+		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
 	return nil
 }
