@@ -342,6 +342,35 @@ func TestValidateOnCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
+		{
+			name: "invalid workloadpriorityclass with validate on create",
+			job: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "job",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue",
+						constants.WorkloadPriorityClassLabel: "noexist",
+					},
+				},
+			},
+			validateOnCreate: func() (field.ErrorList, error) {
+				return field.ErrorList{
+					field.Invalid(
+						field.NewPath("metadata.labels"),
+						field.OmitValueType{},
+						`invalid labels`,
+					),
+				}, nil
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata.labels"),
+					field.OmitValueType{},
+					`invalid labels`,
+				),
+			}.ToAggregate(),
+		},
 	}
 
 	for _, tc := range testcases {

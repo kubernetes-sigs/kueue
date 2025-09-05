@@ -28,6 +28,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // BaseWebhook applies basic defaulting and validation for jobs.
@@ -82,6 +83,9 @@ func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (a
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Validating create")
 	allErrs := ValidateJobOnCreate(job)
+	if features.Enabled(features.CheckWorkloadPriorityClass) {
+		allErrs = append(allErrs, ValidateWorkloadPriorityClass(ctx, w.Client, job)...)
+	}
 	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
 		validationErrs, err := jobWithValidation.ValidateOnCreate()
 		if err != nil {

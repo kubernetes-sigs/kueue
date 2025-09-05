@@ -1256,7 +1256,12 @@ func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.Pod
 	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
 		customPriorityFunc = jobWithPriorityClass.PriorityClass
 	}
-	return ExtractPriority(ctx, r.client, job.Object(), podSets, customPriorityFunc)
+	priorityClassName, source, value, err := ExtractPriority(ctx, r.client, job.Object(), podSets, customPriorityFunc)
+	if apierrors.IsNotFound(err) {
+		r.record.Eventf(job.Object(), corev1.EventTypeWarning, ReasonPriorityNotFound, "Priority From %v Not Found", source)
+	}
+
+	return priorityClassName, source, value, err
 }
 
 func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityFunc func() string) (string, string, int32, error) {
