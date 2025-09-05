@@ -56,7 +56,8 @@ TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
-BUILDER_IMAGE ?= golang:$(GO_VERSION)
+BASE_BUILDER_IMAGE ?= golang
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
