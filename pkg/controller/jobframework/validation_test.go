@@ -28,9 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/mock"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -312,8 +312,8 @@ func TestValidateUpdateForQueueName(t *testing.T) {
 		t.Run(tcName, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.defaultLocalQueueEnabled)
 			ctrl := gomock.NewController(t)
-			oldGJ := mock.NewMockGenericJob(ctrl)
-			newGJ := mock.NewMockGenericJob(ctrl)
+			oldGJ := mocks.NewMockGenericJob(ctrl)
+			newGJ := mocks.NewMockGenericJob(ctrl)
 
 			oldGJ.EXPECT().Object().Return(tc.oldJob).AnyTimes()
 			oldGJ.EXPECT().IsSuspended().Return(ptr.Deref(tc.oldJob.Spec.Suspend, false)).AnyTimes()

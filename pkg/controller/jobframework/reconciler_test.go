@@ -39,9 +39,9 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework/mock"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -152,7 +152,7 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			var gj GenericJob
 			if tc.job != nil {
-				mgj := mock.NewMockGenericJob(ctrl)
+				mgj := mocks.NewMockGenericJob(ctrl)
 				mgj.EXPECT().Object().Return(tc.job).AnyTimes()
 				mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 				mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
