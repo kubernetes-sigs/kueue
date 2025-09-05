@@ -404,7 +404,7 @@ func (w *WorkloadWrapper) ClusterName(clusterName string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) NominatedClusterNames(nominatedClusterNames []string) *WorkloadWrapper {
+func (w *WorkloadWrapper) NominatedClusterNames(nominatedClusterNames ...string) *WorkloadWrapper {
 	w.Status.NominatedClusterNames = nominatedClusterNames
 	return w
 }

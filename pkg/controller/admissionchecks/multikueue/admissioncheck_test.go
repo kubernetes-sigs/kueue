@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -253,7 +254,7 @@ func TestReconcile(t *testing.T) {
 
 			c := builder.Build()
 
-			helper, _ := newMultiKueueStoreHelper(c)
+			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
