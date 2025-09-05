@@ -241,7 +241,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithNodeToReplace(e.Obj) && mode != flavorassigner.Fit {
 			// evict workload we couldn't find the replacement for
-			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj); err != nil {
+			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj.DeepCopy()); err != nil {
 				log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
 				continue
 			}
@@ -314,8 +314,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
-			err := workload.PatchAdmissionStatus(ctx, s.client, e.Obj, true, s.clock, func() (bool, error) {
-				workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
+			wlCopy := e.Obj.DeepCopy()
+			err := workload.PatchAdmissionStatus(ctx, s.client, wlCopy, true, s.clock, func() (bool, error) {
+				workload.UnsetQuotaReservationWithCondition(wlCopy, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
 				return true, nil
 			})
 			if err != nil {
@@ -604,6 +605,7 @@ func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Inf
 func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
+	origWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
 		PodSetAssignments: e.assignment.ToAPI(),
@@ -624,7 +626,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		s.updateEntryPenalty(log, e, add)
 
 		// Trigger LocalQueue reconciler to apply any pending penalties
-		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, newWorkload)
+		s.queues.NotifyWorkloadUpdateWatchers(origWorkload, newWorkload)
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) && len(e.Obj.Status.NodesToReplace) > 0 {
@@ -632,18 +634,19 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		newWorkload.Status.NodesToReplace = nil
 	}
 
+	newWorkloadCopy := newWorkload.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchAdmission(ctx, e.Obj, newWorkload)
+		err := s.patchAdmission(ctx, origWorkload, newWorkloadCopy)
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
-			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
+			s.recordWorkloadAdmissionMetrics(newWorkloadCopy, origWorkload, admission)
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
-		_ = s.cache.ForgetWorkload(log, newWorkload)
+		_ = s.cache.ForgetWorkload(log, newWorkloadCopy)
 		if afs.Enabled(s.admissionFairSharing) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
@@ -661,14 +664,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wlOrig, wlCopy *kueue.Workload) error {
 	return workload.PatchAdmissionStatusWithOriginalWorkload(ctx, s.client, wlOrig, wlCopy, false, s.clock, func() (bool, error) {
-		if wlCopy.Status.Admission != nil {
-			// Clear ResourceRequests; Assignment.PodSetAssignment[].ResourceUsage supercedes it
-			wlCopy.Status.ResourceRequests = []kueue.PodSetRequest{}
-		} else {
-			for _, rr := range wlOrig.Status.ResourceRequests {
-				wlCopy.Status.ResourceRequests = append(wlCopy.Status.ResourceRequests, *rr.DeepCopy())
-			}
-		}
 		return true, nil
 	})
 }
@@ -781,11 +776,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		wl := e.Obj
-		err := workload.PatchAdmissionStatus(ctx, s.client, wl, true, s.clock, func() (bool, error) {
-			workload.SetRequeuedCondition(wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
-			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
-			resourceRequestsIsChanged := workload.PropagateResourceRequests(wl, &e.Info)
+		wlCopy := e.Obj.DeepCopy()
+		err := workload.PatchAdmissionStatus(ctx, s.client, wlCopy, true, s.clock, func() (bool, error) {
+			workload.SetRequeuedCondition(wlCopy, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
+			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wlCopy, "Pending", e.inadmissibleMsg, s.clock.Now())
+			resourceRequestsIsChanged := workload.PropagateResourceRequests(wlCopy, &e.Info)
 			return reservationIsChanged || resourceRequestsIsChanged, nil
 		})
 		if err != nil {
