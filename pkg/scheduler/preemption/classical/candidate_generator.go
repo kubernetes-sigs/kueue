@@ -39,6 +39,7 @@ type candidateIterator struct {
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
+	excludeWorkloads                  map[workload.Reference]*workload.Info
 }
 
 type candidateElem struct {
@@ -81,6 +82,7 @@ func NewCandidateIterator(
 	snapshot *schdcache.Snapshot,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool,
+	excludeWorkloads map[workload.Reference]*workload.Info,
 ) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
@@ -112,6 +114,7 @@ func NewCandidateIterator(
 		NoCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
 		NoCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
 		hierarchicalReclaimCtx:            hierarchicalReclaimCtx,
+		excludeWorkloads:                  excludeWorkloads,
 	}
 }
 
@@ -123,6 +126,12 @@ func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
 	}
 	candidate := c.candidates[c.runIndex]
 	c.runIndex++
+
+	// Check if this candidate is excluded
+	if _, excluded := c.excludeWorkloads[workload.Key(candidate.wl.Obj)]; excluded {
+		return c.Next(borrow)
+	}
+
 	if !c.candidateIsValid(candidate, borrow) {
 		return c.Next(borrow)
 	}
