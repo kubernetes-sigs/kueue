@@ -2,7 +2,7 @@
 
 ![Version: 0.13.3](https://img.shields.io/badge/Version-0.13.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.13.3](https://img.shields.io/badge/AppVersion-v0.13.3-informational?style=flat-square)
 
-Kueue is a set of APIs and controller for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
+Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
 ### Installation
 
@@ -76,14 +76,14 @@ kueue-controller-manager       1/1     1            1           7s
 
 Kueue has support for third-party certificates.
 One can enable this by setting `enableCertManager` to true.
-This will use certManager to generate a secret, inject the CABundles and set up the tls.
+This will use certManager to generate a secret, inject the CABundles and set up the TLS.
 
 Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/cert_manager/)
 for more information on installing cert manager with our Helm chart.
 
 ##### Prometheus
 
-Kueue supports prometheus metrics.
+Kueue supports Prometheus metrics.
 Check out the [site](https://kueue.sigs.k8s.io/docs/tasks/manage/productization/prometheus/)
 for more information on installing kueue with metrics using our Helm chart.
 
