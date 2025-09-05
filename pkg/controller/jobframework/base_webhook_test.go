@@ -286,6 +286,83 @@ func TestValidateOnCreate(t *testing.T) {
 
 func TestValidateOnUpdate(t *testing.T) {
 	testcases := []struct {
+		name     string
+		oldJob   *batchv1.Job
+		job      *batchv1.Job
+		wantErr  error
+		wantWarn admission.Warnings
+	}{
+		{
+			name: "valid request",
+			oldJob: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "job",
+					Namespace:       "default",
+					Labels:          map[string]string{constants.QueueLabel: "queue"},
+					ResourceVersion: "1",
+				},
+			},
+			job: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "job",
+					Namespace:       "default",
+					Labels:          map[string]string{constants.QueueLabel: "queue"},
+					ResourceVersion: "2",
+				},
+			},
+		},
+		{
+			name: "invalid request",
+			oldJob: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "job",
+					Namespace:       "default",
+					Labels:          map[string]string{constants.QueueLabel: "queue"},
+					ResourceVersion: "1",
+				},
+			},
+			job: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "job",
+					Namespace:       "default",
+					Labels:          map[string]string{constants.QueueLabel: "changed"},
+					ResourceVersion: "2",
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels["+constants.QueueLabel+"]"), kueue.LocalQueueName("changed"), "field is immutable"),
+			}.ToAggregate(),
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			oldGj := newMockGenericJobWithManagedBy(ctrl)
+			oldGj.MockGenericJob.EXPECT().Object().Return(tc.oldJob).AnyTimes()
+
+			newGj := newMockGenericJobWithManagedBy(ctrl)
+			newGj.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
+			newGj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
+
+			w := &jobframework.BaseWebhook{
+				FromObject: validateUpdateFromObject(oldGj, newGj),
+			}
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWarn, gotErr := w.ValidateUpdate(ctx, tc.oldJob, tc.job)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantWarn, gotWarn); diff != "" {
+				t.Errorf("validate create warn mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateOnUpdateWithCustomValidation(t *testing.T) {
+	testcases := []struct {
 		name             string
 		oldJob           *batchv1.Job
 		job              *batchv1.Job
@@ -294,36 +371,21 @@ func TestValidateOnUpdate(t *testing.T) {
 		wantWarn         admission.Warnings
 	}{
 		{
-			name: "valid request",
-			oldJob: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
-		},
-		{
 			name: "invalid request with validate on update",
 			oldJob: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
+					Name:            "job",
+					Namespace:       "default",
+					Labels:          map[string]string{constants.QueueLabel: "queue"},
+					ResourceVersion: "1",
 				},
 			},
 			job: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
+					Name:            "job",
+					Namespace:       "default",
+					Labels:          map[string]string{constants.QueueLabel: "queue"},
+					ResourceVersion: "2",
 				},
 			},
 			validateOnUpdate: field.ErrorList{
@@ -356,9 +418,7 @@ func TestValidateOnUpdate(t *testing.T) {
 			newGj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(oldGj).Return(tc.validateOnUpdate, nil).AnyTimes()
 
 			w := &jobframework.BaseWebhook{
-				FromObject: func(object runtime.Object) jobframework.GenericJob {
-					return newGj
-				},
+				FromObject: validateUpdateFromObject(oldGj, newGj),
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotWarn, gotErr := w.ValidateUpdate(ctx, tc.oldJob, tc.job)
@@ -369,6 +429,31 @@ func TestValidateOnUpdate(t *testing.T) {
 				t.Errorf("validate create warn mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func validateUpdateFromObject(oldGj, newGj jobframework.GenericJob) func(runtime.Object) jobframework.GenericJob {
+	return func(object runtime.Object) jobframework.GenericJob {
+		job, ok := object.(*batchv1.Job)
+		if !ok || job == nil {
+			return nil
+		}
+		if job.ResourceVersion == "1" {
+			return oldGj
+		}
+		return newGj
+	}
+}
+
+type mockGenericJobWithManagedBy struct {
+	*mocks.MockGenericJob
+	*mocks.MockJobWithManagedBy
+}
+
+func newMockGenericJobWithManagedBy(ctrl *gomock.Controller) *mockGenericJobWithManagedBy {
+	return &mockGenericJobWithManagedBy{
+		MockGenericJob:       mocks.NewMockGenericJob(ctrl),
+		MockJobWithManagedBy: mocks.NewMockJobWithManagedBy(ctrl),
 	}
 }
 
