@@ -33,6 +33,10 @@ spec:
       {{- end }}
       containers:
         - name: backend
+          {{- with .Values.kueueViz.backend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: '{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.kueueViz.backend.image.pullPolicy }}'
           ports:
