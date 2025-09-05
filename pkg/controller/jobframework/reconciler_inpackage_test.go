@@ -149,6 +149,14 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 			gvk:    testJobGVK,
 		}
 	}
+	withAnnotation := func(wl *kueue.Workload, key, value string) *kueue.Workload {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, key, value)
+		return wl
+	}
+	withClusterName := func(wl *kueue.Workload, clusterName string) *kueue.Workload {
+		wl.Status.ClusterName = &clusterName
+		return wl
+	}
 	tests := map[string]struct {
 		args args
 		want want
@@ -161,8 +169,12 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 					object: testJobObject(true),
 					gvk:    testJobGVK,
 				},
+				wl: &kueue.Workload{},
 			},
-			want: want{err: true},
+			want: want{
+				err:      true,
+				workload: withAnnotation(&kueue.Workload{}, workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+			},
 		},
 		"NoExistingWorkloads": {
 			args: args{
@@ -171,25 +183,25 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 				wl:   testWorkload(t, testJob(1)),
 			},
 			want: want{
-				workload: testWorkload(t, testJob(1)),
+				workload: withAnnotation(testWorkload(t, testJob(1)), workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 			},
 		},
 		"OneExistingWorkload": {
 			args: args{
 				clnt: testClient().WithLists(&kueue.WorkloadList{
 					Items: []kueue.Workload{
-						*testWorkload(t, testJob(1)),
+						*withClusterName(testWorkload(t, testJob(1)), "testCluster"),
 					},
 				}).Build(),
 				job: testJob(2),
 				wl:  testWorkload(t, testJob(2)),
 			},
 			want: want{
-				workload: func() *kueue.Workload {
-					wl := testWorkload(t, testJob(2))
-					metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(testWorkload(t, testJob(1)))))
-					return wl
-				}(),
+				workload: withAnnotation(
+					withAnnotation(
+						withClusterName(testWorkload(t, testJob(2)), "testCluster"),
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+					workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(testWorkload(t, testJob(1))))),
 			},
 		},
 		"MoreThanOneExistingWorkload": {
@@ -205,7 +217,7 @@ func Test_prepareWorkloadSlice(t *testing.T) {
 			},
 			want: want{
 				err:      true,
-				workload: testWorkload(t, testJob(3)),
+				workload: withAnnotation(testWorkload(t, testJob(3)), workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 			},
 		},
 	}
