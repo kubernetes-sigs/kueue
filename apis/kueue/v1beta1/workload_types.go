@@ -430,8 +430,8 @@ type WorkloadStatus struct {
 	ClusterName *string `json:"clusterName,omitempty"`
 
 	// nodesToReplace holds the names of failed nodes running at least one pod of this workload
-	// when Topology-Aware Scheduling is used. This field should not be set by the users. 
-	// It indicates Kueue's scheduler is searching for replacements of the failed nodes. 
+	// when Topology-Aware Scheduling is used. This field should not be set by the users.
+	// It indicates Kueue's scheduler is searching for replacements of the failed nodes.
 	// Requires enabling the TASFaliedNodReplacement feature gate.
 	//
 	// +optional
