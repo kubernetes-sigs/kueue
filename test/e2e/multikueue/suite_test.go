@@ -24,6 +24,7 @@ import (
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -118,6 +119,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
+			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
+			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)
