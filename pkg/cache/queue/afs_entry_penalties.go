@@ -82,7 +82,3 @@ func (m *AfsEntryPenalties) hasPendingFor(lqKey utilqueue.LocalQueueReference) b
 func (m *AfsEntryPenalties) getPenalties() *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList] {
 	return m.penalties
 }
-
-func (m *AfsEntryPenalties) getLocalQueueKeysWithPenalties() []utilqueue.LocalQueueReference {
-	return m.penalties.Keys()
-}

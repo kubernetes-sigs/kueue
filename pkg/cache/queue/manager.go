@@ -203,6 +203,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		if qImpl != nil {
 			added := cqImpl.AddFromLocalQueue(qImpl)
 			addedWorkloads = addedWorkloads || added
+			cqImpl.addLocalQueue(queue.Key(&q))
 		}
 	}
 
@@ -298,6 +299,11 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 	qImpl := newLocalQueue(q)
 	m.localQueues[key] = qImpl
+
+	if cq := m.hm.ClusterQueue(qImpl.ClusterQueue); cq != nil {
+		cq.addLocalQueue(key)
+	}
+
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.
 	var workloads kueue.WorkloadList
@@ -329,9 +335,12 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 		oldCQ := m.hm.ClusterQueue(qImpl.ClusterQueue)
 		if oldCQ != nil {
 			oldCQ.DeleteFromLocalQueue(qImpl)
+			oldCQ.deleteLocalQueue(queue.Key(q))
 		}
 		newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue)
-		if newCQ != nil && newCQ.AddFromLocalQueue(qImpl) {
+		if newCQ != nil {
+			newCQ.AddFromLocalQueue(qImpl)
+			newCQ.addLocalQueue(queue.Key(q))
 			m.Broadcast()
 		}
 	}
@@ -350,6 +359,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
+		cq.deleteLocalQueue(key)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		namespace, lqName := queue.MustParseLocalQueueReference(key)
@@ -804,24 +814,6 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
 		m.Broadcast()
-	}
-}
-
-func (m *Manager) RebuildClusterQueuesWithEntryPenalties() {
-	m.Lock()
-	defer m.Unlock()
-
-	clusterQueuesWithPenalties := sets.New[kueue.ClusterQueueReference]()
-	for _, lqKey := range m.afsEntryPenalties.getLocalQueueKeysWithPenalties() {
-		if lq, exists := m.localQueues[lqKey]; exists {
-			clusterQueuesWithPenalties.Insert(lq.ClusterQueue)
-		}
-	}
-
-	for cqName := range clusterQueuesWithPenalties {
-		if cq := m.hm.ClusterQueue(cqName); cq != nil {
-			cq.RebuildAll()
-		}
 	}
 }
 
