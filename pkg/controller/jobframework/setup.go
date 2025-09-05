@@ -20,11 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,6 +41,26 @@ const (
 var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
 )
+
+func autoEnablePodIntegration(ctx context.Context, enabledFrameworks sets.Set[string]) bool {
+	podDependentFrameworks := []string{
+		"deployment",
+		"statefulset",
+		"leaderworkerset.x-k8s.io/leaderworkerset",
+	}
+
+	needsPodIntegration := slices.ContainsFunc(podDependentFrameworks, func(framework string) bool {
+		return enabledFrameworks.Has(framework)
+	})
+
+	if needsPodIntegration && !enabledFrameworks.Has("pod") {
+		log := ctrl.LoggerFrom(ctx)
+		log.Info("Automatically enabling pod integration for framework support")
+		enabledFrameworks.Insert("pod")
+		return true
+	}
+	return false
+}
 
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
@@ -55,6 +77,9 @@ func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, op
 
 func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
+
+	podIntegrationAutomaticallyEnabled := autoEnablePodIntegration(ctx, options.EnabledFrameworks)
+	opts = append(opts, WithPodIntegrationAutomaticallyEnabled(podIntegrationAutomaticallyEnabled))
 
 	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
 		return fmt.Errorf("check enabled frameworks list: %w", err)
@@ -169,6 +194,9 @@ func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
 // Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
+
+	autoEnablePodIntegration(ctx, options.EnabledFrameworks)
+
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
 		if options.EnabledFrameworks.Has(name) {
 			if err := cb.SetupIndexes(ctx, indexer); err != nil {
