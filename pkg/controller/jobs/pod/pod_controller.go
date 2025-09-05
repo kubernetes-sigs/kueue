@@ -565,6 +565,11 @@ func (p *Pod) Skip() bool {
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
 		return true
 	}
+	if jobframework.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
+		p.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
+		ctrl.Log.V(3).Info("Pod Integration was implicitly enabled but object lacks parent annotation, skipping")
+		return true
+	}
 	return false
 }
 
