@@ -48,9 +48,7 @@ import (
 )
 
 var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
-	var (
-		ns *corev1.Namespace
-	)
+	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {
 		_ = features.SetEnable(features.TASFailedNodeReplacement, true)

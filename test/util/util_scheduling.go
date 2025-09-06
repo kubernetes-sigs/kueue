@@ -59,8 +59,9 @@ func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client,
 			evicted := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
 			quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if evicted && quotaReserved {
-				workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now())
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true, realClock)).To(gomega.Succeed())
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, true, realClock, func() (bool, error) {
+					return workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now()), nil
+				})).Should(gomega.Succeed())
 				finished.Insert(wl.UID)
 			}
 		}
