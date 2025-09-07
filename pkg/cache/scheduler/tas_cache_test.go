@@ -4094,18 +4094,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		// This case verifies that sliceState is reset between fitting consecutive PodSets
-		// for the same Workload. FindTopologyAssignmentsForFlavor processes PodSets
-		// sequentially and calls fillInCounts for each PodSet; fillInCounts zeroes the
-		// per-domain temporary state (including sliceState). If sliceState wasn't reset,
-		// the second PodSet's fit would be polluted by the first pass and produce a
-		// different assignment or fail to fit. Successful independent assignments for
-		// two PodSets here indicate the reset occurs as intended.
-		"sliceState reset between consecutive PodSets in single workload": {
+		// Proves cleanup necessity: the second PodSet excludes all nodes via selector.
+		// Without resetting temporary per-domain state (e.g. state/stateWithLeader), stale
+		// values from the first PodSet would leak and produce a bogus assignment instead of failure.
+		"temporary state cleanup prevents leakage across PodSets": {
 			nodes: []corev1.Node{
-				*testingnode.MakeNode("b1-r1-x1").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
+				*testingnode.MakeNode("n1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("4"),
@@ -4114,9 +4108,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r1-x2").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r1").
+				*testingnode.MakeNode("n2").
 					Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("4"),
@@ -4125,79 +4117,32 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x3").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x3").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("4"),
-						corev1.ResourceMemory: resource.MustParse("4Gi"),
-						corev1.ResourcePods:   resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("b1-r2-x4").
-					Label(tasBlockLabel, "b1").
-					Label(tasRackLabel, "r2").
-					Label(corev1.LabelHostname, "x4").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("4"),
-						corev1.ResourceMemory: resource.MustParse("4Gi"),
-						corev1.ResourcePods:   resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
 			},
-			levels: []string{tasBlockLabel, tasRackLabel, corev1.LabelHostname},
+			levels: []string{corev1.LabelHostname},
 			podSets: []PodSetTestCase{
 				{
-					podSetName: "leader",
-					topologyRequest: &kueue.PodSetTopologyRequest{
-						Required:                    ptr.To(tasRackLabel),
-						PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-						PodSetSliceSize:             ptr.To(int32(2)),
-					},
+					podSetName: "ps1",
 					requests: resources.Requests{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1000,
 					},
-					count: 2,
+					count: 1,
 					wantAssignment: &kueue.TopologyAssignment{
-						// Assignments produced by TAS when the lowest level is node contain only
-						// the hostname in Levels/Values (buildAssignment collapses to node level).
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count:  2,
-								Values: []string{"x1"},
-							},
+							{Count: 1, Values: []string{"x1"}},
 						},
 					},
 				},
 				{
-					podSetName: "workers",
-					topologyRequest: &kueue.PodSetTopologyRequest{
-						Required:                    ptr.To(tasRackLabel),
-						PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
-						PodSetSliceSize:             ptr.To(int32(2)),
-					},
+					podSetName:   "ps2",
+					nodeSelector: map[string]string{"never": "match"},
 					requests: resources.Requests{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1000,
 					},
-					count: 2,
-					wantAssignment: &kueue.TopologyAssignment{
-						// The second PodSet is evaluated after the first one using a clean
-						// sliceState (reset in fillInCounts). A valid independent assignment
-						// confirms no leakage of temporary state between fits.
-						Levels: []string{corev1.LabelHostname},
-						Domains: []kueue.TopologyDomainAssignment{
-							{
-								Count:  2,
-								Values: []string{"x1"},
-							},
-						},
-					},
+					count:      1,
+					wantReason: "topology \"default\" doesn't allow to fit any of 1 pod(s)",
 				},
 			},
 		},
