@@ -1127,7 +1127,8 @@ current state.</p>
 <td>
    <p>PendingWorkloadsStatus contains the information exposed about the current
 status of the pending workloads in the cluster queue.
-Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
+You can migrate to VisibilityOnDemand
 (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
 instead.</p>
 </td>
@@ -3189,6 +3190,16 @@ This field is optional.</p>
 <td>
    <p>clusterName is the name of the cluster where the workload is actually assigned.
 This field is reset after the Workload is evicted.</p>
+</td>
+</tr>
+<tr><td><code>nodesToReplace</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>nodesToReplace holds the names of failed nodes running at least one pod of this workload
+when Topology-Aware Scheduling is used. This field should not be set by the users.
+It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+Requires enabling the TASFaliedNodReplacement feature gate.</p>
 </td>
 </tr>
 </tbody>

@@ -3786,7 +3786,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		cqs                            []kueue.ClusterQueue
 		admittedWorkloads              []kueue.Workload
 		workloads                      []kueue.Workload
-		deleteWorkloads                []kueue.Workload
+		deleteWorkloads                []client.ObjectKey
 		wantPreempted                  sets.Set[workload.Reference]
 		wantAdmissionsOnFirstSchedule  map[workload.Reference]kueue.Admission
 		wantAdmissionsOnSecondSchedule map[workload.Reference]kueue.Admission
@@ -3826,14 +3826,10 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("low-1", "default").
-					Queue("main").
-					Request(corev1.ResourceCPU, "50").
-					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
-					Admitted(true).
-					Obj(),
-			},
+			deleteWorkloads: []client.ObjectKey{{
+				Namespace: metav1.NamespaceDefault,
+				Name:      "low-1",
+			}},
 			wantPreempted:                 sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{},
 			wantAdmissionsOnSecondSchedule: map[workload.Reference]kueue.Admission{
@@ -3860,8 +3856,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{},
-			wantPreempted:   sets.Set[workload.Reference]{},
+			wantPreempted: sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload1": *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 				"default/borrower":  *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
@@ -3893,8 +3888,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{},
-			wantPreempted:   sets.Set[workload.Reference]{},
+			wantPreempted: sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
 			},
@@ -3930,8 +3924,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{},
-			wantPreempted:   sets.Set[workload.Reference]{},
+			wantPreempted: sets.Set[workload.Reference]{},
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
@@ -3964,7 +3957,10 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deleteWorkloads:               []kueue.Workload{*utiltesting.MakeWorkload("placeholder-alpha", "default").Obj()},
+			deleteWorkloads: []client.ObjectKey{{
+				Namespace: metav1.NamespaceDefault,
+				Name:      "placeholder-alpha",
+			}},
 			wantPreempted:                 sets.New[workload.Reference]("default/placeholder-alpha"),
 			wantAdmissionsOnFirstSchedule: map[workload.Reference]kueue.Admission{},
 			wantAdmissionsOnSecondSchedule: map[workload.Reference]kueue.Admission{
@@ -4047,8 +4043,11 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "22").
 					Obj(),
 			},
-			deleteWorkloads: []kueue.Workload{*utiltesting.MakeWorkload("alpha2", "default").Obj()},
-			wantPreempted:   sets.New[workload.Reference]("default/alpha2"),
+			deleteWorkloads: []client.ObjectKey{{
+				Namespace: metav1.NamespaceDefault,
+				Name:      "alpha2",
+			}},
+			wantPreempted: sets.New[workload.Reference]("default/alpha2"),
 			wantAdmissionsOnSecondSchedule: map[workload.Reference]kueue.Admission{
 				"default/alpha1": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "22").Obj(),
 				"default/alpha3": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "spot", "22").Obj(),
@@ -4130,16 +4129,21 @@ func TestLastSchedulingContext(t *testing.T) {
 				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 			}
 
-			for _, wl := range tc.deleteWorkloads {
-				err := cl.Delete(ctx, &wl)
+			for _, workloadReference := range tc.deleteWorkloads {
+				var workload kueue.Workload
+				err := cl.Get(ctx, workloadReference, &workload)
+				if err != nil {
+					t.Errorf("Unable to get workload: %v", err)
+				}
+				err = cl.Delete(ctx, &workload)
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
-				err = cqCache.DeleteWorkload(log, &wl)
+				err = cqCache.DeleteWorkload(log, &workload)
 				if err != nil {
 					t.Errorf("Delete workload failed: %v", err)
 				}
-				qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, &wl, nil)
+				qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, &workload, nil)
 			}
 
 			scheduler.schedule(ctx)
@@ -4848,7 +4852,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(corev1.LabelHostname).
@@ -4884,7 +4888,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						PreferredTopologyRequest(tasRackLabel).
@@ -4922,7 +4926,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -4963,7 +4967,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -5005,7 +5009,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5043,7 +5047,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5079,7 +5083,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5122,7 +5126,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					NodesToReplace("x0").
 					Queue("tas-main").
 					PodSets(
 						*utiltesting.MakePodSet("one", 1).

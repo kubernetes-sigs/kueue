@@ -122,7 +122,7 @@ func TestValidateClusterQueue(t *testing.T) {
 ### 使用 Ginkgo --focus 参数 {#use-ginkgo-focus-arg}
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
-GINKGO_ARGS="--focus=Creating a Pod requesting TAS" make test-e2e
+GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e
 ```
 ### 使用 ginkgo.FIt {#use-ginkgo-fit}
 如果你想专注于特定测试，可以将这些测试的

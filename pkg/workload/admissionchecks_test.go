@@ -29,6 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -536,7 +537,7 @@ func TestSetCheckState(t *testing.T) {
 			if tc.state.LastTransitionTime.IsZero() {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"), cmpopts.EquateApproxTime(time.Second))
 
-				if updatedCheck := FindAdmissionCheck(gotStates, tc.state.Name); updatedCheck == nil {
+				if updatedCheck := admissioncheck.FindAdmissionCheck(gotStates, tc.state.Name); updatedCheck == nil {
 					t.Error("Cannot find the updated check state")
 				} else {
 					if diff := cmp.Diff(metav1.NewTime(now), updatedCheck.LastTransitionTime, opts...); diff != "" {

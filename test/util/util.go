@@ -68,6 +68,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -747,7 +748,7 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		if expectExisting {
-			currentCheck := workload.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
+			currentCheck := admissioncheck.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
 			g.Expect(currentCheck).NotTo(gomega.BeNil(), "the check %s was not found in %s", check, workload.Key(wl))
 			currentCheck.State = state
 		} else {
@@ -933,6 +934,14 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectRayClusterUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
+	rayCluster := &rayv1.RayCluster{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, rayCluster)).To(gomega.Succeed())
+		g.Expect(rayCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 

@@ -35,12 +35,6 @@ const (
 	// Enables partial admission.
 	PartialAdmission featuregate.Feature = "PartialAdmission"
 
-	// owner: @stuton
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-pending-workloads-visibility
-	//
-	// Enables queue visibility.
-	QueueVisibility featuregate.Feature = "QueueVisibility"
-
 	// owner: @KunWuLuan
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
@@ -204,10 +198,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.4"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
-	QueueVisibility: {
-		{Version: version.MustParse("0.5"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Deprecated},
-	},
+
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
