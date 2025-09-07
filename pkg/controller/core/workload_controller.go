@@ -926,8 +926,11 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
-		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
+
+		if workload.IsActive(wlCopy) && !workload.HasQuotaReservation(wlCopy) {
+			if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+				log.V(2).Info("ignored an error for now", "error", err)
+			}
 		}
 	}
 }
