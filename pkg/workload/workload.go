@@ -189,6 +189,8 @@ type Info struct {
 	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
 	LocalQueueFSUsage *float64
+
+	SecondPassIteration uint
 }
 
 type PodSetResources struct {
