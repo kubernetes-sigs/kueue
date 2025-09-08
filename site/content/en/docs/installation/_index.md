@@ -42,7 +42,7 @@ Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
-a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manage guide](/docs/tasks/manage/installation).
+a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow the [cert manager guide](/docs/tasks/manage/installation).
 
 [feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
@@ -302,8 +302,6 @@ spec:
 | `ProvisioningACC`              | `false` | Alpha      | 0.5   | 0.6   |
 | `ProvisioningACC`              | `true`  | Beta       | 0.7   |       |
 | `ProvisioningACC`              | `true`  | GA         | 0.14  |       |
-| `QueueVisibility`              | `false` | Alpha      | 0.5   | 0.9   |
-| `QueueVisibility`              | `false` | Deprecated | 0.9   |       |
 | `TASProfileMostFreeCapacity`   | `false` | Deprecated | 0.11  | 0.13  |
 | `TASProfileLeastFreeCapacity`  | `false` | Deprecated | 0.11  |       |
 | `TASProfileMixed`              | `false` | Deprecated | 0.11  |       |

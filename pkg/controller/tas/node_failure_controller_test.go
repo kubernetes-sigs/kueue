@@ -75,11 +75,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 		Admitted(true).
 		Obj()
 
-	workloadWithAnnotation := baseWorkload.DeepCopy()
-	workloadWithAnnotation.Annotations = map[string]string{
-		kueuealpha.NodeToReplaceAnnotation: nodeName,
-	}
-
+	workloadWithNodeToReplace := baseWorkload.DeepCopy()
+	workloadWithNodeToReplace.Status.NodesToReplace = []string{nodeName}
 	workloadWithTwoNodes := utiltesting.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -135,7 +132,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		initObjs          []client.Object
 		reconcileRequests []reconcile.Request
 		advanceClock      time.Duration
-		wantFailedNode    string
+		wantFailedNodes   []string
 		wantRequeue       time.Duration
 		wantEvictedCond   *metav1.Condition
 		featureGates      []featuregate.Feature
@@ -150,19 +147,19 @@ func TestNodeFailureReconciler(t *testing.T) {
 				basePod.DeepCopy(),
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    "",
+			wantFailedNodes:   nil,
 		},
-		"Node becomes healthy, annotation is removed": {
+		"Node becomes healthy, it is removed from the list of nodes to replace": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionTrue,
 					LastTransitionTime: now}).Obj(),
-				workloadWithAnnotation.DeepCopy(),
+				workloadWithNodeToReplace.DeepCopy(),
 				basePod.DeepCopy(),
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    "",
+			wantFailedNodes:   nil,
 		},
 
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
@@ -175,7 +172,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				basePod.DeepCopy(),
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    "",
+			wantFailedNodes:   nil,
 			wantRequeue:       NodeFailureDelay,
 		},
 		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
@@ -188,7 +185,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				basePod.DeepCopy(),
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    nodeName,
+			wantFailedNodes:   []string{nodeName},
 		},
 		"Node NotReady, pod terminating, marked as unavailable": {
 			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
@@ -201,7 +198,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				terminatingPod,
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    nodeName,
+			wantFailedNodes:   []string{nodeName},
 		},
 		"Node NotReady, pod failed, marked as unavailable": {
 			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
@@ -214,7 +211,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				failedPod,
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    nodeName,
+			wantFailedNodes:   []string{nodeName},
 		},
 		"Node NotReady, pod failed, ReplaceNodeOnPodTermination feature gate off, requeued": {
 			initObjs: []client.Object{
@@ -226,7 +223,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				failedPod,
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    "",
+			wantFailedNodes:   nil,
 			wantRequeue:       NodeFailureDelay,
 		},
 		"Node NotReady, pod running, not marked as unavailable, requeued": {
@@ -249,7 +246,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				basePod.DeepCopy(),
 			},
 			reconcileRequests: []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantFailedNode:    nodeName,
+			wantFailedNodes:   []string{nodeName},
 		},
 		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
 			featureGates: []featuregate.Feature{features.TASFailedNodeReplacement},
@@ -263,23 +260,24 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Status:             corev1.ConditionFalse,
 					LastTransitionTime: earlierTime}).Obj(),
 				workloadWithTwoNodes.DeepCopy(),
-				testingpod.MakePod("pod1", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName).Obj(),
-				testingpod.MakePod("pod2", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).Label(kueuealpha.TASLabel, "true").NodeName(nodeName2).Obj(),
+				testingpod.MakePod("pod1", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).NodeName(nodeName).Obj(),
+				testingpod.MakePod("pod2", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).NodeName(nodeName2).Obj(),
 			},
 			reconcileRequests: []reconcile.Request{
 				{NamespacedName: types.NamespacedName{Name: nodeName}},
 				{NamespacedName: types.NamespacedName{Name: nodeName2}},
 			},
-			wantFailedNode: "",
+			wantFailedNodes: nil,
 			wantEvictedCond: &metav1.Condition{
 				Type:    kueue.WorkloadEvicted,
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
-				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName, nodeName2),
+				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
 			},
 		},
 	}
 	for name, tc := range tests {
+		fakeClock.SetTime(testStartTime)
 		t.Run(name, func(t *testing.T) {
 			for _, fg := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, true)
@@ -312,10 +310,11 @@ func TestNodeFailureReconciler(t *testing.T) {
 				t.Fatalf("Failed to get workload %q: %v", wlName, err)
 			}
 
-			gotFailedNode := wl.GetAnnotations()[kueuealpha.NodeToReplaceAnnotation]
-			expectedNode := tc.wantFailedNode
-			if diff := cmp.Diff(expectedNode, gotFailedNode); diff != "" {
-				t.Errorf("Unexpected FailedNodes in annotation (-want/+got):\n%s", diff)
+			gotNodesToReplace := wl.Status.NodesToReplace
+			if len(tc.wantFailedNodes) > 0 {
+				if diff := cmp.Diff(tc.wantFailedNodes, gotNodesToReplace, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected nodesToReplace in status (-want/+got):\n%s", diff)
+				}
 			}
 			if diff := cmp.Diff(tc.wantRequeue, result.RequeueAfter); diff != "" {
 				t.Errorf("Unexpected RequeueAfter (-want/+got):\n%s", diff)

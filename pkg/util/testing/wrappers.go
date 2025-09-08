@@ -348,6 +348,11 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 	return w
 }
 
+func (w *WorkloadWrapper) NodesToReplace(nodesToReplace ...string) *WorkloadWrapper {
+	w.Status.NodesToReplace = nodesToReplace
+	return w
+}
+
 // DeletionTimestamp sets a deletion timestamp for the workload.
 func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
 	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())

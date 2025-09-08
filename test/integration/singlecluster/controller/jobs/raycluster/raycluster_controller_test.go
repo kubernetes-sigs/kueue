@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -25,8 +26,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,9 +39,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob" // to enable the framework
@@ -687,6 +693,257 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+	cpuNominalQuota := 5
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = testing.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = testing.MakeClusterQueue("default").
+			ResourceGroup(*testing.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should support raycluster scale-down and scale-up", func() {
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(string(kueue.LocalQueueName(localQueue.Name))).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(ptr.To(true)).
+			ScaleFirstWorkerGroup(2).
+			Obj()
+
+		var testRayClusterWorkload *kueue.Workload
+
+		ginkgo.By("creating a raycluster")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+
+		ginkgo.By("admitting the raycluster's workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			testRayClusterWorkload = &workloads.Items[0]
+			g.Expect(testRayClusterWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
+
+			g.Expect(testRayClusterWorkload.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
+			g.Expect(testRayClusterWorkload.Spec.PodSets[1].Count).Should(gomega.BeEquivalentTo(int32(2)))
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the raycluster is unsuspended")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testRayCluster.Spec.Suspend, false)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("resource flavor utilization is correctly recorded")
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("3")))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("reducing the worker replicas to 1 to emulate scale-down operation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(1))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("resource flavor utilization is correctly updated")
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("2")))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("assert the raycluster's workload is updated and still admitted")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
+
+			g.Expect(workloads.Items[0].Spec.PodSets).Should(gomega.HaveLen(2))
+			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+			g.Expect(workloads.Items[0].Spec.PodSets[1].Count).Should(gomega.Equal(int32(1)))
+
+			g.Expect(workloads.Items[0].UID).Should(gomega.BeEquivalentTo(testRayClusterWorkload.UID))
+			testRayClusterWorkload = &workloads.Items[0]
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("increasing the RayCluster's worker replicas to 2 to emulate scale-up operation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(2))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("resource flavor utilization is correctly updated")
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
+			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
+			// 1 core for the head node, and 1 for each of the 2 workers
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("3")))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("old workload is finished and new workload is admitted")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayCluster.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
+
+			nameBeforeScaleUp := testRayClusterWorkload.Name
+
+			for i := range workloads.Items {
+				if workload.IsFinished(&workloads.Items[i]) {
+					g.Expect(workloads.Items[i].Name).Should(gomega.Equal(nameBeforeScaleUp))
+
+					// The original workload had 1 head node, and a single worker group with a single worker
+					g.Expect(workloads.Items[i].Spec.PodSets).Should(gomega.HaveLen(2))
+					g.Expect(workloads.Items[i].Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+					g.Expect(workloads.Items[i].Spec.PodSets[1].Count).Should(gomega.Equal(int32(1)))
+				} else {
+					g.Expect(workloads.Items[i].Name).ShouldNot(gomega.Equal(testRayClusterWorkload.Name))
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
+					testRayClusterWorkload = &workloads.Items[i]
+				}
+			}
+
+			// We should have both the finished and the non-finished but admitted workload
+			g.Expect(testRayClusterWorkload.Name).ShouldNot(gomega.Equal(nameBeforeScaleUp))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the new workload has the correct podSets count")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeTrue())
+			g.Expect(workload.IsFinished(testRayClusterWorkload)).Should(gomega.BeFalse())
+
+			g.Expect(testRayClusterWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
+			g.Expect(testRayClusterWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+			g.Expect(testRayClusterWorkload.Spec.PodSets[1].Count).Should(gomega.Equal(int32(2)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {
+		var (
+			testRayClusterAWorkload *kueue.Workload
+			testRayClusterBWorkload *kueue.Workload
+		)
+
+		testRayClusterA := testingraycluster.MakeCluster("raycluster-a", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(string(kueue.LocalQueueName(localQueue.Name))).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(ptr.To(true)).
+			ScaleFirstWorkerGroup(2).
+			Obj()
+
+		ginkgo.By("creating a raycluster-a")
+		util.MustCreate(ctx, k8sClient, testRayClusterA)
+
+		ginkgo.By("admitting the raycluster-a's workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			testRayClusterAWorkload = &workloads.Items[0]
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterAWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the raycluster-a is unsuspended")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterA), testRayClusterA)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testRayClusterA.Spec.Suspend, false)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		testRayClusterB := testingraycluster.MakeCluster("raycluster-b", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(string(kueue.LocalQueueName(localQueue.Name))).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(ptr.To(true)).
+			ScaleFirstWorkerGroup(2).
+			Obj()
+
+		ginkgo.By("creating a raycluster-b")
+		util.MustCreate(ctx, k8sClient, testRayClusterB)
+
+		ginkgo.By("the testRayClusterB remains suspended")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterB), testRayClusterB)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testRayClusterB.Spec.Suspend, false)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("raycluster-b's workload remains pending with unreserved quota")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testRayClusterB.UID)})).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			testRayClusterBWorkload = &workloads.Items[0]
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, testRayClusterBWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scale-down raycluster-a to make room for raycluster-b")
+		gomega.Eventually(func(g gomega.Gomega) {
+			testRayClusterA.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(int32(1))
+			g.Expect(k8sClient.Update(ctx, testRayClusterA)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting the raycluster-b workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterBWorkload), testRayClusterBWorkload)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterBWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the raycluster-b is unsuspended")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterB), testRayClusterB)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testRayClusterB.Spec.Suspend, false)).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

@@ -937,6 +937,14 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectRayClusterUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
+	rayCluster := &rayv1.RayCluster{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, rayCluster)).To(gomega.Succeed())
+		g.Expect(rayCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
 	for _, node := range nodes {
 		// 1. Create a node

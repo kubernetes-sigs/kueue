@@ -122,7 +122,7 @@ or from VSCode.
 ### Use Ginkgo --focus arg
 ```shell
 GINKGO_ARGS="--focus=Scheduler" make test-integration
-GINKGO_ARGS="--focus=Creating a Pod requesting TAS" make test-e2e
+GINKGO_ARGS="--focus='Creating a Pod requesting TAS'" make test-e2e
 ```
 ### Use ginkgo.FIt
 If you want to focus on specific tests, you can change
