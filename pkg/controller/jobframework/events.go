@@ -29,4 +29,5 @@ const (
 	ReasonErrWorkloadCompose    = "ErrWorkloadCompose"
 	ReasonUpdatedAdmissionCheck = "UpdatedAdmissionCheck"
 	ReasonJobNestingTooDeep     = "JobNestingTooDeep"
+	ReasonPriorityNotFound      = "PriorityNotFound"
 )
