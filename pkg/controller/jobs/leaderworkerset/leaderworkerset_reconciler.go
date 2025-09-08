@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -313,6 +314,9 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
+		if apierrors.IsNotFound(err) {
+			r.record.Event(lws, corev1.EventTypeWarning, jobframework.ReasonPriorityNotFound, "PriorityClass not found")
+		}
 		return err
 	}
 
