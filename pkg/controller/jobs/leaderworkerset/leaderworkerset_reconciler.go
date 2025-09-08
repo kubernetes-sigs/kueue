@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -183,6 +184,9 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 
 	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			r.record.Event(lws, corev1.EventTypeWarning, jobframework.ReasonPriorityNotFound, "PriorityClass not found")
+		}
 		return err
 	}
 
