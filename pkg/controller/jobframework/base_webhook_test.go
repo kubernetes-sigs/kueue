@@ -291,6 +291,7 @@ func TestValidateOnCreate(t *testing.T) {
 			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook[*mockJob]{
+				Client: utiltesting.NewClientBuilder().WithObjects(tc.objects...).Build(),
 				FromObject: func(object *mockJob) jobframework.GenericJob {
 					return object
 				},
