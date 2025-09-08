@@ -7572,7 +7572,7 @@ func TestScheduleForTAS(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				if qManager.QueueSecondPassIfNeeded(ctx, &w) {
+				if qManager.QueueSecondPassIfNeeded(ctx, &w, 0) {
 					fakeClock.Step(time.Second)
 				}
 			}

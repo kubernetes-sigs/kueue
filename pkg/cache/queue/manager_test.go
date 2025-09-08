@@ -1336,7 +1336,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
 
 			for _, wl := range tc.workloads {
-				manager.QueueSecondPassIfNeeded(ctx, wl)
+				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 			for _, wl := range tc.deleted.UnsortedList() {
 				manager.secondPassQueue.deleteByKey(wl)
