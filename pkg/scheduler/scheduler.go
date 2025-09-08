@@ -226,7 +226,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
+	preemptedWorkloadsV2 := make(preemption.PreemptedWorkloadsV2)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+
 	for iterator.hasNext() {
 		e := iterator.pop()
 
@@ -272,23 +274,104 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			continue
 		}
 
-		// We skip multiple-preemptions per cohort if any of the targets are overlapping
-		if preemptedWorkloads.HasAny(e.preemptionTargets) {
-			setSkipped(e, "Workload has overlapping preemption targets with another workload")
-			skippedPreemptions[cq.Name]++
-			continue
+		// If any of the targets are overlapping, we try finding other preemption targets and exclude already preempted workloads that have
+		// all their quota claimed by preemptors
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) {
+			if preemptedWorkloadsV2.HasAny(e.preemptionTargets) {
+				log.V(2).Info("Workload has overlapping preemption targets, refreshing assignments with exclusions",
+					"workload", klog.KObj(e.Obj), "originalTargets", len(e.preemptionTargets), "alreadyPreempted", len(preemptedWorkloadsV2))
+
+				// Retry assignment excluding fully claimed workloads (ie workloads with no remaining claimable capacity for preemptor candidates)
+				excludeWorkloads := make(preemption.PreemptedWorkloads)
+				fullyClaimedWorkloads := preemptedWorkloadsV2.GetFullyClaimedWorkloads()
+				for _, wl := range fullyClaimedWorkloads {
+					key := workload.Key(wl.Obj)
+					excludeWorkloads[key] = wl
+				}
+				newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot, excludeWorkloads, &preemptedWorkloadsV2)
+
+				if newAssignment.RepresentativeMode() == flavorassigner.NoFit {
+					log.V(3).Info("Workload cannot be assigned even after excluding preempted workloads and overlapping targets")
+					setSkipped(e, "Workload cannot be assigned even after excluding preempted workloads and overlapping targets")
+					skippedPreemptions[cq.Name]++
+					continue
+				}
+
+				// Update the entry with new assignment and targets
+				e.assignment = newAssignment
+				e.preemptionTargets = newTargets
+
+				// Re-calculate usage with new assignment
+				usage := e.assignmentUsage()
+
+				// If there's still overlapping targets, check if newTargets has sufficient remaining capacity to fit usage
+				// no need to skip if there's not overlapping targets. It will go through fitness check below.
+				if preemptedWorkloadsV2.HasAny(newTargets) {
+					canClaim := preemptedWorkloadsV2.CanClaim(newTargets, usage)
+					if !canClaim {
+						log.V(3).Info("Workload preemption targets has insufficient capacity after retry", "workload", klog.KObj(e.Obj), "newTargets", len(newTargets), "preemptedWorkloads", len(preemptedWorkloadsV2))
+						setSkipped(e, "Workload preemption targets has insufficient remaining capacity")
+						skippedPreemptions[cq.Name]++
+						continue
+					}
+				}
+			}
+		} else {
+			// RefreshAssignmentsDuringSchedulingCycle off
+			if preemptedWorkloads.HasAny(e.preemptionTargets) {
+				log.V(3).Info("Skipping workload due to overlapping preemption targets", "workload", klog.KObj(e.Obj))
+				setSkipped(e, "Workload has overlapping preemption targets with another workload")
+				skippedPreemptions[cq.Name]++
+				continue
+			}
 		}
 
 		usage := e.assignmentUsage()
-		if !fits(cq, &usage, preemptedWorkloads, e.preemptionTargets) {
+		var fitsResult bool
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) {
+			fitsResult = fitsV2(cq, usage, preemptedWorkloadsV2, e.preemptionTargets)
+		} else {
+			fitsResult = fits(cq, &usage, preemptedWorkloads, e.preemptionTargets)
+		}
+		if !fitsResult {
 			setSkipped(e, "Workload no longer fits after processing another workload")
 			if mode == flavorassigner.Preempt {
 				skippedPreemptions[cq.Name]++
 			}
 			continue
 		}
-		preemptedWorkloads.Insert(e.preemptionTargets)
+
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) {
+			// Use new logic - mark parts of the target usage as claimed
+			// Note: preemption obviously still preempts the entire workload
+			//   the difference is the unclaimed usage freed by a previous target's preemption
+			//   can now be claimed by future preemptors
+			preemptedWorkloadsV2.Insert(e.preemptionTargets, usage)
+		} else {
+			// Use old logic - mark entire target usage as claimed
+			preemptedWorkloads.Insert(e.preemptionTargets)
+		}
 		cq.AddUsage(usage)
+
+		// When RefreshAssignmentsDuringSchedulingCycle is enabled, we need to account for
+		// claimed usage from preemption targets. We remove the claimed usage from the
+		// snapshot to reflect that this capacity will become available when the targets are preempted.
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) {
+			// Calculate the claimed usage from the current preemptor's targets only
+			claimedUsage := workload.Usage{Quota: make(map[resources.FlavorResource]int64)}
+			for _, target := range e.preemptionTargets {
+				targetKey := workload.Key(target.WorkloadInfo.Obj)
+				if preemptedWl, found := preemptedWorkloadsV2[targetKey]; found {
+					for fr, claimed := range preemptedWl.ClaimedUsage.Quota {
+						claimedUsage.Quota[fr] += claimed
+					}
+				}
+			}
+			// Remove the claimed usage to reflect capacity that will become available
+			if len(claimedUsage.Quota) > 0 {
+				cq.RemoveUsage(claimedUsage)
+			}
+		}
 
 		// Filter out the old workload slice from the preemption targets.
 		// The old workload slice is initially included in the preemption targets because it is treated
@@ -425,7 +508,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errLimitRangeConstraintsUnsatisfiedResources, err.ToAggregate())
 		} else {
-			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
+			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap, nil, nil)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.LastAssignment = &e.assignment.LastState
 			entries = append(entries, e)
@@ -436,6 +519,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
+// fits validates that after previous preemptions, the incoming workload still indeed fits with the workload's preemption targets.
 func fits(cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
@@ -444,6 +528,36 @@ func fits(cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWo
 	revertUsage := cq.SimulateWorkloadRemoval(workloads)
 	defer revertUsage()
 	return cq.Fits(*usage)
+}
+
+// fitsV2 validates that after previous preemptions, the incoming workload still fits with the workload's preemption targets.
+// takes in PreemptedWorkloadsV2
+func fitsV2(cq *schdcache.ClusterQueueSnapshot, usage workload.Usage, preemptedWorkloadsV2 preemption.PreemptedWorkloadsV2, newTargets []*preemption.Target) bool {
+	// TODO: We can probably just use a map here
+	// 1.) Create a temporary copy of preemptedWorkloadsV2
+	tempPreempted := make(preemption.PreemptedWorkloadsV2)
+	for k, v := range preemptedWorkloadsV2 {
+		tempPreempted[k] = &preemption.PreemptedWorkloadUsageTracker{
+			WorkloadInfo:  v.WorkloadInfo,
+			OriginalUsage: v.OriginalUsage,
+			ClaimedUsage:  v.ClaimedUsage,
+		}
+	}
+
+	// 2.) Add the new targets, serves to deduplicate newTargets that already exist in preemptedWorkloadsV2
+	//     usage here serves to claim usage from the preemption target, but can be ignored for simulation below
+	tempPreempted.Insert(newTargets, usage)
+
+	// 3.) Get all workloads for simulation
+	workloads := tempPreempted.GetWorkloads()
+
+	// 4.) SimulateWorkloadRemoval temporarily removes the usage of preempted workloads from the cluster queue snapshot
+	revertUsage := cq.SimulateWorkloadRemoval(workloads)
+	defer revertUsage()
+
+	// 5.) Fits checks if the incoming workload can fit into the modified CQ state
+	fits := cq.Fits(usage)
+	return fits
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
@@ -457,7 +571,9 @@ func netUsage(e *entry, netQuota resources.FlavorResourceQuantities) workload.Us
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(e.Obj.Status.Admission)
 	}
-	if !workload.HasQuotaReservation(e.Obj) {
+	// For preemption mode, always return netQuota regardless of reservation status
+	// to ensure CanClaim() checks work correctly during retry logic & prevents flaky behavior
+	if e.assignment.RepresentativeMode() == flavorassigner.Preempt || !workload.HasQuotaReservation(e.Obj) {
 		result.Quota = netQuota
 	}
 	return result
@@ -488,8 +604,8 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	assignment, targets := s.getInitialAssignments(log, wl, snap)
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot, excludeWorkloads preemption.PreemptedWorkloads, preemptedWorkloadsV2 *preemption.PreemptedWorkloadsV2) (flavorassigner.Assignment, []*preemption.Target) {
+	assignment, targets := s.getInitialAssignments(log, wl, snap, excludeWorkloads, preemptedWorkloadsV2)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	updateAssignmentForTAS(cq, wl, &assignment, targets)
 	return assignment, targets
@@ -517,7 +633,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *sch
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot, excludeWorkloads preemption.PreemptedWorkloads, preemptedWorkloadsV2 *preemption.PreemptedWorkloadsV2) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
@@ -531,7 +647,26 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		var finalExcludeWorkloads preemption.PreemptedWorkloads
+
+		if features.Enabled(features.RefreshAssignmentsDuringSchedulingCycle) {
+			// only exclude workloads that have no remaining claimable usage
+			finalExcludeWorkloads = make(preemption.PreemptedWorkloads)
+
+			// Add workloads that are fully claimed (no remaining usage)
+			if preemptedWorkloadsV2 != nil {
+				fullyClaimedWorkloads := preemptedWorkloadsV2.GetFullyClaimedWorkloads()
+				for _, wl := range fullyClaimedWorkloads {
+					key := workload.Key(wl.Obj)
+					finalExcludeWorkloads[key] = wl
+				}
+			}
+		} else {
+			// Old code path: exclude the full workload from excludeWorkloads
+			finalExcludeWorkloads = excludeWorkloads
+		}
+
+		faPreemptionTargets := s.preemptor.GetTargets(log, *wl, fullAssignment, snap, finalExcludeWorkloads, preemptedWorkloadsV2)
 		if len(faPreemptionTargets) > 0 {
 			return fullAssignment, append(preemptionTargets, faPreemptionTargets...)
 		}
@@ -546,7 +681,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 			}
 
 			if mode == flavorassigner.Preempt {
-				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
+				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap, excludeWorkloads, preemptedWorkloadsV2)
 				if len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 				}
