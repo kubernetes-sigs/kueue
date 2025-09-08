@@ -78,6 +78,7 @@ var (
 	ErrNoMatchingWorkloads            = errors.New("no matching workloads")
 	ErrExtraWorkloads                 = errors.New("extra workloads")
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
+	ErrPriorityClassNotFound          = errors.New("priority class not found")
 )
 
 type WorkloadRetentionPolicy struct {
@@ -1356,6 +1357,20 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	}
 	wl.Spec.Active = active
 	return nil
+}
+
+func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, string, int32, error) {
+	var customPriorityFunc func() string
+	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
+		customPriorityFunc = jobWithPriorityClass.PriorityClass
+	}
+	priorityClassName, source, value, err := ExtractPriority(ctx, r.client, job.Object(), podSets, customPriorityFunc)
+	if apierrors.IsNotFound(err) {
+		r.record.Event(job.Object(), corev1.EventTypeWarning, ReasonPriorityNotFound, "PriorityClass not found")
+		return priorityClassName, source, value, ErrPriorityClassNotFound
+	}
+
+	return priorityClassName, source, value, err
 }
 
 func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
