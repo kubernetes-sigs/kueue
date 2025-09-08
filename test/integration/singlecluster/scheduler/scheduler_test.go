@@ -2528,175 +2528,192 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 		})
 	})
-	ginkgo.When("Multiple flavors can be considered for preemption", func() {
-		ginkgo.BeforeEach(func() {
-			f1 := testing.MakeResourceFlavor("f1").Obj()
-			util.MustCreate(ctx, k8sClient, f1)
+	ginkgo.When("Using multiple flavours", ginkgo.Ordered, func() {
+		var (
+			f1  *kueue.ResourceFlavor
+			f2  *kueue.ResourceFlavor
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
+		)
 
-			f2 := testing.MakeResourceFlavor("f2").Obj()
+		ginkgo.BeforeAll(func() {
+			f1 = testing.MakeResourceFlavor("f1").Obj()
+			util.MustCreate(ctx, k8sClient, f1)
+			f2 = testing.MakeResourceFlavor("f2").Obj()
 			util.MustCreate(ctx, k8sClient, f2)
 		})
 
-		ginkgo.It("finds correct flavor by discarding the first one in which preemption is not possible", func() {
-			fungibility := kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}
-			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
-
-			createQueue(testing.MakeClusterQueue("cq1").
-				FlavorFungibility(fungibility).Cohort("cohort").
-				Preemption(preemption).
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
-				).Obj())
-
-			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
-				FlavorFungibility(fungibility).
-				Preemption(preemption).
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj(),
-				).Obj())
-
-			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
-			{
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
-			}
-
-			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
-			{
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-			}
-
-			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
-			{
-				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
-
-				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
-			}
-
-			{
-				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
-
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-			}
+		ginkgo.AfterAll(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, f1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, f2, true)
 		})
-	})
-	ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
-		ginkgo.BeforeEach(func() {
-			f1 := testing.MakeResourceFlavor("f1").Obj()
-			util.MustCreate(ctx, k8sClient, f1)
 
-			f2 := testing.MakeResourceFlavor("f2").Obj()
-			util.MustCreate(ctx, k8sClient, f2)
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-		})
 		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
-		})
-		ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
-			fungibility := kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.TryNextFlavor,
-				WhenCanPreempt: kueue.Preempt}
-			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
-
-			createQueue(testing.MakeClusterQueue("cq1").
-				FlavorFungibility(fungibility).Cohort("cohort").
-				Preemption(preemption).
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
-				).Obj())
-
-			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
-				FlavorFungibility(fungibility).
-				Preemption(preemption).
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj()).Obj())
-
-			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
-			{
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+			if cq1 != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
 			}
-
-			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
-			{
-				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
-
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-
-				admission = testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
-			}
-
-			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
-			{
-				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
-
-				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+			if cq2 != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 			}
 		})
-		ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
-			fungibility := kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.Borrow,
-				WhenCanPreempt: kueue.TryNextFlavor}
-			preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
-			createQueue(testing.MakeClusterQueue("cq1").
-				FlavorFungibility(fungibility).Cohort("cohort").
-				Preemption(preemption).
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj(),
-				).Obj())
+		ginkgo.When("Multiple flavors can be considered for preemption", func() {
+			ginkgo.It("finds correct flavor by discarding the first one in which preemption is not possible", func() {
+				fungibility := kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}
+				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
-			createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
-				FlavorFungibility(fungibility).
-				Preemption(preemption).
-				ResourceGroup(
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
-				).Obj())
+				cq1 = createQueue(testing.MakeClusterQueue("cq1").
+					FlavorFungibility(fungibility).Cohort("cohort").
+					Preemption(preemption).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
+						*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj())
 
-			cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
-			{
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
-			}
+				cq2 = createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+					FlavorFungibility(fungibility).
+					Preemption(preemption).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
+						*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj(),
+					).Obj())
 
-			cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
-			{
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-			}
+				cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+				{
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+				}
 
-			cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
-			{
-				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+				cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+				{
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+				}
 
-				admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
-			}
+				cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+				{
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
 
-			{
-				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+					admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+				}
 
-				admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
-				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
-			}
+				{
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+				}
+			})
+		})
+		ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
+			ginkgo.BeforeEach(func() {
+				_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
+			})
+			ginkgo.AfterEach(func() {
+				_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+			})
+			ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
+				fungibility := kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.Preempt}
+				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+				cq1 = createQueue(testing.MakeClusterQueue("cq1").
+					FlavorFungibility(fungibility).Cohort("cohort").
+					Preemption(preemption).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
+						*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj())
+
+				cq2 = createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+					FlavorFungibility(fungibility).
+					Preemption(preemption).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
+						*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj()).Obj())
+
+				cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+				{
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+				}
+
+				cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+				{
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+
+					admission = testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+				}
+
+				cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+				{
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+					admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+				}
+			})
+			ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
+				fungibility := kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.TryNextFlavor}
+				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
+
+				cq1 = createQueue(testing.MakeClusterQueue("cq1").
+					FlavorFungibility(fungibility).Cohort("cohort").
+					Preemption(preemption).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1").Obj(),
+						*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "0").Obj(),
+					).Obj())
+
+				cq2 = createQueue(testing.MakeClusterQueue("cq2").Cohort("cohort").
+					FlavorFungibility(fungibility).
+					Preemption(preemption).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "0").Obj(),
+						*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj())
+
+				cq1LowPriority := createWorkloadWithPriority("cq1", "1", 0)
+				{
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq1LowPriority, admission)
+				}
+
+				cq2HighPriority := createWorkloadWithPriority("cq1", "1", 9999)
+				{
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+				}
+
+				cq2MiddlePriority := createWorkloadWithPriority("cq2", "1", 105)
+				{
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq2HighPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq2HighPriority)
+
+					admission := testing.MakeAdmission("cq2").Assignment(corev1.ResourceCPU, "f2", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2MiddlePriority, admission)
+				}
+
+				{
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, cq1LowPriority)
+					util.FinishEvictionForWorkloads(ctx, k8sClient, cq1LowPriority)
+
+					admission := testing.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj()
+					util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, cq2HighPriority, admission)
+				}
+			})
 		})
 	})
 	ginkgo.When("Deleting ClusterQueue should update cohort borrowable resources", func() {
