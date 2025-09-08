@@ -49,93 +49,58 @@ func TestBaseWebhookDefault(t *testing.T) {
 		want                       *batchv1.Job
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
-			want: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-				Spec: batchv1.JobSpec{Suspend: ptr.To(true)},
-			},
+			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			want: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Suspend(true).Obj(),
 		},
 		"update the suspend field 'manageJobsWithoutQueueName=true'": {
 			manageJobsWithoutQueueName: true,
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
-			want: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-				Spec: batchv1.JobSpec{Suspend: ptr.To(true)},
-			},
+			job:                        utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			want:                       utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Suspend(true).Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job doesn't have queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
-			job: utiljob.MakeJob("job", "default").
-				Obj(),
-			want: utiljob.MakeJob("job", "default").
+			job:                  utiljob.MakeJob("job", metav1.NamespaceDefault).Obj(),
+			want: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Label(constants.QueueLabel, "default").
 				Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq is created, job has queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       true,
-			job: utiljob.MakeJob("job", "default").
-				Queue("queue").
-				Obj(),
-			want: utiljob.MakeJob("job", "default").
-				Queue("queue").
-				Obj(),
+			job:                  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			want:                 utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 		},
 		"LocalQueueDefaulting enabled, default lq isn't created, job doesn't have queue label": {
 			localQueueDefaulting: true,
 			defaultLqExist:       false,
-			job: utiljob.MakeJob("job", "default").
-				Obj(),
-			want: utiljob.MakeJob("job", "default").
-				Obj(),
+			job:                  utiljob.MakeJob("job", metav1.NamespaceDefault).Obj(),
+			want:                 utiljob.MakeJob("job", metav1.NamespaceDefault).Obj(),
 		},
 		"ManagedByDefaulting, targeting multikueue local queue": {
-			job: utiljob.MakeJob("job", "default").
-				Queue("multikueue").
-				Obj(),
-			want: utiljob.MakeJob("job", "default").
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("multikueue").Obj(),
+			want: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Queue("multikueue").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			enableMultiKueue: true,
 		},
 		"ManagedByDefaulting, targeting multikueue local queue but already managaed by someone else": {
-			job: utiljob.MakeJob("job", "default").
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Queue("multikueue").
 				ManagedBy("someone-else").
 				Obj(),
-			want: utiljob.MakeJob("job", "default").
+			want: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Queue("multikueue").
 				ManagedBy("someone-else").
 				Obj(),
 			enableMultiKueue: true,
 		},
 		"ManagedByDefaulting, targeting non-multikueue local queue": {
-			job: utiljob.MakeJob("job", "default").
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Queue("queue").
 				Obj(),
-			want: utiljob.MakeJob("job", "default").
+			want: utiljob.MakeJob("job", metav1.NamespaceDefault).
 				Queue("queue").
 				Obj(),
 			enableMultiKueue: true,
@@ -148,19 +113,19 @@ func TestBaseWebhookDefault(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.enableMultiKueue)
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(
-					utiltesting.MakeNamespace("default"),
+					utiltesting.MakeNamespace(metav1.NamespaceDefault),
 				)
 			cl := clientBuilder.Build()
 			cqCache := schdcache.New(cl)
 			queueManager := qcache.NewManager(cl, cqCache)
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", metav1.NamespaceDefault).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
 			if tc.enableMultiKueue {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multikueue", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("multikueue", metav1.NamespaceDefault).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
@@ -236,23 +201,11 @@ func TestValidateOnCreate(t *testing.T) {
 	}{
 		{
 			name: "valid request",
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
+			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 		},
 		{
 			name: "invalid request with validate on create",
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
+			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 			validateOnCreate: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metadata.annotations"),
@@ -317,38 +270,14 @@ func TestValidateOnUpdate(t *testing.T) {
 		wantWarn         admission.Warnings
 	}{
 		{
-			name: "valid request",
-			oldJob: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
+			name:   "valid request",
+			oldJob: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			job:    utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 		},
 		{
-			name: "invalid request with validate on update",
-			oldJob: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
-			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "job",
-					Namespace: "default",
-					Labels:    map[string]string{constants.QueueLabel: "queue"},
-				},
-			},
+			name:   "invalid request with validate on update",
+			oldJob: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			job:    utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 			validateOnUpdate: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metadata.annotations"),
