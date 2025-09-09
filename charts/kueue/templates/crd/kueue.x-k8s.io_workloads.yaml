@@ -8498,7 +8498,7 @@ spec:
                       lastTransitionTime:
                         description: |-
                           lastTransitionTime is the last time the condition transitioned from one status to another.
-                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                          It will be set by kueue when the underlying condition changed
                         format: date-time
                         type: string
                       message:
@@ -8597,6 +8597,25 @@ spec:
                         maxItems: 8
                         type: array
                         x-kubernetes-list-type: atomic
+                      requeueAfterSeconds:
+                        description: |-
+                          requeueAfterSeconds indicates how long to wait at least before
+                          retrying to admit the workload.
+                          When State=Retry, admission check controllers can set this
+                          to implement delays between retry attempts.
+
+                          If nil when State=Retry, Kueue will retry immediately.
+                          If set, Kueue will add the workload back to the queue after
+                            lastTransitionTime + RequeueAfterSeconds is over.
+                        format: int32
+                        type: integer
+                      retryCount:
+                        description: |-
+                          retryCount tracks retry attempts for this admission check.
+                          Kueue automatically increments the counter whenever the
+                          state transitions to Retry.
+                        format: int32
+                        type: integer
                       state:
                         description: state of the admissionCheck, one of Pending, Ready, Retry, Rejected
                         enum:
@@ -8606,7 +8625,6 @@ spec:
                           - Rejected
                         type: string
                     required:
-                      - lastTransitionTime
                       - message
                       - name
                       - state
@@ -17322,7 +17340,7 @@ spec:
                       lastTransitionTime:
                         description: |-
                           lastTransitionTime is the last time the condition transitioned from one status to another.
-                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                          It will be set by kueue when the underlying condition changed
                         format: date-time
                         type: string
                       message:
@@ -17421,6 +17439,25 @@ spec:
                         maxItems: 8
                         type: array
                         x-kubernetes-list-type: atomic
+                      requeueAfterSeconds:
+                        description: |-
+                          requeueAfterSeconds indicates how long to wait at least before
+                          retrying to admit the workload.
+                          When State=Retry, admission check controllers can set this
+                          to implement delays between retry attempts.
+
+                          If nil when State=Retry, Kueue will retry immediately.
+                          If set, Kueue will add the workload back to the queue after
+                            lastTransitionTime + RequeueAfterSeconds is over.
+                        format: int32
+                        type: integer
+                      retryCount:
+                        description: |-
+                          retryCount tracks retry attempts for this admission check.
+                          Kueue automatically increments the counter whenever the
+                          state transitions to Retry.
+                        format: int32
+                        type: integer
                       state:
                         description: state of the admissionCheck, one of Pending, Ready, Retry, Rejected
                         enum:
@@ -17430,7 +17467,6 @@ spec:
                           - Rejected
                         type: string
                     required:
-                      - lastTransitionTime
                       - message
                       - name
                       - state

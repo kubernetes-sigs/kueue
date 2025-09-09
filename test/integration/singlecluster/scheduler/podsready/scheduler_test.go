@@ -244,8 +244,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 	})
 
-	var _ = ginkgo.Context("Short PodsReady timeout", func() {
-		var realClock = clock.RealClock{}
+	_ = ginkgo.Context("Short PodsReady timeout", func() {
+		realClock := clock.RealClock{}
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.ShortTimeout
@@ -362,7 +362,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 	})
 
-	var _ = ginkgo.Context("Tiny PodsReady timeout", func() {
+	_ = ginkgo.Context("Tiny PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.TinyTimeout
 			requeueingBackoffLimitCount = ptr.To[int32](2)
@@ -518,7 +518,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 	})
 
-	var _ = ginkgo.Context("Requeuing timestamp set to Creation", func() {
+	_ = ginkgo.Context("Requeuing timestamp set to Creation", func() {
 		var (
 			standaloneClusterQ *kueue.ClusterQueue
 			standaloneQueue    *kueue.LocalQueue
@@ -689,7 +689,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		})
 	})
 
-	var _ = ginkgo.Context("Tiny PodsReady timeout", func() {
+	_ = ginkgo.Context("Tiny PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.TinyTimeout
 		})
@@ -712,15 +712,14 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
-			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: ptr.To[int32](2),
-			}, false)
+			}, true)
 			gomega.Expect(workload.IsActive(prodWl)).Should(gomega.BeTrue())
 		})
 	})
 
-	var _ = ginkgo.Context("Requeuing timestamp set to Creation", func() {
+	_ = ginkgo.Context("Requeuing timestamp set to Creation", func() {
 		var (
 			standaloneClusterQ *kueue.ClusterQueue
 			standaloneQueue    *kueue.LocalQueue
@@ -792,7 +791,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				}, true)
 				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
 					Count: ptr.To[int32](1),
-				}, true)
+				}, false)
 				ginkgo.By("wl3 had never been admitted", func() {
 					util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), nil, false)
 				})

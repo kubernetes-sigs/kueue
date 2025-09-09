@@ -959,7 +959,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:               "ac1",
 						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout / 2)), // 50% of the timeout
+						LastTransitionTime: ptr.To(metav1.NewTime(now.Add(-defaultWorkerLostTimeout / 2))), // 50% of the timeout
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -987,7 +987,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:               "ac1",
 						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)), // 150% of the timeout
+						LastTransitionTime: ptr.To(metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2))), // 150% of the timeout
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").

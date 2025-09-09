@@ -22,7 +22,9 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -91,38 +93,33 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 			continue
 		}
 		checks[i] = kueue.AdmissionCheckState{
-			Name:               checks[i].Name,
-			State:              kueue.CheckStatePending,
-			LastTransitionTime: metav1.NewTime(now),
-			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+			Name:                checks[i].Name,
+			State:               kueue.CheckStatePending,
+			Message:             "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+			RequeueAfterSeconds: checks[i].RequeueAfterSeconds,
+			RetryCount:          checks[i].RetryCount,
 		}
 	}
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
+// TODO: remove clock
 func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
 	if checks == nil {
 		return false
 	}
 	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
-		if newCheck.LastTransitionTime.IsZero() {
-			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
 		*checks = append(*checks, newCheck)
 		return true
 	}
 
 	if existingCondition.State != newCheck.State {
 		existingCondition.State = newCheck.State
-		if !newCheck.LastTransitionTime.IsZero() {
-			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
 	}
 	existingCondition.Message = newCheck.Message
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
+	existingCondition.RequeueAfterSeconds = newCheck.RequeueAfterSeconds
 	return true
 }
 
@@ -185,4 +182,55 @@ func HasRejectedChecks(wl *kueue.Workload) bool {
 		}
 	}
 	return false
+}
+
+// GetMaxRetryTime returns the max retry time from all the admission checks.
+// It will return a zero time if no retry time is found.
+func GetMaxRetryTime(wl *kueue.Workload) metav1.Time {
+	var max time.Time
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].RequeueAfterSeconds == nil {
+			continue
+		}
+		// This should never happen, but prevents panics
+		if wl.Status.AdmissionChecks[i].LastTransitionTime == nil {
+			continue
+		}
+
+		retryTime := wl.Status.AdmissionChecks[i].LastTransitionTime.Add(time.Duration(*wl.Status.AdmissionChecks[i].RequeueAfterSeconds) * time.Second)
+		if max.Before(retryTime) {
+			max = retryTime
+		}
+	}
+	return metav1.NewTime(max)
+}
+
+// UpdateAdmissionCheckRequeueState calculates the RequeueAfterSeconds based on the backoff and requeuingCount
+func UpdateAdmissionCheckRequeueState(acState *kueue.AdmissionCheckState, backoffBaseSeconds int32, backoffMaxSeconds int32, clock clock.Clock) {
+	requeuingCount := ptr.Deref(acState.RetryCount, 0) + 1
+
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
+	// - "n" represents the "requeuingCount",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and other
+	// workloads will have a chance to be admitted.
+	backoff := &wait.Backoff{
+		Duration: time.Duration(backoffBaseSeconds) * time.Second,
+		Factor:   2,
+		Jitter:   0.0001,
+		Steps:    int(requeuingCount),
+	}
+	var waitDuration time.Duration
+	for backoff.Steps > 0 {
+		waitDuration = min(backoff.Step(), time.Duration(backoffMaxSeconds)*time.Second)
+	}
+
+	acState.RequeueAfterSeconds = ptr.To(int32(waitDuration.Truncate(time.Second).Seconds()))
+}
+
+// ResetAdmissionCheckRequeueState sets all admission checks requeueAfterSeconds to nil
+func ResetAdmissionCheckRequeueState(w *kueue.Workload) {
+	for i := range w.Status.AdmissionChecks {
+		w.Status.AdmissionChecks[i].RequeueAfterSeconds = nil
+	}
 }

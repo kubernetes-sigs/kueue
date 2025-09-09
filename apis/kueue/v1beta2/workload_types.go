@@ -525,18 +525,36 @@ type AdmissionCheckState struct {
 	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
 	State CheckState `json:"state"`
 	// lastTransitionTime is the last time the condition transitioned from one status to another.
-	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-	// +required
-	// +kubebuilder:validation:Required
+	// It will be set by kueue when the underlying condition changed
+	// +optional
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
-	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 	// message is a human readable message indicating details about the transition.
 	// This may be an empty string.
 	// +required
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=32768
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
+	// requeueAfterSeconds indicates how long to wait at least before
+	// retrying to admit the workload.
+	// When State=Retry, admission check controllers can set this
+	// to implement delays between retry attempts.
+	//
+	// If nil when State=Retry, Kueue will retry immediately.
+	// If set, Kueue will add the workload back to the queue after
+	//   lastTransitionTime + RequeueAfterSeconds is over.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
+	// retryCount tracks retry attempts for this admission check.
+	// Kueue automatically increments the counter whenever the
+	// state transitions to Retry.
+	// +optional
+	// +kubebuilder:validation:Optional
+	RetryCount *int32 `json:"retryCount,omitempty"`
 
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional

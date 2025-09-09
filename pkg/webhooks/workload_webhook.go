@@ -23,28 +23,39 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-type WorkloadWebhook struct{}
+type WorkloadWebhook struct {
+	client client.Client
+	clock  clock.Clock
+}
 
-func setupWebhookForWorkload(mgr ctrl.Manager) error {
-	wh := &WorkloadWebhook{}
+func setupWebhookForWorkload(mgr ctrl.Manager, clock clock.Clock) error {
+	wh := &WorkloadWebhook{
+		client: mgr.GetClient(),
+		clock:  clock,
+	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.Workload{}).
 		WithDefaulter(wh).
@@ -52,7 +63,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -67,6 +78,49 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
+	}
+
+	var oldWl kueue.Workload
+	err := w.client.Get(ctx, client.ObjectKeyFromObject(wl), &oldWl)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to fetch old workload: %v", err)
+	}
+
+	log.V(5).Info("Updating AC LastTransitionTime if changed")
+	for i, acState := range wl.Status.AdmissionChecks {
+		var oldACState kueue.AdmissionCheckState
+		if state := admissioncheck.FindAdmissionCheck(oldWl.Status.AdmissionChecks, acState.Name); state != nil {
+			oldACState = *state
+		}
+
+		if oldACState.State == acState.State {
+			log.V(5).Info("Admission check state did not change", "name", acState.Name)
+			continue
+		}
+
+		// TODO: this will mess up the relative state.
+		// To mitigate this we'll have to remove the difference between the two timestamps from the RequeueAfterSeconds
+		log.V(2).Info("Updating Admission check LastTransitionTime to now", "name", acState.Name)
+		wl.Status.AdmissionChecks[i].LastTransitionTime = ptr.To(metav1.NewTime(w.clock.Now()))
+
+		// This will make sure that the retry counter is always set properly
+		if acState.State == kueue.CheckStateRetry {
+			oldCount := ptr.Deref(oldACState.RetryCount, 0)
+			wl.Status.AdmissionChecks[i].RetryCount = ptr.To(oldCount + 1)
+		}
+	}
+
+	maxTime := workload.GetMaxRetryTime(wl)
+	if !maxTime.IsZero() {
+		log.V(2).Info("At leas one admission check set a retry time", "maxTime", maxTime)
+		if wl.Status.RequeueState == nil {
+			wl.Status.RequeueState = &kueue.RequeueState{}
+		}
+		if wl.Status.RequeueState.RequeueAt != nil && wl.Status.RequeueState.RequeueAt.After(maxTime.Time) {
+			log.V(2).Info("Ignoring AC retry time as it's before the current RequeueState time", "time", wl.Status.RequeueState.RequeueAt, "maxTime", maxTime)
+			maxTime = *wl.Status.RequeueState.RequeueAt
+		}
+		wl.Status.RequeueState.RequeueAt = &maxTime
 	}
 
 	return nil
