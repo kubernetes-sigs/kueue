@@ -996,7 +996,6 @@ func useDomains(domains []*domain, results []*domain, remainingSliceCount int32,
 		stopCondition = func(_ int32, remainingLeaderCount int32) bool {
 			return remainingLeaderCount > 0
 		}
-
 	} else {
 		getCurrentState = func(d *domain) int32 {
 			return d.state
