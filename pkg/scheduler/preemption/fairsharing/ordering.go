@@ -22,13 +22,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/util/priority"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -156,7 +154,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
 			candidates := []*workload.Info{newCandWl, currentCandWl}
-			sort.Slice(candidates, CandidatesOrdering(candidates, t.preemptorCq.Name, time.Now()))
+			sort.Slice(candidates, preemptioncommon.CandidatesOrdering(candidates, t.preemptorCq.Name, time.Now()))
 			if candidates[0] == newCandWl {
 				highestCq = cq
 			}
@@ -207,48 +205,4 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 		ordering: t,
 		targetCq: highestCq,
 	}
-}
-
-// candidatesOrdering criteria:
-// 0. Workloads already marked for preemption first.
-// 1. Workloads from other ClusterQueues in the cohort before the ones in the
-// same ClusterQueue as the preemptor.
-// 2. Workloads with lower priority first.
-// 3. Workloads admitted more recently first.
-func CandidatesOrdering(candidates []*workload.Info, cq kueue.ClusterQueueReference, now time.Time) func(int, int) bool {
-	return func(i, j int) bool {
-		a := candidates[i]
-		b := candidates[j]
-		aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
-		bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
-		if aEvicted != bEvicted {
-			return aEvicted
-		}
-		aInCQ := a.ClusterQueue == cq
-		bInCQ := b.ClusterQueue == cq
-		if aInCQ != bInCQ {
-			return !aInCQ
-		}
-		pa := priority.Priority(a.Obj)
-		pb := priority.Priority(b.Obj)
-		if pa != pb {
-			return pa < pb
-		}
-		timeA := quotaReservationTime(a.Obj, now)
-		timeB := quotaReservationTime(b.Obj, now)
-		if !timeA.Equal(timeB) {
-			return timeA.After(timeB)
-		}
-		// Arbitrary comparison for deterministic sorting.
-		return a.Obj.UID < b.Obj.UID
-	}
-}
-
-func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	if cond == nil || cond.Status != metav1.ConditionTrue {
-		// The condition wasn't populated yet, use the current time.
-		return now
-	}
-	return cond.LastTransitionTime.Time
 }

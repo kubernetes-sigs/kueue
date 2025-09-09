@@ -502,7 +502,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
-	ginkgo.When("Preemption is enabled in fairsharing and there are best effort and guaranteed workloads", func() {
+	ginkgo.FWhen("Preemption is enabled in fairsharing and there are best effort and guaranteed workloads", func() {
 		var (
 			bestEffortCQA *kueue.ClusterQueue
 			bestEffortCQB *kueue.ClusterQueue
@@ -531,25 +531,27 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, false)
 		})
 
-		ginkgo.It("Guaranteed workloads cause preemption of a single best effort workload", func() {
-			ginkgo.By("Creating two best effort workloads in each best effort CQ")
-			wlBestEffortA := createWorkload("best-effort-a", "4")
-			util.WaitForNextSecondAfterCreation(wlBestEffortA)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBestEffortA)
-			util.ExpectReservingActiveWorkloadsMetric(bestEffortCQA, 1)
-			wlBestEffortB := createWorkload("best-effort-b", "4")
-			util.ExpectReservingActiveWorkloadsMetric(bestEffortCQB, 1)
+		for range 5 {
+			ginkgo.It("Guaranteed workloads cause preemption of a single best effort workload", func() {
+				ginkgo.By("Creating two best effort workloads in each best effort CQ")
+				wlBestEffortA := createWorkload("best-effort-a", "4")
+				util.WaitForNextSecondAfterCreation(wlBestEffortA)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBestEffortA)
+				util.ExpectReservingActiveWorkloadsMetric(bestEffortCQA, 1)
+				wlBestEffortB := createWorkload("best-effort-b", "4")
+				util.ExpectReservingActiveWorkloadsMetric(bestEffortCQB, 1)
 
-			ginkgo.By("Creating a guaranteed workload in the guaranteed CQ, that should reclaim quota")
-			wlGuaranteed := createWorkload("guaranteed", "4")
+				ginkgo.By("Creating a guaranteed workload in the guaranteed CQ, that should reclaim quota")
+				wlGuaranteed := createWorkload("guaranteed", "4")
 
-			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlBestEffortB)
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlBestEffortB)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlGuaranteed)
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlBestEffortB)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wlBestEffortB)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlGuaranteed)
 
-			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQA.Name, kueue.WorkloadEvictedByPreemption, 0)
-			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQB.Name, kueue.WorkloadEvictedByPreemption, 1)
-		})
+				util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQA.Name, kueue.WorkloadEvictedByPreemption, 0)
+				util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQB.Name, kueue.WorkloadEvictedByPreemption, 1)
+			})
+		}
 	})
 })
 
