@@ -88,6 +88,40 @@ type domain struct {
 	levelValues []string
 }
 
+type domainState func(d *domain) int32
+
+func getState(hasLeader, forSlices bool) domainState {
+	if hasLeader {
+		if forSlices {
+			return func(d *domain) int32 {
+				return d.sliceStateWithLeader
+			}
+		} else {
+			return func(d *domain) int32 {
+				return d.stateWithLeader
+			}
+		}
+	}
+	if forSlices {
+		return func(d *domain) int32 {
+			return d.sliceState
+		}
+	} else {
+		return func(d *domain) int32 {
+			return d.state
+		}
+	}
+}
+
+func (d *domain) getStateWithLeader(hasLeader, forSlices bool) (state, leaderState int32) {
+	if hasLeader {
+		leaderState = d.leaderState
+	} else {
+		leaderState = 0
+	}
+	return getState(hasLeader, forSlices)(d), leaderState
+}
+
 // leafDomain extends the domain with information for the lowest-level domain.
 type leafDomain struct {
 	domain
@@ -707,13 +741,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// phase 2b: traverse the tree down level-by-level optimizing the number of
 	// topology domains at each level
 	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateSliceCountsToMinimum(currFitDomain, count, leaderCount, sliceSize, unconstrained)
+	currFitDomain = s.updateCountsToMinimum(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
 	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
 		if levelIdx < sliceLevelIdx {
 			// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
 			// all domains without checking what we've assigned to parent domains.
 			sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
-			currFitDomain = s.updateSliceCountsToMinimum(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained)
+			currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
 		} else {
 			// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
 			// to domains based on what we've assigned to parent domains, that's why we're iterating through
@@ -722,7 +756,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			for _, domain := range currFitDomain {
 				sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
 
-				addCurrFitDomain := s.updateCountsToMinimum(sortedLowerDomains, domain.state, domain.leaderState, unconstrained)
+				addCurrFitDomain := s.updateCountsToMinimum(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
 				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
 			}
 			currFitDomain = newCurrFitDomain
@@ -875,37 +909,9 @@ func isSliceTopologyOnlyRequest(tr *kueue.PodSetTopologyRequest) bool {
 // value of state, higher or equal than count.
 // If such a domain doesn't exist, it returns first domain as it's the domain with the
 // most available resources
-func findBestFitDomain(domains []*domain, count int32, leaderCount int32) *domain {
-	getState := func(d *domain) int32 {
-		return d.state
-	}
-	if leaderCount > 0 {
-		getState = func(d *domain) int32 {
-			return d.stateWithLeader
-		}
-	}
-	return findBestFitDomainBy(domains, count, getState)
-}
+func findBestFitDomain(domains []*domain, needed int32, hasLeader bool, forSlices bool) *domain {
+	state := getState(hasLeader, forSlices)
 
-// findBestFitDomainForSlices finds an index of the first domain with the lowest
-// value of sliceState, higher or equal than sliceCount.
-// If such a domain doesn't exist, it returns first domain as it's the domain with the
-// most available resources
-func findBestFitDomainForSlices(domains []*domain, sliceCount int32, leaderCount int32) *domain {
-	getState := func(d *domain) int32 {
-		return d.sliceState
-	}
-	if leaderCount > 0 {
-		getState = func(d *domain) int32 {
-			return d.sliceStateWithLeader
-		}
-	}
-	return findBestFitDomainBy(domains, sliceCount, getState)
-}
-
-type domainState func(d *domain) int32
-
-func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *domain {
 	bestDomain := domains[0]
 	bestDomainState := state(bestDomain)
 
@@ -934,7 +940,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	sliceCount := podSetSize / sliceSize
 	if useBestFitAlgorithm(unconstrained) && topDomain.sliceStateWithLeader >= sliceCount && topDomain.leaderState >= leaderPodSetSize {
 		// optimize the potentially last domain
-		topDomain = findBestFitDomainForSlices(sortedDomain, sliceCount, leaderPodSetSize)
+		topDomain = findBestFitDomain(sortedDomain, sliceCount, leaderPodSetSize > 0, true)
 	}
 	if useLeastFreeCapacityAlgorithm(unconstrained) {
 		for _, candidateDomain := range sortedDomain {
@@ -962,41 +968,58 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		// We want to assign leaders first. After we are assign all leaders, we sort the remaining
 		// "unused" domains based on worker capacity (sliceState, state and then levelValues) and
 		// try to assign remaining workers.
-		idx := 0
-		for ; remainingLeaderCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].leaderState > 0; idx++ {
-			domain := sortedDomain[idx]
-			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceStateWithLeader >= remainingSliceCount {
-				// optimize the last domain
-				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, remainingLeaderCount)
-			}
-			results = append(results, domain)
-
-			remainingLeaderCount -= domain.leaderState
-			remainingSliceCount -= domain.sliceStateWithLeader
-		}
+		remainingSliceCount, remainingLeaderCount, results, sortedDomain = useDomains(sortedDomain, results, remainingSliceCount, remainingLeaderCount, unconstrained)
 		if remainingLeaderCount > 0 {
 			return 0, nil, s.notFitMessage(leaderPodSetSize-remainingLeaderCount, sliceCount, sliceSize)
 		}
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = s.sortedDomains(sortedDomain[idx:], unconstrained)
-		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].sliceState > 0; idx++ {
-			domain := sortedDomain[idx]
-			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
-				// optimize the last domain
-				domain = findBestFitDomainForSlices(sortedDomain[idx:], remainingSliceCount, 0)
-			}
-			results = append(results, domain)
-
-			remainingSliceCount -= domain.sliceState
-		}
+		sortedDomain = s.sortedDomains(sortedDomain, unconstrained)
+		remainingSliceCount, _, results, _ = useDomains(sortedDomain, results, remainingSliceCount, 0, unconstrained)
 		if remainingSliceCount > 0 {
 			return 0, nil, s.notFitMessage(sliceCount-remainingSliceCount, sliceCount, sliceSize)
 		}
 		return levelIdx, results, ""
 	}
 	return levelIdx, []*domain{topDomain}, ""
+}
+
+func useDomains(sortedDomains []*domain, results []*domain, remainingSliceCount int32, remainingLeaderCount int32, unconstrained bool) (int32, int32, []*domain, []*domain) {
+	var getCurrentState func(d *domain) int32
+	var stopCondition func(int32, int32) bool
+	idx := 0
+	withLeader := remainingLeaderCount > 0
+	if withLeader {
+		getCurrentState = func(d *domain) int32 {
+			return d.leaderState
+		}
+		stopCondition = func(_ int32, remainingLeaderCount int32) bool {
+			return remainingLeaderCount > 0
+		}
+
+	} else {
+		getCurrentState = func(d *domain) int32 {
+			return d.state
+		}
+		stopCondition = func(remainingSliceCount int32, _ int32) bool {
+			return remainingSliceCount > 0
+		}
+	}
+
+	for ; stopCondition(remainingSliceCount, remainingLeaderCount) && idx < len(sortedDomains) && getCurrentState(sortedDomains[idx]) > 0; idx++ {
+		domain := sortedDomains[idx]
+		if useBestFitAlgorithm(unconstrained) && getState(withLeader, true)(sortedDomains[idx]) >= remainingSliceCount {
+			// optimize the last domain
+			domain = findBestFitDomain(sortedDomains[idx:], remainingSliceCount, remainingLeaderCount > 0, true)
+		}
+		results = append(results, domain)
+		remainingSliceCount -= getState(withLeader, true)(domain)
+		if remainingLeaderCount > 0 {
+			remainingLeaderCount -= domain.leaderState
+		}
+	}
+	return remainingSliceCount, remainingLeaderCount, results, sortedDomains[idx:]
 }
 
 func useBestFitAlgorithm(unconstrained bool) bool {
@@ -1010,112 +1033,50 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 		(unconstrained && features.Enabled(features.TASProfileMixed))
 }
 
-func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count int32, leaderCount int32, sliceSize int32, unconstrained bool) []*domain {
+// updateCountsToMinimum is a helper function for findTopologyAssignment. It updates the counts of pods/slices
+// that can be scheduled on a list of domains.
+// If bySlices is true, it operates on slices, otherwise on pods.
+func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, leaderCount int32, sliceSize int32, unconstrained bool, forSlices bool) []*domain {
 	result := make([]*domain, 0)
-	remainingSlices := count / sliceSize
-	remainingLeaderCount := leaderCount
-	for i, domain := range domains {
-		if remainingLeaderCount > 0 {
-			if useBestFitAlgorithm(unconstrained) && domain.sliceStateWithLeader >= remainingSlices && domain.leaderState >= remainingLeaderCount {
-				// optimize the last domain
-				domain = findBestFitDomainForSlices(domains[i:], remainingSlices, remainingLeaderCount)
-			}
-
-			if domain.sliceStateWithLeader >= remainingSlices && domain.leaderState >= remainingLeaderCount {
-				domain.state = remainingSlices * sliceSize
-				domain.sliceState = remainingSlices
-				domain.leaderState = remainingLeaderCount
-				result = append(result, domain)
-				return result
-			}
-
-			if domain.sliceStateWithLeader > remainingSlices {
-				domain.sliceStateWithLeader = remainingSlices
-			}
-
-			if domain.leaderState > remainingLeaderCount {
-				domain.leaderState = remainingLeaderCount
-			}
-
-			domain.state = domain.sliceStateWithLeader * sliceSize
-			remainingLeaderCount -= domain.leaderState
-			remainingSlices -= domain.sliceStateWithLeader
-
-			result = append(result, domain)
-		} else {
-			if useBestFitAlgorithm(unconstrained) && domain.sliceState >= remainingSlices {
-				// optimize the last domain
-				domain = findBestFitDomainForSlices(domains[i:], remainingSlices, 0)
-			}
-
-			domain.leaderState = 0
-
-			if domain.sliceState >= remainingSlices {
-				domain.state = remainingSlices * sliceSize
-				domain.sliceState = remainingSlices
-				result = append(result, domain)
-				return result
-			}
-			domain.state = domain.sliceState * sliceSize
-			remainingSlices -= domain.sliceState
-			result = append(result, domain)
-		}
-	}
-	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
-		"remainingSlices", remainingSlices,
-		"remainingLeaderCount", remainingLeaderCount,
-		"count", count,
-		"leaves", s.leaves)
-	return nil
-}
-
-func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32, leaderCount int32, unconstrained bool) []*domain {
-	result := make([]*domain, 0)
-	remainingCount := count
+	remaining := count / sliceSize
 	remainingLeaderCount := leaderCount
 
 	for i, domain := range domains {
-		if remainingLeaderCount > 0 {
-			if useBestFitAlgorithm(unconstrained) && domain.stateWithLeader >= remainingCount && domain.leaderState >= remainingLeaderCount {
-				// optimize the last domain
-				domain = findBestFitDomain(domains[i:], remainingCount, remainingLeaderCount)
-			}
+		hasLeader := remainingLeaderCount > 0
 
-			if domain.stateWithLeader >= remainingCount && domain.leaderState >= remainingLeaderCount {
-				domain.state = remainingCount
-				domain.leaderState = remainingLeaderCount
-				result = append(result, domain)
-				return result
-			}
-			remainingCount -= domain.stateWithLeader
-			remainingLeaderCount -= domain.leaderState
+		domainCapacity, domainLeaderCapacity := domain.getStateWithLeader(hasLeader, forSlices)
 
-			if domain.stateWithLeader > remainingCount {
-				domain.stateWithLeader = remainingCount
-			}
-			if domain.leaderState > remainingLeaderCount {
-				domain.leaderState = remainingLeaderCount
-			}
-			result = append(result, domain)
-		} else {
-			if useBestFitAlgorithm(unconstrained) && domain.state >= remainingCount {
-				// optimize the last domain
-				domain = findBestFitDomain(domains[i:], remainingCount, 0)
-			}
-
-			domain.leaderState = 0
-
-			if domain.state >= remainingCount {
-				domain.state = remainingCount
-				result = append(result, domain)
-				return result
-			}
-			remainingCount -= domain.state
-			result = append(result, domain)
+		if useBestFitAlgorithm(unconstrained) && domainCapacity >= remaining && domainLeaderCapacity >= remainingLeaderCount {
+			domain = findBestFitDomain(domains[i:], remaining, remainingLeaderCount > 0, forSlices)
+			domainCapacity, domainLeaderCapacity = domain.getStateWithLeader(hasLeader, forSlices)
 		}
+
+		if domainCapacity >= remaining && domainLeaderCapacity >= remainingLeaderCount {
+			domain.leaderState = remainingLeaderCount
+			if forSlices {
+				domain.sliceState = remaining
+			}
+			domain.state = remaining * sliceSize
+			result = append(result, domain)
+			return result
+		}
+
+		if hasLeader {
+			domain.sliceStateWithLeader = min(domain.sliceStateWithLeader, remaining)
+			domain.stateWithLeader = min(domain.stateWithLeader, remaining)
+			domain.leaderState = min(domain.leaderState, remainingLeaderCount)
+			remainingLeaderCount -= domain.leaderState
+		} else {
+			domain.leaderState = 0
+		}
+		remaining -= domainCapacity
+		domain.state = domainCapacity * sliceSize
+
+		result = append(result, domain)
 	}
+
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
-		"remainingCount", remainingCount,
+		"remainingCount", remaining,
 		"remainingLeaderCount", remainingLeaderCount,
 		"count", count,
 		"leaves", s.leaves)
