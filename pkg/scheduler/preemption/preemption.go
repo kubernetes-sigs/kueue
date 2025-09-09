@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -210,7 +211,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, fairsharing.CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, preemptioncommon.CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
@@ -377,7 +378,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		return nil
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		return fairsharing.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
+		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
