@@ -971,7 +971,7 @@ func IsEvictedByDeactivation(w *kueue.Workload) bool {
 func IsEvictedDueToDeactivationByKueue(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
 	return cond != nil && cond.Status == metav1.ConditionTrue &&
-		strings.HasPrefix(cond.Reason, fmt.Sprintf("%sDueTo", kueue.WorkloadDeactivated))
+		strings.HasPrefix(cond.Reason, ReasonWithCause(kueue.WorkloadDeactivated, ""))
 }
 
 func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
@@ -1106,7 +1106,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
 	evictionReason := reason
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+		evictionReason = ReasonWithCause(evictionReason, underlyingCause)
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
@@ -1152,9 +1152,9 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, underlyingCause)
 	}
-	eventReason := fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason)
+	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		eventReason = fmt.Sprintf("%sDueTo%s", eventReason, underlyingCause)
+		eventReason = ReasonWithCause(eventReason, underlyingCause)
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
 }
@@ -1213,4 +1213,8 @@ func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 		return true
 	}
 	return false
+}
+
+func ReasonWithCause(reason, underlyingCause string) string {
+	return fmt.Sprintf("%sDueTo%s", reason, underlyingCause)
 }
