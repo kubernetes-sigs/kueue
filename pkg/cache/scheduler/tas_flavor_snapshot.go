@@ -985,10 +985,9 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	return levelIdx, []*domain{topDomain}, ""
 }
 
-func useDomains(sortedDomains []*domain, results []*domain, remainingSliceCount int32, remainingLeaderCount int32, unconstrained bool) (int32, int32, []*domain, []*domain) {
+func useDomains(domains []*domain, results []*domain, remainingSliceCount int32, remainingLeaderCount int32, unconstrained bool) (int32, int32, []*domain, []*domain) {
 	var getCurrentState func(d *domain) int32
 	var stopCondition func(int32, int32) bool
-	idx := 0
 	withLeader := remainingLeaderCount > 0
 	if withLeader {
 		getCurrentState = func(d *domain) int32 {
@@ -1006,12 +1005,12 @@ func useDomains(sortedDomains []*domain, results []*domain, remainingSliceCount 
 			return remainingSliceCount > 0
 		}
 	}
-
-	for ; stopCondition(remainingSliceCount, remainingLeaderCount) && idx < len(sortedDomains) && getCurrentState(sortedDomains[idx]) > 0; idx++ {
-		domain := sortedDomains[idx]
-		if useBestFitAlgorithm(unconstrained) && getState(withLeader, true)(sortedDomains[idx]) >= remainingSliceCount {
+	idx := 0
+	for ; stopCondition(remainingSliceCount, remainingLeaderCount) && idx < len(domains) && getCurrentState(domains[idx]) > 0; idx++ {
+		domain := domains[idx]
+		if useBestFitAlgorithm(unconstrained) && getState(withLeader, true)(domains[idx]) >= remainingSliceCount {
 			// optimize the last domain
-			domain = findBestFitDomain(sortedDomains[idx:], remainingSliceCount, remainingLeaderCount > 0, true)
+			domain = findBestFitDomain(domains[idx:], remainingSliceCount, remainingLeaderCount > 0, true)
 		}
 		results = append(results, domain)
 		remainingSliceCount -= getState(withLeader, true)(domain)
@@ -1019,7 +1018,7 @@ func useDomains(sortedDomains []*domain, results []*domain, remainingSliceCount 
 			remainingLeaderCount -= domain.leaderState
 		}
 	}
-	return remainingSliceCount, remainingLeaderCount, results, sortedDomains[idx:]
+	return remainingSliceCount, remainingLeaderCount, results, domains[idx:]
 }
 
 func useBestFitAlgorithm(unconstrained bool) bool {
