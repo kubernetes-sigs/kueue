@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1295,6 +1297,88 @@ func TestNeedsSecondPass(t *testing.T) {
 			got := NeedsSecondPass(tc.wl)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected NeedsSecondPass() result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+func TestPatchAdmissionStatus(t *testing.T) {
+	var realClock clock.RealClock
+	type patchCall struct {
+		updated bool
+		err     error
+	}
+
+	errUpdate := errors.New("update error")
+
+	tests := map[string]struct {
+		featureEnabled bool
+		patchCall      patchCall
+		wantPatched    bool
+		wantErr        error
+	}{
+		"feature disabled, update returns true": {
+			featureEnabled: false,
+			patchCall:      patchCall{updated: true, err: nil},
+			wantPatched:    true,
+			wantErr:        nil,
+		},
+		"feature disabled, update returns false": {
+			featureEnabled: false,
+			patchCall:      patchCall{updated: false, err: nil},
+			wantPatched:    false,
+			wantErr:        nil,
+		},
+		"feature disabled, update returns error": {
+			featureEnabled: false,
+			patchCall:      patchCall{updated: false, err: errUpdate},
+			wantPatched:    false,
+			wantErr:        errUpdate,
+		},
+		"feature enabled, update returns true": {
+			featureEnabled: true,
+			patchCall:      patchCall{updated: true, err: nil},
+			wantPatched:    true,
+			wantErr:        nil,
+		},
+		"feature enabled, update returns false": {
+			featureEnabled: true,
+			patchCall:      patchCall{updated: false, err: nil},
+			wantPatched:    true,
+			wantErr:        nil,
+		},
+		"feature enabled, update returns error": {
+			featureEnabled: true,
+			patchCall:      patchCall{updated: false, err: errUpdate},
+			wantPatched:    false,
+			wantErr:        errUpdate,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, tc.featureEnabled)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := utiltesting.MakeWorkload("foo", "default").Obj()
+			called := false
+			cl := utiltesting.NewFakeClientSSAAsSM(wl)
+			gotErr := PatchAdmissionStatus(
+				ctx,
+				cl,
+				wl,
+				false,
+				realClock,
+				func() (client.Object, bool, error) {
+					called = true
+					return wl, tc.patchCall.updated, tc.patchCall.err
+				},
+			)
+			if cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()) != "" {
+				t.Errorf("PatchAdmissionStatus() error = %v, wantErr %v", gotErr, tc.wantErr)
+			}
+			if tc.featureEnabled && !called {
+				t.Errorf("expected update func to be called when feature enabled")
+			}
+			if !tc.featureEnabled && tc.patchCall.updated && !called {
+				t.Errorf("expected update func to be called when feature disabled and update true")
 			}
 		})
 	}
