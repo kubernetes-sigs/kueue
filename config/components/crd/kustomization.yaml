@@ -13,7 +13,6 @@ resources:
 - bases/kueue.x-k8s.io_multikueueconfigs.yaml
 - bases/kueue.x-k8s.io_multikueueclusters.yaml
 - bases/kueue.x-k8s.io_topologies.yaml
-- bases/kueue.x-k8s.io_dynamicresourceallocationconfigs.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

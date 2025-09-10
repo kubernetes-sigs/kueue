@@ -64,6 +64,7 @@ var (
 	internalCertManagementPath           = field.NewPath("internalCertManagement")
 	queueVisibilityPath                  = field.NewPath("queueVisibility")
 	resourceTransformationPath           = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath        = field.NewPath("resources", "dynamicResourceAllocation")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
 	log                                  = ctrl.Log.WithName("config")
@@ -79,6 +80,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
+	allErrs = append(allErrs, validateDynamicResourceAllocation(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	return allErrs
@@ -349,6 +351,56 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			seenKeys.Insert(transform.Input)
 		}
 	}
+	return allErrs
+}
+
+func validateDynamicResourceAllocation(c *configapi.Configuration) field.ErrorList {
+	if c.Resources == nil || c.Resources.DynamicResourceAllocation == nil {
+		return nil
+	}
+
+	dra := c.Resources.DynamicResourceAllocation
+	var allErrs field.ErrorList
+
+	seenResourceNames := make(sets.Set[corev1.ResourceName])
+	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+
+	for idx, resource := range dra.Resources {
+		resourcePath := dynamicResourceAllocationPath.Child("resources").Index(idx)
+
+		if errs := apimachineryutilvalidation.IsQualifiedName(string(resource.Name)); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(resourcePath.Child("name"), resource.Name, strings.Join(errs, "; ")))
+		}
+
+		if seenResourceNames.Has(resource.Name) {
+			allErrs = append(allErrs, field.Duplicate(resourcePath.Child("name"), resource.Name))
+		} else {
+			seenResourceNames.Insert(resource.Name)
+		}
+
+		if len(resource.DeviceClassNames) == 0 {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("deviceClassNames"),
+				"at least one device class name is required"))
+		}
+
+		for dcIdx, deviceClass := range resource.DeviceClassNames {
+			dcPath := resourcePath.Child("deviceClassNames").Index(dcIdx)
+
+			if errs := apimachineryutilvalidation.IsQualifiedName(string(deviceClass)); len(errs) > 0 {
+				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
+			}
+
+			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
+				if existingResource != resource.Name {
+					allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+						fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+				}
+			} else {
+				deviceClassToResource[deviceClass] = resource.Name
+			}
+		}
+	}
+
 	return allErrs
 }
 

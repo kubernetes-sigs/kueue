@@ -23,8 +23,6 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
-	// DynamicResourceAllocationConfigs returns a DynamicResourceAllocationConfigInformer.
-	DynamicResourceAllocationConfigs() DynamicResourceAllocationConfigInformer
 	// Topologies returns a TopologyInformer.
 	Topologies() TopologyInformer
 }
@@ -38,11 +36,6 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
-}
-
-// DynamicResourceAllocationConfigs returns a DynamicResourceAllocationConfigInformer.
-func (v *version) DynamicResourceAllocationConfigs() DynamicResourceAllocationConfigInformer {
-	return &dynamicResourceAllocationConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // Topologies returns a TopologyInformer.

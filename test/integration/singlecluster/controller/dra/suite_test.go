@@ -22,6 +22,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -30,12 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -47,7 +48,6 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	draConfig *kueuealpha.DynamicResourceAllocationConfig
 )
 
 func TestAPIs(t *testing.T) {
@@ -85,15 +85,10 @@ var _ = ginkgo.BeforeSuite(func() {
 
 var _ = ginkgo.AfterSuite(func() {
 	ginkgo.By("tearing down the test environment")
-	// Clean up DRA config if it was created
-	if draConfig != nil && k8sClient != nil {
-		cleanupCtx := context.Background()
-		_ = k8sClient.Delete(cleanupCtx, draConfig) // Ignore error if already deleted
-	}
 	fwk.Teardown()
 })
 
-// Manager setup used by tests to start controllers
+// Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(ctx context.Context, mgr manager.Manager) {
 	// Indexes
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -103,17 +98,30 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
+	draConfig := &config.DynamicResourceAllocation{
+		Resources: []config.DynamicResource{
+			{
+				Name:             corev1.ResourceName("foo"),
+				DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+			},
+		},
+	}
+
+	err = dra.CreateMapperFromConfiguration(draConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	// Controllers configuration
-	controllersCfg := &config.Configuration{Namespace: ptr.To("kueue-system")}
+	controllersCfg := &config.Configuration{
+		Namespace: ptr.To("kueue-system"),
+		Resources: &config.Resources{
+			DynamicResourceAllocation: draConfig,
+		},
+	}
 	mgr.GetScheme().Default(controllersCfg)
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 
-	// Cache and queues
-	cCache := cache.New(mgr.GetClient())
-
-	// Configure queue manager with DRA support
-	queueOptions := []queue.Option{}
-	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
+	cCache := schdcache.New(mgr.GetClient())
+	queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 	// Core controllers
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
@@ -137,7 +145,7 @@ func makeResourceClaim(name, namespace, deviceClassName string, count int64) *re
 		Spec: resourcev1beta2.ResourceClaimSpec{
 			Devices: resourcev1beta2.DeviceClaim{
 				Requests: []resourcev1beta2.DeviceRequest{{
-					Name: "gpu-request",
+					Name: "device-request",
 					Exactly: &resourcev1beta2.ExactDeviceRequest{
 						DeviceClassName: deviceClassName,
 						AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,

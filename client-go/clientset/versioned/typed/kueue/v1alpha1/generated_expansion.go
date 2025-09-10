@@ -17,6 +17,4 @@ limitations under the License.
 
 package v1alpha1
 
-type DynamicResourceAllocationConfigExpansion interface{}
-
 type TopologyExpansion interface{}

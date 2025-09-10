@@ -881,3 +881,223 @@ func TestValidateFeatureGates(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateDynamicResourceAllocation(t *testing.T) {
+	testCases := map[string]struct {
+		cfg     *configapi.Configuration
+		wantErr field.ErrorList
+	}{
+		"nil resources": {
+			cfg: &configapi.Configuration{},
+		},
+		"nil DRA config": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{},
+			},
+		},
+		"empty DRA resources": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{},
+					},
+				},
+			},
+		},
+		"valid single resource": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "whole-foo",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid multiple resources": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "whole-foo",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							},
+							{
+								Name:             "shared-bar",
+								DeviceClassNames: []corev1.ResourceName{"bar.com/device-1g", "bar.com/device-2g"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid resource with multiple device classes": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "mixed-devices",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/gpu", "bar.com/accelerator", "baz.org/compute"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"invalid resource name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "@invalid-name",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.dynamicResourceAllocation.resources[0].name",
+				},
+			},
+		},
+		"duplicate resource names": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "duplicate-name",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							},
+							{
+								Name:             "duplicate-name",
+								DeviceClassNames: []corev1.ResourceName{"bar.com/device"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "resources.dynamicResourceAllocation.resources[1].name",
+				},
+			},
+		},
+		"empty device class names": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "empty-devices",
+								DeviceClassNames: []corev1.ResourceName{},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.dynamicResourceAllocation.resources[0].deviceClassNames",
+				},
+			},
+		},
+		"invalid device class name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "valid-name",
+								DeviceClassNames: []corev1.ResourceName{"valid.com/device", "@invalid-device"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.dynamicResourceAllocation.resources[0].deviceClassNames[1]",
+				},
+			},
+		},
+		"device class conflict": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "first-resource",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							},
+							{
+								Name:             "second-resource",
+								DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.dynamicResourceAllocation.resources[1].deviceClassNames[0]",
+				},
+			},
+		},
+		"multiple validation errors": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DynamicResourceAllocation: &configapi.DynamicResourceAllocation{
+						Resources: []configapi.DynamicResource{
+							{
+								Name:             "@invalid",
+								DeviceClassNames: []corev1.ResourceName{},
+							},
+							{
+								Name:             "valid-name",
+								DeviceClassNames: []corev1.ResourceName{"@invalid-device", "valid.com/device"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.dynamicResourceAllocation.resources[0].name",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "resources.dynamicResourceAllocation.resources[0].deviceClassNames",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.dynamicResourceAllocation.resources[1].deviceClassNames[0]",
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := validateDynamicResourceAllocation(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("validateDynamicResourceAllocation() returned unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

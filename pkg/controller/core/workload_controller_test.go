@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/dra"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -2221,17 +2222,15 @@ func TestReconcile(t *testing.T) {
 			if tc.workload != nil && tc.workload.Namespace == "ns" &&
 				len(tc.workload.Spec.PodSets) > 0 &&
 				len(tc.workload.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
-				ctx, _ := utiltesting.ContextWithLog(t)
-				err := dra.UpdateMapperFromConfig(ctx, &kueuealpha.DynamicResourceAllocationConfig{
-					Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-						Resources: []kueuealpha.DynamicResource{{
-							Name:             kueuealpha.DriverResourceName("gpus"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"gpu.example.com"},
-						}},
-					},
-				})
+				draConfig := &configapi.DynamicResourceAllocation{
+					Resources: []configapi.DynamicResource{{
+						Name:             corev1.ResourceName("foo"),
+						DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+					}},
+				}
+				err := dra.CreateMapperFromConfiguration(draConfig)
 				if err != nil {
-					t.Fatalf("Failed to update DRA mapper: %v", err)
+					t.Fatalf("Failed to initialize DRA mapper: %v", err)
 				}
 			}
 

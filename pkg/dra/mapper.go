@@ -17,18 +17,11 @@ limitations under the License.
 package dra
 
 import (
-	"context"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-)
-
-const (
-	DefaultDRAConfigName = "default"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 var (
@@ -36,12 +29,10 @@ var (
 	globalMapperOnce sync.Once
 )
 
-// ResourceMapper provides thread-safe device class to logical resource name mapping
-// based on DynamicResourceAllocationConfig custom resource.
+// ResourceMapper provides device class to logical resource name mapping
+// based on Configuration API DRA settings. Initialized once at startup, immutable during runtime.
+// No locks needed due to startup-only initialization pattern.
 type ResourceMapper struct {
-	mu sync.RWMutex
-	// internally we use corev1.ResourceName for device class and logical resource name to shield
-	// the implementation from API changes
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 }
 
@@ -52,44 +43,22 @@ func newDRAResourceMapper() *ResourceMapper {
 	}
 }
 
-// loadFromConfig loads the device class mappings from a DynamicResourceAllocationConfig CR
-// using the provided Kubernetes client. It fetches the singleton "default" config.
-func (m *ResourceMapper) loadFromConfig(ctx context.Context, cl client.Client) error {
-	var config kueuealpha.DynamicResourceAllocationConfig
-	err := cl.Get(ctx, types.NamespacedName{Name: DefaultDRAConfigName}, &config)
-	if err != nil {
-		return err
-	}
-
-	return m.updateFromConfig(ctx, &config)
-}
-
-// lookup performs thread-safe device class to logical resource name conversion.
 // Returns (logicalResourceName, true) on success or ("", false) when the device class is not mapped.
 func (m *ResourceMapper) lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	logicalResource, found := m.deviceClassToResource[deviceClass]
 	return logicalResource, found
 }
 
-// updateFromConfig updates the internal mapping from a DynamicResourceAllocationConfig.
-// This method is thread-safe and rebuilds the entire mapping from scratch to avoid stale entries.
-func (m *ResourceMapper) updateFromConfig(ctx context.Context, draConfig *kueuealpha.DynamicResourceAllocationConfig) error {
+func (m *ResourceMapper) populateFromConfiguration(draConfig *configapi.DynamicResourceAllocation) error {
 	if draConfig == nil {
 		return nil
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Rebuild from scratch to avoid stale entries
 	newMapping := make(map[corev1.ResourceName]corev1.ResourceName)
 
-	for _, resource := range draConfig.Spec.Resources {
+	for _, resource := range draConfig.Resources {
 		for _, deviceClassName := range resource.DeviceClassNames {
-			newMapping[corev1.ResourceName(deviceClassName)] = corev1.ResourceName(resource.Name)
+			newMapping[deviceClassName] = resource.Name
 		}
 	}
 
@@ -105,16 +74,14 @@ func Mapper() *ResourceMapper {
 	return globalMapper
 }
 
-// UpdateMapperFromConfig updates the global DRA mapper from a DynamicResourceAllocationConfig.
-// This is typically called by the DRA controller when the config changes.
-func UpdateMapperFromConfig(ctx context.Context, config *kueuealpha.DynamicResourceAllocationConfig) error {
-	mapper := Mapper()
-	return mapper.updateFromConfig(ctx, config)
+// CreateMapperFromConfiguration creates and populates the global DRA mapper from Configuration API.
+// This is called ONCE during Kueue startup when configuration is loaded.
+func CreateMapperFromConfiguration(config *configapi.DynamicResourceAllocation) error {
+	return Mapper().populateFromConfiguration(config)
 }
 
 // LookupResourceFor performs a device class lookup using the global DRA mapper.
 // Returns the logical resource name and true if found, empty string and false otherwise.
 func LookupResourceFor(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
-	mapper := Mapper()
-	return mapper.lookup(deviceClass)
+	return Mapper().lookup(deviceClass)
 }

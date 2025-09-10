@@ -498,6 +498,80 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DynamicResource`     {#DynamicResource}
+    
+
+**Appears in:**
+
+- [DynamicResourceAllocation](#DynamicResourceAllocation)
+
+
+<p>DynamicResource describes a single logical resource and the DeviceClasses mapping.
+The resource name is used for quota in ClusterQueue and appears in Workload status.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>Name is referenced in ClusterQueue.nominalQuota and Workload status.
+Must be a valid fully qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length must not exceed 253 characters.</p>
+</td>
+</tr>
+<tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.
+Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length of each name must not exceed 253 characters.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `DynamicResourceAllocation`     {#DynamicResourceAllocation}
+    
+
+**Appears in:**
+
+- [Resources](#Resources)
+
+
+<p>DynamicResourceAllocation holds device class to logical resource mappings
+for Dynamic Resource Allocation support.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>resources</code> <B>[Required]</B><br/>
+<a href="#DynamicResource"><code>[]DynamicResource</code></a>
+</td>
+<td>
+   <p>Resources lists logical resources that Kueue will account for DRA.
+Each resource defines a mapping from one or more device classes to a logical resource name.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `FairSharing`     {#FairSharing}
     
 
@@ -982,6 +1056,14 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <td>
    <p>Transformations defines how to transform PodSpec resources into Workload resource requests.
 This is intended to be a map with Input as the key (enforced by validation code)</p>
+</td>
+</tr>
+<tr><td><code>dynamicResourceAllocation</code><br/>
+<a href="#DynamicResourceAllocation"><code>DynamicResourceAllocation</code></a>
+</td>
+<td>
+   <p>DynamicResourceAllocation defines mappings from device classes to logical resources
+for Dynamic Resource Allocation support.</p>
 </td>
 </tr>
 </tbody>
