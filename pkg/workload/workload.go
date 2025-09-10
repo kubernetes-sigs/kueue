@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
@@ -48,7 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -1004,20 +1002,6 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 		return c.Update(ctx, wl)
 	}
 	return nil
-}
-
-func RemoveAnnotation(ctx context.Context, cl client.Client, wl *kueue.Workload, annotation string) error {
-	wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
-	var wlToPatch kueue.Workload
-	if err := cl.Get(ctx, wlKey, &wlToPatch); err != nil {
-		return err
-	}
-	return clientutil.Patch(ctx, cl, &wlToPatch, false, func() (bool, error) {
-		annotations := wlToPatch.GetAnnotations()
-		delete(annotations, annotation)
-		wlToPatch.SetAnnotations(annotations)
-		return true, nil
-	})
 }
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
