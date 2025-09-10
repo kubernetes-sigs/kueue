@@ -34,7 +34,7 @@ func createPatch(before, after client.Object) (client.Patch, error) {
 // Patch applies the merge patch of client.Object.
 // If strict is true, the resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
-func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (bool, error)) error {
+func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (client.Object, bool, error)) error {
 	return updateAndPatch(obj, strict, update, func(patch client.Patch) error {
 		return c.Patch(ctx, obj, patch)
 	})
@@ -43,7 +43,7 @@ func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool,
 // PatchStatus applies the merge patch of client.Object status.
 // The resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
-func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (bool, error)) error {
+func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (client.Object, bool, error)) error {
 	return updateAndPatch(obj, true, update, func(patch client.Patch) error {
 		return c.Status().Patch(ctx, obj, patch)
 	})
@@ -58,13 +58,13 @@ func getOriginalObject(obj client.Object, strict bool) client.Object {
 	return objOriginal
 }
 
-func updateAndPatch(obj client.Object, strict bool, update func() (bool, error), patchFn func(client.Patch) error) error {
+func updateAndPatch(obj client.Object, strict bool, update func() (client.Object, bool, error), patchFn func(client.Patch) error) error {
 	objOriginal := getOriginalObject(obj, strict)
-	updated, err := update()
+	objPatched, updated, err := update()
 	if err != nil || !updated {
 		return err
 	}
-	patch, err := createPatch(objOriginal, obj)
+	patch, err := createPatch(objOriginal, objPatched)
 	if err != nil {
 		return err
 	}
