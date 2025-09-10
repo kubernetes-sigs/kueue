@@ -760,35 +760,23 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				//  |      /    \       |
 				//  x3    x1    x4     x2
 				nodes = []corev1.Node{
+					*testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
-						Label(corev1.LabelHostname, "x1").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
-					*testingnode.MakeNode("x2").
-						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
 						Label(testing.DefaultRackTopologyLevel, "r2").
-						Label(corev1.LabelHostname, "x2").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
-					*testingnode.MakeNode("x3").
-						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b2").
-						Label(testing.DefaultRackTopologyLevel, "r1").
-						Label(corev1.LabelHostname, "x3").
+						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -799,8 +787,20 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					*testingnode.MakeNode("x4").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b2").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(testing.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x4").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b2").
+						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -904,8 +904,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -949,8 +949,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -969,8 +969,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							&kueue.TopologyAssignment{
 								Levels: []string{corev1.LabelHostname},
 								Domains: []kueue.TopologyDomainAssignment{
-									{Count: 1, Values: []string{"x2"}},
-									{Count: 1, Values: []string{"x3"}},
+									{Count: 1, Values: []string{"x1"}},
+									{Count: 1, Values: []string{"x4"}},
 								},
 							},
 						))
@@ -998,8 +998,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -1023,8 +1023,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							&kueue.TopologyAssignment{
 								Levels: []string{corev1.LabelHostname},
 								Domains: []kueue.TopologyDomainAssignment{
-									{Count: 1, Values: []string{"x2"}},
-									{Count: 1, Values: []string{"x3"}},
+									{Count: 1, Values: []string{"x1"}},
+									{Count: 1, Values: []string{"x4"}},
 								},
 							},
 						))
@@ -1053,8 +1053,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -1117,8 +1117,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -1170,8 +1170,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -1193,8 +1193,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
-								{Count: 1, Values: []string{"x3"}},
 								{Count: 1, Values: []string{"x4"}},
+								{Count: 1, Values: []string{"x2"}},
 							},
 						},
 					))
@@ -1218,8 +1218,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							&kueue.TopologyAssignment{
 								Levels: []string{corev1.LabelHostname},
 								Domains: []kueue.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"x3"}},
 									{Count: 1, Values: []string{"x1"}},
-									{Count: 1, Values: []string{"x2"}},
 								},
 							},
 						))
@@ -1236,8 +1236,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							&kueue.TopologyAssignment{
 								Levels: []string{corev1.LabelHostname},
 								Domains: []kueue.TopologyDomainAssignment{
-									{Count: 1, Values: []string{"x2"}},
-									{Count: 1, Values: []string{"x3"}},
+									{Count: 1, Values: []string{"x1"}},
+									{Count: 1, Values: []string{"x4"}},
 								},
 							},
 						))
@@ -1248,8 +1248,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.It("should evict workload when multiple assigned nodes are deleted", func() {
 				var wl1 *kueue.Workload
-				node1Name := "x1"
-				node2Name := "x2"
+				node1Name := "x3"
+				node2Name := "x1"
 
 				ginkgo.By("creating a workload", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
@@ -1299,8 +1299,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.It("should evict workload when multiple assigned nodes fail", func() {
 				var wl1 *kueue.Workload
-				node1Name := "x1"
-				node2Name := "x2"
+				node1Name := "x3"
+				node2Name := "x1"
 
 				ginkgo.By("creating a workload", func() {
 					wl1 = testing.MakeWorkload("wl1", ns.Name).
@@ -1366,6 +1366,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				//   /  \     /  \
 				//  x3  x1   x4  x2
 				nodes = []corev1.Node{
+					*testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
@@ -1378,35 +1390,23 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}).
 						Ready().
 						Obj(),
-					*testingnode.MakeNode("x2").
-						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
-						Label(corev1.LabelHostname, "x2").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
-					*testingnode.MakeNode("x3").
-						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
-						Label(corev1.LabelHostname, "x3").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
 					*testingnode.MakeNode("x4").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
 						Label(testing.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x4").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x2").
+						Label("node-group", "tas").
+						Label(testing.DefaultBlockTopologyLevel, "b1").
+						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -1472,7 +1472,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
 								{Count: 1, Values: []string{"x1"}},
-								{Count: 1, Values: []string{"x2"}},
+								{Count: 1, Values: []string{"x3"}},
 							},
 						},
 					))
@@ -1506,7 +1506,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						&kueue.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
 							Domains: []kueue.TopologyDomainAssignment{
-								{Count: 1, Values: []string{"x3"}},
+								{Count: 1, Values: []string{"x2"}},
 								{Count: 1, Values: []string{"x4"}},
 							},
 						},
@@ -1526,11 +1526,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				//  |         |
 				//  x2       x1
 				nodes = []corev1.Node{
-					*testingnode.MakeNode("x1").
+					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
 						Label(testing.DefaultRackTopologyLevel, "r1").
-						Label(corev1.LabelHostname, "x1").
+						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
 							corev1.ResourceMemory: resource.MustParse("5Gi"),
@@ -1538,11 +1538,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}).
 						Ready().
 						Obj(),
-					*testingnode.MakeNode("x2").
+					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
 						Label(testing.DefaultRackTopologyLevel, "r2").
-						Label(corev1.LabelHostname, "x2").
+						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
 							corev1.ResourceMemory: resource.MustParse("5Gi"),
@@ -1654,11 +1654,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				//  |         |
 				//  x2       x1
 				nodes = []corev1.Node{
-					*testingnode.MakeNode("x1").
+					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
 						Label(testing.DefaultRackTopologyLevel, "r1").
-						Label(corev1.LabelHostname, "x1").
+						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
 							corev1.ResourceMemory: resource.MustParse("5Gi"),
@@ -1666,11 +1666,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}).
 						Ready().
 						Obj(),
-					*testingnode.MakeNode("x2").
+					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
 						Label(testing.DefaultBlockTopologyLevel, "b1").
 						Label(testing.DefaultRackTopologyLevel, "r2").
-						Label(corev1.LabelHostname, "x2").
+						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("5"),
 							corev1.ResourceMemory: resource.MustParse("5Gi"),
@@ -2258,12 +2258,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					//  |         |
 					//  x2       x1
 					nodes = []corev1.Node{
-						*testingnode.MakeNode("x1").
+						*testingnode.MakeNode("x2").
 							Label("node-group", "tas").
 							Label("dedicated-selector-key", "dedicated-selector-value-abc").
 							Label(testing.DefaultBlockTopologyLevel, "b1").
 							Label(testing.DefaultRackTopologyLevel, "r1").
-							Label(corev1.LabelHostname, "x1").
+							Label(corev1.LabelHostname, "x2").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("1"),
 								corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -2271,12 +2271,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							}).
 							Ready().
 							Obj(),
-						*testingnode.MakeNode("x2").
+						*testingnode.MakeNode("x1").
 							Label("node-group", "tas").
 							Label("dedicated-selector-key", "dedicated-selector-value-xyz").
 							Label(testing.DefaultBlockTopologyLevel, "b1").
 							Label(testing.DefaultRackTopologyLevel, "r2").
-							Label(corev1.LabelHostname, "x2").
+							Label(corev1.LabelHostname, "x1").
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("2"),
 								corev1.ResourceMemory: resource.MustParse("2Gi"),
@@ -2316,7 +2316,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 									{
 										Count: 1,
 										Values: []string{
-											"x2",
+											"x1",
 										},
 									},
 								},
