@@ -170,6 +170,16 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
 		}
 	}
+	for _, check := range checks {
+		if len(check) != 0 {
+			continue
+		}
+		for _, rg := range cq.Spec.ResourceGroups {
+			for _, fv := range rg.Flavors {
+				check.Insert(fv.Name)
+			}
+		}
+	}
 	return checks
 }
 
