@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -193,33 +194,41 @@ func TestBaseWebhookDefault(t *testing.T) {
 
 func TestValidateOnCreate(t *testing.T) {
 	testcases := []struct {
-		name             string
-		job              *batchv1.Job
-		validateOnCreate field.ErrorList
-		wantErr          error
-		wantWarn         admission.Warnings
+		name string
+		job  *batchv1.Job
+		// JobWithCustomValidation return values.
+		customValidationFailure field.ErrorList
+		customValidationError   error
+
+		wantError   error
+		wantWarning admission.Warnings // Note: ValidateCreate always returns nil for admission.Warning.
 	}{
 		{
 			name: "valid request",
 			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 		},
 		{
-			name: "invalid request with validate on create",
-			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
-			validateOnCreate: field.ErrorList{
-				field.Invalid(
-					field.NewPath("metadata.annotations"),
-					field.OmitValueType{},
-					`invalid annotation`,
-				),
+			name: "invalid request",
+			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Label(constants.MaxExecTimeSecondsLabel, "0").Obj(),
+			customValidationFailure: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
 			},
-			wantErr: field.ErrorList{
-				field.Invalid(
-					field.NewPath("metadata.annotations"),
-					field.OmitValueType{},
-					`invalid annotation`,
-				),
+			wantError: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels["+constants.MaxExecTimeSecondsLabel+"]"), 0, "should be greater than 0"),
+				field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
 			}.ToAggregate(),
+		},
+		{
+			name:                  "invalid request custom validation error",
+			job:                   utiljob.MakeJob("job", metav1.NamespaceDefault).Label(constants.MaxExecTimeSecondsLabel, "0").Obj(),
+			customValidationError: field.InternalError(nil, errors.New("test-custom-validation-error")),
+			// Important: When a Job implements JobWithCustomValidation and the custom validation returns an
+			// error (as opposed to a validation failure, which is a different error type),
+			// all previous validation errors are ignored, and only the custom validation error is returned.
+			//
+			// Note: In this test, we intentionally "piggyback" on the field.Error type to avoid mixing
+			// different error types. This simplifies the assertion logic.
+			wantError: field.InternalError(nil, errors.New("test-custom-validation-error")),
 		},
 	}
 
@@ -235,25 +244,25 @@ func TestValidateOnCreate(t *testing.T) {
 			}
 
 			job := &mockJob{
-				Job:                         tc.job,
 				MockGenericJob:              mocks.NewMockGenericJob(mockctrl),
 				MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
 			}
-
 			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
-			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate().Return(tc.validateOnCreate, nil).AnyTimes()
+			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate().Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook{
 				FromObject: func(object runtime.Object) jobframework.GenericJob {
 					return object.(*mockJob)
 				},
 			}
+
 			ctx, _ := utiltesting.ContextWithLog(t)
+
 			gotWarn, gotErr := w.ValidateCreate(ctx, job)
-			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantWarn, gotWarn); diff != "" {
+			if diff := cmp.Diff(tc.wantWarning, gotWarn); diff != "" {
 				t.Errorf("validate create warn mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -261,37 +270,49 @@ func TestValidateOnCreate(t *testing.T) {
 }
 
 func TestValidateOnUpdate(t *testing.T) {
+	type args struct {
+		oldObj *batchv1.Job
+		newObj *batchv1.Job
+
+		// JobWithCustomValidation return values applicable to newObj only.
+		customValidationFailure field.ErrorList
+		customValidationError   error
+	}
 	testcases := []struct {
-		name             string
-		oldJob           *batchv1.Job
-		job              *batchv1.Job
-		validateOnUpdate field.ErrorList
-		wantErr          error
-		wantWarn         admission.Warnings
+		name        string
+		args        args
+		wantWarning admission.Warnings // Note: ValidateUpdate always returns nil for admission.Warning.
+		wantError   error
 	}{
 		{
-			name:   "valid request",
-			oldJob: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
-			job:    utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			name: "valid request",
+			args: args{
+				oldObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+				newObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			},
 		},
 		{
-			name:   "invalid request with validate on update",
-			oldJob: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
-			job:    utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
-			validateOnUpdate: field.ErrorList{
-				field.Invalid(
-					field.NewPath("metadata.annotations"),
-					field.OmitValueType{},
-					`invalid annotation`,
-				),
+			name: "invalid request",
+			args: args{
+				oldObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+				newObj: utiljob.MakeJob("job", metav1.NamespaceDefault).Suspend(false).Queue("changed").Obj(),
+				customValidationFailure: field.ErrorList{
+					field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
+				},
 			},
-			wantErr: field.ErrorList{
-				field.Invalid(
-					field.NewPath("metadata.annotations"),
-					field.OmitValueType{},
-					`invalid annotation`,
-				),
+			wantError: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels[kueue.x-k8s.io/queue-name]"), kueue.LocalQueueName("changed"), "field is immutable"),
+				field.Invalid(field.NewPath("metadata.annotations"), field.OmitValueType{}, "custom validation test error"),
 			}.ToAggregate(),
+		},
+		{
+			name: "invalid request custom validation error",
+			args: args{
+				oldObj:                utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+				newObj:                utiljob.MakeJob("job", metav1.NamespaceDefault).Suspend(false).Queue("changed").Obj(),
+				customValidationError: field.InternalError(nil, errors.New("test-custom-validation-error")),
+			},
+			wantError: field.InternalError(nil, errors.New("test-custom-validation-error")),
 		},
 	}
 
@@ -306,15 +327,14 @@ func TestValidateOnUpdate(t *testing.T) {
 				*mocks.MockJobWithCustomValidation
 			}
 
-			newMockJob := func(job *batchv1.Job, validationErrList field.ErrorList) *mockJob {
+			newMockJob := func(job *batchv1.Job, customValidationFailure field.ErrorList, customValidationError error) *mockJob {
 				mj := &mockJob{
-					Job:                         job,
 					MockGenericJob:              mocks.NewMockGenericJob(mockctrl),
 					MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
 				}
 				mj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
 				mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
-				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any()).Return(validationErrList, nil).AnyTimes()
+				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any()).Return(customValidationFailure, customValidationError).AnyTimes()
 				return mj
 			}
 
@@ -323,16 +343,16 @@ func TestValidateOnUpdate(t *testing.T) {
 					return object.(*mockJob)
 				},
 			}
+
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWarn, gotErr := w.ValidateUpdate(
-				ctx,
-				newMockJob(tc.oldJob, nil),
-				newMockJob(tc.job, tc.validateOnUpdate),
-			)
-			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+
+			gotWarn, gotErr := w.ValidateUpdate(ctx,
+				newMockJob(tc.args.oldObj, nil, nil),
+				newMockJob(tc.args.newObj, tc.args.customValidationFailure, tc.args.customValidationError))
+			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("validate create err mismatch (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantWarn, gotWarn); diff != "" {
+			if diff := cmp.Diff(tc.wantWarning, gotWarn); diff != "" {
 				t.Errorf("validate create warn mismatch (-want +got):\n%s", diff)
 			}
 		})
