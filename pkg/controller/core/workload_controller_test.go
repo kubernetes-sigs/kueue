@@ -398,14 +398,15 @@ func TestReconcile(t *testing.T) {
 	cases := map[string]struct {
 		enableObjectRetentionPolicies bool
 
-		workload       *kueue.Workload
-		cq             *kueue.ClusterQueue
-		lq             *kueue.LocalQueue
-		wantWorkload   *kueue.Workload
-		wantError      error
-		wantEvents     []utiltesting.EventRecord
-		wantResult     reconcile.Result
-		reconcilerOpts []Option
+		workload               *kueue.Workload
+		cq                     *kueue.ClusterQueue
+		lq                     *kueue.LocalQueue
+		wantWorkload           *kueue.Workload
+		wantWorkloadPatchMerge *kueue.Workload
+		wantError              error
+		wantEvents             []utiltesting.EventRecord
+		wantResult             reconcile.Result
+		reconcilerOpts         []Option
 	}{
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -667,12 +668,44 @@ func TestReconcile(t *testing.T) {
 						Reason:  "DeactivatedDueToAdmissionCheck",
 						Message: "The workload is deactivated due to Admission check(s): check-1, were rejected",
 					},
-					// In a real cluster this condition would be removed but it cant be in the fake cluster
 					metav1.Condition{
 						Type:    kueue.WorkloadDeactivationTarget,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 						Message: "Admission check(s): check-1, were rejected",
+					},
+				).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "AdmissionCheck",
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Active(false).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "check-1",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Rejected",
+					},
+					kueue.AdmissionCheckState{
+						Name:    "check-2",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeactivatedDueToAdmissionCheck",
+						Message: "The workload is deactivated due to Admission check(s): check-1, were rejected",
 					},
 				).
 				SchedulingStatsEviction(
@@ -1337,7 +1370,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
-				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1360,8 +1392,32 @@ func TestReconcile(t *testing.T) {
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
+				).
+				Obj(),
 		},
-		"with reason WaitForPodsStart; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+		"with reason WaitForPodsStart; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries " +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1405,6 +1461,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1427,6 +1484,30 @@ func TestReconcile(t *testing.T) {
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
+				).
+				Obj(),
 		},
 		"with reason PodsReady; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
@@ -1473,6 +1554,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1480,6 +1562,7 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1497,6 +1580,30 @@ func TestReconcile(t *testing.T) {
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
+				).
+				Obj(),
 		},
 		"with reason WaitForPodsStart; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
@@ -1543,6 +1650,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1550,6 +1658,7 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1567,6 +1676,30 @@ func TestReconcile(t *testing.T) {
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Deactivated",
+						UnderlyingCause: "RequeuingLimitExceeded",
+						Count:           1,
+					},
+				).
+				Obj(),
 		},
 		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -1690,6 +1823,20 @@ func TestReconcile(t *testing.T) {
 					Message: "LocalQueue lq is terminating or missing",
 				}).
 				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is terminating or missing",
+				}).
+				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
 			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
@@ -1706,6 +1853,20 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
 				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is stopped",
+				}).
+				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1745,6 +1906,20 @@ func TestReconcile(t *testing.T) {
 					Message: "ClusterQueue cq is terminating or missing",
 				}).
 				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is terminating or missing",
+				}).
+				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
 			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
@@ -1761,6 +1936,20 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
 				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is stopped",
+				}).
+				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2059,8 +2248,15 @@ func TestReconcile(t *testing.T) {
 				}
 				gotWorkload = nil
 			}
-			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+
+			if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadPatchMerge != nil {
+				if diff := cmp.Diff(tc.wantWorkloadPatchMerge, gotWorkload, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
+			} else {
+				if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
