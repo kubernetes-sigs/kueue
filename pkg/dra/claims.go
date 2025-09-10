@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	ErrDeviceClassNotMapped = errors.New("DeviceClass is not mapped in DynamicResourceAllocationConfig")
+	ErrDeviceClassNotMapped = errors.New("DeviceClass is not mapped in DRA configuration")
 	ErrResourceClaimInUse   = errors.New("ResourceClaim is used by another workload")
 	ErrClaimSpecNotFound    = errors.New("failed to get claim spec")
 )
@@ -98,7 +98,7 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 // converts DeviceClass counts into logical resources using the provided lookup function and
 // returns the aggregated quantities per PodSet.
 //
-// If at least one DeviceClass is not present in the DynamicResourceAllocationConfig the function
+// If at least one DeviceClass is not present in the DRA configuration the function
 // returns an error.
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
@@ -127,7 +127,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 			for dc, qty := range countDevicesPerClass(spec) {
 				logical, found := lookup(dc)
 				if !found {
-					return nil, fmt.Errorf("DeviceClass %s is not mapped in DynamicResourceAllocationConfig for workload %s podset %s: %w", dc, wl.Name, ps.Name, ErrDeviceClassNotMapped)
+					return nil, fmt.Errorf("DeviceClass %s is not mapped in DRA configuration for workload %s podset %s: %w", dc, wl.Name, ps.Name, ErrDeviceClassNotMapped)
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: qty})
 			}
@@ -145,7 +145,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 // converts DeviceClass counts into logical resources using the provided lookup function and
 // returns the aggregated quantities per PodSet.
 //
-// If at least one DeviceClass is not present in the DynamicResourceAllocationConfig the function
+// If at least one DeviceClass is not present in the DRA configuration the function
 // returns an error.
 func GetResourceRequestsForResourceClaims(ctx context.Context,
 	cl client.Client,
@@ -181,7 +181,7 @@ func GetResourceRequestsForResourceClaims(ctx context.Context,
 			for dc, qty := range countDevicesPerClass(spec) {
 				logical, found := lookup(dc)
 				if !found {
-					return nil, fmt.Errorf("DeviceClass %s is not mapped in DynamicResourceAllocationConfig for workload %s podset %s in cluster queue %s: %w", dc, wl.Name, ps.Name, cqName, ErrDeviceClassNotMapped)
+					return nil, fmt.Errorf("DeviceClass %s is not mapped in DRA configuration for workload %s podset %s in cluster queue %s: %w", dc, wl.Name, ps.Name, cqName, ErrDeviceClassNotMapped)
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: qty})
 			}

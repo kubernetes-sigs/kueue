@@ -10,37 +10,8 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 ## Resource Types 
 
 
-- [DynamicResourceAllocationConfig](#kueue-x-k8s-io-v1alpha1-DynamicResourceAllocationConfig)
 - [Topology](#kueue-x-k8s-io-v1alpha1-Topology)
   
-
-## `DynamicResourceAllocationConfig`     {#kueue-x-k8s-io-v1alpha1-DynamicResourceAllocationConfig}
-    
-
-**Appears in:**
-
-
-
-<p>DynamicResourceAllocationConfig is a singleton CRD that maps a logical resource name to one or more DeviceClasses
-in the cluster. Only one instance named &quot;default&quot; is allowed.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1alpha1</code></td></tr>
-<tr><td><code>kind</code><br/>string</td><td><code>DynamicResourceAllocationConfig</code></td></tr>
-    
-  
-<tr><td><code>spec</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1alpha1-DynamicResourceAllocationConfigSpec"><code>DynamicResourceAllocationConfigSpec</code></a>
-</td>
-<td>
-   <span class="text-muted">No description provided.</span></td>
-</tr>
-</tbody>
-</table>
 
 ## `Topology`     {#kueue-x-k8s-io-v1alpha1-Topology}
     
@@ -65,83 +36,6 @@ in the cluster. Only one instance named &quot;default&quot; is allowed.</p>
 </td>
 <td>
    <span class="text-muted">No description provided.</span></td>
-</tr>
-</tbody>
-</table>
-
-## `DriverResourceName`     {#kueue-x-k8s-io-v1alpha1-DriverResourceName}
-    
-(Alias of `string`)
-
-**Appears in:**
-
-- [DynamicResource](#kueue-x-k8s-io-v1alpha1-DynamicResource)
-
-
-
-
-
-## `DynamicResource`     {#kueue-x-k8s-io-v1alpha1-DynamicResource}
-    
-
-**Appears in:**
-
-- [DynamicResourceAllocationConfigSpec](#kueue-x-k8s-io-v1alpha1-DynamicResourceAllocationConfigSpec)
-
-
-<p>DynamicResource describes a single logical resource and the DeviceClasses mapping. The resource name is used
-to quota in ClusterQueue.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1alpha1-DriverResourceName"><code>DriverResourceName</code></a>
-</td>
-<td>
-   <span class="text-muted">No description provided.</span></td>
-</tr>
-<tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1alpha1-DriverResourceName"><code>[]DriverResourceName</code></a>
-</td>
-<td>
-   <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.
-Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
-followed by a slash and a DNS label, or just a DNS label.
-DNS labels consist of lower-case alphanumeric characters or hyphens,
-and must start and end with an alphanumeric character.
-DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
-The total length of each name must not exceed 253 characters.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `DynamicResourceAllocationConfigSpec`     {#kueue-x-k8s-io-v1alpha1-DynamicResourceAllocationConfigSpec}
-    
-
-**Appears in:**
-
-- [DynamicResourceAllocationConfig](#kueue-x-k8s-io-v1alpha1-DynamicResourceAllocationConfig)
-
-
-<p>DynamicResourceAllocationConfigSpec holds all resource to DeviceClass mappings.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>resources</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1alpha1-DynamicResource"><code>[]DynamicResource</code></a>
-</td>
-<td>
-   <p>Resources lists logical resources that Kueue will account.</p>
-</td>
 </tr>
 </tbody>
 </table>

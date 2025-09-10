@@ -17,17 +17,11 @@ limitations under the License.
 package dra
 
 import (
-	"context"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 func TestNewDRAResourceMapper(t *testing.T) {
@@ -51,7 +45,7 @@ func TestNewDRAResourceMapper(t *testing.T) {
 func TestDRAResourceMapper_Lookup(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  *kueuealpha.DynamicResourceAllocationConfig
+		config  *configapi.DynamicResourceAllocation
 		lookups []struct {
 			deviceClass    corev1.ResourceName
 			expectedRes    corev1.ResourceName
@@ -60,14 +54,11 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 	}{
 		{
 			name: "single device class mapping",
-			config: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{
-						{
-							Name:             kueuealpha.DriverResourceName("example.com/gpu"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/gpu-class"},
-						},
+			config: &configapi.DynamicResourceAllocation{
+				Resources: []configapi.DynamicResource{
+					{
+						Name:             corev1.ResourceName("foo"),
+						DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
 					},
 				},
 			},
@@ -77,8 +68,8 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				expectedExists bool
 			}{
 				{
-					deviceClass:    "example.com/gpu-class",
-					expectedRes:    "example.com/gpu",
+					deviceClass:    "foo.example.com",
+					expectedRes:    "foo",
 					expectedExists: true,
 				},
 				{
@@ -90,17 +81,13 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 		},
 		{
 			name: "multiple device classes to single resource",
-			config: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{
-						{
-							Name: kueuealpha.DriverResourceName("example.com/accelerator"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{
-								"example.com/gpu-a100",
-								"example.com/gpu-v100",
-								"example.com/tpu-v4",
-							},
+			config: &configapi.DynamicResourceAllocation{
+				Resources: []configapi.DynamicResource{
+					{
+						Name: corev1.ResourceName("accelerator"),
+						DeviceClassNames: []corev1.ResourceName{
+							"foo.example.com",
+							"bar.example.com",
 						},
 					},
 				},
@@ -111,41 +98,33 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				expectedExists bool
 			}{
 				{
-					deviceClass:    "example.com/gpu-a100",
-					expectedRes:    "example.com/accelerator",
+					deviceClass:    "foo.example.com",
+					expectedRes:    "accelerator",
 					expectedExists: true,
 				},
 				{
-					deviceClass:    "example.com/gpu-v100",
-					expectedRes:    "example.com/accelerator",
+					deviceClass:    "bar.example.com",
+					expectedRes:    "accelerator",
 					expectedExists: true,
 				},
 				{
-					deviceClass:    "example.com/tpu-v4",
-					expectedRes:    "example.com/accelerator",
-					expectedExists: true,
-				},
-				{
-					deviceClass:    "example.com/unknown",
+					deviceClass:    "example.com/nonexistent",
 					expectedRes:    "",
 					expectedExists: false,
 				},
 			},
 		},
 		{
-			name: "multiple resources with different device classes",
-			config: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{
-						{
-							Name:             kueuealpha.DriverResourceName("example.com/gpu"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/gpu-class"},
-						},
-						{
-							Name:             kueuealpha.DriverResourceName("example.com/fpga"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/fpga-class"},
-						},
+			name: "multiple resources",
+			config: &configapi.DynamicResourceAllocation{
+				Resources: []configapi.DynamicResource{
+					{
+						Name:             corev1.ResourceName("foo"),
+						DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+					},
+					{
+						Name:             corev1.ResourceName("bar"),
+						DeviceClassNames: []corev1.ResourceName{"bar.example.com"},
 					},
 				},
 			},
@@ -155,24 +134,21 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				expectedExists bool
 			}{
 				{
-					deviceClass:    "example.com/gpu-class",
-					expectedRes:    "example.com/gpu",
+					deviceClass:    "foo.example.com",
+					expectedRes:    "foo",
 					expectedExists: true,
 				},
 				{
-					deviceClass:    "example.com/fpga-class",
-					expectedRes:    "example.com/fpga",
+					deviceClass:    "bar.example.com",
+					expectedRes:    "bar",
 					expectedExists: true,
 				},
 			},
 		},
 		{
-			name: "empty config",
-			config: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{},
-				},
+			name: "empty configuration",
+			config: &configapi.DynamicResourceAllocation{
+				Resources: []configapi.DynamicResource{},
 			},
 			lookups: []struct {
 				deviceClass    corev1.ResourceName
@@ -191,106 +167,32 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mapper := newDRAResourceMapper()
-			err := mapper.updateFromConfig(context.Background(), tt.config)
+
+			err := mapper.populateFromConfiguration(tt.config)
 			if err != nil {
-				t.Fatalf("updateFromConfig failed: %v", err)
+				t.Fatalf("populateFromConfiguration failed: %v", err)
 			}
 
 			for _, lookup := range tt.lookups {
-				actualRes, actualExists := mapper.lookup(lookup.deviceClass)
+				actualResource, actualExists := mapper.lookup(lookup.deviceClass)
 
 				if actualExists != lookup.expectedExists {
-					t.Errorf("lookup(%s): expected exists=%v, got exists=%v",
-						lookup.deviceClass, lookup.expectedExists, actualExists)
+					t.Errorf("lookup(%s) exists = %v, want %v", lookup.deviceClass, actualExists, lookup.expectedExists)
 				}
 
-				if actualRes != lookup.expectedRes {
-					t.Errorf("lookup(%s): expected resource=%s, got resource=%s",
-						lookup.deviceClass, lookup.expectedRes, actualRes)
+				if actualResource != lookup.expectedRes {
+					t.Errorf("lookup(%s) resource = %v, want %v", lookup.deviceClass, actualResource, lookup.expectedRes)
 				}
 			}
 		})
 	}
 }
 
-func TestDRAResourceMapper_LoadFromConfig(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = kueuealpha.AddToScheme(scheme)
-
-	tests := []struct {
-		name           string
-		existingConfig *kueuealpha.DynamicResourceAllocationConfig
-		expectError    bool
-		expectMapping  map[corev1.ResourceName]corev1.ResourceName
-	}{
-		{
-			name: "load existing config",
-			existingConfig: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{
-						{
-							Name:             kueuealpha.DriverResourceName("example.com/gpu"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/gpu-class"},
-						},
-					},
-				},
-			},
-			expectError: false,
-			expectMapping: map[corev1.ResourceName]corev1.ResourceName{
-				"example.com/gpu-class": "example.com/gpu",
-			},
-		},
-		{
-			name:           "config not found",
-			existingConfig: nil,
-			expectError:    true,
-			expectMapping:  nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var objs []client.Object
-			if tt.existingConfig != nil {
-				objs = append(objs, tt.existingConfig)
-			}
-
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-			mapper := newDRAResourceMapper()
-
-			err := mapper.loadFromConfig(context.Background(), cl)
-
-			if tt.expectError && err == nil {
-				t.Fatal("Expected error but got none")
-			}
-
-			if !tt.expectError && err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-
-			if tt.expectMapping != nil {
-				for deviceClass, expectedResource := range tt.expectMapping {
-					actualResource, found := mapper.lookup(deviceClass)
-					if !found {
-						t.Errorf("Expected device class %s to be mapped", deviceClass)
-					}
-					if actualResource != expectedResource {
-						t.Errorf("Expected device class %s to map to %s, got %s",
-							deviceClass, expectedResource, actualResource)
-					}
-				}
-			}
-		})
-	}
-}
-
-func TestDRAResourceMapper_UpdateFromConfig(t *testing.T) {
+func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 	tests := []struct {
 		name          string
-		initialConfig *kueuealpha.DynamicResourceAllocationConfig
-		updateConfig  *kueuealpha.DynamicResourceAllocationConfig
+		initialConfig *configapi.DynamicResourceAllocation
+		updateConfig  *configapi.DynamicResourceAllocation
 		finalLookups  []struct {
 			deviceClass    corev1.ResourceName
 			expectedRes    corev1.ResourceName
@@ -298,26 +200,20 @@ func TestDRAResourceMapper_UpdateFromConfig(t *testing.T) {
 		}
 	}{
 		{
-			name: "update replaces old mapping",
-			initialConfig: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{
-						{
-							Name:             kueuealpha.DriverResourceName("example.com/old-gpu"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/old-class"},
-						},
+			name: "populate replaces old mapping",
+			initialConfig: &configapi.DynamicResourceAllocation{
+				Resources: []configapi.DynamicResource{
+					{
+						Name:             corev1.ResourceName("old-foo"),
+						DeviceClassNames: []corev1.ResourceName{"old-foo.example.com"},
 					},
 				},
 			},
-			updateConfig: &kueuealpha.DynamicResourceAllocationConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: DefaultDRAConfigName},
-				Spec: kueuealpha.DynamicResourceAllocationConfigSpec{
-					Resources: []kueuealpha.DynamicResource{
-						{
-							Name:             kueuealpha.DriverResourceName("example.com/new-gpu"),
-							DeviceClassNames: []kueuealpha.DriverResourceName{"example.com/new-class"},
-						},
+			updateConfig: &configapi.DynamicResourceAllocation{
+				Resources: []configapi.DynamicResource{
+					{
+						Name:             corev1.ResourceName("new-foo"),
+						DeviceClassNames: []corev1.ResourceName{"new-foo.example.com"},
 					},
 				},
 			},
@@ -327,19 +223,19 @@ func TestDRAResourceMapper_UpdateFromConfig(t *testing.T) {
 				expectedExists bool
 			}{
 				{
-					deviceClass:    "example.com/old-class",
+					deviceClass:    "old-foo.example.com",
 					expectedRes:    "",
 					expectedExists: false,
 				},
 				{
-					deviceClass:    "example.com/new-class",
-					expectedRes:    "example.com/new-gpu",
+					deviceClass:    "new-foo.example.com",
+					expectedRes:    "new-foo",
 					expectedExists: true,
 				},
 			},
 		},
 		{
-			name:          "update with nil config",
+			name:          "populate with nil config",
 			initialConfig: nil,
 			updateConfig:  nil,
 			finalLookups: []struct {
@@ -360,33 +256,100 @@ func TestDRAResourceMapper_UpdateFromConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mapper := newDRAResourceMapper()
 
-			// Apply initial config if provided
-			if tt.initialConfig != nil {
-				err := mapper.updateFromConfig(context.Background(), tt.initialConfig)
-				if err != nil {
-					t.Fatalf("Initial updateFromConfig failed: %v", err)
-				}
+			// Initial population
+			if err := mapper.populateFromConfiguration(tt.initialConfig); err != nil {
+				t.Fatalf("Initial populateFromConfiguration failed: %v", err)
 			}
 
-			// Apply update config
-			err := mapper.updateFromConfig(context.Background(), tt.updateConfig)
-			if err != nil {
-				t.Fatalf("Update updateFromConfig failed: %v", err)
+			// Update population
+			if err := mapper.populateFromConfiguration(tt.updateConfig); err != nil {
+				t.Fatalf("Update populateFromConfiguration failed: %v", err)
 			}
 
-			// Verify final state
+			// Test final state
 			for _, lookup := range tt.finalLookups {
-				actualRes, actualExists := mapper.lookup(lookup.deviceClass)
+				actualResource, actualExists := mapper.lookup(lookup.deviceClass)
 
 				if actualExists != lookup.expectedExists {
-					t.Errorf("lookup(%s): expected exists=%v, got exists=%v",
-						lookup.deviceClass, lookup.expectedExists, actualExists)
+					t.Errorf("lookup(%s) exists = %v, want %v", lookup.deviceClass, actualExists, lookup.expectedExists)
 				}
 
-				if actualRes != lookup.expectedRes {
-					t.Errorf("lookup(%s): expected resource=%s, got resource=%s",
-						lookup.deviceClass, lookup.expectedRes, actualRes)
+				if actualResource != lookup.expectedRes {
+					t.Errorf("lookup(%s) resource = %v, want %v", lookup.deviceClass, actualResource, lookup.expectedRes)
 				}
+			}
+		})
+	}
+}
+
+func TestCreateMapperFromConfiguration(t *testing.T) {
+	config := &configapi.DynamicResourceAllocation{
+		Resources: []configapi.DynamicResource{
+			{
+				Name:             corev1.ResourceName("foo"),
+				DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+			},
+		},
+	}
+
+	err := CreateMapperFromConfiguration(config)
+	if err != nil {
+		t.Fatalf("CreateMapperFromConfiguration failed: %v", err)
+	}
+
+	// Test that the global mapper was populated
+	resource, found := LookupResourceFor("foo.example.com")
+	if !found {
+		t.Error("Expected to find device class in global mapper")
+	}
+	if resource != "foo" {
+		t.Errorf("Expected resource 'foo', got '%s'", resource)
+	}
+}
+
+func TestLookupResourceFor(t *testing.T) {
+	// Initialize global mapper
+	config := &configapi.DynamicResourceAllocation{
+		Resources: []configapi.DynamicResource{
+			{
+				Name:             corev1.ResourceName("baz"),
+				DeviceClassNames: []corev1.ResourceName{"baz.example.com"},
+			},
+		},
+	}
+
+	err := CreateMapperFromConfiguration(config)
+	if err != nil {
+		t.Fatalf("CreateMapperFromConfiguration failed: %v", err)
+	}
+
+	tests := []struct {
+		deviceClass    corev1.ResourceName
+		expectedRes    corev1.ResourceName
+		expectedExists bool
+	}{
+		{
+			deviceClass:    "baz.example.com",
+			expectedRes:    "baz",
+			expectedExists: true,
+		},
+		{
+			deviceClass:    "example.com/nonexistent",
+			expectedRes:    "",
+			expectedExists: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.deviceClass), func(t *testing.T) {
+			actualResource, actualExists := LookupResourceFor(tt.deviceClass)
+
+			if actualExists != tt.expectedExists {
+				t.Errorf("LookupResourceFor(%s) exists = %v, want %v", tt.deviceClass, actualExists, tt.expectedExists)
+			}
+
+			if actualResource != tt.expectedRes {
+				t.Errorf("LookupResourceFor(%s) resource = %v, want %v", tt.deviceClass, actualResource, tt.expectedRes)
 			}
 		})
 	}

@@ -262,7 +262,6 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
-      - dynamicresourceallocationconfigs
       - multikueueclusters
       - multikueueconfigs
       - provisioningrequestconfigs

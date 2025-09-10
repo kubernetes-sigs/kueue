@@ -564,6 +564,17 @@ func (r *WorkloadReconciler) processDRAForWorkload(ctx context.Context, wl *kueu
 	return draResources, nil
 }
 
+func (r *WorkloadReconciler) workloadHasDRAResources(wl *kueue.Workload) bool {
+	for _, ps := range wl.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimName != nil || prc.ResourceClaimTemplateName != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[kueue.AdmissionCheckReference], c clock.Clock) ([]kueue.AdmissionCheckState, bool) {
 	if len(admissionChecks) == 0 {
 		return nil, len(conds) > 0
@@ -658,7 +669,18 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
-	var queueOptions []queue.WorkloadOptions
+
+	if !features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRAResources(wlCopy) {
+		log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
+		if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
+			if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
+				log.Error(applyErr, "Failed to update workload status for DRA feature gate error")
+			}
+		}
+		return true
+	}
+
+	var queueOptions []qcache.WorkloadOptions
 	if features.Enabled(features.DynamicResourceAllocation) {
 		draResources, err := r.processDRAForWorkload(ctx, wlCopy)
 		if err != nil {
@@ -671,7 +693,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 			return true
 		}
 		if len(draResources) > 0 {
-			queueOptions = append(queueOptions, queue.WithWorkloadDRAResources(draResources))
+			queueOptions = append(queueOptions, qcache.WithWorkloadDRAResources(draResources))
 		}
 	}
 
@@ -749,7 +771,18 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	wlCopy := e.ObjectNew.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
-	var queueOptions []queue.WorkloadOptions
+
+	if !features.Enabled(features.DynamicResourceAllocation) && status == workload.StatusPending && r.workloadHasDRAResources(wlCopy) {
+		log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
+		if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
+			if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
+				log.Error(applyErr, "Failed to update workload status for DRA feature gate error")
+			}
+		}
+		return true
+	}
+
+	var queueOptions []qcache.WorkloadOptions
 	if features.Enabled(features.DynamicResourceAllocation) && status == workload.StatusPending {
 		draResources, err := r.processDRAForWorkload(ctx, wlCopy)
 		if err != nil {
@@ -762,7 +795,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			return true
 		}
 		if len(draResources) > 0 {
-			queueOptions = append(queueOptions, queue.WithWorkloadDRAResources(draResources))
+			queueOptions = append(queueOptions, qcache.WithWorkloadDRAResources(draResources))
 		}
 	}
 
@@ -991,7 +1024,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 			continue
 		}
 
-		var queueOptions []queue.WorkloadOptions
+		var queueOptions []qcache.WorkloadOptions
 		if features.Enabled(features.DynamicResourceAllocation) {
 			draResources, err := h.r.processDRAForWorkload(ctx, wlCopy)
 			if err != nil {
@@ -1004,7 +1037,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 				continue
 			}
 			if len(draResources) > 0 {
-				queueOptions = append(queueOptions, queue.WithWorkloadDRAResources(draResources))
+				queueOptions = append(queueOptions, qcache.WithWorkloadDRAResources(draResources))
 			}
 		}
 

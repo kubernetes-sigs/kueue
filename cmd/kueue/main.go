@@ -63,6 +63,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/debugger"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -220,6 +221,13 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
+	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && cfg.Resources.DynamicResourceAllocation != nil {
+		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DynamicResourceAllocation); err != nil {
+			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
+			os.Exit(1)
+		}
+		setupLog.Info("DRA mapper initialized from configuration")
+	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(cfg.FairSharing.Enable))
 	}
@@ -229,9 +237,6 @@ func main() {
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
-	if features.Enabled(features.DynamicResourceAllocation) {
-		queueOptions = append(queueOptions, queue.WithDRAResources(mgr.GetClient(), cCache.GetResourceNameForDeviceClass))
-	}
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {

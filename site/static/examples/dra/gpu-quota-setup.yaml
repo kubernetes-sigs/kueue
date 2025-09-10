@@ -1,52 +1,87 @@
+# Example: DRA Configuration via ConfigMap
+# This example shows how to configure Dynamic Resource Allocation (DRA) in Kueue
+# using the Configuration API (ConfigMap-based approach).
+
+# Step 1: Create a Configuration with DRA settings
+# This replaces the old DynamicResourceAllocationConfig CRD approach
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+metadata:
+  name: kueue-config
+  namespace: kueue-system
+resources:
+  dynamicResourceAllocation:
+    resources:
+    - name: gpus              # Logical resource name for quota accounting
+      deviceClassNames:
+      - gpu.example.com      # Device class that maps to this logical resource
+---
+# Step 2: Create a ResourceFlavor for the devices
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicResourceAllocationConfig
-metadata:
-  name: default
-  namespace: kueue-system
-spec:
-  resources:
-  - name: gpu.example.com
-    deviceClassNames:
-    - gpu.example.com
----
+# Step 3: Create a ClusterQueue with DRA resource quota
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: gpu-cq
+  name: device-cq
 spec:
   namespaceSelector: {} # match all namespaces
   resourceGroups:
-  - coveredResources: ["gpu.example.com"]
+  - coveredResources: ["gpus"]              # Use the logical resource name from DRA config
     flavors:
     - name: default-flavor
       resources:
-      - name: gpu.example.com
+      - name: gpus
         nominalQuota: 2 # two devices available in the cluster queue
 ---
+# Step 4: Create a LocalQueue
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  name: gpu-queue
+  name: device-queue
   namespace: default
 spec:
-  clusterQueue: gpu-cq 
+  clusterQueue: device-cq 
 ---
+# Step 5: Create a ResourceClaimTemplate for workloads to use
 apiVersion: resource.k8s.io/v1beta2
 kind: ResourceClaimTemplate
 metadata:
-  name: gpu-claim
+  name: device-claim
   namespace: default
 spec:
   spec:
     devices:
       requests:
-      - name: gpu
+      - name: device
         exactly:
-          deviceClassName: gpu.example.com
+          deviceClassName: gpu.example.com  # This device class maps to foo
           allocationMode: ExactCount
           count: 1
+---
+# Example workload using the ResourceClaimTemplate
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+metadata:
+  name: example-dra-workload
+  namespace: default
+spec:
+  queueName: device-queue
+  podSets:
+  - name: main
+    count: 1
+    template:
+      spec:
+        resourceClaims:
+        - name: device-template
+          resourceClaimTemplateName: device-claim
+        containers:
+        - name: app
+          image: busybox:1.35
+          command: ["sleep", "60"]
+          resources:
+            claims:
+            - name: device-template

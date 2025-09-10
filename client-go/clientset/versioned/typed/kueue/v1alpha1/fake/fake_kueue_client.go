@@ -27,10 +27,6 @@ type FakeKueueV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeKueueV1alpha1) DynamicResourceAllocationConfigs() v1alpha1.DynamicResourceAllocationConfigInterface {
-	return newFakeDynamicResourceAllocationConfigs(c)
-}
-
 func (c *FakeKueueV1alpha1) Topologies() v1alpha1.TopologyInterface {
 	return newFakeTopologies(c)
 }
