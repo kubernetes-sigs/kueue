@@ -38,7 +38,7 @@ type dominantResourceShareNode interface {
 	hierarchicalResourceNode
 }
 
-// dominantResourceShare returns a value from 0 to 1,000,000
+// dominantResourceShare returns a value ranging from 0 to math.MaxInt,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue, and divided by the weight.  If zero,
