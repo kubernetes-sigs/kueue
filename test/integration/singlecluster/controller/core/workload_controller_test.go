@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
-		ginkgo.FIt("the workload should get the AdditionalChecks added", func() {
+		ginkgo.It("the workload should get the AdditionalChecks added", func() {
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}
