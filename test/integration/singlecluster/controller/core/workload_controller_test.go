@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -218,7 +219,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			/*ginkgo.By("setting the check conditions", func() {
+			ginkgo.By("setting the check conditions", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
@@ -258,7 +259,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 				check2Cond := admissioncheck.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
 				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
-			})*/
+			})
 		})
 		ginkgo.It("should finish an unadmitted workload with failure when a check is rejected", func() {
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()

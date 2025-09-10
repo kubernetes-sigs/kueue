@@ -1037,10 +1037,6 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 
 	acNames := sets.New[kueue.AdmissionCheckReference]()
 	for acName, flavors := range admissionChecks {
-		// if len(flavors) == 0 {
-		// 	acNames.Insert(acName)
-		// 	continue
-		// }
 		for _, fName := range assignedFlavors {
 			if flavors.Has(fName) {
 				acNames.Insert(acName)

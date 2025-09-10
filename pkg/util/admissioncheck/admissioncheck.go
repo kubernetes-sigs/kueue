@@ -170,6 +170,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
 		}
 	}
+	// In case an AdmissionCheck empty, it should apply to all ResourceFlavors.
 	for _, check := range checks {
 		if len(check) != 0 {
 			continue
