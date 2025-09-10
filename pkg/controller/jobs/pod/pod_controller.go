@@ -887,7 +887,9 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 		pod := extraPods[i]
 		if err := clientutil.Patch(ctx, c, &pod, false, func() (client.Object, bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
-			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
+			if removed {
+				log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
+			}
 			return &pod, removed, nil
 		}); err != nil {
 			// We won't observe this cleanup in the event handler.
@@ -927,7 +929,9 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 		var removed bool
 		if err := clientutil.Patch(ctx, c, &pod, false, func() (client.Object, bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
-			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
+			if removed {
+				log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
+			}
 			return &pod, removed, nil
 		}); err != nil {
 			// We won't observe this cleanup in the event handler.
