@@ -51,7 +51,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -84,33 +83,33 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
-	client                             client.Client
-	record                             record.EventRecorder
-	manageJobsWithoutQueueName         bool
-	managedJobsNamespaceSelector       labels.Selector
-	waitForPodsReady                   bool
-	labelKeysToCopy                    []string
-	clock                              clock.Clock
-	workloadRetentionPolicy            WorkloadRetentionPolicy
-	enabledFrameworks                  sets.Set[string]
-	podIntegrationAutomaticallyEnabled bool
+	client                           client.Client
+	record                           record.EventRecorder
+	manageJobsWithoutQueueName       bool
+	managedJobsNamespaceSelector     labels.Selector
+	waitForPodsReady                 bool
+	labelKeysToCopy                  []string
+	clock                            clock.Clock
+	workloadRetentionPolicy          WorkloadRetentionPolicy
+	enabledFrameworks                sets.Set[string]
+	automaticallyEnabledIntegrations sets.Set[string]
 }
 
 type Options struct {
-	ManageJobsWithoutQueueName         bool
-	ManagedJobsNamespaceSelector       labels.Selector
-	WaitForPodsReady                   bool
-	KubeServerVersion                  *kubeversion.ServerVersionFetcher
-	IntegrationOptions                 map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	EnabledFrameworks                  sets.Set[string]
-	EnabledExternalFrameworks          sets.Set[string]
-	PodIntegrationAutomaticallyEnabled bool
-	ManagerName                        string
-	LabelKeysToCopy                    []string
-	Queues                             *qcache.Manager
-	Cache                              *schdcache.Cache
-	Clock                              clock.Clock
-	WorkloadRetentionPolicy            WorkloadRetentionPolicy
+	ManageJobsWithoutQueueName       bool
+	ManagedJobsNamespaceSelector     labels.Selector
+	WaitForPodsReady                 bool
+	KubeServerVersion                *kubeversion.ServerVersionFetcher
+	IntegrationOptions               map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
+	EnabledFrameworks                sets.Set[string]
+	EnabledExternalFrameworks        sets.Set[string]
+	AutomaticallyEnabledIntegrations sets.Set[string]
+	ManagerName                      string
+	LabelKeysToCopy                  []string
+	Queues                           *qcache.Manager
+	Cache                            *schdcache.Cache
+	Clock                            clock.Clock
+	WorkloadRetentionPolicy          WorkloadRetentionPolicy
 }
 
 // Option configures the reconciler.
@@ -185,10 +184,10 @@ func WithEnabledExternalFrameworks(exFrameworks []string) Option {
 	}
 }
 
-// WithPodIntegrationAutomaticallyEnabled sets whether pod integration was automatically enabled.
-func WithPodIntegrationAutomaticallyEnabled(enabled bool) Option {
+// WithAutomaticallyEnabledIntegrations sets which integrations were automatically enabled.
+func WithAutomaticallyEnabledIntegrations(integrations sets.Set[string]) Option {
 	return func(o *Options) {
-		o.PodIntegrationAutomaticallyEnabled = enabled
+		o.AutomaticallyEnabledIntegrations = integrations
 	}
 }
 
@@ -249,16 +248,16 @@ func NewReconciler(
 	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
-		client:                             client,
-		record:                             record,
-		manageJobsWithoutQueueName:         options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector:       options.ManagedJobsNamespaceSelector,
-		waitForPodsReady:                   options.WaitForPodsReady,
-		labelKeysToCopy:                    options.LabelKeysToCopy,
-		clock:                              options.Clock,
-		workloadRetentionPolicy:            options.WorkloadRetentionPolicy,
-		enabledFrameworks:                  options.EnabledFrameworks,
-		podIntegrationAutomaticallyEnabled: options.PodIntegrationAutomaticallyEnabled,
+		client:                           client,
+		record:                           record,
+		manageJobsWithoutQueueName:       options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:     options.ManagedJobsNamespaceSelector,
+		waitForPodsReady:                 options.WaitForPodsReady,
+		labelKeysToCopy:                  options.LabelKeysToCopy,
+		clock:                            options.Clock,
+		workloadRetentionPolicy:          options.WorkloadRetentionPolicy,
+		enabledFrameworks:                options.EnabledFrameworks,
+		automaticallyEnabledIntegrations: options.AutomaticallyEnabledIntegrations,
 	}
 }
 
@@ -277,15 +276,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	} else {
 		err = r.client.Get(ctx, req.NamespacedName, object)
 		dropFinalizers = apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero()
-	}
-
-	if pod, isPod := object.(*corev1.Pod); isPod {
-		log.V(3).Info("Checking pod filtering", "pod", klog.KObj(pod), "hasSuspendedByParent", pod.Annotations[podconstants.SuspendedByParentAnnotation] != "")
-		if !r.shouldReconcilePod(pod) {
-			log.V(3).Info("Pod filtered out", "pod", klog.KObj(pod))
-			return ctrl.Result{}, nil
-		}
-		log.V(3).Info("Pod reconciliation allowed", "pod", klog.KObj(pod))
 	}
 
 	if jws, implements := job.(JobWithSkip); implements {
@@ -1514,20 +1504,6 @@ func workloadSliceEnabled(job GenericJob) bool {
 	return workloadslicing.Enabled(jobObject)
 }
 
-// shouldReconcilePod determines if a pod should be reconciled by the pod controller
-func (r *JobReconciler) shouldReconcilePod(pod *corev1.Pod) bool {
-	log := ctrl.Log.WithName("pod-filtering")
-
-	if pod.Annotations[podconstants.SuspendedByParentAnnotation] != "" {
-		log.V(3).Info("Processing pod with SuspendedByParentAnnotation", "pod", klog.KObj(pod))
-		return true
-	}
-
-	if r.podIntegrationAutomaticallyEnabled {
-		log.V(3).Info("Pod integration was automatically enabled, ignoring plain pod", "pod", klog.KObj(pod))
-		return false
-	}
-
-	log.V(3).Info("Processing plain pod with explicitly enabled pod integration", "pod", klog.KObj(pod))
-	return true
+func (r *JobReconciler) GetAutomaticallyEnabledIntegrations() sets.Set[string] {
+	return r.automaticallyEnabledIntegrations
 }
