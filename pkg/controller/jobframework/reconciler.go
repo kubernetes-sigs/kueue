@@ -1366,7 +1366,13 @@ func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.Pod
 	}
 	priorityClassName, source, value, err := ExtractPriority(ctx, r.client, job.Object(), podSets, customPriorityFunc)
 	if apierrors.IsNotFound(err) {
-		r.record.Event(job.Object(), corev1.EventTypeWarning, ReasonPriorityNotFound, "PriorityClass not found")
+		reason := ReasonPriorityClassNotFound
+		message := fmt.Sprintf("PriorityClass %v not found", extractPriorityFromPodSets(podSets))
+		if workloadPriorityClass := WorkloadPriorityClassName(job.Object()); len(workloadPriorityClass) > 0 {
+			reason = ReasonWorkloadPriorityClassNotFound
+			message = fmt.Sprintf("WorkloadPriorityClass %v not found", WorkloadPriorityClassName(job.Object()))
+		}
+		r.record.Eventf(job.Object(), corev1.EventTypeWarning, reason, message)
 		return priorityClassName, source, value, ErrPriorityClassNotFound
 	}
 

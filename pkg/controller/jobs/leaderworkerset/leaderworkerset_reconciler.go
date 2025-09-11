@@ -185,7 +185,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			r.record.Event(lws, corev1.EventTypeWarning, jobframework.ReasonPriorityNotFound, "PriorityClass not found")
+			r.record.Event(lws, corev1.EventTypeWarning, jobframework.ReasonWorkloadPriorityClassNotFound, "PriorityClass not found")
 		}
 		return err
 	}
