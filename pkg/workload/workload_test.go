@@ -1344,6 +1344,7 @@ func TestPatchAdmissionStatus(t *testing.T) {
 					ctx,
 					cl,
 					wl,
+					true,
 					fakeClock,
 					func() (*kueue.Workload, bool, error) {
 						called = true

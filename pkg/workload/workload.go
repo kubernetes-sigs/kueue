@@ -863,7 +863,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
 			return update()
-		})
+		}, clientutil.WithNonStrict(!strict))
 	}
 	wPatched, updated, err := update()
 	if err != nil || !updated {
