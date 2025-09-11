@@ -732,7 +732,5 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Ordered, ginkgo.
 				g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-
-		time.Sleep(5 * time.Second)
 	})
 })
