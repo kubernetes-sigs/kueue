@@ -1184,3 +1184,19 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 	}, Timeout, Interval).Should(gomega.Succeed())
 	return newWorkload
 }
+
+func NewManagedNamespaceSelector() (newSelector labels.Selector) {
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "managed-by-kueue",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{"true"},
+			},
+		},
+	}
+	newSelector, err := metav1.LabelSelectorAsSelector(ls)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	return newSelector
+}
