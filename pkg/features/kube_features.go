@@ -181,6 +181,12 @@ const (
 	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy
 	// This feature gate is going to be replaced by an API before graduation or deprecation.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @khrm
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
+	//
+	// Enable MultiKueue support for external custom Jobs via configurable adapters.
+	MultiKueueAdaptersForCustomJobs featuregate.Feature = "MultiKueueAdaptersForCustomJobs"
 )
 
 func init() {
@@ -280,6 +286,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueAdaptersForCustomJobs: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -279,6 +279,21 @@ type MultiKueue struct {
 	// - If not specified, the workload will be handled by the default ("kueue.x-k8s.io/multikueue-dispatcher-all-at-once") dispatcher.
 	// +optional
 	DispatcherName *string `json:"dispatcherName,omitempty"`
+
+	// ExternalFrameworks defines a list of external frameworks that should be supported
+	// by the generic MultiKueue adapter. Each entry defines how to handle a specific
+	// GroupVersionKind (GVK) for MultiKueue operations.
+	// +optional
+	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+}
+
+// MultiKueueExternalFramework defines a framework that is not built-in.
+type MultiKueueExternalFramework struct {
+	// Name is the GVK of the resource that are
+	// managed by external controllers
+	// the expected format is `Kind.version.group.com`.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
 }
 
 const (
