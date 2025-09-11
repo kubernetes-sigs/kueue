@@ -562,8 +562,8 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
-	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name)
+func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, v int) {
+	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, workloadPriorityClass)
 	expectCounterMetric(metric, v)
 }
 

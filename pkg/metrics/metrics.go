@@ -190,7 +190,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'cluster_queue'",
-		}, []string{"cluster_queue"},
+		}, []string{"cluster_queue", "workload_priority_class"},
 	)
 
 	LocalQueueAdmittedWorkloadsTotal = prometheus.NewCounterVec(
@@ -520,8 +520,8 @@ func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Durat
 	localQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
-func AdmittedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
-	AdmittedWorkloadsTotal.WithLabelValues(string(cqName)).Inc()
+func AdmittedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
 	admissionWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
@@ -598,7 +598,9 @@ func ClearClusterQueueMetrics(cqName string) {
 	QuotaReservedWorkloadsTotal.DeleteLabelValues(cqName)
 	quotaReservedWaitTime.DeleteLabelValues(cqName)
 	PodsReadyToEvictedTimeSeconds.DeleteLabelValues(cqName)
-	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
+	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{
+		"cluster_queue": cqName,
+	})
 	admissionWaitTime.DeleteLabelValues(cqName)
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
 	queuedUntilReadyWaitTime.DeleteLabelValues(cqName)
