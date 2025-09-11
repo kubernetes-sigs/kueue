@@ -54,17 +54,17 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// However, the KubeRay operator isn't in the loop on the manager cluster when using MultiKueue, so we need to do it ourselves.
 	// This is necessary because code elsewhere assumes that after calling Suspend(), IsActive() will become false.
 	if localJob.Spec.Suspend && localJob.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended {
-		err = clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+		err = clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 			localJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
-			return true, nil
+			return &localJob, true, nil
 		})
 		if err != nil {
 			return err
 		}
 	} else if !localJob.Spec.Suspend && localJob.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusSuspended {
-		err = clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+		err = clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 			localJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusInitializing
-			return true, nil
+			return &localJob, true, nil
 		})
 		if err != nil {
 			return err
