@@ -4046,8 +4046,8 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "labelled-ns"},
 					EventType: "Warning",
-					Reason:    "PriorityNotFound",
-					Message:   "PriorityClass not found",
+					Reason:    "WorkloadPriorityClassNotFound",
+					Message:   "WorkloadPriorityClass test-wpc-high not found",
 				},
 			},
 		},
