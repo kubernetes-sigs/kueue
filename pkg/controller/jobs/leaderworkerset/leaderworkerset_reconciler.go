@@ -315,7 +315,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
 		if apierrors.IsNotFound(err) {
-			r.record.Event(lws, corev1.EventTypeWarning, jobframework.ReasonPriorityNotFound, "PriorityClass not found")
+			r.record.Event(lws, corev1.EventTypeWarning, jobframework.ReasonWorkloadPriorityClassNotFound, "PriorityClass not found")
 		}
 		return err
 	}
