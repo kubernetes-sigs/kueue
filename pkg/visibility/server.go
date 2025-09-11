@@ -57,9 +57,9 @@ var (
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager) error {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool) error {
 	config := newVisibilityServerConfig()
-	if err := applyVisibilityServerOptions(config); err != nil {
+	if err := applyVisibilityServerOptions(config, enableInternalCertManagement); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -79,12 +79,17 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) error {
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool) error {
 	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibilityv1beta1.SchemeGroupVersion))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
-	// The directory where TLS certs will be created
-	o.SecureServing.ServerCert.CertDirectory = certDir
+	if enableInternalCertManagement {
+		// The directory where TLS certs will be created
+		o.SecureServing.ServerCert.CertDirectory = certDir
+	} else {
+		o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
+		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
+	}
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
