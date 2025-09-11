@@ -167,7 +167,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 
 	if !j.IsSuspended() {
-		if err := clientutil.Patch(ctx, c, object, true, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
 				j.Annotations = map[string]string{}
@@ -191,7 +191,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}
 	}
 
-	if err := clientutil.Patch(ctx, c, object, true, func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
 		j.RestorePodSetsInfo(podSetsInfo)
 		delete(j.Annotations, StoppingAnnotation)
 		return object, true, nil

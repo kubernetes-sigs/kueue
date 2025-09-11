@@ -364,7 +364,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
-				if err := clientutil.Patch(ctx, r.client, object, true, func() (client.Object, bool, error) {
+				if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 					job.Suspend()
 					return object, true, nil
 				}); err != nil {
@@ -1085,7 +1085,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		if err := clientutil.Patch(ctx, r.client, object, true, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 			return object, true, job.RunWithPodSetsInfo(info)
 		}); err != nil {
 			return err
@@ -1129,7 +1129,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return nil
 	}
 
-	if err := clientutil.Patch(ctx, r.client, object, true, func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 		job.Suspend()
 		if info != nil {
 			job.RestorePodSetsInfo(info)

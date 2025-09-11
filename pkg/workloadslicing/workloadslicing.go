@@ -263,7 +263,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
-		if err := clientutil.Patch(ctx, clnt, &list.Items[i], true, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (client.Object, bool, error) {
 			return &list.Items[i], pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
 			return fmt.Errorf("failed to patch pod: %w", err)
