@@ -460,13 +460,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(2).Error(err, "copying workload status", "remote", evictedRemote)
 			return reconcile.Result{}, err
 		}
-
-		for remote := range group.remotes {
-			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, remote)); err != nil {
-				log.V(2).Error(err, "Deleting out of sync remote objects", "remote", remote)
-				return reconcile.Result{}, err
-			}
-		}
 	} else if acs.State == kueue.CheckStateReady {
 		// If there is no reserving and the AC is ready, the connection with the reserving remote might
 		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
