@@ -38,11 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/dra"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
@@ -2222,11 +2221,11 @@ func TestReconcile(t *testing.T) {
 			if tc.workload != nil && tc.workload.Namespace == "ns" &&
 				len(tc.workload.Spec.PodSets) > 0 &&
 				len(tc.workload.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
-				draConfig := &configapi.DynamicResourceAllocation{
-					Resources: []configapi.DynamicResource{{
+				draConfig := []configapi.DeviceClassMapping{
+					{
 						Name:             corev1.ResourceName("foo"),
 						DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
-					}},
+					},
 				}
 				err := dra.CreateMapperFromConfiguration(draConfig)
 				if err != nil {

@@ -451,10 +451,10 @@ type Resources struct {
 	// This is intended to be a map with Input as the key (enforced by validation code)
 	Transformations []ResourceTransformation `json:"transformations,omitempty"`
 
-	// DynamicResourceAllocation defines mappings from device classes to logical resources
+	// DeviceClassMappings defines mappings from device classes to logical resources
 	// for Dynamic Resource Allocation support.
 	// +optional
-	DynamicResourceAllocation *DynamicResourceAllocation `json:"dynamicResourceAllocation,omitempty"`
+	DeviceClassMappings []DeviceClassMapping `json:"deviceClassMappings,omitempty"`
 }
 
 type ResourceTransformationStrategy string
@@ -475,17 +475,9 @@ type ResourceTransformation struct {
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
 
-// DynamicResourceAllocation holds device class to logical resource mappings
+// DeviceClassMapping holds device class to logical resource mappings
 // for Dynamic Resource Allocation support.
-type DynamicResourceAllocation struct {
-	// Resources lists logical resources that Kueue will account for DRA.
-	// Each resource defines a mapping from one or more device classes to a logical resource name.
-	Resources []DynamicResource `json:"resources,omitempty"`
-}
-
-// DynamicResource describes a single logical resource and the DeviceClasses mapping.
-// The resource name is used for quota in ClusterQueue and appears in Workload status.
-type DynamicResource struct {
+type DeviceClassMapping struct {
 	// Name is referenced in ClusterQueue.nominalQuota and Workload status.
 	// Must be a valid fully qualified name consisting of an optional DNS subdomain prefix
 	// followed by a slash and a DNS label, or just a DNS label.

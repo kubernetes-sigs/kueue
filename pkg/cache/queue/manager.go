@@ -444,19 +444,12 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...Work
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-
-	var mergedOpts WorkloadOptions
+	infoOptions := m.workloadInfoOptions
 	for _, opt := range opts {
 		if opt.DRAResources != nil {
-			mergedOpts.DRAResources = opt.DRAResources
+			infoOptions = append(infoOptions, workload.WithPreprocessedDRAResources(opt.DRAResources))
+			break
 		}
-	}
-
-	var infoOptions []workload.InfoOption
-	if mergedOpts.DRAResources != nil {
-		infoOptions = append(m.workloadInfoOptions, workload.WithPreprocessedDRAResources(mergedOpts.DRAResources))
-	} else {
-		infoOptions = m.workloadInfoOptions
 	}
 	wInfo := workload.NewInfo(w, infoOptions...)
 	q.AddOrUpdate(wInfo)
@@ -838,8 +831,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
-	infoOptions := m.workloadInfoOptions
-	wInfo := workload.NewInfo(w, infoOptions...)
+	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
 		m.Broadcast()
