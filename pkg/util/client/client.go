@@ -22,31 +22,49 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func createPatch(before, after client.Object) (client.Patch, error) {
-	patchBase := client.MergeFrom(before)
-	patchBytes, err := patchBase.Data(after)
-	if err != nil {
-		return nil, err
+type ClientPatchOption func(*ClientPatchOptions)
+
+type ClientPatchOptions struct {
+	NonStrict bool
+}
+
+func DefaultClientPatchOptions() *ClientPatchOptions {
+	return &ClientPatchOptions{
+		NonStrict: false, // default is strict
 	}
-	return client.RawPatch(patchBase.Type(), patchBytes), nil
+}
+
+func WithNonStrict() ClientPatchOption {
+	return func(o *ClientPatchOptions) {
+		o.NonStrict = true
+	}
+}
+
+func patchCommon(obj client.Object, update func() (client.Object, bool, error), patchFunc func(patch client.Patch) error, options ...ClientPatchOption) error {
+	opts := DefaultClientPatchOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+	strict := !opts.NonStrict
+	return updateAndPatch(obj, strict, update, patchFunc)
 }
 
 // Patch applies the merge patch of client.Object.
 // If strict is true, the resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
-func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (client.Object, bool, error)) error {
-	return updateAndPatch(obj, strict, update, func(patch client.Patch) error {
+func Patch(ctx context.Context, c client.Client, obj client.Object, update func() (client.Object, bool, error), options ...ClientPatchOption) error {
+	return patchCommon(obj, update, func(patch client.Patch) error {
 		return c.Patch(ctx, obj, patch)
-	})
+	}, options...)
 }
 
 // PatchStatus applies the merge patch of client.Object status.
 // The resourceVersion will be part of the patch, make this call fail if
 // client.Object was changed.
-func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (client.Object, bool, error)) error {
-	return updateAndPatch(obj, true, update, func(patch client.Patch) error {
+func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (client.Object, bool, error), options ...ClientPatchOption) error {
+	return patchCommon(obj, update, func(patch client.Patch) error {
 		return c.Status().Patch(ctx, obj, patch)
-	})
+	}, options...)
 }
 
 func getOriginalObject(obj client.Object, strict bool) client.Object {
@@ -69,4 +87,13 @@ func updateAndPatch(obj client.Object, strict bool, update func() (client.Object
 		return err
 	}
 	return patchFn(patch)
+}
+
+func createPatch(before, after client.Object) (client.Patch, error) {
+	patchBase := client.MergeFrom(before)
+	patchBytes, err := patchBase.Data(after)
+	if err != nil {
+		return nil, err
+	}
+	return client.RawPatch(patchBase.Type(), patchBytes), nil
 }
