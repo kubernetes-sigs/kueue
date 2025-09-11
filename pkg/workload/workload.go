@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -897,8 +898,18 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 }
 
 // PatchAdmissionStatus updates the admission status of a workload.
-// It runs the update function and, if updated, applies the SSA Patch status.
+// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
+// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
 func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (*kueue.Workload, bool, error)) error {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		patchOptions := []clientutil.PatchOption{}
+		if !strict {
+			patchOptions = append(patchOptions, clientutil.WithLoose())
+		}
+		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
+			return update()
+		}, patchOptions...)
+	}
 	wPatched, updated, err := update()
 	if err != nil || !updated {
 		return err

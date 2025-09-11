@@ -1538,31 +1538,39 @@ func TestPatchAdmissionStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			wl := utiltesting.MakeWorkload("foo", "default").Obj()
-			cl := utiltesting.NewFakeClientSSAAsSM(wl)
-			called := false
-			gotErr := PatchAdmissionStatus(
-				ctx,
-				cl,
-				wl,
-				true,
-				fakeClock,
-				func() (*kueue.Workload, bool, error) {
-					called = true
-					return wl, tc.patchCall.updated, tc.patchCall.err
-				},
-			)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
-			}
-			if !called {
-				t.Errorf("expected update func to be called when feature enabled")
-			}
-			if tc.patchCall.updated && !called {
-				t.Errorf("expected update func to be called when feature disabled and update true")
-			}
-		})
+		for _, featureEnabled := range []bool{true, false} {
+			t.Run(name, func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, featureEnabled)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				wl := utiltesting.MakeWorkload("foo", "default").Obj()
+				var cl client.Client
+				if !featureEnabled {
+					cl = utiltesting.NewFakeClientSSAAsSM(wl)
+				} else {
+					cl = utiltesting.NewFakeClient(wl)
+				}
+				called := false
+				gotErr := PatchAdmissionStatus(
+					ctx,
+					cl,
+					wl,
+					true,
+					fakeClock,
+					func() (*kueue.Workload, bool, error) {
+						called = true
+						return wl, tc.patchCall.updated, tc.patchCall.err
+					},
+				)
+				if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+				}
+				if featureEnabled && !called {
+					t.Errorf("expected update func to be called when feature enabled")
+				}
+				if !featureEnabled && tc.patchCall.updated && !called {
+					t.Errorf("expected update func to be called when feature disabled and update true")
+				}
+			})
+		}
 	}
 }
