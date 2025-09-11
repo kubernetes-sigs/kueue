@@ -70,6 +70,7 @@ files:
     outputDir: ./charts/kueue/templates/visibility
     excludes:
       - kustomization.yaml
+      - subject_transformer.yaml
     continueOnError: true
     operations:
       - type: APPEND
@@ -89,6 +90,9 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
     postOperations:
       - type: INSERT_TEXT
         key: .metadata

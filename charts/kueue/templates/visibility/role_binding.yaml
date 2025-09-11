@@ -11,5 +11,5 @@ roleRef:
   name: extension-apiserver-authentication-reader
 subjects:
   - kind: ServiceAccount
-    name: kueue-controller-manager
+    name: '{{ include "kueue.fullname" . }}-controller-manager'
     namespace: '{{ .Release.Namespace }}'
