@@ -98,23 +98,29 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	draConfig := &config.DynamicResourceAllocation{
-		Resources: []config.DynamicResource{
-			{
-				Name:             corev1.ResourceName("foo"),
-				DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
-			},
+	mappings := []config.DeviceClassMapping{
+		{
+			Name:             corev1.ResourceName("foo"),
+			DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+		},
+		{
+			Name:             corev1.ResourceName("res-1"),
+			DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+		},
+		{
+			Name:             corev1.ResourceName("res-2"),
+			DeviceClassNames: []corev1.ResourceName{"test-deviceclass-2"},
 		},
 	}
 
-	err = dra.CreateMapperFromConfiguration(draConfig)
+	err = dra.CreateMapperFromConfiguration(mappings)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Controllers configuration
 	controllersCfg := &config.Configuration{
 		Namespace: ptr.To("kueue-system"),
 		Resources: &config.Resources{
-			DynamicResourceAllocation: draConfig,
+			DeviceClassMappings: mappings,
 		},
 	}
 	mgr.GetScheme().Default(controllersCfg)

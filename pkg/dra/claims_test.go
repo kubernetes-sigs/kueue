@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/dra"
 )
@@ -256,6 +257,26 @@ func Test_GetResourceRequests(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.lookup != nil {
+				mappings := []configapi.DeviceClassMapping{
+					{
+						Name:             corev1.ResourceName("res-1"),
+						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+					},
+					{
+						Name:             corev1.ResourceName("res-2"),
+						DeviceClassNames: []corev1.ResourceName{"test-deviceclass-2"},
+					},
+				}
+				if tc.name == "Unmapped DeviceClass returns error" {
+					mappings = []configapi.DeviceClassMapping{}
+				}
+				err := dra.CreateMapperFromConfiguration(mappings)
+				if err != nil {
+					t.Fatalf("Failed to initialize DRA mapper: %v", err)
+				}
+			}
+
 			objs := []client.Object{tmpl, claim}
 			if tc.extraObjects != nil {
 				for _, o := range tc.extraObjects {
@@ -269,7 +290,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				tc.modifyWL(wlCopy)
 			}
 
-			got, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), baseClient, wlCopy, tc.lookup)
+			got, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), baseClient, wlCopy)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("unexpected error status: gotErr=%v wantErr=%v, err=%v", err != nil, tc.wantErr, err)
 			}
@@ -278,207 +299,6 @@ func Test_GetResourceRequests(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("unexpected result; got=%v want=%v", got, tc.want)
-			}
-		})
-	}
-}
-
-func Test_GetResourceRequestsForResourceClaims(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = kueuev1beta1.AddToScheme(scheme)
-	_ = resourcev1beta2.AddToScheme(scheme)
-
-	newClaim := func(name string, dc string, count int64) *resourcev1beta2.ResourceClaim {
-		return &resourcev1beta2.ResourceClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns1"},
-			Spec: resourcev1beta2.ResourceClaimSpec{
-				Devices: resourcev1beta2.DeviceClaim{
-					Requests: []resourcev1beta2.DeviceRequest{{
-						Exactly: &resourcev1beta2.ExactDeviceRequest{
-							AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-							Count:           count,
-							DeviceClassName: dc,
-						},
-					}},
-				},
-			},
-		}
-	}
-
-	newWL := func(name string, claimName string) *kueuev1beta1.Workload {
-		return &kueuev1beta1.Workload{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns1"},
-			Spec: kueuev1beta1.WorkloadSpec{
-				PodSets: []kueuev1beta1.PodSet{{
-					Name:  "main",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Claims: []corev1.ResourceClaim{{Name: "req-rc"}},
-									},
-								},
-							},
-							ResourceClaims: []corev1.PodResourceClaim{
-								{Name: "req-rc", ResourceClaimName: ptr.To(claimName)},
-							},
-						},
-					},
-				}},
-			},
-		}
-	}
-
-	newWLWithTwoContainers := func(name string, claimName string) *kueuev1beta1.Workload {
-		return &kueuev1beta1.Workload{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns1"},
-			Spec: kueuev1beta1.WorkloadSpec{
-				PodSets: []kueuev1beta1.PodSet{{
-					Name:  "main",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							InitContainers: []corev1.Container{{Name: "init", Image: "pause"}},
-							Containers: []corev1.Container{
-								{
-									Name:  "c1",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Claims: []corev1.ResourceClaim{{Name: "req-rc"}},
-									},
-								},
-								{
-									Name:  "c2",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Claims: []corev1.ResourceClaim{{Name: "req-rc"}},
-									},
-								},
-							},
-							ResourceClaims: []corev1.PodResourceClaim{
-								{Name: "req-rc", ResourceClaimName: ptr.To(claimName)},
-							},
-						},
-					},
-				}},
-			},
-		}
-	}
-
-	lookupOK := func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
-		m := map[corev1.ResourceName]corev1.ResourceName{
-			"test-deviceclass-1": "res-1",
-			"test-deviceclass-2": "res-2",
-		}
-		lr, ok := m[dc]
-		return lr, ok
-	}
-	lookupMissing := func(corev1.ResourceName) (corev1.ResourceName, bool) { return "", false }
-
-	type call struct {
-		wl      *kueuev1beta1.Workload
-		want    map[kueuev1beta1.PodSetReference]corev1.ResourceList
-		wantErr bool
-	}
-
-	cases := []struct {
-		name       string
-		objects    []client.Object
-		lookup     func(corev1.ResourceName) (corev1.ResourceName, bool)
-		cqName     string
-		callSeries []call
-	}{
-		{
-			name:    "Single ResourceClaim success",
-			objects: []client.Object{newClaim("rc-1", "test-deviceclass-2", 1)},
-			lookup:  lookupOK,
-			cqName:  "cq-a",
-			callSeries: []call{
-				{
-					wl:      newWL("wl-rc-1", "rc-1"),
-					want:    map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-2": resource.MustParse("1")}},
-					wantErr: false,
-				},
-			},
-		},
-		{
-			name:    "Unmapped DeviceClass returns error",
-			objects: []client.Object{newClaim("rc-unmapped-1", "unknown-dc", 2)},
-			lookup:  lookupMissing,
-			cqName:  "cq-a",
-			callSeries: []call{
-				{
-					wl:      newWL("wl-rc-unmapped-1", "rc-unmapped-1"),
-					wantErr: true,
-				},
-			},
-		},
-		{
-			name:    "Claim in use by different workload returns error",
-			objects: []client.Object{newClaim("rc-shared-1", "test-deviceclass-1", 1)},
-			lookup:  lookupOK,
-			cqName:  "cq-a",
-			callSeries: []call{
-				{
-					wl:      newWL("wl-rc-owner", "rc-shared-1"),
-					wantErr: false,
-				},
-				{
-					wl:      newWL("wl-rc-other", "rc-shared-1"),
-					wantErr: true,
-				},
-			},
-		},
-		{
-			name:    "Same workload can reuse the same claim",
-			objects: []client.Object{newClaim("rc-reuse-1", "test-deviceclass-1", 2)},
-			lookup:  lookupOK,
-			cqName:  "cq-a",
-			callSeries: []call{
-				{
-					wl:      newWL("wl-rc-reuse", "rc-reuse-1"),
-					wantErr: false,
-				},
-				{
-					wl:      newWL("wl-rc-reuse", "rc-reuse-1"),
-					wantErr: false,
-				},
-			},
-		},
-		{
-			name:    "Two containers sharing one ResourceClaimName",
-			objects: []client.Object{newClaim("rc-shared-in-pod-1", "test-deviceclass-1", 2)},
-			lookup:  lookupOK,
-			cqName:  "cq-a",
-			callSeries: []call{
-				{
-					wl:      newWLWithTwoContainers("wl-rc-shared-in-pod", "rc-shared-in-pod-1"),
-					want:    map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
-					wantErr: false,
-				},
-			},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objects...).Build()
-			for i, c := range tc.callSeries {
-				got, err := dra.GetResourceRequestsForResourceClaims(context.Background(), cl, c.wl, tc.cqName, tc.lookup)
-				if (err != nil) != c.wantErr {
-					t.Fatalf("call %d: unexpected error status: gotErr=%v wantErr=%v, err=%v", i, err != nil, c.wantErr, err)
-				}
-				if c.wantErr {
-					continue
-				}
-				if c.want != nil && !reflect.DeepEqual(got, c.want) {
-					t.Fatalf("call %d: unexpected result; got=%v want=%v", i, got, c.want)
-				}
 			}
 		})
 	}

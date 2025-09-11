@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
-		ginkgo.It("Should admit workload with DRA resource claims", func() {
+		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", func() {
 			ginkgo.By("Creating a ResourceClaim")
 			rc := makeResourceClaim("test-rc", ns.Name, "foo.example.com", 2)
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
@@ -118,17 +118,20 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			ginkgo.By("Verifying workload is admitted to ClusterQueue")
+			ginkgo.By("Verifying workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
-				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
-				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
 
-				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
-				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("foo")))
-				g.Expect(assignment.ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("2")))
+				for _, condition := range updatedWl.Status.Conditions {
+					if condition.Type == kueue.WorkloadQuotaReserved &&
+						condition.Status == metav1.ConditionFalse &&
+						condition.Reason == kueue.WorkloadInadmissible {
+						return
+					}
+				}
+				g.Expect(false).To(gomega.BeTrue(), "Expected WorkloadQuotaReserved=false with Inadmissible reason")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -158,23 +161,63 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should handle multiple workloads sharing DRA quota", func() {
-			ginkgo.By("Creating first ResourceClaim")
-			rc1 := makeResourceClaim("test-rc-1", ns.Name, "foo.example.com", 4)
-			gomega.Expect(k8sClient.Create(ctx, rc1)).To(gomega.Succeed())
+			ginkgo.By("Creating ResourceClaimTemplates")
+			rct1 := &resourcev1beta2.ResourceClaimTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "quota-template-1",
+					Namespace: ns.Name,
+				},
+				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
+					Spec: resourcev1beta2.ResourceClaimSpec{
+						Devices: resourcev1beta2.DeviceClaim{
+							Requests: []resourcev1beta2.DeviceRequest{{
+								Name: "device-request",
+								Exactly: &resourcev1beta2.ExactDeviceRequest{
+									DeviceClassName: "foo.example.com",
+									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									Count:           4,
+								},
+							}},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, rct1)).To(gomega.Succeed())
 
-			ginkgo.By("Creating second ResourceClaim")
-			rc2 := makeResourceClaim("test-rc-2", ns.Name, "foo.example.com", 4)
-			gomega.Expect(k8sClient.Create(ctx, rc2)).To(gomega.Succeed())
+			rct2 := &resourcev1beta2.ResourceClaimTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "quota-template-2",
+					Namespace: ns.Name,
+				},
+				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
+					Spec: resourcev1beta2.ResourceClaimSpec{
+						Devices: resourcev1beta2.DeviceClaim{
+							Requests: []resourcev1beta2.DeviceRequest{{
+								Name: "device-request",
+								Exactly: &resourcev1beta2.ExactDeviceRequest{
+									DeviceClassName: "foo.example.com",
+									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									Count:           4,
+								},
+							}},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, rct2)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload")
 			wl1 := utiltesting.MakeWorkload("test-wl-1", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("test-rc-1")},
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("quota-template-1"),
+				},
 			}
 			wl1.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device"},
+				{Name: "device-template"},
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
 
@@ -183,10 +226,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				Queue("test-lq").
 				Obj()
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("test-rc-2")},
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("quota-template-2"),
+				},
 			}
 			wl2.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device"},
+				{Name: "device-template"},
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 
@@ -218,50 +264,6 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				}
 				g.Expect(totalUsage).To(gomega.Equal(int64(8)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("Should reject second workload using same ResourceClaim", func() {
-			ginkgo.By("Creating a ResourceClaim")
-			rc := makeResourceClaim("shared-rc", ns.Name, "foo.example.com", 2)
-			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
-
-			ginkgo.By("Creating first workload using the ResourceClaim")
-			wl1 := utiltesting.MakeWorkload("test-wl-first", ns.Name).
-				Queue("test-lq").
-				Obj()
-			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("shared-rc")},
-			}
-			wl1.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device"},
-			}
-			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
-
-			ginkgo.By("Verifying first workload is admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl1 kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl1)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Creating second workload using the same ResourceClaim")
-			wl2 := utiltesting.MakeWorkload("test-wl-second", ns.Name).
-				Queue("test-lq").
-				Obj()
-			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("shared-rc")},
-			}
-			wl2.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device"},
-			}
-			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
-
-			ginkgo.By("Verifying second workload remains pending due to ResourceClaim conflict")
-			gomega.Consistently(func(g gomega.Gomega) {
-				var updatedWl2 kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl2)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl2)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit workload with DRA resource claim templates", func() {
@@ -471,19 +473,41 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should handle unmapped device classes with proper error", func() {
-			ginkgo.By("Creating a ResourceClaim with unmapped device class")
-			rc := makeResourceClaim("test-rc-unmapped", ns.Name, "unmapped.example.com", 2)
-			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
+			ginkgo.By("Creating a ResourceClaimTemplate with unmapped device class")
+			rct := &resourcev1beta2.ResourceClaimTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "unmapped-template",
+					Namespace: ns.Name,
+				},
+				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
+					Spec: resourcev1beta2.ResourceClaimSpec{
+						Devices: resourcev1beta2.DeviceClaim{
+							Requests: []resourcev1beta2.DeviceRequest{{
+								Name: "device-request",
+								Exactly: &resourcev1beta2.ExactDeviceRequest{
+									DeviceClassName: "unmapped.example.com",
+									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									Count:           2,
+								},
+							}},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with unmapped device class")
 			wl := utiltesting.MakeWorkload("test-wl-unmapped", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("test-rc-unmapped")},
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("unmapped-template"),
+				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device"},
+				{Name: "device-template"},
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
@@ -510,19 +534,41 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			ginkgo.By("Temporarily disabling DRA feature gate")
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, false)
 
-			ginkgo.By("Creating a ResourceClaim")
-			rc := makeResourceClaim("test-rc-disabled", ns.Name, "foo.example.com", 2)
-			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
+			ginkgo.By("Creating a ResourceClaimTemplate")
+			rct := &resourcev1beta2.ResourceClaimTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "disabled-template",
+					Namespace: ns.Name,
+				},
+				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
+					Spec: resourcev1beta2.ResourceClaimSpec{
+						Devices: resourcev1beta2.DeviceClaim{
+							Requests: []resourcev1beta2.DeviceRequest{{
+								Name: "device-request",
+								Exactly: &resourcev1beta2.ExactDeviceRequest{
+									DeviceClassName: "foo.example.com",
+									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									Count:           2,
+								},
+							}},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
-			ginkgo.By("Creating a workload with DRA resource claim")
+			ginkgo.By("Creating a workload with DRA resource claim template")
 			wl := utiltesting.MakeWorkload("test-wl-disabled", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{Name: "device", ResourceClaimName: ptr.To("test-rc-disabled")},
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("disabled-template"),
+				},
 			}
 			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device"},
+				{Name: "device-template"},
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 

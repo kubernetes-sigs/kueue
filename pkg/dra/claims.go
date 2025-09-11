@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -34,7 +33,7 @@ import (
 
 var (
 	ErrDeviceClassNotMapped = errors.New("DeviceClass is not mapped in DRA configuration")
-	ErrResourceClaimInUse   = errors.New("ResourceClaim is used by another workload")
+	ErrResourceClaimInUse   = errors.New("ResourceClaim is in use")
 	ErrClaimSpecNotFound    = errors.New("failed to get claim spec")
 )
 
@@ -103,15 +102,12 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
 	cl client.Client,
-	wl *kueue.Workload,
-	lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool),
-) (map[kueue.PodSetReference]corev1.ResourceList, error) {
+	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, error) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
 		aggregated := corev1.ResourceList{}
 
-		// Resolve every ResourceClaim reference in the PodSet template.
 		for _, prc := range ps.Template.Spec.ResourceClaims {
 			if prc.ResourceClaimTemplateName == nil {
 				continue
@@ -125,7 +121,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 			}
 
 			for dc, qty := range countDevicesPerClass(spec) {
-				logical, found := lookup(dc)
+				logical, found := Mapper().lookup(dc)
 				if !found {
 					return nil, fmt.Errorf("DeviceClass %s is not mapped in DRA configuration for workload %s podset %s: %w", dc, wl.Name, ps.Name, ErrDeviceClassNotMapped)
 				}
@@ -138,58 +134,5 @@ func GetResourceRequestsForResourceClaimTemplates(
 		}
 	}
 
-	return perPodSet, nil
-}
-
-// GetResourceRequestsForResourceClaims walks all ResourceClaims referenced by each PodSet of the Workload,
-// converts DeviceClass counts into logical resources using the provided lookup function and
-// returns the aggregated quantities per PodSet.
-//
-// If at least one DeviceClass is not present in the DRA configuration the function
-// returns an error.
-func GetResourceRequestsForResourceClaims(ctx context.Context,
-	cl client.Client,
-	wl *kueue.Workload,
-	cqName string,
-	lookup func(dc corev1.ResourceName) (corev1.ResourceName, bool)) (map[kueue.PodSetReference]corev1.ResourceList, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
-	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		aggregated := corev1.ResourceList{}
-
-		for _, prc := range ps.Template.Spec.ResourceClaims {
-			if prc.ResourceClaimName == nil {
-				continue
-			}
-			spec, err := getClaimSpec(ctx, cl, wl.Namespace, prc)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get claim spec for ResourceClaim %s/%s in workload %s podset %s: %w", wl.Namespace, *prc.ResourceClaimName, wl.Name, ps.Name, fmt.Errorf("%w: %v", ErrClaimSpecNotFound, err))
-			}
-			if spec == nil {
-				continue
-			}
-			claimKey := ClaimKey(fmt.Sprintf("%s/%s", wl.Namespace, *prc.ResourceClaimName))
-
-			allowed := claims.addAndCheckWorkLoad(claimKey, wl.Name)
-			if !allowed {
-				log.Info("claim is used by another workload", "claimKey", claimKey, "workload", wl.Name)
-				return nil, fmt.Errorf("ResourceClaim %s/%s is used by another workload: %w", wl.Namespace, *prc.ResourceClaimName, ErrResourceClaimInUse)
-			}
-			log.Info("workload is allowed to use resource claims", "claimKey", claimKey, "workload", wl.Name)
-			for dc, qty := range countDevicesPerClass(spec) {
-				logical, found := lookup(dc)
-				if !found {
-					return nil, fmt.Errorf("DeviceClass %s is not mapped in DRA configuration for workload %s podset %s in cluster queue %s: %w", dc, wl.Name, ps.Name, cqName, ErrDeviceClassNotMapped)
-				}
-				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: qty})
-			}
-		}
-
-		if len(aggregated) > 0 {
-			perPodSet[ps.Name] = aggregated
-		}
-	}
 	return perPodSet, nil
 }

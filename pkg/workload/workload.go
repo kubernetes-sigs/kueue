@@ -36,7 +36,6 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -191,9 +190,6 @@ type Info struct {
 	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
 	LocalQueueFSUsage *float64
-
-	// DRAError holds an error produced while processing this workload during Info construction.
-	DRAError error
 }
 
 type PodSetResources struct {
@@ -258,19 +254,15 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	for _, opt := range opts {
 		opt(&options)
 	}
-	info := &Info{Obj: w}
+	info := &Info{
+		Obj: w,
+	}
 	if w.Status.Admission != nil {
 		info.ClusterQueue = w.Status.Admission.ClusterQueue
 		info.TotalRequests = totalRequestsFromAdmission(w)
-		return info
+	} else {
+		info.TotalRequests = totalRequestsFromPodSets(w, &options)
 	}
-	totalRequests, err := totalRequestsFromPodSets(w, &options)
-	if err != nil {
-		info.DRAError = err
-		ctrl.LoggerFrom(context.Background()).Error(err, "Failed to calculate DRA resources", "workload", w.Name)
-		return info
-	}
-	info.TotalRequests = totalRequests
 	return info
 }
 
@@ -481,9 +473,9 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 	})
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetResources, error) {
+func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
-		return nil, nil
+		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
@@ -503,8 +495,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetRe
 		res = append(res, setRes)
 	}
 
-	if features.Enabled(features.DynamicResourceAllocation) && info.dra.preprocessedResources != nil {
-		// Use preprocessed DRA resources if provided
+	if features.Enabled(features.DynamicResourceAllocation) && info.dra != nil && info.dra.preprocessedResources != nil {
 		for i := range res {
 			ps := &res[i]
 			if draRes, exists := info.dra.preprocessedResources[ps.Name]; exists {
@@ -512,14 +503,13 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) ([]PodSetRe
 					if ps.Requests == nil {
 						ps.Requests = make(resources.Requests)
 					}
-					// Preprocessed resources are already scaled appropriately
 					ps.Requests[resName] += resources.ResourceValue(resName, quantity)
 				}
 			}
 		}
 	}
 
-	return res, nil
+	return res
 }
 
 func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {

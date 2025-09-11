@@ -49,16 +49,14 @@ func (m *ResourceMapper) lookup(deviceClass corev1.ResourceName) (corev1.Resourc
 	return logicalResource, found
 }
 
-func (m *ResourceMapper) populateFromConfiguration(draConfig *configapi.DynamicResourceAllocation) error {
-	if draConfig == nil {
+func (m *ResourceMapper) populateFromConfiguration(mappings []configapi.DeviceClassMapping) error {
+	if mappings == nil {
 		return nil
 	}
-
 	newMapping := make(map[corev1.ResourceName]corev1.ResourceName)
-
-	for _, resource := range draConfig.Resources {
-		for _, deviceClassName := range resource.DeviceClassNames {
-			newMapping[deviceClassName] = resource.Name
+	for _, mapping := range mappings {
+		for _, deviceClassName := range mapping.DeviceClassNames {
+			newMapping[deviceClassName] = mapping.Name
 		}
 	}
 
@@ -76,12 +74,6 @@ func Mapper() *ResourceMapper {
 
 // CreateMapperFromConfiguration creates and populates the global DRA mapper from Configuration API.
 // This is called ONCE during Kueue startup when configuration is loaded.
-func CreateMapperFromConfiguration(config *configapi.DynamicResourceAllocation) error {
-	return Mapper().populateFromConfiguration(config)
-}
-
-// LookupResourceFor performs a device class lookup using the global DRA mapper.
-// Returns the logical resource name and true if found, empty string and false otherwise.
-func LookupResourceFor(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
-	return Mapper().lookup(deviceClass)
+func CreateMapperFromConfiguration(mappings []configapi.DeviceClassMapping) error {
+	return Mapper().populateFromConfiguration(mappings)
 }
