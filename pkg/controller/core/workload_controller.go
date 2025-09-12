@@ -53,6 +53,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -144,6 +145,8 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -186,6 +189,52 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if workload.IsAdmitted(&wl) && workload.HasUnhealthyNodes(&wl) {
 		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
 		return ctrl.Result{}, nil
+	}
+
+	if workload.Status(&wl) == workload.StatusPending &&
+		(r.workloadHasResourceClaimTemplates(&wl) || r.workloadHasResourceClaim(&wl)) {
+
+		log.V(3).Info("Processing DRA resources for workload")
+
+		if !features.Enabled(features.DynamicResourceAllocation) {
+			log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
+				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA feature gate error: %w", err)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+
+		if r.workloadHasResourceClaim(&wl) {
+			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
+				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+
+		draResources, err := r.processDRAForWorkload(ctx, &wl)
+		if err != nil {
+			log.Error(err, "Failed to process DRA resources for workload")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
+				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+				}
+			}
+			return ctrl.Result{}, err
+		}
+
+		if len(draResources) > 0 {
+			if err := r.queues.AddOrUpdateWorkload(&wl, workload.WithPreprocessedDRAResources(draResources)); err != nil {
+				log.V(2).Info("Failed to update workload with DRA resources in queue", "error", err)
+				return ctrl.Result{}, err
+			}
+		}
+
+		log.V(3).Info("Successfully processed DRA resources for workload")
 	}
 
 	if workload.IsActive(&wl) {
@@ -523,6 +572,37 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	}
 
 	return false, nil
+}
+
+// processDRAForWorkload processes DRA resources for a workload using the global DRA mapper, per PodSet, or an error if processing fails.
+func (r *WorkloadReconciler) processDRAForWorkload(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, error) {
+	templateResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, wl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process ResourceClaimTemplates for workload %s: %w", wl.Name, err)
+	}
+	return templateResources, nil
+}
+
+func (r *WorkloadReconciler) workloadHasResourceClaimTemplates(wl *kueue.Workload) bool {
+	for _, ps := range wl.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimTemplateName != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *WorkloadReconciler) workloadHasResourceClaim(wl *kueue.Workload) bool {
+	for _, ps := range wl.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimName != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[kueue.AdmissionCheckReference], c clock.Clock) ([]kueue.AdmissionCheckState, bool) {
