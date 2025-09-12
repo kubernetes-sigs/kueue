@@ -611,24 +611,14 @@ func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWr
 
 	if len(podSetNames) == 0 {
 		wrap.PodSetAssignments = []kueue.PodSetAssignment{
-			{
-				Name:          kueue.DefaultPodSetName,
-				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-				ResourceUsage: make(corev1.ResourceList),
-				Count:         ptr.To[int32](1),
-			},
+			MakePodSetAssignment(kueue.DefaultPodSetName).Obj(),
 		}
 		return wrap
 	}
 
 	var psFlavors []kueue.PodSetAssignment
 	for _, name := range podSetNames {
-		psFlavors = append(psFlavors, kueue.PodSetAssignment{
-			Name:          name,
-			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-			ResourceUsage: make(corev1.ResourceList),
-			Count:         ptr.To[int32](1),
-		})
+		psFlavors = append(psFlavors, MakePodSetAssignment(name).Obj())
 	}
 	wrap.PodSetAssignments = psFlavors
 	return wrap
@@ -639,7 +629,9 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 }
 
 func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
-	w.AssignmentWithIndex(0, r, f, value)
+	wrapper := &PodSetAssignmentWrapper{PodSetAssignment: w.PodSetAssignments[0]}
+	wrapper.Flavor(r, f).ResourceUsage(r, value)
+	w.PodSetAssignments[0] = wrapper.PodSetAssignment
 	return w
 }
 
@@ -658,11 +650,6 @@ func (w *AdmissionWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyReq
 	return w
 }
 
-func (w *AdmissionWrapper) AssignmentWithIndex(index int32, r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
-	w.PodSetAssignments[index].Flavors[r] = f
-	w.PodSetAssignments[index].ResourceUsage[r] = resource.MustParse(value)
-	return w
-}
 
 func (w *AdmissionWrapper) AssignmentPodCountWithIndex(index, value int32) *AdmissionWrapper {
 	w.PodSetAssignments[index].Count = ptr.To(value)

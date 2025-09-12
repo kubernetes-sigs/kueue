@@ -1031,49 +1031,57 @@ func TestReconcile(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", "workers", "leader").
-							AssignmentWithIndex(0, corev1.ResourceCPU, "unit-test-flavor", "4").
-							AssignmentPodCountWithIndex(0, 4).
-							TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
-								Levels: defaultTestLevels,
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r1",
+						utiltesting.MakeAdmission("cq").
+							PodSets(
+								utiltesting.MakePodSetAssignment("workers").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "4").
+									Count(4).
+									TopologyAssignment(&kueue.TopologyAssignment{
+										Levels: defaultTestLevels,
+										Domains: []kueue.TopologyDomainAssignment{
+											{
+												Count: 1,
+												Values: []string{
+													"b1",
+													"r1",
+												},
+											},
+											{
+												Count: 1,
+												Values: []string{
+													"b1",
+													"r2",
+												},
+											},
+											{
+												Count: 2,
+												Values: []string{
+													"b2",
+													"r1",
+												},
+											},
 										},
-									},
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r2",
+									}).
+									Obj(),
+								utiltesting.MakePodSetAssignment("leader").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(1).
+									TopologyAssignment(&kueue.TopologyAssignment{
+										Levels: defaultTestLevels,
+										Domains: []kueue.TopologyDomainAssignment{
+											{
+												Count: 1,
+												Values: []string{
+													"b1",
+													"r1",
+												},
+											},
 										},
-									},
-									{
-										Count: 2,
-										Values: []string{
-											"b2",
-											"r1",
-										},
-									},
-								},
-							}).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "unit-test-flavor", "1").
-							AssignmentPodCountWithIndex(1, 1).
-							TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-								Levels: defaultTestLevels,
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r1",
-										},
-									},
-								},
-							}).
+									}).
+									Obj(),
+							).
 							Obj(),
 					).
 					Admitted(true).
@@ -1328,49 +1336,57 @@ func TestReconcile(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", "workers", "leader").
-							AssignmentWithIndex(0, corev1.ResourceCPU, "unit-test-flavor", "4").
-							AssignmentPodCountWithIndex(0, 4).
-							TopologyAssignmentWithIndex(0, &kueue.TopologyAssignment{
-								Levels: defaultTestLevels,
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r1",
+						utiltesting.MakeAdmission("cq").
+							PodSets(
+								utiltesting.MakePodSetAssignment("workers").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "4").
+									Count(4).
+									TopologyAssignment(&kueue.TopologyAssignment{
+										Levels: defaultTestLevels,
+										Domains: []kueue.TopologyDomainAssignment{
+											{
+												Count: 1,
+												Values: []string{
+													"b1",
+													"r1",
+												},
+											},
+											{
+												Count: 1,
+												Values: []string{
+													"b1",
+													"r2",
+												},
+											},
+											{
+												Count: 2,
+												Values: []string{
+													"b2",
+													"r1",
+												},
+											},
 										},
-									},
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r2",
+									}).
+									Obj(),
+								utiltesting.MakePodSetAssignment("leader").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(1).
+									TopologyAssignment(&kueue.TopologyAssignment{
+										Levels: defaultTestLevels,
+										Domains: []kueue.TopologyDomainAssignment{
+											{
+												Count: 1,
+												Values: []string{
+													"b1",
+													"r1",
+												},
+											},
 										},
-									},
-									{
-										Count: 2,
-										Values: []string{
-											"b2",
-											"r1",
-										},
-									},
-								},
-							}).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "unit-test-flavor", "1").
-							AssignmentPodCountWithIndex(1, 1).
-							TopologyAssignmentWithIndex(1, &kueue.TopologyAssignment{
-								Levels: defaultTestLevels,
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r1",
-										},
-									},
-								},
-							}).
+									}).
+									Obj(),
+							).
 							Obj(),
 					).
 					Admitted(true).
