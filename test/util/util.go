@@ -677,14 +677,18 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
-	wl = wl.DeepCopy()
-	if admission == nil {
-		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", time.Now())
-	} else {
-		workload.SetQuotaReservation(wl, admission, clock.RealClock{})
-	}
-	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, clock.RealClock{})
+func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, admission *kueue.Admission) {
+	clk := clock.RealClock{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		updatedWl := &kueue.Workload{}
+		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+		if admission == nil {
+			workload.UnsetQuotaReservationWithCondition(updatedWl, "EvictedByTest", "Evicted By Test", clk.Now())
+		} else {
+			workload.SetQuotaReservation(updatedWl, admission, clk)
+		}
+		g.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, updatedWl, false, clk)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 // SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
