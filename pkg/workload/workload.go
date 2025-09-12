@@ -1165,9 +1165,8 @@ func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 // GetWorkloadPriorityClass returns the WorkloadPriorityClass name if it exists.
 // Otherwise, it returns an empty string.
 func GetWorkloadPriorityClass(wl *kueue.Workload) string {
-	var workloadPriorityClass string
 	if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource {
-		workloadPriorityClass = wl.Spec.PriorityClassName
+		return wl.Spec.PriorityClassName
 	}
-	return workloadPriorityClass
+	return ""
 }
