@@ -124,14 +124,11 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
 
-				for _, condition := range updatedWl.Status.Conditions {
-					if condition.Type == kueue.WorkloadQuotaReserved &&
-						condition.Status == metav1.ConditionFalse &&
-						condition.Reason == kueue.WorkloadInadmissible {
-						return
-					}
-				}
-				g.Expect(false).To(gomega.BeTrue(), "Expected WorkloadQuotaReserved=false with Inadmissible reason")
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -517,16 +514,15 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
 
-				for _, condition := range updatedWl.Status.Conditions {
-					if condition.Type == kueue.WorkloadQuotaReserved &&
-						condition.Status == metav1.ConditionFalse &&
-						condition.Reason == kueue.WorkloadInadmissible {
-						g.Expect(condition.Message).To(gomega.ContainSubstring("DeviceClass"))
-						g.Expect(condition.Message).To(gomega.ContainSubstring("not mapped"))
-						return
-					}
-				}
-				g.Expect(false).To(gomega.BeTrue(), "Expected WorkloadQuotaReserved=false with Inadmissible reason")
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.And(
+						gomega.ContainSubstring("DeviceClass"),
+						gomega.ContainSubstring("is not mapped"),
+					)),
+				)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -578,15 +574,12 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
 
-				for _, condition := range updatedWl.Status.Conditions {
-					if condition.Type == kueue.WorkloadQuotaReserved &&
-						condition.Status == metav1.ConditionFalse &&
-						condition.Reason == kueue.WorkloadInadmissible {
-						g.Expect(condition.Message).To(gomega.ContainSubstring("DynamicResourceAllocation feature gate is disabled"))
-						return
-					}
-				}
-				g.Expect(false).To(gomega.BeTrue(), "Expected WorkloadQuotaReserved=false with feature gate disabled message")
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("DynamicResourceAllocation feature gate is disabled")),
+				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Re-enabling DRA feature gate")

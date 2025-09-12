@@ -191,6 +191,59 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	if workload.Status(&wl) == workload.StatusPending && r.workloadHasDRA(&wl) {
+		if !features.Enabled(features.DynamicResourceAllocation) {
+			log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
+				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA feature gate error: %w", err)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+
+		if r.workloadHasResourceClaim(&wl) {
+			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
+				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+
+		log.V(3).Info("Processing DRA resources for workload")
+		draResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
+		if err != nil {
+			log.Error(err, "Failed to process DRA resources for workload")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
+				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+				}
+			}
+			return ctrl.Result{}, err
+		}
+
+		var queueOptions []workload.InfoOption
+		if len(draResources) > 0 {
+			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources))
+		}
+
+		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
+			if err := r.queues.AddOrUpdateWorkload(&wl, queueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return ctrl.Result{}, err
+			}
+		} else {
+			if !r.cache.AddOrUpdateWorkload(log, &wl) {
+				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+			}
+		}
+
+		log.V(3).Info("Successfully processed and queued DRA workload")
+		return ctrl.Result{}, nil
+	}
+
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 			wl.Spec.Active = ptr.To(false)
@@ -528,13 +581,8 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	return false, nil
 }
 
-// processDRAForWorkload processes DRA resources for a workload using the global DRA mapper, per PodSet, or an error if processing fails.
-func (r *WorkloadReconciler) processDRAForWorkload(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, error) {
-	templateResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, wl)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process ResourceClaimTemplates for workload %s: %w", wl.Name, err)
-	}
-	return templateResources, nil
+func (r *WorkloadReconciler) workloadHasDRA(wl *kueue.Workload) bool {
+	return r.workloadHasResourceClaim(wl) || r.workloadHasResourceClaimTemplates(wl)
 }
 
 func (r *WorkloadReconciler) workloadHasResourceClaimTemplates(wl *kueue.Workload) bool {
@@ -654,43 +702,15 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if !features.Enabled(features.DynamicResourceAllocation) && r.workloadHasResourceClaimTemplates(wlCopy) {
-		log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
-		if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
-			if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
-				log.Error(applyErr, "Failed to update workload status for DRA feature gate error")
-			}
-		}
+	// It is intentional for this code to be not guarded behind a feature gate
+	// DRA workloads need to have certain error handling and hence to be handled in Reconcile loop
+	if r.workloadHasDRA(e.Object) {
+		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
-	}
-	var queueOptions []qcache.WorkloadOptions
-	if features.Enabled(features.DynamicResourceAllocation) {
-		if r.workloadHasResourceClaim(wlCopy) {
-			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
-				if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
-					log.Error(applyErr, "Failed to update workload status for DRA Resource Claims not supported")
-				}
-			}
-			return true
-		}
-		draResources, err := r.processDRAForWorkload(ctx, wlCopy)
-		if err != nil {
-			log.Error(err, "Failed to process DRA resources for workload")
-			if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
-				if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
-					log.Error(applyErr, "Failed to update workload status for DRA error")
-				}
-			}
-			return true
-		}
-		if len(draResources) > 0 {
-			queueOptions = append(queueOptions, qcache.WithWorkloadDRAResources(draResources))
-		}
 	}
 
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
-		if err := r.queues.AddOrUpdateWorkload(wlCopy, queueOptions...); err != nil {
+		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
@@ -764,42 +784,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
-	if !features.Enabled(features.DynamicResourceAllocation) && status == workload.StatusPending && r.workloadHasResourceClaimTemplates(wlCopy) {
-		log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
-		if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
-			if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
-				log.Error(applyErr, "Failed to update workload status for DRA feature gate error")
-			}
-		}
-		return true
-	}
-
-	var queueOptions []qcache.WorkloadOptions
-	if features.Enabled(features.DynamicResourceAllocation) && status == workload.StatusPending {
-		if r.workloadHasResourceClaim(wlCopy) {
-			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
-				if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
-					log.Error(applyErr, "Failed to update workload status for DRA Resource Claims not supported")
-				}
-			}
-			return true
-		}
-		draResources, err := r.processDRAForWorkload(ctx, wlCopy)
-		if err != nil {
-			log.Error(err, "Failed to process DRA resources for workload")
-			if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
-				if applyErr := workload.ApplyAdmissionStatus(ctx, r.client, wlCopy, true, r.clock); applyErr != nil {
-					log.Error(applyErr, "Failed to update workload status for DRA error")
-				}
-			}
-			return true
-		}
-		if len(draResources) > 0 {
-			queueOptions = append(queueOptions, qcache.WithWorkloadDRAResources(draResources))
-		}
-	}
-
 	switch {
 	case status == workload.StatusFinished || !active:
 		if !active {
@@ -819,9 +803,14 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy, queueOptions...)
-		if err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
+		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
+		if r.workloadHasDRA(e.ObjectNew) {
+			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
+		} else {
+			err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
+			if err != nil {
+				log.V(2).Info("ignored an error for now", "error", err)
+			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(e.ObjectOld)
@@ -845,26 +834,36 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Here we don't take the lock as it is already taken by the wrapping
 			// function.
 			if immediate {
-				if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy, queueOptions...); err != nil {
-					log.V(2).Info("ignored an error for now", "error", err)
+				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
+				if !r.workloadHasDRA(e.ObjectNew) {
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
+						log.V(2).Info("ignored an error for now", "error", err)
+					}
+					r.queues.DeleteSecondPassWithoutLock(wlCopy)
+				} else {
+					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				}
-				r.queues.DeleteSecondPassWithoutLock(wlCopy)
 			}
 		})
 
 		if !immediate {
 			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", e.ObjectNew.Status.RequeueState.RequeueAt.Time)
-			time.AfterFunc(backoff, func() {
-				updatedWl := kueue.Workload{}
-				err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
-				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
-					if err = r.queues.AddOrUpdateWorkload(wlCopy, queueOptions...); err != nil {
-						log.V(2).Info("ignored an error for now", "error", err)
-					} else {
-						log.V(3).Info("Workload requeued after backoff")
+			// Skip delayed requeue for DRA workloads - they are handled in Reconcile loop
+			if !r.workloadHasDRA(e.ObjectNew) {
+				time.AfterFunc(backoff, func() {
+					updatedWl := kueue.Workload{}
+					err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
+					if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
+						if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+							log.V(2).Info("ignored an error for now", "error", err)
+						} else {
+							log.V(3).Info("Workload requeued after backoff")
+						}
 					}
-				}
-			})
+				})
+			} else {
+				log.V(3).Info("Skipping delayed requeue for DRA workload - handled in Reconcile")
+			}
 		}
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)):
@@ -1020,24 +1019,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
-		var queueOptions []qcache.WorkloadOptions
-		if features.Enabled(features.DynamicResourceAllocation) {
-			draResources, err := h.r.processDRAForWorkload(ctx, wlCopy)
-			if err != nil {
-				log.Error(err, "Failed to process DRA resources for workload")
-				if workload.UnsetQuotaReservationWithCondition(wlCopy, kueue.WorkloadInadmissible, err.Error(), h.r.clock.Now()) {
-					if applyErr := workload.ApplyAdmissionStatus(ctx, h.r.client, wlCopy, true, h.r.clock); applyErr != nil {
-						log.Error(applyErr, "Failed to update workload status for DRA error")
-					}
-				}
-				continue
-			}
-			if len(draResources) > 0 {
-				queueOptions = append(queueOptions, qcache.WithWorkloadDRAResources(draResources))
-			}
-		}
-
-		if err = h.r.queues.AddOrUpdateWorkload(wlCopy, queueOptions...); err != nil {
+		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 	}

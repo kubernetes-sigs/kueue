@@ -50,20 +50,6 @@ var (
 	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
 )
 
-// WorkloadOptions holds optional parameters adding workload to the queue Manager.
-type WorkloadOptions struct {
-	// DRAResources contains preprocessed DRA resources per PodSet.
-	// When provided, these resources are used instead of computing them from ResourceClaims.
-	DRAResources map[kueue.PodSetReference]corev1.ResourceList
-}
-
-// WithWorkloadDRAResources creates a WorkloadOptions with preprocessed DRA resources.
-func WithWorkloadDRAResources(draResources map[kueue.PodSetReference]corev1.ResourceList) WorkloadOptions {
-	return WorkloadOptions{
-		DRAResources: draResources,
-	}
-}
-
 // Option configures the manager.
 type Option func(*Manager)
 
@@ -432,26 +418,20 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...WorkloadOptions) error {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...WorkloadOptions) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
 	qKey := queue.KeyFromWorkload(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-	infoOptions := m.workloadInfoOptions
-	for _, opt := range opts {
-		if opt.DRAResources != nil {
-			infoOptions = append(infoOptions, workload.WithPreprocessedDRAResources(opt.DRAResources))
-			break
-		}
-	}
-	wInfo := workload.NewInfo(w, infoOptions...)
+	allOptions := append(m.workloadInfoOptions, opts...)
+	wInfo := workload.NewInfo(w, allOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -633,7 +613,7 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, opts ...WorkloadOptions) error {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
