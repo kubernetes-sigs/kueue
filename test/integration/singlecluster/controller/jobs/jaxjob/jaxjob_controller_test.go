@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 					).
 					Obj()
 				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -285,7 +285,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
 				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -551,7 +551,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				wl := &kueue.Workload{}
 				wlKey := types.NamespacedName{Name: workloadjaxjob.GetWorkloadNameForJAXJob(job.Name, job.UID), Namespace: job.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wl, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 

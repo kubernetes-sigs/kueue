@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			Assignment(corev1.ResourceCPU, "on-demand", "1m").
 			AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 			Obj()
-		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			Assignment(corev1.ResourceCPU, "spot", "1m").
 			AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 			Obj()
-		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
@@ -579,14 +579,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("Admitting the workload, the job should unsuspend", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWl := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-
-					admission := testing.MakeAdmission("cq", kueue.NewPodSetReference(container.Name)).Obj()
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
-					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				createdWl := kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("cq", kueue.NewPodSetReference(container.Name)).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wl, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
 				ginkgo.By("Checking the job gets suspended", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -654,7 +651,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			admission := testing.MakeAdmission("q", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wl, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
@@ -828,7 +825,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 					Obj()
 				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -870,7 +867,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
 				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -946,7 +943,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 					Obj()
 				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -1019,7 +1016,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				Assignment(corev1.ResourceCPU, "default", "1m").
 				AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 				Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
@@ -1056,7 +1053,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 					// the update may need to be retried due to a conflict as the workload gets
 					// also updated due to setting of the job status.
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 						gomega.BeComparableTo(metav1.Condition{
@@ -1531,7 +1528,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				wl := &kueue.Workload{}
 				wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wl, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
@@ -1874,7 +1871,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 
 		ginkgo.By("clear the workloads admission to stop the job", func() {
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).To(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wl, nil)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
@@ -2209,11 +2206,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("setting quota reservation")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())
 			ginkgo.By("checking the workload is evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
@@ -2268,11 +2262,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wl := &kueue.Workload{}
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
-			ginkgo.By("setting quota reservation")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("setting quota reservation", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())
+			})
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2327,12 +2320,11 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wl := &kueue.Workload{}
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
-			ginkgo.By("setting quota reservation")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("setting quota reservation", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())
 
+			})
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
@@ -2404,11 +2396,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wl := &kueue.Workload{}
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
-			ginkgo.By("setting quota reservation")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("setting quota reservation", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())
+			})
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2497,16 +2488,15 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("admit the workload, it gets evicted due to PodsReadyTimeout and re-queued")
-			var admission *kueue.Admission
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				admission = testing.MakeAdmission(cq.Name).
-					Assignment(corev1.ResourceCPU, "on-demand", "1m").
-					AssignmentPodCount(wl.Spec.PodSets[0].Count).
-					Obj()
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			admission := testing.MakeAdmission(cq.Name).
+				Assignment(corev1.ResourceCPU, "on-demand", "1m").
+				AssignmentPodCount(wl.Spec.PodSets[0].Count).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wl, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("checking the workload is requeued")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2551,9 +2541,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("re-admit the workload to exceed the backoffLimitCount")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wl, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("checking the workload is evicted by deactivated due to PodsReadyTimeout")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2869,7 +2859,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 						AssignmentPodCount(wl.Spec.PodSets[0].Count).
 						Obj()
-					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, wl, admission)
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
@@ -2925,7 +2915,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 					Obj()
 
 				ginkgo.By("Admitting the Workload", func() {
-					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, wl, admission)
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
@@ -2971,11 +2961,8 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				})
 
 				ginkgo.By("re-admit the workload to exceed the backoffLimitCount", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-						g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
-						util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, wl, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("Checking that the Job is deleted", func() {
@@ -3024,7 +3011,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 					Obj()
 
 				ginkgo.By("Admitting the Workload", func() {
-					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, wl, admission)
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
@@ -3070,11 +3057,9 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				})
 
 				ginkgo.By("re-admit the workload to exceed the backoffLimitCount", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-						g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
-						util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, wl, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("Checking that the Job is not deleted", func() {
