@@ -123,7 +123,9 @@ func TestReconcileGenericJob(t *testing.T) {
 				Obj(),
 			podSets: basePodSets,
 			wantWorkloads: []kueue.Workload{
-				*baseWl.Clone().Name("job-test-job-3991b").Obj(),
+				*baseWl.Clone().Name("job-test-job-3991b").
+					Annotations(map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}).
+					Obj(),
 			},
 		},
 		"update workload to match job (one existing workload)": {
