@@ -884,7 +884,7 @@ func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reas
 			Type:    kueue.WorkloadPreempted,
 			Status:  status,
 			Reason:  reason,
-			Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s", preemteeWorkloadUID, preempteeJobUID, preemption.HumanReadablePreemptionReasons[reason]),
+			Message: fmt.Sprintf("Preempted to accommodate a workload (Preemptor: %s, UID: %s, JobUID: %s) due to %s", preempteeWl.Name, preemteeWorkloadUID, preempteeJobUID, preemption.HumanReadablePreemptionReasons[reason]),
 		}, conditionCmpOpts)))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

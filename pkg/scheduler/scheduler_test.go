@@ -6706,7 +6706,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Message("Preempted to accommodate a workload (Preemptor: foo, UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
 					Message(`couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 5 more needed. Pending the preemption of 1 workload(s)`).
@@ -6754,7 +6754,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Message("Preempted to accommodate a workload (Preemptor: foo, UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
@@ -6806,7 +6806,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Message("Preempted to accommodate a workload (Preemptor: high-priority-waiting, UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority-waiting", "Pending", "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
@@ -6872,7 +6872,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Message("Preempted to accommodate a workload (Preemptor: foo, UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Pending the preemption of 1 workload(s)`).
@@ -6940,7 +6940,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "low-priority-admitted", "Preempted", "Normal").
-					Message("Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
+					Message("Preempted to accommodate a workload (Preemptor: foo, UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s). Pending the preemption of 1 workload(s)`).
