@@ -607,13 +607,6 @@ func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
 	return w
 }
 
-func (w *AdmissionWrapper) TopologyAssignment(ts *kueue.TopologyAssignment) *AdmissionWrapper {
-	wrapper := &PodSetAssignmentWrapper{PodSetAssignment: w.PodSetAssignments[0]}
-	wrapper.TopologyAssignment(ts)
-	w.PodSetAssignments[0] = wrapper.PodSetAssignment
-	return w
-}
-
 func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetAssignment) *AdmissionWrapper {
 	w.PodSetAssignments = podSets
 	return w
