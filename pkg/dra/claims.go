@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -37,11 +38,11 @@ var (
 	ErrClaimSpecNotFound    = errors.New("failed to get claim spec")
 )
 
-// countDevicesPerClass returns a map[DeviceClass]->Quantity representing the
+// countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec.
-func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) map[corev1.ResourceName]resource.Quantity {
-	out := make(map[corev1.ResourceName]resource.Quantity)
+func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) resources.Requests {
+	out := resources.Requests{}
 	if claimSpec == nil {
 		return out
 	}
@@ -61,12 +62,7 @@ func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) map[core
 			continue
 		}
 		// TODO: handle other Allocation modes
-		if existing, found := out[dc]; found {
-			existing.Add(resource.MustParse(strconv.FormatInt(q, 10)))
-			out[dc] = existing
-		} else {
-			out[dc] = resource.MustParse(strconv.FormatInt(q, 10))
-		}
+		out[dc] += q
 	}
 	return out
 }
@@ -125,7 +121,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				if !found {
 					return nil, fmt.Errorf("DeviceClass %s is not mapped in DRA configuration for workload %s podset %s: %w", dc, wl.Name, ps.Name, ErrDeviceClassNotMapped)
 				}
-				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: qty})
+				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
 			}
 		}
 
