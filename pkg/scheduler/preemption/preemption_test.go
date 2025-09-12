@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -2824,7 +2825,7 @@ func TestCandidatesOrdering(t *testing.T) {
 			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now.Add(time.Second)).
 			Obj()),
 	}
-	sort.Slice(candidates, CandidatesOrdering(candidates, "self", now))
+	sort.Slice(candidates, preemptioncommon.CandidatesOrdering(candidates, "self", now))
 	gotNames := make([]string, len(candidates))
 	for i, c := range candidates {
 		gotNames[i] = workload.Key(c.Obj)

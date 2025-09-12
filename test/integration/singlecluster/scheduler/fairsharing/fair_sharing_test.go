@@ -28,6 +28,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -498,6 +499,56 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 3)
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 7)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 1)
+		})
+	})
+
+	ginkgo.When("Preemption is enabled in fairsharing and there are best effort and guaranteed workloads", func() {
+		var (
+			bestEffortCQA *kueue.ClusterQueue
+			bestEffortCQB *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			bestEffortCQA = createQueue(testing.MakeClusterQueue("best-effort-a").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+
+			bestEffortCQB = createQueue(testing.MakeClusterQueue("best-effort-b").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+
+			createQueue(testing.MakeClusterQueue("guaranteed").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj(),
+				).Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny}).
+				Obj())
+
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, false)
+		})
+
+		ginkgo.It("Guaranteed workloads cause preemption of a single best effort workload", func() {
+			ginkgo.By("Creating two best effort workloads in each best effort CQ")
+			wlBestEffortA := createWorkload("best-effort-a", "4")
+			util.WaitForNextSecondAfterCreation(wlBestEffortA)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBestEffortA)
+			util.ExpectReservingActiveWorkloadsMetric(bestEffortCQA, 1)
+			wlBestEffortB := createWorkload("best-effort-b", "4")
+			util.ExpectReservingActiveWorkloadsMetric(bestEffortCQB, 1)
+
+			ginkgo.By("Creating a guaranteed workload in the guaranteed CQ, that should reclaim quota")
+			wlGuaranteed := createWorkload("guaranteed", "4")
+
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlBestEffortB)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlBestEffortB)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlGuaranteed)
+
+			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQA.Name, kueue.WorkloadEvictedByPreemption, 0)
+			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQB.Name, kueue.WorkloadEvictedByPreemption, 1)
 		})
 	})
 })

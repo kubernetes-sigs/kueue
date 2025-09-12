@@ -18,11 +18,15 @@ package fairsharing
 
 import (
 	"iter"
+	"sort"
+	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -54,9 +58,10 @@ type TargetClusterQueueOrdering struct {
 	// preemption target candidates.
 	prunedClusterQueues sets.Set[*cache.ClusterQueueSnapshot]
 	prunedCohorts       sets.Set[*cache.CohortSnapshot]
+	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*workload.Info) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*cache.CohortSnapshot](),
@@ -65,6 +70,7 @@ func MakeClusterQueueOrdering(cq *cache.ClusterQueueSnapshot, candidates []*work
 
 		prunedClusterQueues: sets.New[*cache.ClusterQueueSnapshot](),
 		prunedCohorts:       sets.New[*cache.CohortSnapshot](),
+		log:                 log,
 	}
 
 	for ancestor := range cq.PathParentToRoot() {
@@ -141,9 +147,18 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *cache.CohortSnapshot) *T
 		drs := cq.DominantResourceShare()
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
-		if (drs == 0 && cq != t.preemptorCq) || !t.hasWorkload(cq) {
+		switch {
+		case (drs == 0 && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
-		} else if drs >= highestCqDrs {
+		case drs == highestCqDrs:
+			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
+			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
+			candidates := []*workload.Info{newCandWl, currentCandWl}
+			sort.Slice(candidates, preemptioncommon.CandidatesOrdering(candidates, t.preemptorCq.Name, time.Now()))
+			if candidates[0] == newCandWl {
+				highestCq = cq
+			}
+		case drs > highestCqDrs:
 			highestCqDrs = drs
 			highestCq = cq
 		}
