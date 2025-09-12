@@ -649,13 +649,6 @@ func (w *AdmissionWrapper) TopologyAssignment(ts *kueue.TopologyAssignment) *Adm
 	return w
 }
 
-func (w *AdmissionWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
-	wrapper := &PodSetAssignmentWrapper{PodSetAssignment: w.PodSetAssignments[0]}
-	wrapper.DelayedTopologyRequest(state)
-	w.PodSetAssignments[0] = wrapper.PodSetAssignment
-	return w
-}
-
 func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetAssignment) *AdmissionWrapper {
 	w.PodSetAssignments = podSets
 	return w
