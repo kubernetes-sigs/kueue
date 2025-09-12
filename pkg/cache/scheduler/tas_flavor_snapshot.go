@@ -1008,38 +1008,77 @@ func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 		(unconstrained && features.Enabled(features.TASProfileMixed))
 }
 
+// consumeWithLeadersGeneric handles the case when leaders still need to be assigned
+// while distributing either pods or slices across domains. It updates the provided
+// domain and the remaining counters accordingly and returns whether the assignment
+// is complete.
+//
+// Parameters:
+//   - withLeader: pointer to the domain field that represents capacity with a leader present
+//     (use &domain.stateWithLeader for pods, &domain.sliceStateWithLeader for slices)
+//   - primary: pointer to the domain field that represents the primary unit being distributed
+//     (use &domain.state for pods, &domain.sliceState for slices)
+//   - multiplier: factor to set domain.state when finalizing or partially consuming
+//     (use 1 for pods, sliceSize for slices)
+//   - slices: whether we're distributing slices (true) or pods (false)
+func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domains []*domain, idx int, domain *domain, remainingPrimary *int32, remainingLeaderCount *int32, unconstrained bool, withLeader *int32, primary *int32, multiplier int32, slices bool) (*domain, bool) {
+	if useBestFitAlgorithm(unconstrained) && *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
+		// optimize the last domain
+		if slices {
+			domain = findBestFitDomainForSlices(domains[idx:], *remainingPrimary, *remainingLeaderCount)
+			withLeader = &domain.sliceStateWithLeader
+			primary = &domain.sliceState
+		} else {
+			domain = findBestFitDomain(domains[idx:], *remainingPrimary, *remainingLeaderCount)
+			withLeader = &domain.stateWithLeader
+			primary = &domain.state
+		}
+	}
+
+	if *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
+		*primary = *remainingPrimary
+		domain.leaderState = *remainingLeaderCount
+		domain.state = (*remainingPrimary) * multiplier
+		return domain, true
+	}
+
+	if slices {
+		// Clamp to remaining before consuming and compute state from slice count
+		if *withLeader > *remainingPrimary {
+			*withLeader = *remainingPrimary
+		}
+		if domain.leaderState > *remainingLeaderCount {
+			domain.leaderState = *remainingLeaderCount
+		}
+		domain.state = (*withLeader) * multiplier
+		*remainingLeaderCount -= domain.leaderState
+		*remainingPrimary -= *withLeader
+		return domain, false
+	}
+
+	// Pods: subtract first, then clamp fields
+	*remainingPrimary -= *withLeader
+	*remainingLeaderCount -= domain.leaderState
+	if *withLeader > *remainingPrimary {
+		*withLeader = *remainingPrimary
+	}
+	if domain.leaderState > *remainingLeaderCount {
+		domain.leaderState = *remainingLeaderCount
+	}
+	return domain, false
+}
+
 func (s *TASFlavorSnapshot) updateSliceCountsToMinimum(domains []*domain, count int32, leaderCount int32, sliceSize int32, unconstrained bool) []*domain {
 	result := make([]*domain, 0)
 	remainingSlices := count / sliceSize
 	remainingLeaderCount := leaderCount
 	for i, domain := range domains {
 		if remainingLeaderCount > 0 {
-			if useBestFitAlgorithm(unconstrained) && domain.sliceStateWithLeader >= remainingSlices && domain.leaderState >= remainingLeaderCount {
-				// optimize the last domain
-				domain = findBestFitDomainForSlices(domains[i:], remainingSlices, remainingLeaderCount)
-			}
-
-			if domain.sliceStateWithLeader >= remainingSlices && domain.leaderState >= remainingLeaderCount {
-				domain.state = remainingSlices * sliceSize
-				domain.sliceState = remainingSlices
-				domain.leaderState = remainingLeaderCount
-				result = append(result, domain)
+			d, completed := s.consumeWithLeadersGeneric(domains, i, domain, &remainingSlices, &remainingLeaderCount, unconstrained, &domain.sliceStateWithLeader, &domain.sliceState, sliceSize, true)
+			result = append(result, d)
+			if completed {
 				return result
 			}
-
-			if domain.sliceStateWithLeader > remainingSlices {
-				domain.sliceStateWithLeader = remainingSlices
-			}
-
-			if domain.leaderState > remainingLeaderCount {
-				domain.leaderState = remainingLeaderCount
-			}
-
-			domain.state = domain.sliceStateWithLeader * sliceSize
-			remainingLeaderCount -= domain.leaderState
-			remainingSlices -= domain.sliceStateWithLeader
-
-			result = append(result, domain)
 		} else {
 			if useBestFitAlgorithm(unconstrained) && domain.sliceState >= remainingSlices {
 				// optimize the last domain
@@ -1074,27 +1113,11 @@ func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32
 
 	for i, domain := range domains {
 		if remainingLeaderCount > 0 {
-			if useBestFitAlgorithm(unconstrained) && domain.stateWithLeader >= remainingCount && domain.leaderState >= remainingLeaderCount {
-				// optimize the last domain
-				domain = findBestFitDomain(domains[i:], remainingCount, remainingLeaderCount)
-			}
-
-			if domain.stateWithLeader >= remainingCount && domain.leaderState >= remainingLeaderCount {
-				domain.state = remainingCount
-				domain.leaderState = remainingLeaderCount
-				result = append(result, domain)
+			d, completed := s.consumeWithLeadersGeneric(domains, i, domain, &remainingCount, &remainingLeaderCount, unconstrained, &domain.stateWithLeader, &domain.state, 1, false)
+			result = append(result, d)
+			if completed {
 				return result
 			}
-			remainingCount -= domain.stateWithLeader
-			remainingLeaderCount -= domain.leaderState
-
-			if domain.stateWithLeader > remainingCount {
-				domain.stateWithLeader = remainingCount
-			}
-			if domain.leaderState > remainingLeaderCount {
-				domain.leaderState = remainingLeaderCount
-			}
-			result = append(result, domain)
 		} else {
 			if useBestFitAlgorithm(unconstrained) && domain.state >= remainingCount {
 				// optimize the last domain
