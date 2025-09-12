@@ -307,15 +307,16 @@ func TestReconciler(t *testing.T) {
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
 	cases := map[string]struct {
-		reconcilerOptions []jobframework.Option
-		job               rayv1.RayCluster
-		initObjects       []client.Object
-		workloads         []kueue.Workload
-		priorityClasses   []client.Object
-		wantJob           rayv1.RayCluster
-		wantWorkloads     []kueue.Workload
-		runInfo           []podset.PodSetInfo
-		wantErr           error
+		reconcilerOptions                 []jobframework.Option
+		job                               rayv1.RayCluster
+		initObjects                       []client.Object
+		workloads                         []kueue.Workload
+		priorityClasses                   []client.Object
+		wantJob                           rayv1.RayCluster
+		wantWorkloads                     []kueue.Workload
+		wantWorkloadsWithPatchStatusMerge []kueue.Workload
+		runInfo                           []podset.PodSetInfo
+		wantErr                           error
 	}{
 		"when workload is admitted, cluster is unsuspended": {
 			initObjects: []client.Object{
@@ -534,6 +535,62 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantWorkloadsWithPatchStatusMerge: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(headGroupPodSetName, 1).
+							PodSpec(corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									*utiltesting.MakeContainer().
+										Name("head-container").
+										Obj(),
+								},
+							}).
+							Obj(),
+						*utiltesting.MakePodSet("workers-group-0", 1).
+							PodSpec(corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									*utiltesting.MakeContainer().
+										Name("worker-container").
+										Obj(),
+								},
+							}).
+							Obj(),
+					).
+					Generation(1).
+					PastAdmittedTime(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadDeactivated,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadDeactivated,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
 		},
 		"RayCluster with NumOfHosts > 1": {
 			initObjects: []client.Object{
@@ -648,6 +705,11 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
+			// This interceptor influence the resulted object, Admission gets cleared in the reconciliation loop and patch sees it, however it's not applied to the object in the client.
+			// Without the interceptor the patch fails because it tries to clear a non-existing field.
+			// This is only needed because we use the fake client, real k8s server doesn't have this issue.
+			// clearing admission: apply patches are not supported in the fake client. Follow https://github.com/kubernetes/kubernetes/issues/115598 for the current status"
+			// When we actually do the stratic merge patch this is not needed, however the expected object in the test needs to be updated to reflect that.
 			clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -693,8 +755,14 @@ func TestReconciler(t *testing.T) {
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {
 				t.Fatalf("Could not get Workloads after reconcile: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadsWithPatchStatusMerge != nil {
+				if diff := cmp.Diff(tc.wantWorkloadsWithPatchStatusMerge, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
+			} else {
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}

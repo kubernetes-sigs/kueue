@@ -323,16 +323,20 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 
 func (r *nodeFailureReconciler) removeNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
 	if slices.Contains(wl.Status.NodesToReplace, nodeName) {
-		wl.Status.NodesToReplace = slices.DeleteFunc(wl.Status.NodesToReplace, func(n string) bool { return n == nodeName })
-		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+		return workload.PatchAdmissionStatus(ctx, r.client, &wl, true, r.clock, func() (*kueue.Workload, bool, error) {
+			wl.Status.NodesToReplace = slices.DeleteFunc(wl.Status.NodesToReplace, func(n string) bool { return n == nodeName })
+			return &wl, true, nil
+		})
 	}
 	return nil
 }
 
 func (r *nodeFailureReconciler) addNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
 	if !slices.Contains(wl.Status.NodesToReplace, nodeName) {
-		wl.Status.NodesToReplace = append(wl.Status.NodesToReplace, nodeName)
-		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+		return workload.PatchAdmissionStatus(ctx, r.client, &wl, true, r.clock, func() (*kueue.Workload, bool, error) {
+			wl.Status.NodesToReplace = append(wl.Status.NodesToReplace, nodeName)
+			return &wl, true, nil
+		})
 	}
 	return nil
 }

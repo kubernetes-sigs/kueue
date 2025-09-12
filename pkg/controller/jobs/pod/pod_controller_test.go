@@ -264,15 +264,16 @@ func TestReconciler(t *testing.T) {
 	testCases := map[string]struct {
 		enableObjectRetentionPolicies bool
 
-		reconcileKey           *types.NamespacedName
-		initObjects            []client.Object
-		pods                   []corev1.Pod
-		wantPods               []corev1.Pod
-		workloads              []kueue.Workload
-		wantWorkloads          []kueue.Workload
-		wantErr                error
-		workloadCmpOpts        cmp.Options
-		excessPodsExpectations []keyUIDs
+		reconcileKey                      *types.NamespacedName
+		initObjects                       []client.Object
+		pods                              []corev1.Pod
+		wantPods                          []corev1.Pod
+		workloads                         []kueue.Workload
+		wantWorkloads                     []kueue.Workload
+		wantWorkloadsWithPatchStatusMerge []kueue.Workload
+		wantErr                           error
+		workloadCmpOpts                   cmp.Options
+		excessPodsExpectations            []keyUIDs
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
 
@@ -2022,6 +2023,53 @@ func TestReconciler(t *testing.T) {
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					PastAdmittedTime(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(testStartTime),
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Pending",
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantWorkloadsWithPatchStatusMerge: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
@@ -5524,6 +5572,43 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantWorkloadsWithPatchStatusMerge: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					PastAdmittedTime(1).
+					Active(false).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Obj(),
+			},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
@@ -5609,13 +5694,24 @@ func TestReconciler(t *testing.T) {
 				t.Fatalf("Could not get Workloads after reconcile: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
-				for i, p := range tc.pods {
-					// Make life easier when changing the hashing function.
-					hash, _ := getRoleHash(p)
-					t.Logf("note, the hash for pod[%v] = %s", i, hash)
+			if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadsWithPatchStatusMerge != nil {
+				if diff := cmp.Diff(tc.wantWorkloadsWithPatchStatusMerge, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
+					for i, p := range tc.pods {
+						// Make life easier when changing the hashing function.
+						hash, _ := getRoleHash(p)
+						t.Logf("note, the hash for pod[%v] = %s", i, hash)
+					}
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 				}
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			} else {
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
+					for i, p := range tc.pods {
+						// Make life easier when changing the hashing function.
+						hash, _ := getRoleHash(p)
+						t.Logf("note, the hash for pod[%v] = %s", i, hash)
+					}
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {

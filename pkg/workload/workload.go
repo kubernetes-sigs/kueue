@@ -546,6 +546,13 @@ func UpdateStatus(ctx context.Context,
 		ObservedGeneration: wl.Generation,
 	}
 
+	// if features.Enabled(features.WorkloadRequestUseMergePatch) {
+	// 	newWl := wl.DeepCopy()
+	// 	return clientutil.PatchStatus(ctx, c, newWl, func() (client.Object, bool, error) {
+	// 		newWl.Status.Conditions = []metav1.Condition{condition}
+	// 		return newWl, true, nil
+	// 	}, clientutil.WithNonStrict(true))
+	// }
 	newWl := BaseSSAWorkload(wl, false)
 	newWl.Status.Conditions = []metav1.Condition{condition}
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
