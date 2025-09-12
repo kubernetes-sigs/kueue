@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -2897,7 +2898,7 @@ func TestCandidatesOrdering(t *testing.T) {
 	for _, tc := range cases {
 		features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.admissionFairSharingEnabled)
 		sort.Slice(tc.candidates, func(i int, j int) bool {
-			return CandidatesOrdering(log, tc.admissionFairSharingEnabled, &tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
+			return preemptioncommon.CandidatesOrdering(log, tc.admissionFairSharingEnabled, &tc.candidates[i], &tc.candidates[j], kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := slices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
