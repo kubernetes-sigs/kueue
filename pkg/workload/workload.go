@@ -719,7 +719,7 @@ func needsSecondPassForDelayedAssignment(w *kueue.Workload) bool {
 }
 
 func needsSecondPassAfterNodeFailure(w *kueue.Workload) bool {
-	return HasTopologyAssignmentWithNodeToReplace(w)
+	return HasTopologyAssignmentWithUnhealthyNode(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
@@ -823,7 +823,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	}
 	wlCopy.Status.ClusterName = w.Status.ClusterName
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
-	wlCopy.Status.NodesToReplace = w.Status.NodesToReplace
+	wlCopy.Status.UnhealthyNodes = w.Status.UnhealthyNodes
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -965,12 +965,26 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 	return false
 }
 
-func HasNodeToReplace(w *kueue.Workload) bool {
-	return w != nil && len(w.Status.NodesToReplace) > 0
+func HasUnhealthyNodes(w *kueue.Workload) bool {
+	return w != nil && len(w.Status.UnhealthyNodes) > 0
 }
 
-func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
-	if !HasNodeToReplace(w) || !IsAdmitted(w) {
+func HasUnhealthyNode(w *kueue.Workload, nodeName string) bool {
+	return slices.ContainsFunc(w.Status.UnhealthyNodes, func(node kueue.UnhealthyNode) bool {
+		return node.Name == nodeName
+	})
+}
+
+func UnhealthyNodeNames(w *kueue.Workload) []string {
+	unhealthyNodeNames := make([]string, len(w.Status.UnhealthyNodes))
+	for i, unhealthyNode := range w.Status.UnhealthyNodes {
+		unhealthyNodeNames[i] = unhealthyNode.Name
+	}
+	return unhealthyNodeNames
+}
+
+func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
+	if !HasUnhealthyNodes(w) || !IsAdmitted(w) {
 		return false
 	}
 	for _, psa := range w.Status.Admission.PodSetAssignments {
@@ -978,7 +992,7 @@ func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
 			continue
 		}
 		for _, domain := range psa.TopologyAssignment.Domains {
-			if slices.Contains(w.Status.NodesToReplace, domain.Values[len(domain.Values)-1]) {
+			if HasUnhealthyNode(w, domain.Values[len(domain.Values)-1]) {
 				return true
 			}
 		}
@@ -1079,7 +1093,7 @@ func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string
 	SetEvictedCondition(w, reason, message)
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
-	resetNodesToReplace(w)
+	resetUnhealthyNodes(w)
 }
 
 func resetClusterNomination(w *kueue.Workload) {
@@ -1087,8 +1101,8 @@ func resetClusterNomination(w *kueue.Workload) {
 	w.Status.NominatedClusterNames = nil
 }
 
-func resetNodesToReplace(w *kueue.Workload) {
-	w.Status.NodesToReplace = nil
+func resetUnhealthyNodes(w *kueue.Workload) {
+	w.Status.UnhealthyNodes = nil
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {

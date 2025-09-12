@@ -588,7 +588,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.UpdateForTASResult(result)
 			}
 		}
-		if assignment.RepresentativeMode() == Preempt && !workload.HasNodeToReplace(a.wl.Obj) {
+		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
 			// Don't preempt other workloads if looking for a failed node replacement
 			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
 			if failure := result.Failure(); failure != nil {

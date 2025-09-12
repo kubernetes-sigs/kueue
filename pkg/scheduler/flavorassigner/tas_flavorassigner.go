@@ -19,7 +19,6 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"k8s.io/utils/ptr"
 
@@ -57,13 +56,11 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 }
 
 func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
-	if !workload.HasNodeToReplace(wl.Obj) {
-		return false
-	}
-	nodesToReplace := wl.Obj.Status.NodesToReplace
-	for _, domain := range psa.TopologyAssignment.Domains {
-		if slices.Contains(nodesToReplace, domain.Values[len(domain.Values)-1]) {
-			return true
+	if workload.HasUnhealthyNodes(wl.Obj) {
+		for _, domain := range psa.TopologyAssignment.Domains {
+			if workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1]) {
+				return true
+			}
 		}
 	}
 	return false

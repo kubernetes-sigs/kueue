@@ -2955,6 +2955,30 @@ domain indicated by the values field.</p>
 
 
 
+## `UnhealthyNode`     {#kueue-x-k8s-io-v1beta1-UnhealthyNode}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the unhealthy node.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction}
     
 
@@ -3192,14 +3216,14 @@ This field is optional.</p>
 This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>nodesToReplace</code><br/>
-<code>[]string</code>
+<tr><td><code>unhealthyNodes</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-UnhealthyNode"><code>[]UnhealthyNode</code></a>
 </td>
 <td>
-   <p>nodesToReplace holds the names of failed nodes running at least one pod of this workload
+   <p>unhealthyNodes holds the failed nodes running at least one pod of this workload
 when Topology-Aware Scheduling is used. This field should not be set by the users.
 It indicates Kueue's scheduler is searching for replacements of the failed nodes.
-Requires enabling the TASFaliedNodReplacement feature gate.</p>
+Requires enabling the TASFailedNodeReplacement feature gate.</p>
 </td>
 </tr>
 </tbody>

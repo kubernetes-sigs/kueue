@@ -183,8 +183,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if workload.IsAdmitted(&wl) && workload.HasNodeToReplace(&wl) {
-		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "nodesToReplace", wl.Status.NodesToReplace)
+	if workload.IsAdmitted(&wl) && workload.HasUnhealthyNodes(&wl) {
+		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
 		return ctrl.Result{}, nil
 	}
 

@@ -1093,9 +1093,9 @@ func TestNeedsSecondPass(t *testing.T) {
 		wl   *kueue.Workload
 		want bool
 	}{
-		"admitted workload with NodeToReplace": {
+		"admitted workload with UnhealthyNode": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodesToReplace("x0").
+				UnhealthyNodes("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
@@ -1122,7 +1122,7 @@ func TestNeedsSecondPass(t *testing.T) {
 				Obj(),
 			want: true,
 		},
-		"admitted workload without NodeToReplace": {
+		"admitted workload without UnhealthyNode": {
 			wl: utiltesting.MakeWorkload("foo", "default").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
@@ -1150,9 +1150,9 @@ func TestNeedsSecondPass(t *testing.T) {
 				Obj(),
 			want: false,
 		},
-		"admitted workload with NodeToReplace, but no node in the assignment": {
+		"admitted workload with UnhealthyNode, but no node in the assignment": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodesToReplace("x0").
+				UnhealthyNodes("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
@@ -1179,9 +1179,9 @@ func TestNeedsSecondPass(t *testing.T) {
 				Obj(),
 			want: false,
 		},
-		"finished workload with NodeToReplace": {
+		"finished workload with UnhealthyNode": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodesToReplace("x0").
+				UnhealthyNodes("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
@@ -1209,9 +1209,9 @@ func TestNeedsSecondPass(t *testing.T) {
 				Obj(),
 			want: false,
 		},
-		"evicted workload with NodeToReplace": {
+		"evicted workload with UnhealthyNode": {
 			wl: utiltesting.MakeWorkload("foo", "default").
-				NodesToReplace("x0").
+				UnhealthyNodes("x0").
 				Queue("tas-main").
 				PodSets(*utiltesting.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).

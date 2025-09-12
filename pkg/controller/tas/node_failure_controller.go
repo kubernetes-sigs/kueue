@@ -221,12 +221,12 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
 func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	nodesToReplace := wl.Status.NodesToReplace
-	if len(nodesToReplace) > 0 && !slices.Contains(nodesToReplace, nodeName) && !workload.IsEvicted(wl) {
-		log := r.log.WithValues("failedNodes", nodesToReplace)
+	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workload.IsEvicted(wl) {
+		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
+		log := r.log.WithValues("failedNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
-		allFailedNodes := append(slices.Clone(nodesToReplace), nodeName)
-		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allFailedNodes, ", "))
+		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
+		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
 		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", evictionMsg, r.clock); evictionErr != nil {
 			log.V(2).Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
@@ -261,8 +261,8 @@ func (r *nodeFailureReconciler) handleFailedNode(ctx context.Context, nodeName s
 			continue
 		}
 		if !evictedNow && !workload.IsEvicted(&wl) {
-			if err := r.addNodeToReplace(ctx, wl, nodeName); err != nil {
-				log.V(2).Error(err, "Failed to add node to nodesToReplace")
+			if err := r.addUnhealthyNode(ctx, &wl, nodeName); err != nil {
+				log.V(2).Error(err, "Failed to add node to unhealthyNodes")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 				continue
 			}
@@ -288,7 +288,7 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 	}
 }
 
-// handleHealthyNode clears the nodesToReplace field for each of the specified workloads.
+// handleHealthyNode clears the unhealthyNodes field for each of the specified workloads.
 func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
@@ -303,17 +303,17 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 			continue
 		}
 
-		if !slices.Contains(wl.Status.NodesToReplace, nodeName) {
+		if !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
 			continue
 		}
 
-		r.log.V(4).Info("Remove node from nodesToReplace", "nodeName", nodeName)
-		if err := r.removeNodeToReplace(ctx, wl, nodeName); err != nil {
+		r.log.V(4).Info("Remove node from unhealthyNodes", "nodeName", nodeName)
+		if err := r.removeUnhealthyNodes(ctx, &wl, nodeName); err != nil {
 			r.log.Error(err, "Failed to patch workload status")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		r.log.V(3).Info("Successfully removed node from the nodesToReplace field", "nodeName", nodeName)
+		r.log.V(3).Info("Successfully removed node from the unhealthyNodes field", "nodeName", nodeName)
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)
@@ -321,18 +321,20 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 	return nil
 }
 
-func (r *nodeFailureReconciler) removeNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
-	if slices.Contains(wl.Status.NodesToReplace, nodeName) {
-		wl.Status.NodesToReplace = slices.DeleteFunc(wl.Status.NodesToReplace, func(n string) bool { return n == nodeName })
-		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
+	if workload.HasUnhealthyNode(wl, nodeName) {
+		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
+			return n.Name == nodeName
+		})
+		return workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	}
 	return nil
 }
 
-func (r *nodeFailureReconciler) addNodeToReplace(ctx context.Context, wl kueue.Workload, nodeName string) error {
-	if !slices.Contains(wl.Status.NodesToReplace, nodeName) {
-		wl.Status.NodesToReplace = append(wl.Status.NodesToReplace, nodeName)
-		return workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
+	if !workload.HasUnhealthyNode(wl, nodeName) {
+		wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
+		return workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	}
 	return nil
 }

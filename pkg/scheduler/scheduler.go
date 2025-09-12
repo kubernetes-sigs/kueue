@@ -239,7 +239,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 		mode := e.assignment.RepresentativeMode()
 
-		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithNodeToReplace(e.Obj) && mode != flavorassigner.Fit {
+		if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
 			// evict workload we couldn't find the replacement for
 			if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj); err != nil {
 				log.V(2).Error(err, "Failed to evict workload after failed try to find a node replacement")
@@ -562,7 +562,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
-	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.NodesToReplace[0])
+	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.UnhealthyNodes[0].Name)
 	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", msg, s.clock); err != nil {
 		return err
 	}
@@ -571,7 +571,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 
 func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
-		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithNodeToReplace(wl.Obj) {
+		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
 		var tasResult schdcache.TASAssignmentsResult
 		if len(targets) > 0 {
@@ -624,9 +624,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, newWorkload)
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) && len(e.Obj.Status.NodesToReplace) > 0 {
+	if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
 		log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
-		newWorkload.Status.NodesToReplace = nil
+		newWorkload.Status.UnhealthyNodes = nil
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
@@ -804,7 +804,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 
 // recordWorkloadAdmissionEvents records metrics and events for workload admission
 func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
-	if !workload.IsAdmitted(newWorkload) || workload.HasNodeToReplace(originalWorkload) {
+	if !workload.IsAdmitted(newWorkload) || workload.HasUnhealthyNodes(originalWorkload) {
 		return
 	}
 
