@@ -660,8 +660,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wlBestEffortB)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlGuaranteed)
 
-			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQA.Name, kueue.WorkloadEvictedByPreemption, "", 0)
-			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQB.Name, kueue.WorkloadEvictedByPreemption, "", 1)
+			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQA.Name, kueue.WorkloadEvictedByPreemption, 0)
+			util.ExpectEvictedWorkloadsTotalMetric(bestEffortCQB.Name, kueue.WorkloadEvictedByPreemption, 1)
 		})
 	})
 })
