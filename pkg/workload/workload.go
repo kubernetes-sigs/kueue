@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -855,6 +856,24 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
+// PatchAdmissionStatus updates the admission status of a workload.
+// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
+// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (client.Object, bool, error)) error {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		return clientutil.PatchStatus(ctx, c, w, update)
+	}
+	objPatched, updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+	wPatched, ok := objPatched.(*kueue.Workload)
+	if !ok {
+		return fmt.Errorf("expected a Workload but got a %T", objPatched)
+	}
+	return ApplyAdmissionStatus(ctx, c, wPatched, strict, clk)
+}
+
 type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
@@ -1065,13 +1084,16 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 }
 
 func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	evictionReason := reason
-	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
-	}
-	prepareForEviction(wl, clock.Now(), evictionReason, msg)
-	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+	var reportWorkloadEvictedOnce bool
+	if err := PatchAdmissionStatus(ctx, c, wl, true, clock, func() (client.Object, bool, error) {
+		evictionReason := reason
+		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+			evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+		}
+		prepareForEviction(wl, clock.Now(), evictionReason, msg)
+		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
+		return wl, true, nil
+	}); err != nil {
 		return err
 	}
 	if wl.Status.Admission == nil {
