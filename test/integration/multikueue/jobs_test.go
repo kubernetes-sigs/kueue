@@ -216,10 +216,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -235,11 +232,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -320,10 +313,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -339,11 +329,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1035,10 +1021,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -1054,11 +1037,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1156,8 +1135,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(3)))
-				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -1172,10 +1151,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1255,10 +1231,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -1294,11 +1267,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("setting workload reservation in worker1, the job is created in worker1", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, createdJob)).To(gomega.Succeed())
@@ -1519,11 +1488,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
 		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
-		gomega.Eventually(func(g gomega.Gomega) {
-			createdWorkload := &kueue.Workload{}
-			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission.Obj())).To(gomega.Succeed())
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
@@ -1568,11 +1533,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
-		gomega.Eventually(func(g gomega.Gomega) {
-			createdWorkload := &kueue.Workload{}
-			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission.Obj())).To(gomega.Succeed())
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
@@ -1597,11 +1558,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltesting.AdmissionWrapper) {
 	ginkgo.By("setting workload reservation in the management cluster", func() {
-		createdWorkload := &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission.Obj())).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 	})
 
 	ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -1617,12 +1574,9 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 	})
 
 	ginkgo.By("setting workload reservation in worker2, the workload is admitted in manager and worker1 wl is removed", func() {
-		createdWorkload := &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, createdWorkload, admission.Obj())).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission.Obj())
 
+		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
@@ -1676,11 +1630,7 @@ func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.Names
 
 func setQuotaReservationInCluster(wlLookupKey types.NamespacedName, admission *utiltesting.AdmissionWrapper) {
 	ginkgo.By("setting workload reservation in the management cluster", func() {
-		createdWorkload := &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission.Obj())).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 	})
 }
 

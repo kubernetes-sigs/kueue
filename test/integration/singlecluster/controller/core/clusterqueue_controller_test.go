@@ -231,10 +231,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}
 			for i, w := range workloads {
 				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 					if admissions[i] != nil {
-						g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])).Should(gomega.Succeed())
+						util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
@@ -476,11 +474,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					},
 				).Obj()
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admission)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 			})
 
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
@@ -890,10 +884,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			ginkgo.By("Admit workload")
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			key := client.ObjectKeyFromObject(wl)
+			util.SetQuotaReservation(ctx, k8sClient, key, testing.MakeAdmission(cq.Name).Obj())
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
 			gomega.Eventually(func(g gomega.Gomega) {
-				key := client.ObjectKeyFromObject(wl)
 				updatedWl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, key, updatedWl)).To(gomega.Succeed())
 				g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
@@ -925,7 +919,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			ginkgo.By("Setting quota reservation")
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), testing.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)

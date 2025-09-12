@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					},
 				},
 			).Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).To(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 
