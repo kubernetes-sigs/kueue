@@ -348,8 +348,10 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 	return w
 }
 
-func (w *WorkloadWrapper) NodesToReplace(nodesToReplace ...string) *WorkloadWrapper {
-	w.Status.NodesToReplace = nodesToReplace
+func (w *WorkloadWrapper) UnhealthyNodes(nodeNames ...string) *WorkloadWrapper {
+	for _, nodeName := range nodeNames {
+		w.Status.UnhealthyNodes = append(w.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
+	}
 	return w
 }
 

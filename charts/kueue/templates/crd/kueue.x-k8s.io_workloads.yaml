@@ -8305,15 +8305,6 @@ spec:
                   x-kubernetes-list-map-keys:
                     - type
                   x-kubernetes-list-type: map
-                nodesToReplace:
-                  description: |-
-                    nodesToReplace holds the names of failed nodes running at least one pod of this workload
-                    when Topology-Aware Scheduling is used. This field should not be set by the users.
-                    It indicates Kueue's scheduler is searching for replacements of the failed nodes.
-                    Requires enabling the TASFaliedNodReplacement feature gate.
-                  items:
-                    type: string
-                  type: array
                 nominatedClusterNames:
                   description: |-
                     nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
@@ -8440,6 +8431,21 @@ spec:
                         - underlyingCause
                       x-kubernetes-list-type: map
                   type: object
+                unhealthyNodes:
+                  description: |-
+                    unhealthyNodes holds the failed nodes running at least one pod of this workload
+                    when Topology-Aware Scheduling is used. This field should not be set by the users.
+                    It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+                    Requires enabling the TASFailedNodeReplacement feature gate.
+                  items:
+                    properties:
+                      name:
+                        description: name is the name of the unhealthy node.
+                        type: string
+                    required:
+                      - name
+                    type: object
+                  type: array
               type: object
               x-kubernetes-validations:
                 - message: clusterName is immutable once set

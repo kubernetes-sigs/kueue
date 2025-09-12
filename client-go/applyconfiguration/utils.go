@@ -159,6 +159,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.TopologyDomainAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyInfo"):
 		return &kueuev1beta1.TopologyInfoApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("UnhealthyNode"):
+		return &kueuev1beta1.UnhealthyNodeApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
