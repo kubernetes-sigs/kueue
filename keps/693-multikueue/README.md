@@ -14,6 +14,7 @@
 - [Design Details](#design-details)
   - [Subcomponents](#subcomponents)
     - [MultiKueueCluster Controller](#multikueuecluster-controller)
+    - [ClusterProfile Controller](#clusterprofile-controller)
     - [AdmissionCheck Controller](#admissioncheck-controller)
     - [Workload Controller](#workload-controller)
     - [Garbage Collector](#garbage-collector)
@@ -55,12 +56,12 @@ a single cluster.
 and most of integrations.
 * Allow to upgrade single cluster Kueue deployments to multicluster without
 much hassle.
+* Automatically detect and configure new clusters.
 
 ### Non-Goals
 * Solve storage problem. It is assumed that the distributed jobs are
 either location-flexible (for a subset of clusters) or are copying the 
 data as a part of the startup process.
-* Automatically detect and configure new clusters.
 * Synchronize configuration across the clusters. It is expected that the 
 user will create the appropriate objects, roles and permissions
 in the clusters (manually, using gitops or some 3rd-party tooling).
@@ -189,9 +190,18 @@ const (
     SecretLocationType LocationType = "Secret"
 )
 
-type MultiKueueClusterSpec {
-    // Information how to connect to the cluster.
-    KubeConfig KubeConfig `json:"kubeConfig"`
+type MultiKueueClusterSpec struct {
+    // Information about how to connect to the cluster.
+    // Exactly one of KubeConfig or ClusterProfile must be specified.
+
+    // KubeConfig is the direct specification of the kubeconfig for the remote cluster.
+    // +optional
+    KubeConfig *KubeConfig `json:"kubeConfig,omitempty"`
+
+    // ClusterProfile is a reference to a ClusterProfile object.
+    // The controller will use the information from the ClusterProfile to connect to the remote cluster.
+    // +optional
+    ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
 }
 
 type KubeConfig struct {
@@ -205,7 +215,15 @@ type KubeConfig struct {
     LocationType LocationType `json:"locationType"`
 }
 
-type MultiKueueClusterStatus {
+type ClusterProfile struct {
+  // Name of the ClusterProfile.
+  Name string `json:"name"`
+
+  // Namespace of the ClusterProfile.
+  Namespace string `json:"namespace"`
+}
+
+type MultiKueueClusterStatus struct {
    Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 ```
@@ -221,15 +239,27 @@ admission checks, use ProvisioningRequest, etc.
 
 #### MultiKueueCluster Controller
 
-Will monitor all cluster definitions and maintain 
+Will monitor all `MultiKueueCluster` definitions and maintain 
 the Kube clients for all of them. Any connectivity problems will be reported both in
-MultiKueueCluster status and Events. MultiKueue controller 
-will make sure that whenever the kubeconfig is refreshed, the appropriate 
-clients will also be recreated and attempt to reconnect when the connection to the
-target cluster is lost.
+the `MultiKueueCluster`'s status and via Events.
 
-Creation of kubeconfig files is outside of the MultiKueue scope, and is cloud
-provider/environment dependant.
+The controller obtains cluster credentials based on the `MultiKueueCluster` spec:
+
+- When `kubeConfig` is provided, the controller uses it directly. It ensures that
+  whenever the underlying kubeconfig (e.g., in a Secret) is refreshed, the client
+  is recreated.
+
+- When `clusterProfile` is referenced, the controller uses the credential provider
+  plugin mechanism, as described in [KEP-5339](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5339-clusterprofile-plugin-credentials/README.md),
+  to obtain and refresh credentials. It reads the referenced `ClusterProfile` object
+  as needed to get the provider configuration.
+
+Creation of kubeconfig files or ClusterProfile objects is outside of the MultiKueue scope, and is cloud
+provider/environment dependent.
+
+#### ClusterProfile Controller
+
+Will monitor `ClusterProfile` objects and manage the lifecycle of their corresponding `MultiKueueCluster` objects. This controller allows administrators to make worker clusters available to MultiKueue simply by creating `ClusterProfile` objects. It ensures a `MultiKueueCluster` is created for each relevant `ClusterProfile` and kept in sync. When a `ClusterProfile` is deleted, the controller also removes the corresponding `MultiKueueCluster`.
 
 #### AdmissionCheck Controller
 
