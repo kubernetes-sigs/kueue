@@ -1,3 +1,22 @@
+## v0.13.4
+
+Changes since `v0.13.3`:
+
+## Changes by Kind
+
+### Feature
+
+- TAS: Implicit mode schedules consecutive indexes as close as possible (rank-ordering). (#6706, @PBundyra)
+
+### Bug or Regression
+
+- AFS: Fixed kueue-controller-manager crash when enabled AdmissionFairSharing feature gate without AdmissionFairSharing config. (#6671, @mbobrovskyi)
+- FS: Fix the algorithm bug for identifying preemption candidates, as it could return a different
+  set of preemption target workloads (pseudo random) in consecutive attempts in tie-break scenarios,
+  resulting in excessive preemptions. (#6784, @PBundyra)
+- Fix the validation messages when attempting to remove the queue-name label from a Deployment or StatefulSet. (#6717, @Panlq)
+- Helm: Fixed a bug preventing Kueue from starting after installing via Helm with a release name other than "kueue" (#6801, @mbobrovskyi)
+
 ## v0.13.3
 
 Changes since `v0.13.2`:
