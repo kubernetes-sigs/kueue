@@ -83,7 +83,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(GIT_COMMIT)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.12.8
+RELEASE_VERSION=v0.12.9
 RELEASE_BRANCH=release-0.12
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)

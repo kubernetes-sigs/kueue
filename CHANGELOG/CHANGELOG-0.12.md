@@ -1,3 +1,17 @@
+## v0.12.9
+
+Changes since `v0.12.8`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- FS: Fix the algorithm bug for identifying preemption candidates, as it could return a different
+  set of preemption target workloads (pseudo random) in consecutive attempts in tie-break scenarios,
+  resulting in excessive preemptions. (#6800, @PBundyra)
+- Fix the validation messages when attempting to remove the queue-name label from a Deployment or StatefulSet. (#6716, @Panlq)
+- Helm: Fixed a bug preventing Kueue from starting after installing via Helm with a release name other than "kueue" (#6802, @mbobrovskyi)
+
 ## v0.12.8
 
 Changes since `v0.12.7`:
