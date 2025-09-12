@@ -398,14 +398,15 @@ func TestReconcile(t *testing.T) {
 	cases := map[string]struct {
 		enableObjectRetentionPolicies bool
 
-		workload       *kueue.Workload
-		cq             *kueue.ClusterQueue
-		lq             *kueue.LocalQueue
-		wantWorkload   *kueue.Workload
-		wantError      error
-		wantEvents     []utiltesting.EventRecord
-		wantResult     reconcile.Result
-		reconcilerOpts []Option
+		workload               *kueue.Workload
+		cq                     *kueue.ClusterQueue
+		lq                     *kueue.LocalQueue
+		wantWorkload           *kueue.Workload
+		wantWorkloadPatchMerge *kueue.Workload
+		wantError              error
+		wantEvents             []utiltesting.EventRecord
+		wantResult             reconcile.Result
+		reconcilerOpts         []Option
 	}{
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -1361,7 +1362,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"with reason WaitForPodsStart; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+		"with reason WaitForPodsStart; should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries " +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1405,6 +1406,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1428,7 +1430,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"with reason PodsReady; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries" +
+		"with reason PodsReady; [backoffLimitCount: 100] should set the Evicted condition with Deactivated reason, exceeded the maximum number of requeue retries " +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
@@ -1473,6 +1475,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1480,6 +1483,7 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1543,6 +1547,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
 					Status:  metav1.ConditionTrue,
@@ -1550,6 +1555,7 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
+				// That's because in a fake client we use TreatSSAAsStrategicMerge.
 				RequeueState(ptr.To[int32](100), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -1690,6 +1696,20 @@ func TestReconcile(t *testing.T) {
 					Message: "LocalQueue lq is terminating or missing",
 				}).
 				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is terminating or missing",
+				}).
+				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
 			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
@@ -1706,6 +1726,20 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
 				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is stopped",
+				}).
+				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -1745,6 +1779,20 @@ func TestReconcile(t *testing.T) {
 					Message: "ClusterQueue cq is terminating or missing",
 				}).
 				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is terminating or missing",
+				}).
+				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
 			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
@@ -1761,6 +1809,20 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
 				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is stopped",
+				}).
+				Obj(),
+			wantWorkloadPatchMerge: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2059,8 +2121,15 @@ func TestReconcile(t *testing.T) {
 				}
 				gotWorkload = nil
 			}
-			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+
+			if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadPatchMerge != nil {
+				if diff := cmp.Diff(tc.wantWorkloadPatchMerge, gotWorkload, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
+			} else {
+				if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)

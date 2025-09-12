@@ -296,11 +296,9 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads quota reservation")
 		for i, w := range workloads {
-			gomega.Eventually(func(g gomega.Gomega) {
-				var newWL kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			var newWL kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])
 		}
 
 		fullUsage := []kueue.LocalQueueFlavorUsage{
@@ -545,11 +543,9 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads quota reservation", func() {
 			for i, w := range workloads {
-				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				var newWL kueue.Workload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -34,9 +34,9 @@ func DefaultClientPatchOptions() *ClientPatchOptions {
 	}
 }
 
-func WithNonStrict() ClientPatchOption {
+func WithNonStrict(nonStrict bool) ClientPatchOption {
 	return func(o *ClientPatchOptions) {
-		o.NonStrict = true
+		o.NonStrict = nonStrict
 	}
 }
 
