@@ -152,7 +152,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		case drs == highestCqDrs:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
-			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, time.Now()) {
+			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, time.Now()) < 0 {
 				highestCq = cq
 			}
 		case drs > highestCqDrs:

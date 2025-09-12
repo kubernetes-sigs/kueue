@@ -17,10 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -790,8 +791,8 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
-			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
-				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			slices.SortFunc(outFlvUsage.Resources, func(a, b kueue.ResourceUsage) int {
+				return cmp.Compare(a.Name, b.Name)
 			})
 			usage = append(usage, outFlvUsage)
 		}
@@ -885,8 +886,8 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
-			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
-				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			slices.SortFunc(outFlvUsage.Resources, func(a, b kueue.LocalQueueResourceUsage) int {
+				return cmp.Compare(a.Name, b.Name)
 			})
 			qFlvUsages = append(qFlvUsages, outFlvUsage)
 		}

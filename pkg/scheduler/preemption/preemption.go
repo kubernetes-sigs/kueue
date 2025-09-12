@@ -19,7 +19,7 @@ package preemption
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"sync/atomic"
 
 	"github.com/go-logr/logr"
@@ -386,8 +386,8 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
+	slices.SortFunc(candidates, func(a, b *workload.Info) int {
+		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
