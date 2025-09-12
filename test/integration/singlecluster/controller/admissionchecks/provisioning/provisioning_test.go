@@ -145,26 +145,16 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(
-					kueue.PodSetAssignment{
-						Name: "ps1",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Count: ptr.To[int32](3),
-					},
-					kueue.PodSetAssignment{
-						Name: "ps2",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-						Count: ptr.To[int32](4),
-					},
+					testing.MakePodSetAssignment("ps1").
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceCPU, "3").
+						Count(3).
+						Obj(),
+					testing.MakePodSetAssignment("ps2").
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceCPU, "2").
+						Count(4).
+						Obj(),
 				).
 				Obj()
 		})
@@ -879,26 +869,16 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			wlKey = client.ObjectKeyFromObject(wl)
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(
-					kueue.PodSetAssignment{
-						Name: "ps1",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Count: ptr.To[int32](3),
-					},
-					kueue.PodSetAssignment{
-						Name: "ps2",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-						Count: ptr.To[int32](4),
-					},
+					testing.MakePodSetAssignment("ps1").
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceCPU, "3").
+						Count(3).
+						Obj(),
+					testing.MakePodSetAssignment("ps2").
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceCPU, "2").
+						Count(4).
+						Obj(),
 				).
 				Obj()
 		})
@@ -1543,28 +1523,20 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(
-					kueue.PodSetAssignment{
-						Name: "master",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("2Gi"),
-						},
-						Count: ptr.To[int32](1),
-					},
-					kueue.PodSetAssignment{
-						Name: "worker",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("2Gi"),
-						},
-						Count: ptr.To[int32](2),
-					},
+					testing.MakePodSetAssignment("master").
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Flavor(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceMemory, "2Gi").
+						Count(1).
+						Obj(),
+					testing.MakePodSetAssignment("worker").
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Flavor(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name)).
+						ResourceUsage(corev1.ResourceMemory, "2Gi").
+						Count(2).
+						Obj(),
 				).
 				Obj()
 		})
