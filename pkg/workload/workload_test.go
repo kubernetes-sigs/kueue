@@ -1247,10 +1247,16 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-						AssignmentPodCount(1).Obj(),
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(
+							utiltesting.MakePodSetAssignment("one").
+								Flavor(corev1.ResourceCPU, "tas-default").
+								ResourceUsage(corev1.ResourceCPU, "1000m").
+								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+								Count(1).
+								Obj(),
+						).
+						Obj(),
 				).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "prov-check",
@@ -1267,10 +1273,16 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-						AssignmentPodCount(1).Obj(),
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(
+							utiltesting.MakePodSetAssignment("one").
+								Flavor(corev1.ResourceCPU, "tas-default").
+								ResourceUsage(corev1.ResourceCPU, "1000m").
+								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+								Count(1).
+								Obj(),
+						).
+						Obj(),
 				).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "prov-check",

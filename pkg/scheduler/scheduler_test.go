@@ -4764,10 +4764,16 @@ func TestScheduleForTAS(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ReserveQuota(
-						utiltesting.MakeAdmission("tas-main", "one").
-							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							AssignmentPodCount(1).Obj(),
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Flavor(corev1.ResourceCPU, "tas-default").
+									ResourceUsage(corev1.ResourceCPU, "1000m").
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Count(1).
+									Obj(),
+							).
+							Obj(),
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -4776,13 +4782,18 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-					AssignmentPodCount(1).
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-						Obj()).
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-default").
+							ResourceUsage(corev1.ResourceCPU, "1000m").
+							Count(1).
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -5221,10 +5232,16 @@ func TestScheduleForTAS(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ReserveQuota(
-						utiltesting.MakeAdmission("tas-main", "one").
-							Assignment(corev1.ResourceCPU, "tas-default", "26").
-							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							AssignmentPodCount(26).Obj(),
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Flavor(corev1.ResourceCPU, "tas-default").
+									ResourceUsage(corev1.ResourceCPU, "26").
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Count(26).
+									Obj(),
+							).
+							Obj(),
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -5233,13 +5250,18 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-default", "26").
-					AssignmentPodCount(26).
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 26).Obj()).
-						Obj()).
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-default").
+							ResourceUsage(corev1.ResourceCPU, "26").
+							Count(26).
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 26).Obj()).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -5293,10 +5315,16 @@ func TestScheduleForTAS(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ReserveQuota(
-						utiltesting.MakeAdmission("tas-main", "one").
-							Assignment(corev1.ResourceCPU, "tas-second", "1000m").
-							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							AssignmentPodCount(1).Obj(),
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Flavor(corev1.ResourceCPU, "tas-second").
+									ResourceUsage(corev1.ResourceCPU, "1000m").
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Count(1).
+									Obj(),
+							).
+							Obj(),
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -5305,13 +5333,18 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-second", "1000m").
-					AssignmentPodCount(1).
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
-						Obj()).
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-second").
+							ResourceUsage(corev1.ResourceCPU, "1000m").
+							Count(1).
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -5445,10 +5478,16 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-					AssignmentPodCount(1).Obj(),
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-default").
+							ResourceUsage(corev1.ResourceCPU, "1000m").
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+							Count(1).
+							Obj(),
+					).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
@@ -5500,10 +5539,16 @@ func TestScheduleForTAS(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					ReserveQuota(
-						utiltesting.MakeAdmission("tas-main", "one").
-							Assignment(corev1.ResourceCPU, "tas-second", "1000m").
-							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							AssignmentPodCount(1).Obj(),
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Flavor(corev1.ResourceCPU, "tas-second").
+									ResourceUsage(corev1.ResourceCPU, "1000m").
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Count(1).
+									Obj(),
+							).
+							Obj(),
 					).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "prov-check",
@@ -5512,13 +5557,18 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-second", "1000m").
-					AssignmentPodCount(1).
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
-					TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-						Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
-						Obj()).
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-second").
+							ResourceUsage(corev1.ResourceCPU, "1000m").
+							Count(1).
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -5546,10 +5596,16 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
-					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-					AssignmentPodCount(1).Obj(),
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(
+						utiltesting.MakePodSetAssignment("one").
+							Flavor(corev1.ResourceCPU, "tas-default").
+							ResourceUsage(corev1.ResourceCPU, "1000m").
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+							Count(1).
+							Obj(),
+					).
+					Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
