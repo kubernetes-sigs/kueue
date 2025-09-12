@@ -545,10 +545,12 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 							*utiltesting.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
 							*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(),
 						).
-						ReserveQuota(utiltesting.MakeAdmission("default", "scaled-up", "scale-down", "stay-the-same").
-							AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+						ReserveQuota(utiltesting.MakeAdmission("default").
+							PodSets(
+								utiltesting.MakePodSetAssignment("scaled-up").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+								utiltesting.MakePodSetAssignment("scale-down").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+								utiltesting.MakePodSetAssignment("stay-the-same").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+							).
 							Obj()).
 						Obj()).Build(),
 				jobPodSets: []kueue.PodSet{
@@ -595,9 +597,11 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(
 							*utiltesting.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
 							*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", "scale-down", "stay-the-same").
-							AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+						ReserveQuota(utiltesting.MakeAdmission("default").
+							PodSets(
+								utiltesting.MakePodSetAssignment("scale-down").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+								utiltesting.MakePodSetAssignment("stay-the-same").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+							).
 							Obj()).
 						Obj()).Build(),
 				jobPodSets: []kueue.PodSet{
@@ -615,9 +619,11 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("default", "scale-down", "stay-the-same").
-						AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
-						AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
+					ReserveQuota(utiltesting.MakeAdmission("default").
+						PodSets(
+							utiltesting.MakePodSetAssignment("scale-down").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+							utiltesting.MakePodSetAssignment("stay-the-same").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "1").Count(3).Obj(),
+						).
 						Obj()).
 					Obj(),
 			},
