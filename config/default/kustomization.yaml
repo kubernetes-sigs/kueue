@@ -58,12 +58,25 @@ patches:
 # - path: mutating_webhookcainjection_patch.yaml
 # - path: validating_webhookcainjection_patch.yaml
 
+
 # Uncomment the patches line if you enable Metrics and CertManager
 # [CERTMANAGER] To enable metrics protected with certManager, uncomment the following line.
 # This patch will protect the metrics with certManager self-signed certs.
 # - path: cert_metrics_manager_patch.yaml
-#  target:
+#   target:
 #    kind: Deployment
+
+# [CERTMANAGER] To enable visibility server protected with certManager, uncomment the following line.
+# - path: apiservice_cainjection_patch.yaml
+# - path: apiservice_insecure_removal.yaml # to remove insecureSkipTLSVerify from the APIService
+#   target:
+#     kind: APIService
+#     name: v1beta1.visibility.kueue.x-k8s.io
+
+# - path: cert_visibility_manager_patch.yaml
+#   target:
+#    kind: Deployment
+
 
 
 # the following config is for teaching kustomize how to do var substitution
@@ -107,3 +120,29 @@ patches:
 #     name: controller-manager-metrics-service
 #   fieldref:
 #     fieldpath: metadata.namespace
+# - name: VISIBILITY_SERVICE_NAME
+#   objref:
+#     kind: Service
+#     version: v1
+#     name: visibility-server
+# - name: VISIBILITY_SERVICE_NAMESPACE
+#   objref:
+#     kind: Service
+#     name: visibility-server
+#     version: v1
+#   fieldref:
+#     fieldPath: metadata.namespace
+# - name: VISIBILITY_CERTIFICATE_NAMESPACE
+#   objref:
+#     kind: Certificate
+#     group: cert-manager.io
+#     version: v1
+#     name: visibility-server-cert # this name should match the one in certificate-visibility-server.yaml
+#   fieldref:
+#     fieldpath: metadata.namespace
+# - name: VISIBILITY_CERTIFICATE_NAME
+#   objref:
+#     kind: Certificate
+#     group: cert-manager.io
+#     version: v1
+#     name: visibility-server-cert # this name should match the one in certificate-visibility-server.yaml

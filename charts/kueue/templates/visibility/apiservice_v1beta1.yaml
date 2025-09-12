@@ -3,13 +3,19 @@
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
 metadata:
+  {{- if .Values.enableCertManager }}
+  annotations:
+    cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-visibility-server-cert'
+  {{- end }}
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
   name: v1beta1.visibility.kueue.x-k8s.io
 spec:
+  {{- if not .Values.enableCertManager }}
+  insecureSkipTLSVerify: true
+  {{- end }}
   group: visibility.kueue.x-k8s.io
   groupPriorityMinimum: 100
-  insecureSkipTLSVerify: true
   service:
     name: '{{ include "kueue.fullname" . }}-visibility-server'
     namespace: '{{ .Release.Namespace }}'
