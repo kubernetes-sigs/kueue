@@ -1,10 +1,45 @@
 ---
-title: "Provisioning Admission Check Controller"
+title: "ProvisioningRequest"
 date: 2023-10-23
 weight: 1
 description: >
-  An admission check controller providing kueue integration with cluster autoscaler.
+  A built-in admission check providing Kueue integration with cluster-autoscaler.
 ---
+
+When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it didn't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioning-admissioncheck-controller) addresses this in cluster-autoscaler environments.
+
+Kueue's enhanced admission requires two sequential checks:
+
+1. **Quota Reservation:** Kueue validates the resource requests against ClusterQueue's available quota and resource flavors, reserves the required resources if available and locks the quota to prevent other Workloads from claiming it. This step verifies logical resource availability.
+2. **Capacity Guarantee:** This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) (CA) to verify physical resource availability. 
+    - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/concepts/admission_check/provisioning_request/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) settings, and setting owner reference to Workload.
+    - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
+      - `Provisioned=true`: CA provisioned the capacity and it's ready to use
+      - `Provisioned=false`: Provisioning in progress
+      - `Failed=true`:  CA couldn't provision the capacity
+      - `BookingExpired=true`: CA stopped booking the capacity, it will scale down if there are no Pods running on it  
+      - `CapacityRevoked=true`: CA revokes the capacity, if a Workload is running on it, it will be evicted
+  
+    These conditions only affect non-admitted Workloads. Once admitted, they are ignored.
+
+
+Let's understand this with a real-world usage - GPU Workload:
+
+Scenario: *AI training job requiring 16 GPUs :*
+
+- **Step 1** *(Quota Reservation)*: ClusterQueue has 32 GPU quota available. Kueue reserves 16 GPUs from this quota.
+
+- **Step 2** *(Admission Check)*: Kueue creates a ProvisioningRequest requesting for 16 GPUs. 
+  - Cluster Autoscaler checks cloud provider GPU inventory and initiates scaling of 4x GPU nodes (4 GPUs each). It sets `Provisioned=true` when nodes are ready.
+
+  - Kueue sees the `Provisioned=true` marks the AdmissionCheck `Ready` and admits workload.
+
+Outcome:
+*Job starts immediately with all 16 GPUs available.*
+
+
+
+## Provisioning AdmissionCheck Controller
 
 The Provisioning AdmissionCheck Controller is an AdmissionCheck Controller designed to integrate Kueue with [Kubernetes cluster-autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler). Its primary function is to create [ProvisioningRequests](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41) for the workloads holding [Quota Reservation](/docs/concepts/#quota-reservation) and keeping the [AdmissionCheckState](/docs/concepts/admission_check/#admissioncheckstate) in sync.
 
@@ -137,3 +172,4 @@ Once Kueue creates a ProvisioningRequest for the job you submitted, modifying th
 ### Job using a ProvisioningRequest
 
 {{< include "examples/provisioning/sample-job.yaml" "yaml" >}}
+
