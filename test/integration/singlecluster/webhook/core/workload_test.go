@@ -313,10 +313,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 		)
 
 		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType gomega.OmegaMatcher) {
-			workload := w()
-			util.MustCreate(ctx, k8sClient, workload)
-
-			err := util.SetQuotaReservation(ctx, k8sClient, workload, a)
+			wl := w()
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			workload.SetQuotaReservation(wl, a, clock.RealClock{})
+			err := workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, clock.RealClock{})
 			if errorType != nil {
 				gomega.Expect(err).Should(errorType)
 			} else {
@@ -463,7 +464,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				workload := w()
 				util.MustCreate(ctx, k8sClient, workload)
 				if setQuotaReservation {
-					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), testing.MakeAdmission("cq").Obj())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -793,11 +794,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			ginkgo.By("Creating and admitting a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
 			util.MustCreate(ctx, k8sClient, workload)
-			gomega.Eventually(func(g gomega.Gomega) {
-				var newWL kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), testing.MakeAdmission("cq").Obj())
+
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
@@ -884,7 +882,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
 			util.MustCreate(ctx, k8sClient, workload)
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cluster-queue").Obj())).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), testing.MakeAdmission("cluster-queue").Obj())
 
 			ginkgo.By("Updating the workload setting admission")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -908,12 +906,12 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				{Name: "ps1", Count: 1},
 			})).Should(gomega.Succeed())
 
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl,
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				testing.MakeAdmission("cluster-queue").
 					PodSets(
 						kueue.PodSetAssignment{Name: "ps1"},
 						kueue.PodSetAssignment{Name: "ps2"}).
-					Obj())).Should(gomega.Succeed())
+					Obj())
 
 			ginkgo.By("Updating reclaimable pods")
 			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
@@ -937,12 +935,12 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				{Name: "ps2", Count: 1},
 			})).Should(gomega.Succeed())
 
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl,
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				testing.MakeAdmission("cluster-queue").
 					PodSets(
 						kueue.PodSetAssignment{Name: "ps1"},
 						kueue.PodSetAssignment{Name: "ps2"}).
-					Obj())).Should(gomega.Succeed())
+					Obj())
 
 			ginkgo.By("Updating reclaimable pods")
 			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{

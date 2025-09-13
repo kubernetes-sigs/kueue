@@ -240,14 +240,14 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	err := parallelize.Until(ctx, len(allToUngate), func(i int) error {
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
-		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, true, func() (bool, error) {
+		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (client.Object, bool, error) {
 			log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
 			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueuealpha.TopologySchedulingGate)
 			if podWithUngateInfo.pod.Spec.NodeSelector == nil {
 				podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
 			}
 			maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
-			return true, nil
+			return podWithUngateInfo.pod, true, nil
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.

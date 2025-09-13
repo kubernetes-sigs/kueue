@@ -17,8 +17,9 @@ limitations under the License.
 package mpijob
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -103,8 +104,8 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(validationErrs, func(i, j int) bool {
-		return validationErrs[i].Field < validationErrs[j].Field
+	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, validationErrs.ToAggregate()
 }
@@ -121,8 +122,8 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
-	sort.Slice(validationErrs, func(i, j int) bool {
-		return validationErrs[i].Field < validationErrs[j].Field
+	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, allErrs.ToAggregate()
 }

@@ -34,6 +34,7 @@ type WorkloadStatusApplyConfiguration struct {
 	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
 	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
 	ClusterName                          *string                                 `json:"clusterName,omitempty"`
+	UnhealthyNodes                       []UnhealthyNodeApplyConfiguration       `json:"unhealthyNodes,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -141,5 +142,18 @@ func (b *WorkloadStatusApplyConfiguration) WithNominatedClusterNames(values ...s
 // If called multiple times, the ClusterName field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithClusterName(value string) *WorkloadStatusApplyConfiguration {
 	b.ClusterName = &value
+	return b
+}
+
+// WithUnhealthyNodes adds the given value to the UnhealthyNodes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the UnhealthyNodes field.
+func (b *WorkloadStatusApplyConfiguration) WithUnhealthyNodes(values ...*UnhealthyNodeApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithUnhealthyNodes")
+		}
+		b.UnhealthyNodes = append(b.UnhealthyNodes, *values[i])
+	}
 	return b
 }

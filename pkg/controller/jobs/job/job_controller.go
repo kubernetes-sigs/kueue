@@ -167,14 +167,14 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 
 	if !j.IsSuspended() {
-		if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
 				j.Annotations = map[string]string{}
 			}
 			// We are using annotation to be sure that all updates finished successfully.
 			j.Annotations[StoppingAnnotation] = "true"
-			return true, nil
+			return object, true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
@@ -183,18 +183,18 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
-		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
+		if err := clientutil.PatchStatus(ctx, c, object, func() (client.Object, bool, error) {
 			j.Status.StartTime = nil
-			return true, nil
+			return object, true, nil
 		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
 	}
 
-	if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
+	if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
 		j.RestorePodSetsInfo(podSetsInfo)
 		delete(j.Annotations, StoppingAnnotation)
-		return true, nil
+		return object, true, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}

@@ -19,14 +19,12 @@ package preemption
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"sync/atomic"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -42,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -221,7 +220,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, preemptioncommon.CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
@@ -312,7 +311,8 @@ func parseStrategies(s []config.PreemptionStrategy) []fairsharing.Strategy {
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
 func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info) {
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.log)
+
 	var targets []*Target
 	var retryCandidates []*workload.Info
 	for candCQ := range ordering.Iter() {
@@ -357,7 +357,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns
 // (fits, targets).
 func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemptionCtx, targets []*Target) (bool, []*Target) {
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.log)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
@@ -386,8 +386,8 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return CandidatesOrdering(preemptionCtx.log, p.enabledAfs, candidates[i], candidates[j], preemptionCtx.preemptorCQ.Name, p.clock.Now())
+	slices.SortFunc(candidates, func(a, b *workload.Info) int {
+		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", preemptionCtx.frsNeedPreemption.UnsortedList(), "preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj))
@@ -549,62 +549,4 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 		}
 	}
 	return true
-}
-
-func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
-	// If both workloads are in the same ClusterQueue, but different LocalQueues,
-	// we can compare their LocalQueue usage.
-	// If the LocalQueueUsage is not nil for both Workloads, it means the feature gate has been enabled, and the
-	// AdmissionScope of the ClusterQueue is set to UsageBasedFairSharing. We inherit this information from the snapshot initialization.
-	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
-}
-
-// CandidatesOrdering criteria:
-// 0. Workloads already marked for preemption first.
-// 1. Workloads from other ClusterQueues in the cohort before the ones in the
-// same ClusterQueue as the preemptor.
-// 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
-// 3. Workloads with lower priority first.
-// 4. Workloads admitted more recently first.
-func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
-	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
-	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
-	if aEvicted != bEvicted {
-		return aEvicted
-	}
-	aInCQ := a.ClusterQueue == cq
-	bInCQ := b.ClusterQueue == cq
-	if aInCQ != bInCQ {
-		return !aInCQ
-	}
-
-	if afsEnabled && resourceUsagePreemptionEnabled(a, b) {
-		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
-			log.V(3).Info("Comparing workloads by LocalQueue fair sharing usage",
-				"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
-				"workloadB", klog.KObj(b.Obj), "queueB", b.Obj.Spec.QueueName, "usageB", b.LocalQueueFSUsage)
-			return *a.LocalQueueFSUsage > *b.LocalQueueFSUsage
-		}
-	}
-	pa := priority.Priority(a.Obj)
-	pb := priority.Priority(b.Obj)
-	if pa != pb {
-		return pa < pb
-	}
-	timeA := quotaReservationTime(a.Obj, now)
-	timeB := quotaReservationTime(b.Obj, now)
-	if !timeA.Equal(timeB) {
-		return timeA.After(timeB)
-	}
-	// Arbitrary comparison for deterministic sorting.
-	return a.Obj.UID < b.Obj.UID
-}
-
-func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	if cond == nil || cond.Status != metav1.ConditionTrue {
-		// The condition wasn't populated yet, use the current time.
-		return now
-	}
-	return cond.LastTransitionTime.Time
 }

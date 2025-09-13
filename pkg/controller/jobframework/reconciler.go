@@ -364,9 +364,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
-				if err := clientutil.Patch(ctx, r.client, object, true, func() (bool, error) {
+				if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 					job.Suspend()
-					return true, nil
+					return object, true, nil
 				}); err != nil {
 					log.Error(err, "suspending child job failed")
 					return ctrl.Result{}, err
@@ -464,7 +464,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				log.V(3).Info("Handling job with no workload found an existing workload")
-				return ctrl.Result{Requeue: true}, nil
+				return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
 			}
 			if IsUnretryableError(err) {
 				log.V(3).Info("Handling job with no workload", "unretryableError", err)
@@ -1085,8 +1085,8 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		if err := clientutil.Patch(ctx, r.client, object, true, func() (bool, error) {
-			return true, job.RunWithPodSetsInfo(info)
+		if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
+			return object, true, job.RunWithPodSetsInfo(info)
 		}); err != nil {
 			return err
 		}
@@ -1129,12 +1129,12 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return nil
 	}
 
-	if err := clientutil.Patch(ctx, r.client, object, true, func() (bool, error) {
+	if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 		job.Suspend()
 		if info != nil {
 			job.RestorePodSetsInfo(info)
 		}
-		return true, nil
+		return object, true, nil
 	}); err != nil {
 		return err
 	}

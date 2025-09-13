@@ -33,6 +33,8 @@
     - [PodSet Slice size validation](#podset-slice-size-validation)
   - [Internal APIs](#internal-apis)
     - [Node failures](#node-failures)
+      - [Until v0.13](#until-v013)
+      - [Since v0.14](#since-v014)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
@@ -63,7 +65,6 @@
     - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
-  - [Failed nodes in WorkloadStatus](#failed-nodes-in-workloadstatus)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
     - [Example](#example-2)
 <!-- /toc -->
@@ -936,7 +937,8 @@ is neccessary to fit the workload. Since this mechanism is dedicated
 to only replace nodes, it will only work for Topologies which specify
 `kubernetes.io/hostname` at the lowest level.
 
-We propose to introduce a new Annotation at a Workload level:
+##### Until v0.13
+We use an Annotation at a Workload level:
 
 ```golang
 const (
@@ -944,6 +946,32 @@ const (
 	// name of a failed node running at least one pod of this workload.
 	NodeToReplaceAnnotation = "alpha.kueue.x-k8s.io/node-to-replace"
 )
+```
+The annotation contains the name of (a single) failed node to replace.
+##### Since v0.14
+We propose to remove the Annotation and replace it with new field in Workload status that will it will contain
+a list of failed nodes:
+
+```golang
+type WorkloadStatus struct {
+  (...)
+    // unhealthyNodes holds the failed nodes running at least one pod of this workload
+    // when Topology-Aware Scheduling is used. This field should not be set by the users.
+    // It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+    // Requires enabling the TASFailedNodeReplacement feature gate.
+    //
+    // +optional
+    UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
+}
+
+type UnhealthyNode struct {
+    // name is the name of the unhealthy node.
+    //
+    // +required
+    // +kubebuilder:validation:Required
+    Name string `json:"name"`
+}
+
 ```
 
 Sometimes node failures are only transient and the node might recover, and so reacting
@@ -1421,28 +1449,6 @@ fulfilled with a dedicated indexed virtual field.
 
 Increased code complexity which could defer the 0.9 release for the Alpha
 version. We will re-evaluate the need for the label before the Beta release.
-
-### Failed nodes in WorkloadStatus
-
-Alternatively, the information about failed nodes could be stored in a dedicated 
-field in WorkloadStatus.
-
-```golang
-// WorkloadStatus defines the observed state of Workload
-type WorkloadStatus struct {
-  ...
-  // nodesToReplace lists the names of failed nodes running pods associated 
-  // with this workload. This field is populated by the node failure controller.
-  // +optional
-  // +listType=set
-  NodesToReplace []string `json:"nodesToReplace,omitempty"`
-}
-```
-**Reasons for discarding/deferring**
-
-Uncertanity about the final shape of the feature and the required format.
-We will decide on the format of this field based on the feedback from the 
-customers on the MVP.
 
 ### MostFreeCapacity algorithm
 

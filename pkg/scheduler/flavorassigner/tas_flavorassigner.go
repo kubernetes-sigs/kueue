@@ -22,7 +22,6 @@ import (
 
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -57,13 +56,11 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 }
 
 func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
-	if !workload.HasNodeToReplace(wl.Obj) {
-		return false
-	}
-	failedNode := wl.Obj.Annotations[kueuealpha.NodeToReplaceAnnotation]
-	for _, domain := range psa.TopologyAssignment.Domains {
-		if domain.Values[len(domain.Values)-1] == failedNode {
-			return true
+	if workload.HasUnhealthyNodes(wl.Obj) {
+		for _, domain := range psa.TopologyAssignment.Domains {
+			if workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1]) {
+				return true
+			}
 		}
 	}
 	return false

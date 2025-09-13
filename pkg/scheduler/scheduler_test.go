@@ -4844,7 +4844,7 @@ func TestScheduleForTAS(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; baseline scenario": {
+		"workload with unhealthyNode annotation; second pass; baseline scenario": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -4852,7 +4852,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(corev1.LabelHostname).
@@ -4880,7 +4880,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; preferred; fit in different rack": {
+		"workload with unhealthyNode annotation; second pass; preferred; fit in different rack": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -4888,7 +4888,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						PreferredTopologyRequest(tasRackLabel).
@@ -4918,7 +4918,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; preferred; no fit": {
+		"workload with unhealthyNode annotation; second pass; preferred; no fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -4926,7 +4926,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -4959,7 +4959,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; preferred; no fit; FailFast": {
+		"workload with unhealthyNode annotation; second pass; preferred; no fit; FailFast": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -4967,7 +4967,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -5001,7 +5001,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			featureGates: []featuregate.Feature{features.TASFailedNodeReplacementFailFast},
 		},
-		"workload with nodeToReplace annotation; second pass; required rack; fit": {
+		"workload with unhealthyNode annotation; second pass; required rack; fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -5009,7 +5009,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5039,7 +5039,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; required rack for a single node; fit": {
+		"workload with unhealthyNode annotation; second pass; required rack for a single node; fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -5047,7 +5047,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5075,7 +5075,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; required rack; no fit": {
+		"workload with unhealthyNode annotation; second pass; required rack; no fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -5083,7 +5083,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						RequiredTopologyRequest(tasRackLabel).
@@ -5118,7 +5118,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with nodeToReplace annotation; second pass; two podsets": {
+		"workload with unhealthyNode annotation; second pass; two podsets": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
@@ -5126,7 +5126,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					Annotations(map[string]string{kueuealpha.NodeToReplaceAnnotation: "x0"}).
+					UnhealthyNodes("x0").
 					Queue("tas-main").
 					PodSets(
 						*utiltesting.MakePodSet("one", 1).
@@ -6520,7 +6520,7 @@ func TestScheduleForTAS(t *testing.T) {
 			}
 			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) && !workload.HasNodeToReplace(&w) {
+				if workload.IsAdmitted(&w) && !workload.HasUnhealthyNodes(&w) {
 					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
 				}
 			}

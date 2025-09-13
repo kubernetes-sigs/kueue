@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
@@ -42,14 +41,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -722,7 +719,7 @@ func needsSecondPassForDelayedAssignment(w *kueue.Workload) bool {
 }
 
 func needsSecondPassAfterNodeFailure(w *kueue.Workload) bool {
-	return HasTopologyAssignmentWithNodeToReplace(w)
+	return HasTopologyAssignmentWithUnhealthyNode(w)
 }
 
 // HasTopologyAssignmentsPending checks if the workload contains any
@@ -826,6 +823,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	}
 	wlCopy.Status.ClusterName = w.Status.ClusterName
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
+	wlCopy.Status.UnhealthyNodes = w.Status.UnhealthyNodes
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -967,35 +965,34 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 	return false
 }
 
-func HasNodeToReplace(w *kueue.Workload) bool {
-	if w == nil {
-		return false
-	}
-	annotations := w.GetAnnotations()
-	_, found := annotations[kueuealpha.NodeToReplaceAnnotation]
-	return found
+func HasUnhealthyNodes(w *kueue.Workload) bool {
+	return w != nil && len(w.Status.UnhealthyNodes) > 0
 }
 
-func NodeToReplace(w *kueue.Workload) string {
-	if !HasNodeToReplace(w) {
-		return ""
-	}
-	annotations := w.GetAnnotations()
-	return annotations[kueuealpha.NodeToReplaceAnnotation]
+func HasUnhealthyNode(w *kueue.Workload, nodeName string) bool {
+	return slices.ContainsFunc(w.Status.UnhealthyNodes, func(node kueue.UnhealthyNode) bool {
+		return node.Name == nodeName
+	})
 }
 
-func HasTopologyAssignmentWithNodeToReplace(w *kueue.Workload) bool {
-	if !HasNodeToReplace(w) || !IsAdmitted(w) {
+func UnhealthyNodeNames(w *kueue.Workload) []string {
+	unhealthyNodeNames := make([]string, len(w.Status.UnhealthyNodes))
+	for i, unhealthyNode := range w.Status.UnhealthyNodes {
+		unhealthyNodeNames[i] = unhealthyNode.Name
+	}
+	return unhealthyNodeNames
+}
+
+func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
+	if !HasUnhealthyNodes(w) || !IsAdmitted(w) {
 		return false
 	}
-	annotations := w.GetAnnotations()
-	failedNode := annotations[kueuealpha.NodeToReplaceAnnotation]
 	for _, psa := range w.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment == nil {
 			continue
 		}
 		for _, domain := range psa.TopologyAssignment.Domains {
-			if domain.Values[len(domain.Values)-1] == failedNode {
+			if HasUnhealthyNode(w, domain.Values[len(domain.Values)-1]) {
 				return true
 			}
 		}
@@ -1019,20 +1016,6 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 		return c.Update(ctx, wl)
 	}
 	return nil
-}
-
-func RemoveAnnotation(ctx context.Context, cl client.Client, wl *kueue.Workload, annotation string) error {
-	wlKey := types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace}
-	var wlToPatch kueue.Workload
-	if err := cl.Get(ctx, wlKey, &wlToPatch); err != nil {
-		return err
-	}
-	return clientutil.Patch(ctx, cl, &wlToPatch, false, func() (bool, error) {
-		annotations := wlToPatch.GetAnnotations()
-		delete(annotations, annotation)
-		wlToPatch.SetAnnotations(annotations)
-		return true, nil
-	})
 }
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
@@ -1110,11 +1093,16 @@ func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string
 	SetEvictedCondition(w, reason, message)
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
+	resetUnhealthyNodes(w)
 }
 
 func resetClusterNomination(w *kueue.Workload) {
 	w.Status.ClusterName = nil
 	w.Status.NominatedClusterNames = nil
+}
+
+func resetUnhealthyNodes(w *kueue.Workload) {
+	w.Status.UnhealthyNodes = nil
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {

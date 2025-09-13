@@ -18,11 +18,14 @@ package fairsharing
 
 import (
 	"iter"
+	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -54,9 +57,10 @@ type TargetClusterQueueOrdering struct {
 	// preemption target candidates.
 	prunedClusterQueues sets.Set[*schdcache.ClusterQueueSnapshot]
 	prunedCohorts       sets.Set[*schdcache.CohortSnapshot]
+	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
@@ -65,6 +69,7 @@ func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*
 
 		prunedClusterQueues: sets.New[*schdcache.ClusterQueueSnapshot](),
 		prunedCohorts:       sets.New[*schdcache.CohortSnapshot](),
+		log:                 log,
 	}
 
 	for ancestor := range cq.PathParentToRoot() {
@@ -141,9 +146,16 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		drs := cq.DominantResourceShare()
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
-		if (drs == 0 && cq != t.preemptorCq) || !t.hasWorkload(cq) {
+		switch {
+		case (drs == 0 && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
-		} else if drs >= highestCqDrs {
+		case drs == highestCqDrs:
+			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
+			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
+			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, time.Now()) < 0 {
+				highestCq = cq
+			}
+		case drs > highestCqDrs:
 			highestCqDrs = drs
 			highestCq = cq
 		}
