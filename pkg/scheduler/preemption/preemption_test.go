@@ -2927,20 +2927,25 @@ func TestPreemptionMessage(t *testing.T) {
 	}{
 		{
 			preemptor: &kueue.Workload{},
-			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN",
+			want:      "Preempted to accommodate a workload (Preemptor: UNKNOWN, UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN",
 		},
 		{
 			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid"}},
-			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN",
+			want:      "Preempted to accommodate a workload (Preemptor: UNKNOWN, UID: uid, JobUID: UNKNOWN) due to UNKNOWN",
 		},
 		{
 			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
-			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN",
+			want:      "Preempted to accommodate a workload (Preemptor: UNKNOWN, UID: uid, JobUID: juid) due to UNKNOWN",
 		},
 		{
 			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
 			reason:    kueue.InClusterQueueReason,
-			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to prioritization in the ClusterQueue",
+			want:      "Preempted to accommodate a workload (Preemptor: UNKNOWN, UID: uid, JobUID: juid) due to prioritization in the ClusterQueue",
+		},
+		{
+			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Name: "foo", UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			reason:    kueue.InClusterQueueReason,
+			want:      "Preempted to accommodate a workload (Preemptor: foo, UID: uid, JobUID: juid) due to prioritization in the ClusterQueue",
 		},
 	}
 	for _, tc := range cases {

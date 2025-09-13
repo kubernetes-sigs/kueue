@@ -149,7 +149,7 @@ var HumanReadablePreemptionReasons = map[string]string{
 }
 
 func preemptionMessage(preemptor *kueue.Workload, reason string) string {
-	var wUID, jUID string
+	var preemptorName, wUID, jUID string
 	if preemptor.UID == "" {
 		wUID = "UNKNOWN"
 	} else {
@@ -161,8 +161,11 @@ func preemptionMessage(preemptor *kueue.Workload, reason string) string {
 	} else {
 		jUID = uid
 	}
-
-	return fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s", wUID, jUID, HumanReadablePreemptionReasons[reason])
+	preemptorName = preemptor.Name
+	if preemptorName == "" {
+		preemptorName = "UNKNOWN"
+	}
+	return fmt.Sprintf("Preempted to accommodate a workload (Preemptor: %s, UID: %s, JobUID: %s) due to %s", preemptorName, wUID, jUID, HumanReadablePreemptionReasons[reason])
 }
 
 // IssuePreemptions marks the target workloads as evicted.

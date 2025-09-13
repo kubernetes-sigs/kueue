@@ -30,14 +30,14 @@ that is similar to the following:
 ```yaml
 status:
   - lastTransitionTime: "2025-03-07T21:19:54Z"
-    message: 'Preempted to accommodate a workload (UID: 5c023c28-8533-4927-b266-56bca5e310c1,
+    message: 'Preempted to accommodate a workload (Preemptor: foo, UID: 5c023c28-8533-4927-b266-56bca5e310c1,
       JobUID: 4548c8bd-c399-4027-bb02-6114f3a8cdeb) due to prioritization in the ClusterQueue'
     observedGeneration: 1
     reason: Preempted
     status: "True"
     type: Evicted
   - lastTransitionTime: "2025-03-07T21:19:54Z"
-    message: 'Preempted to accommodate a workload (UID: 5c023c28-8533-4927-b266-56bca5e310c1,
+    message: 'Preempted to accommodate a workload (Preemptor: foo, UID: 5c023c28-8533-4927-b266-56bca5e310c1,
       JobUID: 4548c8bd-c399-4027-bb02-6114f3a8cdeb) due to prioritization in the ClusterQueue'
     reason: InClusterQueue
     status: "True"

@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (Preemptor: %s, UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.Name, alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -327,7 +327,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (Preemptor: %s, UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.Name, alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
