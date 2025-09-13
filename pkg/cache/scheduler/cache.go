@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -311,7 +312,11 @@ func (c *Cache) AdmissionChecksForClusterQueue(cqName kueue.ClusterQueueReferenc
 	c.RLock()
 	defer c.RUnlock()
 	cq := c.hm.ClusterQueue(cqName)
-	if cq == nil || len(cq.AdmissionChecks) == 0 {
+	if cq == nil {
+		return nil
+	}
+	numAllFlavors := utilslices.Reduce(cq.ResourceGroups, func(acc int, rg ResourceGroup) int { return acc + len(rg.Flavors) }, 0)
+	if len(cq.AdmissionChecks) == numAllFlavors {
 		return nil
 	}
 	acs := make([]AdmissionCheck, 0, len(cq.AdmissionChecks))

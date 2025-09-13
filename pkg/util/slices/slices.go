@@ -93,3 +93,12 @@ func Pick[E any, S ~[]E](s S, keep func(*E) bool) S {
 	}
 	return ret
 }
+
+// Reduce executes a user-supplied "reducer" function on each element of the slice.
+func Reduce[T, M any](s []T, f func(M, T) M, initValue M) M {
+	acc := initValue
+	for _, v := range s {
+		acc = f(acc, v)
+	}
+	return acc
+}
