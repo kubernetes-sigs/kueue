@@ -33,6 +33,7 @@ MOCKGEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' 
 # Versions for external controllers
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
 KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
+KUBEFLOW_TRAINER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/trainer/v2)
 KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
 KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
@@ -56,6 +57,7 @@ MOCKGEN = $(BIN_DIR)/mockgen
 
 MPI_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
+KF_TRAINER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/trainer/v2)
 RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 JOBSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/jobset)
 CLUSTER_AUTOSCALER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
@@ -146,6 +148,21 @@ kf-training-operator-manifests: ## Copy whole manifests folder from the training
 	mkdir -p "$(EXTERNAL_CRDS_DIR)/training-operator"
 	cp -rf "$(KF_TRAINING_ROOT)/manifests" "$(EXTERNAL_CRDS_DIR)/training-operator"
 
+
+.PHONY: kf-trainer-crd 
+kf-trainer-crd: ## Copy the CRDs of the kubeflow trainer to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
+	cp -rf $(KF_TRAINER_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/kf-trainer-crds/
+
+.PHONY: kf-trainer-manifests
+kf-trainer-manifests: ## Copy whole manifests folder of the kubeflow trainer to the dep-crds directory.
+	if [ -d "$(EXTERNAL_CRDS_DIR)/kf-trainer" ]; then \
+		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/kf-trainer" && \
+		rm -rf "$(EXTERNAL_CRDS_DIR)/kf-trainer"; \
+	fi
+	mkdir -p "$(EXTERNAL_CRDS_DIR)/kf-trainer"
+	cp -rf "$(KF_TRAINER_ROOT)/manifests" "$(EXTERNAL_CRDS_DIR)/kf-trainer"
+
 .PHONY: ray-operator-crd
 ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator-crds/
@@ -163,7 +180,6 @@ ray-operator-manifests: ## Copy the whole manifests content from the ray-operato
 	cp -rf "$(RAY_ROOT)/config/default" "$(EXTERNAL_CRDS_DIR)/ray-operator"
 	cp -rf "$(RAY_ROOT)/config/rbac" "$(EXTERNAL_CRDS_DIR)/ray-operator"
 	cp -rf "$(RAY_ROOT)/config/manager" "$(EXTERNAL_CRDS_DIR)/ray-operator"
-
 
 .PHONY: jobset-operator-crd
 jobset-operator-crd: ## Copy the CRDs from the jobset-operator to the dep-crds directory.
@@ -197,7 +213,7 @@ leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs
