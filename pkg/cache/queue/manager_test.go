@@ -1348,3 +1348,104 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 		})
 	}
 }
+
+func TestSecondPassExponentialBackoff(t *testing.T) {
+	now := time.Now()
+
+	baseWorkloadBuilder := utiltesting.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltesting.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
+		ReserveQuota(
+			utiltesting.MakeAdmission("tas-main", "one").
+				Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+				DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+				AssignmentPodCount(1).Obj(),
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		})
+	secondBaseWorkloadNeedingSecondPass := baseWorkloadNeedingSecondPass.Clone().Name("second")
+	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
+
+	cases := map[string]struct {
+		firstWorkloadAdmissions  []*kueue.Workload
+		secondWorkloadAdmissions []*kueue.Workload
+		deleted                  []*kueue.Workload
+		wantBackoffs             map[workload.Reference]time.Duration
+	}{
+		"should increase backoff for workload inadmitted twice": {
+			firstWorkloadAdmissions: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			secondWorkloadAdmissions: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			wantBackoffs: map[workload.Reference]time.Duration{
+				workload.Key(baseWorkloadNeedingSecondPass.Obj()): 4 * time.Second,
+			},
+		},
+		"should reset backoff for admitted workload": {
+			firstWorkloadAdmissions: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			secondWorkloadAdmissions: []*kueue.Workload{
+				baseWorkloadNotNeedingSecondPass.DeepCopy(),
+			},
+			wantBackoffs: map[workload.Reference]time.Duration{},
+		},
+		"should calculate backoffs independently": {
+			firstWorkloadAdmissions: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			secondWorkloadAdmissions: []*kueue.Workload{
+				secondBaseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			wantBackoffs: map[workload.Reference]time.Duration{
+				workload.Key(baseWorkloadNeedingSecondPass.Obj()):       2 * time.Second,
+				workload.Key(secondBaseWorkloadNeedingSecondPass.Obj()): 2 * time.Second,
+			},
+		},
+		"should reset backoff for deleted workload": {
+			firstWorkloadAdmissions: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			deleted: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Obj(),
+			},
+			wantBackoffs: map[workload.Reference]time.Duration{},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			fakeClock := testingclock.NewFakeClock(now)
+			opts := []Option{WithClock(fakeClock)}
+			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
+
+			for _, wl := range tc.firstWorkloadAdmissions {
+				manager.QueueSecondPassIfNeeded(ctx, wl)
+			}
+			fakeClock.Step(time.Second)
+			for _, wl := range tc.deleted {
+				manager.DeleteSecondPassWithoutLock(wl)
+			}
+			for _, wl := range tc.secondWorkloadAdmissions {
+				manager.QueueSecondPassIfNeeded(ctx, wl)
+			}
+			fakeClock.Step(2 * time.Second)
+			gotBackoffs := make(map[workload.Reference]time.Duration)
+			for key, backoffFn := range manager.secondPassQueue.backoffDelayFns {
+				gotBackoffs[key] = backoffFn()
+			}
+			if diff := cmp.Diff(tc.wantBackoffs, gotBackoffs); diff != "" {
+				t.Errorf("Unexpected workload backoffs returned (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

@@ -17,9 +17,12 @@ limitations under the License.
 package queue
 
 import (
+	"math"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -30,12 +33,23 @@ type secondPassQueue struct {
 
 	prequeued sets.Set[workload.Reference]
 	queued    map[workload.Reference]*workload.Info
+
+	backoff         wait.Backoff
+	backoffDelayFns map[workload.Reference]wait.DelayFunc
 }
 
 func newSecondPassQueue() *secondPassQueue {
 	return &secondPassQueue{
 		prequeued: sets.New[workload.Reference](),
 		queued:    make(map[workload.Reference]*workload.Info),
+
+		backoffDelayFns: make(map[workload.Reference]wait.DelayFunc),
+		backoff: wait.Backoff{
+			Duration: time.Second,
+			Factor:   2.0,
+			Steps:    math.MaxInt32,
+			Cap:      128 * time.Second,
+		},
 	}
 }
 
@@ -77,4 +91,34 @@ func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 
 	delete(q.queued, key)
 	q.prequeued.Delete(key)
+	delete(q.backoffDelayFns, key)
+}
+
+// nextSecondPassDelay returns the next backoff duration for the workload's second pass,
+// creating a new backoff state if needed.
+func (q *secondPassQueue) nextSecondPassDelay(wl *kueue.Workload) time.Duration {
+	key := workload.Key(wl)
+
+	q.RLock()
+	fn, ok := q.backoffDelayFns[key]
+	q.RUnlock()
+
+	if !ok {
+		fn = q.backoff.DelayFunc()
+		q.Lock()
+		q.backoffDelayFns[key] = fn
+		q.Unlock()
+	}
+
+	return fn()
+}
+
+// resetSecondPassBackoff forgets any backoff state for the workload so that
+// subsequent second-pass queuing starts from the initial delay again.
+func (q *secondPassQueue) resetSecondPassBackoff(wl *kueue.Workload) {
+	key := workload.Key(wl)
+
+	q.Lock()
+	delete(q.backoffDelayFns, key)
+	q.Unlock()
 }
