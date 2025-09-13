@@ -22,13 +22,6 @@ Kueue implements this through a two-phase admission cycle:
 
 The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admission_check/#admissioncheckstates) are in the `Ready` state.
 
-## [Provisioning AdmissionCheck ](docs/concepts/admission_check/provisioning_request)
-
-When neither AdmissionChecks nor [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were configured, Admissions were mainly based on quota checks. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) addresses this in cluster-autoscaler environments through the following sequence of checks:
-- First reserving ClusterQueue resources (**Quota Reservation**),
-- Then confirming the physical capacity via ProvisioningRequest and Cluster Autoscaler(CA) (**Capacity Guarantee**)
-
-
 ## Failure Handling:
 
 - For temporary issues (e.g., cloud capacity shortages):
@@ -43,6 +36,6 @@ When neither AdmissionChecks nor [TopologyAwareScheduling](docs/concepts/topolog
   - It releases the reserved quota. 
   - It deactivates the Workload and to requeue it, the user needs to set the `.status.active` field to `true`.
 
-  ## What's Next?
+## What's Next?
 
   You can read the [Concepts](/docs/concepts) section to learn how [Admission Checks](/docs/concepts/admission_check/) influence admission.

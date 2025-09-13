@@ -1,9 +1,9 @@
 ---
-title: "Provisioning AdmissionCheck"
-date: 
-weight: 
+title: "ProvisioningRequest"
+date: 2023-10-23
+weight: 1
 description: >
-  An admission check controller providing kueue integration with cluster autoscaler.
+  A built-in admission check providing Kueue integration with cluster-autoscaler.
 ---
 
 When AdmissionChecks or [TopologyAwareScheduling](docs/concepts/topology_aware_scheduling/) were not configured, Admissions were mainly based on quota checks - if sufficient quota existed, Kueue admitted the Workload. While quota reservation confirmed logical resource availability, it didn't guarantee that physical resources existed to schedule all Pods successfully. The [ProvisioningRequest AdmissionCheck](/docs/concepts/admission_check/provisioning_request/#provisioning-admissioncheck-controller) addresses this in cluster-autoscaler environments.
