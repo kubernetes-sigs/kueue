@@ -809,7 +809,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	}
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
-	metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
+	metrics.AdmittedWorkload(admission.ClusterQueue, workload.GetWorkloadPriorityClass(newWorkload), waitTime)
 
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
