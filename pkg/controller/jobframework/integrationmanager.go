@@ -37,6 +37,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const (
+	PodIntegrationName = "pod"
+)
+
 var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
 	errMissingMandatoryField  = errors.New("mandatory field missing")
@@ -100,11 +104,12 @@ func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerRefe
 }
 
 type integrationManager struct {
-	names                []string
-	integrations         map[string]IntegrationCallbacks
-	enabledIntegrations  set.Set[string]
-	externalIntegrations map[string]runtime.Object
-	mu                   sync.RWMutex
+	names                            []string
+	integrations                     map[string]IntegrationCallbacks
+	enabledIntegrations              set.Set[string]
+	externalIntegrations             map[string]runtime.Object
+	automaticallyEnabledIntegrations sets.Set[string]
+	mu                               sync.RWMutex
 }
 
 var manager integrationManager
@@ -369,4 +374,48 @@ func GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]Mul
 		return nil, err
 	}
 	return ret, nil
+}
+
+func (m *integrationManager) autoEnableIntegrations(ctx context.Context, enabledFrameworks sets.Set[string]) {
+	log := ctrl.LoggerFrom(ctx)
+
+	requiredIntegrations := m.findRequiredIntegrations(enabledFrameworks)
+	for integration := range requiredIntegrations {
+		// TODO: Remove this condition to allow automatic enabling of other dependencies
+		if integration == PodIntegrationName {
+			log.Info("Automatically enabling integration for framework support", "integration", integration)
+			enabledFrameworks.Insert(integration)
+		}
+	}
+}
+
+func (m *integrationManager) findRequiredIntegrations(enabledFrameworks sets.Set[string]) sets.Set[string] {
+	requiredIntegrations := sets.New[string]()
+
+	for framework := range enabledFrameworks {
+		integration, found := m.get(framework)
+		if !found {
+			continue
+		}
+
+		for _, dependency := range integration.DependencyList {
+			if !enabledFrameworks.Has(dependency) {
+				requiredIntegrations.Insert(dependency)
+			}
+		}
+	}
+
+	return requiredIntegrations
+}
+
+func (m *integrationManager) storeAutomaticallyEnabledIntegrations(originalFrameworks, currentFrameworks sets.Set[string]) {
+	if m.automaticallyEnabledIntegrations == nil {
+		m.automaticallyEnabledIntegrations = sets.New[string]()
+	}
+
+	for integration := range currentFrameworks {
+		if !originalFrameworks.Has(integration) {
+			m.automaticallyEnabledIntegrations.Insert(integration)
+		}
+	}
 }

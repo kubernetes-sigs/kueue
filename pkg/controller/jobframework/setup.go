@@ -56,6 +56,11 @@ func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, op
 func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
+	originalFrameworks := options.EnabledFrameworks.Clone()
+	m.autoEnableIntegrations(ctx, options.EnabledFrameworks)
+	m.storeAutomaticallyEnabledIntegrations(originalFrameworks, options.EnabledFrameworks)
+	opts = append(opts, WithAutomaticallyEnabledIntegrations(m.automaticallyEnabledIntegrations))
+
 	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
 		return fmt.Errorf("check enabled frameworks list: %w", err)
 	}
@@ -169,6 +174,8 @@ func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
 // Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
+
+	manager.autoEnableIntegrations(ctx, options.EnabledFrameworks)
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
 		if options.EnabledFrameworks.Has(name) {
 			if err := cb.SetupIndexes(ctx, indexer); err != nil {
