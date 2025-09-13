@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue/internal/tools
 
-go 1.24.0
+go 1.25.0
 
 tool (
 	github.com/gohugoio/hugo
