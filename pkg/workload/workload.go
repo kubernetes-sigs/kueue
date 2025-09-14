@@ -534,8 +534,7 @@ func UpdateStatus(ctx context.Context,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
 	managerPrefix string,
-	clock clock.Clock,
-	recorder record.EventRecorder) error {
+	clock clock.Clock) error {
 	now := metav1.NewTime(clock.Now())
 	condition := metav1.Condition{
 		Type:               conditionType,
@@ -551,7 +550,7 @@ func UpdateStatus(ctx context.Context,
 
 	if (conditionType == kueue.WorkloadFinished && conditionStatus == metav1.ConditionTrue) ||
 		(conditionType == kueue.WorkloadQuotaReserved && conditionStatus == metav1.ConditionFalse) {
-		ReportEvictionCompleted(recorder, wl, wl.Status.Admission.ClusterQueue, reason, message, now.Time)
+		ReportEvictionCompleted(wl, wl.Spec.QueueName, reason, message, now.Time)
 	}
 
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
@@ -560,7 +559,7 @@ func UpdateStatus(ctx context.Context,
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
-func UnsetQuotaReservationWithCondition(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, now time.Time) bool {
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, lqName kueue.LocalQueueName, reason, message string, now time.Time) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -579,7 +578,7 @@ func UnsetQuotaReservationWithCondition(recorder record.EventRecorder, wl *kueue
 		changed = true
 	}
 
-	ReportEvictionCompleted(recorder, wl, cqName, reason, message, now)
+	ReportEvictionCompleted(wl, lqName, reason, message, now)
 
 	return changed
 }
@@ -1136,11 +1135,11 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 
 // ReportEvictionCompleted reports the time between when eviction started for running pods (Evicted=True & PodsReady=True) and
 // when it completed (Evicted=True & (QuotaReserved=False || Finished=True || Deactivated=True))
-func ReportEvictionCompleted(wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, now time.Time) {
+func ReportEvictionCompleted(wl *kueue.Workload, lqName kueue.LocalQueueName, reason, message string, now time.Time) {
 	// diff between eviction start and eviction completion
 	evictionDuration := workloadCompletedEviction(wl, now)
 	if evictionDuration != nil {
-		metrics.ReportEvictionCompleted(cqName, reason, *evictionDuration)
+		metrics.ReportEvictionCompleted(lqName, reason, *evictionDuration)
 	}
 }
 

@@ -684,7 +684,7 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 		updatedWl := &kueue.Workload{}
 		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 		if admission == nil {
-			workload.UnsetQuotaReservationWithCondition(updatedWl, "EvictedByTest", "Evicted By Test", clk.Now())
+			workload.UnsetQuotaReservationWithCondition(updatedWl, updatedWl.Spec.QueueName, "EvictedByTest", "Evicted By Test", clk.Now())
 		} else {
 			workload.SetQuotaReservation(updatedWl, admission, clk)
 		}
@@ -724,7 +724,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			var updatedWorkload kueue.Workload
 			g.Expect(k8sClient.Get(ctx, key, &updatedWorkload)).Should(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
-				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now())
+				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, updatedWorkload.Spec.QueueName, "Pending", "By test", time.Now())
 				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true, clock.RealClock{})).Should(
 					gomega.Succeed(),
 					fmt.Sprintf("Unable to unset quota reservation for %q", key),
