@@ -332,9 +332,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking the first workload gets created and admitted", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
 				wl1Admission := testing.MakeAdmission(podsCountClusterQ.Name).
-					Assignment(corev1.ResourceCPU, "on-demand", "6").
-					Assignment(corev1.ResourcePods, "on-demand", "3").
-					AssignmentPodCount(3).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "on-demand").
+						ResourceUsage(corev1.ResourceCPU, "6").
+						Flavor(corev1.ResourcePods, "on-demand").
+						ResourceUsage(corev1.ResourcePods, "3").
+						Count(3).
+						Obj()).
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
@@ -394,8 +398,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking the first workload gets created and admitted", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
 				wl1Admission := testing.MakeAdmission(podsCountOnlyClusterQ.Name).
-					Assignment(corev1.ResourcePods, "on-demand", "3").
-					AssignmentPodCount(3).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourcePods, "on-demand").
+						ResourceUsage(corev1.ResourcePods, "3").
+						Count(3).
+						Obj()).
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 0)
@@ -501,8 +508,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking the first workload gets created and gets quota reserved", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
 				wl1Admission := testing.MakeAdmission(admissionCheckClusterQ.Name).
-					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name), "2").
-					AssignmentPodCount(1).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name)).
+						ResourceUsage(corev1.ResourceCPU, "2").
+						Count(1).
+						Obj()).
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)

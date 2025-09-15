@@ -568,7 +568,7 @@ func TestReconciler(t *testing.T) {
 	baseWorkloadWrapper := utiltesting.MakeWorkload("wl", "ns").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj())
+		ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj())
 
 	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
@@ -2524,7 +2524,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -2537,7 +2537,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -2571,7 +2571,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -2807,7 +2807,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					Admitted(true).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
@@ -2815,7 +2815,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					Admitted(true).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
@@ -2887,7 +2887,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
@@ -2896,7 +2896,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),

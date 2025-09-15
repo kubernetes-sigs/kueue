@@ -183,8 +183,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 					).Obj()
 				admission := testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -241,8 +244,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 					).Obj()
 				admission := testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -304,8 +310,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 						).Obj()
 					admission := testing.MakeAdmission(clusterQueue.Name).
-						Assignment(corev1.ResourceCPU, "default", "1").
-						AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "1").
+							Count(createdWorkload.Spec.PodSets[0].Count).
+							Obj()).
 						Obj()
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -476,8 +485,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					ginkgo.By("admit the workload", func() {
 						admission := testing.MakeAdmission(clusterQueueAc.Name).
-							Assignment(corev1.ResourceCPU, "test-flavor", "1").
-							AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+							PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Flavor(corev1.ResourceCPU, "test-flavor").
+								ResourceUsage(corev1.ResourceCPU, "1").
+								Count(createdWorkload.Spec.PodSets[0].Count).
+								Obj()).
 							Obj()
 						gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 						gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
@@ -529,8 +541,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				ginkgo.By("Admit workload", func() {
 					admission := testing.MakeAdmission(clusterQueue.Name).
-						Assignment(corev1.ResourceCPU, "default", "1").
-						AssignmentPodCount(wl.Spec.PodSets[0].Count).
+						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "default").
+							ResourceUsage(corev1.ResourceCPU, "1").
+							Count(wl.Spec.PodSets[0].Count).
+							Obj()).
 						Obj()
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
@@ -758,9 +773,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 				originalWorkloadUID := createdWorkload.UID
 
-				admission := testing.MakeAdmission(clusterQueue.Name, "bf90803c").
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+				admission := testing.MakeAdmission(clusterQueue.Name).
+					PodSets(testing.MakePodSetAssignment("bf90803c").
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
@@ -908,9 +926,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that pod is unsuspended when workload is admitted")
-				admission := testing.MakeAdmission(clusterQueue.Name, "bf90803c").
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+				admission := testing.MakeAdmission(clusterQueue.Name).
+					PodSets(testing.MakePodSetAssignment("bf90803c").
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -1363,9 +1384,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				admission := testing.MakeAdmission(cq.Name, wl.Spec.PodSets[0].Name).
-					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
-					AssignmentPodCount(wl.Spec.PodSets[0].Count).
+				admission := testing.MakeAdmission(cq.Name).
+					PodSets(testing.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(wl.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 
 				ginkgo.By("admitting the workload", func() {
@@ -2010,9 +2034,12 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			admission := testing.MakeAdmission(cq.Name, wl.Spec.PodSets[0].Name).
-				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
-				AssignmentPodCount(wl.Spec.PodSets[0].Count).
+			admission := testing.MakeAdmission(cq.Name).
+				PodSets(testing.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
+					ResourceUsage(corev1.ResourceCPU, "1").
+					Count(wl.Spec.PodSets[0].Count).
+					Obj()).
 				Obj()
 
 			ginkgo.By("admit the workload", func() {

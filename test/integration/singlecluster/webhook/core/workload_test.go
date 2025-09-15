@@ -359,8 +359,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						Obj()
 				},
 				testing.MakeAdmission("cluster-queue").
-					Assignment(corev1.ResourceCPU, "flv", "1").
-					AssignmentPodCount(3).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "flv").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(3).
+						Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 		)
@@ -1003,8 +1006,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				admission := testing.MakeAdmission("default").
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(1).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(1).
+						Obj()).
 					Obj()
 				workload.SetQuotaReservation(wl, admission, realClock)
 				wl.Status.Admission = admission
@@ -1034,8 +1040,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				admission := testing.MakeAdmission("default").
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(10).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "default").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(10).
+						Obj()).
 					Obj()
 				workload.SetQuotaReservation(wl, admission, realClock)
 				wl.Status.Admission = admission

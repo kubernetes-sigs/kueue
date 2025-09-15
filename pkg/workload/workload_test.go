@@ -167,9 +167,13 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
-						Assignment(corev1.ResourceCPU, "f1", "30m").
-						Assignment(corev1.ResourceMemory, "f1", "30Ki").
-						AssignmentPodCount(3).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "f1").
+							ResourceUsage(corev1.ResourceCPU, "30m").
+							Flavor(corev1.ResourceMemory, "f1").
+							ResourceUsage(corev1.ResourceMemory, "30Ki").
+							Count(3).
+							Obj()).
 						Obj(),
 				).
 				ReclaimablePods(
@@ -206,9 +210,13 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
-						Assignment(corev1.ResourceCPU, "f1", "30m").
-						Assignment(corev1.ResourceMemory, "f1", "30Ki").
-						AssignmentPodCount(3).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "f1").
+							ResourceUsage(corev1.ResourceCPU, "30m").
+							Flavor(corev1.ResourceMemory, "f1").
+							ResourceUsage(corev1.ResourceMemory, "30Ki").
+							Count(3).
+							Obj()).
 						Obj(),
 				).
 				ReclaimablePods(
@@ -245,9 +253,13 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
-						Assignment(corev1.ResourceCPU, "f1", "30m").
-						Assignment(corev1.ResourceMemory, "f1", "30Ki").
-						AssignmentPodCount(3).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, "f1").
+							ResourceUsage(corev1.ResourceCPU, "30m").
+							Flavor(corev1.ResourceMemory, "f1").
+							ResourceUsage(corev1.ResourceMemory, "30Ki").
+							Count(3).
+							Obj()).
 						Obj(),
 				).
 				Obj(),

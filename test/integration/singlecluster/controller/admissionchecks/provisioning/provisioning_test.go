@@ -1315,9 +1315,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name, "ps1").
-				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
-				AssignmentPodCount(3).
+			admission = testing.MakeAdmission(cq.Name).
+				PodSets(testing.MakePodSetAssignment("ps1").
+					Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+					ResourceUsage(corev1.ResourceCPU, "3").
+					Count(3).
+					Obj()).
 				Obj()
 		})
 
