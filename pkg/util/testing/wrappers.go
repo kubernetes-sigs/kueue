@@ -628,13 +628,6 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 	return &w.Admission
 }
 
-func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
-	wrapper := &PodSetAssignmentWrapper{PodSetAssignment: w.PodSetAssignments[0]}
-	wrapper.Flavor(r, f).ResourceUsage(r, value)
-	w.PodSetAssignments[0] = wrapper.PodSetAssignment
-	return w
-}
-
 func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetAssignment) *AdmissionWrapper {
 	w.PodSetAssignments = podSets
 	return w
@@ -1767,4 +1760,8 @@ func (p *PodSetAssignmentWrapper) TopologyAssignment(ta *kueue.TopologyAssignmen
 func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *PodSetAssignmentWrapper {
 	p.PodSetAssignment.DelayedTopologyRequest = ptr.To(state)
 	return p
+}
+
+func (p *PodSetAssignmentWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *PodSetAssignmentWrapper {
+	return p.Flavor(r, f).ResourceUsage(r, value)
 }
