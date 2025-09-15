@@ -191,8 +191,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if workload.Status(&wl) == workload.StatusPending && r.workloadHasDRA(&wl) &&
-		features.Enabled(features.DynamicResourceAllocation) {
+	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
+		r.workloadHasDRA(&wl) {
 		if r.workloadHasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {

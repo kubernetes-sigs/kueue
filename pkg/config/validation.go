@@ -362,6 +362,10 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 	mappings := c.Resources.DeviceClassMappings
 	var allErrs field.ErrorList
 
+	if len(mappings) > 16 {
+		allErrs = append(allErrs, field.TooMany(dynamicResourceAllocationPath, len(mappings), 16))
+	}
+
 	seenResourceNames := make(sets.Set[corev1.ResourceName])
 	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
 
@@ -370,6 +374,10 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 		if errs := apimachineryutilvalidation.IsQualifiedName(string(mapping.Name)); len(errs) > 0 {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, strings.Join(errs, "; ")))
+		}
+
+		if len(string(mapping.Name)) > 253 {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
 		}
 
 		if seenResourceNames.Has(mapping.Name) {
@@ -383,11 +391,27 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				"at least one device class name is required"))
 		}
 
+		if len(mapping.DeviceClassNames) > 8 {
+			allErrs = append(allErrs, field.TooMany(mappingPath.Child("deviceClassNames"), len(mapping.DeviceClassNames), 8))
+		}
+
+		seenDeviceClassNames := make(sets.Set[corev1.ResourceName])
+
 		for dcIdx, deviceClass := range mapping.DeviceClassNames {
 			dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
 
 			if errs := apimachineryutilvalidation.IsQualifiedName(string(deviceClass)); len(errs) > 0 {
 				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
+			}
+
+			if len(string(deviceClass)) > 253 {
+				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, "must not exceed 253 characters"))
+			}
+
+			if seenDeviceClassNames.Has(deviceClass) {
+				allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
+			} else {
+				seenDeviceClassNames.Insert(deviceClass)
 			}
 
 			if existingResource, exists := deviceClassToResource[deviceClass]; exists {

@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1067,6 +1068,243 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
+		"duplicate device class names within same mapping": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "duplicate-devices",
+							DeviceClassNames: []corev1.ResourceName{"foo.com/device", "bar.com/device", "foo.com/device"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[2]",
+				},
+			},
+		},
+		"empty string resource name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "",
+							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].name",
+				},
+			},
+		},
+		"whitespace in resource name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "foo bar",
+							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].name",
+				},
+			},
+		},
+		"empty string device class name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{""},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+			},
+		},
+		"whitespace in device class name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{"foo   bar"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+			},
+		},
+		"max length resource name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("a", 240), strings.Repeat("b", 12))), // 253 chars total
+							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+						},
+					},
+				},
+			},
+		},
+		"over max length resource name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("a", 240), strings.Repeat("b", 14))), // 255 chars total
+							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].name",
+				},
+			},
+		},
+		"max length device class name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("x", 240), strings.Repeat("y", 12)))}, // 253 chars total
+						},
+					},
+				},
+			},
+		},
+		"over max length device class name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("x", 240), strings.Repeat("y", 14)))}, // 255 chars total
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+			},
+		},
+		"nil device class mappings": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: nil,
+				},
+			},
+		},
+		"too many device class mappings": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: func() []configapi.DeviceClassMapping {
+						mappings := make([]configapi.DeviceClassMapping, 17) // Exceed limit of 16
+						for i := range 17 {
+							mappings[i] = configapi.DeviceClassMapping{
+								Name:             corev1.ResourceName(fmt.Sprintf("resource-%d", i)),
+								DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("device-%d.example.com", i))},
+							}
+						}
+						return mappings
+					}(),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooMany,
+					Field: "resources.deviceClassMappings",
+				},
+			},
+		},
+		"too many device class names per mapping": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name: "many-devices",
+							DeviceClassNames: func() []corev1.ResourceName {
+								deviceClasses := make([]corev1.ResourceName, 9) // Exceed limit of 8
+								for i := range 9 {
+									deviceClasses[i] = corev1.ResourceName(fmt.Sprintf("device-%d.example.com", i))
+								}
+								return deviceClasses
+							}(),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooMany,
+					Field: "resources.deviceClassMappings[0].deviceClassNames",
+				},
+			},
+		},
+		"exactly max device class mappings": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: func() []configapi.DeviceClassMapping {
+						mappings := make([]configapi.DeviceClassMapping, 16) // Exactly at limit
+						for i := range 16 {
+							mappings[i] = configapi.DeviceClassMapping{
+								Name:             corev1.ResourceName(fmt.Sprintf("resource-%d", i)),
+								DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("device-%d.example.com", i))},
+							}
+						}
+						return mappings
+					}(),
+				},
+			},
+		},
+		"exactly max device class names per mapping": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name: "max-devices",
+							DeviceClassNames: func() []corev1.ResourceName {
+								deviceClasses := make([]corev1.ResourceName, 8) // Exactly at limit
+								for i := range 8 {
+									deviceClasses[i] = corev1.ResourceName(fmt.Sprintf("device-%d.example.com", i))
+								}
+								return deviceClasses
+							}(),
+						},
+					},
 				},
 			},
 		},
