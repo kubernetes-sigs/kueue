@@ -1967,12 +1967,12 @@ func TestClusterQueueUsage(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("partial-one", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "4000m").AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "4000m").Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 				*utiltesting.MakeWorkload("partial-two", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "4000m").AssignmentPodCount(2).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "4000m").Count(2).Obj()).Obj()).
 					Obj(),
 			},
 			wantReservedResources: []kueue.FlavorUsage{
