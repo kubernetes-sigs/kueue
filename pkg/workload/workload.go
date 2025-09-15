@@ -1154,19 +1154,54 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock) error {
+type EvictOption func(*EvictOptions)
+
+type EvictOptions struct {
+	CustomPrepare func() (*kueue.Workload, error)
+}
+
+func DefaultEvictOptions() *EvictOptions {
+	return &EvictOptions{
+		CustomPrepare: nil,
+	}
+}
+
+func WithCustomPrepare(customPrepare func() (*kueue.Workload, error)) EvictOption {
+	return func(o *EvictOptions) {
+		if customPrepare != nil {
+			o.CustomPrepare = customPrepare
+		}
+	}
+}
+
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, options ...EvictOption) error {
+	opts := DefaultEvictOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	// if there is no customPrepare, wl and wlOrig are equal
+	wl := wlOrig.DeepCopy()
+	if opts.CustomPrepare != nil {
+		var err error
+		wl, err = opts.CustomPrepare()
+		if err != nil || wl == nil {
+			return err
+		}
+	}
+
 	evictionReason := reason
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		evictionReason = ReasonWithCause(evictionReason, string(underlyingCause))
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := PatchAdmissionStatus(ctx, c, wl, true, clock, func() (*kueue.Workload, bool, error) {
+	if err := PatchAdmissionStatus(ctx, c, wlOrig, true, clock, func() (*kueue.Workload, bool, error) {
 		return wl, true, nil
 	}); err != nil {
 		return err
 	}
-	if wl.Status.Admission == nil {
+	if wlOrig.Status.Admission == nil {
 		// This is an extra safeguard for access to `wl.Status.Admission`.
 		// This function is expected to be called only for workload which have
 		// Admission.
