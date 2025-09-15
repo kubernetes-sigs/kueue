@@ -333,10 +333,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
 				wl1Admission := testing.MakeAdmission(podsCountClusterQ.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, "on-demand").
-						ResourceUsage(corev1.ResourceCPU, "6").
-						Flavor(corev1.ResourcePods, "on-demand").
-						ResourceUsage(corev1.ResourcePods, "3").
+						Assignment(corev1.ResourceCPU, "on-demand", "6").
+						Assignment(corev1.ResourcePods, "on-demand", "3").
 						Count(3).
 						Obj()).
 					Obj()
@@ -399,8 +397,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
 				wl1Admission := testing.MakeAdmission(podsCountOnlyClusterQ.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourcePods, "on-demand").
-						ResourceUsage(corev1.ResourcePods, "3").
+						Assignment(corev1.ResourcePods, "on-demand", "3").
 						Count(3).
 						Obj()).
 					Obj()
@@ -509,9 +506,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
 				wl1Admission := testing.MakeAdmission(admissionCheckClusterQ.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name)).
-						ResourceUsage(corev1.ResourceCPU, "2").
-						Count(1).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name), "2").
 						Obj()).
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)

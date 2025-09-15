@@ -144,13 +144,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(
 					testing.MakePodSetAssignment("ps1").
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceCPU, "3").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 						Count(3).
 						Obj(),
 					testing.MakePodSetAssignment("ps2").
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceCPU, "2").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
 						Count(4).
 						Obj(),
 				).
@@ -868,13 +866,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(
 					testing.MakePodSetAssignment("ps1").
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceCPU, "3").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 						Count(3).
 						Obj(),
 					testing.MakePodSetAssignment("ps2").
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceCPU, "2").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
 						Count(4).
 						Obj(),
 				).
@@ -1317,8 +1313,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			wlKey = client.ObjectKeyFromObject(wl)
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(testing.MakePodSetAssignment("ps1").
-					Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-					ResourceUsage(corev1.ResourceCPU, "3").
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 					Count(3).
 					Obj()).
 				Obj()
@@ -1517,17 +1512,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			admission = testing.MakeAdmission(cq.Name).
 				PodSets(
 					testing.MakePodSetAssignment("master").
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceCPU, "1").
-						Flavor(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceMemory, "2Gi").
-						Count(1).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+						Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
 						Obj(),
 					testing.MakePodSetAssignment("worker").
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceCPU, "1").
-						Flavor(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name)).
-						ResourceUsage(corev1.ResourceMemory, "2Gi").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+						Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
 						Count(2).
 						Obj(),
 				).

@@ -168,10 +168,8 @@ func TestNewInfo(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "f1").
-							ResourceUsage(corev1.ResourceCPU, "30m").
-							Flavor(corev1.ResourceMemory, "f1").
-							ResourceUsage(corev1.ResourceMemory, "30Ki").
+							Assignment(corev1.ResourceCPU, "f1", "30m").
+							Assignment(corev1.ResourceMemory, "f1", "30Ki").
 							Count(3).
 							Obj()).
 						Obj(),
@@ -211,10 +209,8 @@ func TestNewInfo(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "f1").
-							ResourceUsage(corev1.ResourceCPU, "30m").
-							Flavor(corev1.ResourceMemory, "f1").
-							ResourceUsage(corev1.ResourceMemory, "30Ki").
+							Assignment(corev1.ResourceCPU, "f1", "30m").
+							Assignment(corev1.ResourceMemory, "f1", "30Ki").
 							Count(3).
 							Obj()).
 						Obj(),
@@ -254,10 +250,8 @@ func TestNewInfo(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "f1").
-							ResourceUsage(corev1.ResourceCPU, "30m").
-							Flavor(corev1.ResourceMemory, "f1").
-							ResourceUsage(corev1.ResourceMemory, "30Ki").
+							Assignment(corev1.ResourceCPU, "f1", "30m").
+							Assignment(corev1.ResourceMemory, "f1", "30Ki").
 							Count(3).
 							Obj()).
 						Obj(),
@@ -1133,9 +1127,7 @@ func TestNeedsSecondPass(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
@@ -1156,9 +1148,7 @@ func TestNeedsSecondPass(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
@@ -1180,9 +1170,7 @@ func TestNeedsSecondPass(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
@@ -1204,9 +1192,7 @@ func TestNeedsSecondPass(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
@@ -1229,9 +1215,7 @@ func TestNeedsSecondPass(t *testing.T) {
 				ReserveQuota(
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
@@ -1254,10 +1238,8 @@ func TestNeedsSecondPass(t *testing.T) {
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(
 							utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-								Count(1).
 								Obj(),
 						).
 						Obj(),
@@ -1280,10 +1262,8 @@ func TestNeedsSecondPass(t *testing.T) {
 					utiltesting.MakeAdmission("tas-main").
 						PodSets(
 							utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-								Count(1).
 								Obj(),
 						).
 						Obj(),

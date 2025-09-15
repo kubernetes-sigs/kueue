@@ -264,20 +264,14 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "other-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("main").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "50").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "on-demand", "50").
 							Obj(),
 					},
 				},
 				"eng-alpha/new": {
 					ClusterQueue: "other-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
-						utiltesting.MakePodSetAssignment("main").
-							Flavor(corev1.ResourceCPU, "spot").
-							ResourceUsage(corev1.ResourceCPU, "20").
-							Count(1).
-							Obj(),
+						utiltesting.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
 					},
 				},
 			},
@@ -302,8 +296,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "default", "10000m").
 							Count(10).
 							Obj(),
 					},
@@ -330,8 +323,7 @@ func TestSchedule(t *testing.T) {
 					Admission(
 						utiltesting.MakeAdmission("sales").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "default").
-								ResourceUsage(corev1.ResourceCPU, "10000m").
+								Assignment(corev1.ResourceCPU, "default", "10000m").
 								Count(10).
 								Obj()).
 							Obj(),
@@ -392,8 +384,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "default", "10000m").
 							Count(10).
 							Obj(),
 					},
@@ -431,7 +422,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "40000m").Count(40).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "40000m").Count(40).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -439,8 +430,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Assignment(corev1.ResourceCPU, "default", "40000m").
 							Count(40).
 							Obj(),
 					},
@@ -483,9 +473,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
 							Obj(),
 					},
 				},
@@ -493,8 +481,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "51000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "51000m").
 							Count(51).
 							Obj(),
 					},
@@ -522,8 +509,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "40000m").
 							Count(40).
 							Obj(),
 					},
@@ -532,8 +518,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "40000m").
 							Count(40).
 							Obj(),
 					},
@@ -561,15 +546,12 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							Flavor("example.com/gpu", "model-a").
-							ResourceUsage(corev1.ResourceCPU, "60000m").
-							ResourceUsage("example.com/gpu", "10").
+							Assignment(corev1.ResourceCPU, "on-demand", "60000m").
+							Assignment("example.com/gpu", "model-a", "10").
 							Count(10).
 							Obj(),
 						utiltesting.MakePodSetAssignment("two").
-							Flavor(corev1.ResourceCPU, "spot").
-							ResourceUsage(corev1.ResourceCPU, "40000m").
+							Assignment(corev1.ResourceCPU, "spot", "40000m").
 							Count(40).
 							Obj(),
 					},
@@ -597,8 +579,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "45000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "45000m").
 							Count(45).
 							Obj(),
 					},
@@ -629,8 +610,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "45000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "45000m").
 							Count(45).
 							Obj(),
 					},
@@ -639,8 +619,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "55000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "55000m").
 							Count(55).
 							Obj(),
 					},
@@ -912,7 +891,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "45000m").Count(45).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").Count(45).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -920,8 +899,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-alpha",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "spot").
-							ResourceUsage(corev1.ResourceCPU, "60000m").
+							Assignment(corev1.ResourceCPU, "spot", "60000m").
 							Count(60).
 							Obj(),
 					},
@@ -930,8 +908,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "45000m").
+							Assignment(corev1.ResourceCPU, "on-demand", "45000m").
 							Count(45).
 							Obj(),
 					},
@@ -993,13 +970,11 @@ func TestSchedule(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("eng-gamma").
 						PodSets(
 							utiltesting.MakePodSetAssignment("borrow-on-demand").
-								Flavor(corev1.ResourceCPU, "on-demand").
-								ResourceUsage(corev1.ResourceCPU, "51").
+								Assignment(corev1.ResourceCPU, "on-demand", "51").
 								Count(51).
 								Obj(),
 							utiltesting.MakePodSetAssignment("use-all-spot").
-								Flavor(corev1.ResourceCPU, "spot").
-								ResourceUsage(corev1.ResourceCPU, "100").
+								Assignment(corev1.ResourceCPU, "spot", "100").
 								Count(100).
 								Obj(),
 						).
@@ -1028,18 +1003,16 @@ func TestSchedule(t *testing.T) {
 				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
 					PodSets(
 						utiltesting.MakePodSetAssignment("borrow-on-demand").
-							Flavor(corev1.ResourceCPU, "on-demand").
-							ResourceUsage(corev1.ResourceCPU, "51").
+							Assignment(corev1.ResourceCPU, "on-demand", "51").
 							Count(51).
 							Obj(),
 						utiltesting.MakePodSetAssignment("use-all-spot").
-							Flavor(corev1.ResourceCPU, "spot").
-							ResourceUsage(corev1.ResourceCPU, "100").
+							Assignment(corev1.ResourceCPU, "spot", "100").
 							Count(100).
 							Obj(),
 					).Obj(),
-				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "50").Count(50).Obj()).Obj(),
-				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "1").Count(1).Obj()).Obj(),
+				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "50").Count(50).Obj()).Obj(),
+				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).Obj(),
 			},
 			wantScheduled: []workload.Reference{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -1066,8 +1039,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "50000m").
+							Assignment(corev1.ResourceCPU, "default", "50000m").
 							Count(25).
 							Obj(),
 					},
@@ -1090,7 +1062,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request("example.com/gpu", "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor("example.com/gpu", "model-a").ResourceUsage("example.com/gpu", "10").Count(10).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -1098,8 +1070,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor("example.com/gpu", "model-a").
-							ResourceUsage("example.com/gpu", "10").
+							Assignment("example.com/gpu", "model-a", "10").
 							Count(10).
 							Obj(),
 					},
@@ -1125,7 +1096,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request("example.com/gpu", "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor("example.com/gpu", "model-a").ResourceUsage("example.com/gpu", "10").Count(10).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -1133,8 +1104,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "eng-beta",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor("example.com/gpu", "model-a").
-							ResourceUsage("example.com/gpu", "10").
+							Assignment("example.com/gpu", "model-a", "10").
 							Count(10).
 							Obj(),
 					},
@@ -1169,18 +1139,15 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "sales",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "20000m").
+							Assignment(corev1.ResourceCPU, "default", "20000m").
 							Count(20).
 							Obj(),
 						utiltesting.MakePodSetAssignment("two").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "20000m").
+							Assignment(corev1.ResourceCPU, "default", "20000m").
 							Count(20).
 							Obj(),
 						utiltesting.MakePodSetAssignment("three").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "default", "10000m").
 							Count(10).
 							Obj(),
 					},
@@ -1241,16 +1208,12 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/wl1": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor("r1", "default").
-						ResourceUsage("r1", "16").
-						Count(1).
+						Assignment("r1", "default", "16").
 						Obj()).
 					Obj(),
 				"sales/wl2": *utiltesting.MakeAdmission("cq2").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor("r2", "default").
-						ResourceUsage("r2", "16").
-						Count(1).
+						Assignment("r2", "default", "16").
 						Obj()).
 					Obj(),
 			},
@@ -1284,16 +1247,12 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/wl1": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor("r1", "default").
-						ResourceUsage("r1", "16").
-						Count(1).
+						Assignment("r1", "default", "16").
 						Obj()).
 					Obj(),
 				"sales/wl2": *utiltesting.MakeAdmission("cq2").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor("r1", "default").
-						ResourceUsage("r1", "14").
-						Count(1).
+						Assignment("r1", "default", "14").
 						Obj()).
 					Obj(),
 			},
@@ -1327,9 +1286,7 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/wl1": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor("r1", "default").
-						ResourceUsage("r1", "16").
-						Count(1).
+						Assignment("r1", "default", "16").
 						Obj()).
 					Obj(),
 			},
@@ -1400,9 +1357,7 @@ func TestSchedule(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq_a").
 						PodSets(
 							utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "default").
-								ResourceUsage(corev1.ResourceCPU, "2").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "default", "2").
 								Obj(),
 						).
 						Obj()).
@@ -1413,9 +1368,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "cq_a",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "2").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj(),
 					},
 				},
@@ -1423,9 +1376,7 @@ func TestSchedule(t *testing.T) {
 					ClusterQueue: "cq_b",
 					PodSetAssignments: []kueue.PodSetAssignment{
 						utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "1").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "default", "1").
 							Obj(),
 					},
 				},
@@ -1454,7 +1405,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "50").Count(50).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "50").Count(50).Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("borrowing", "eng-beta").
 					Queue("main").
@@ -1462,7 +1413,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 55).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "55").Count(55).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "55").Count(55).Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("older_new", "eng-beta").
 					Queue("main").
@@ -1480,9 +1431,9 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				"eng-alpha/all_nominal": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "50").Count(50).Obj()).Obj(),
-				"eng-beta/borrowing":    *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "55").Count(55).Obj()).Obj(),
-				"eng-alpha/new":         *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "5").Count(5).Obj()).Obj(),
+				"eng-alpha/all_nominal": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "50").Count(50).Obj()).Obj(),
+				"eng-beta/borrowing":    *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "55").Count(55).Obj()).Obj(),
+				"eng-alpha/new":         *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(5).Obj()).Obj(),
 			},
 			wantScheduled: []workload.Reference{"eng-alpha/new"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -3527,7 +3478,7 @@ func TestSchedule(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Generation(1).
-					ReserveQuota(utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "10000m").Count(10).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "10000m").Count(10).Obj()).Obj()).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
@@ -3555,8 +3506,8 @@ func TestSchedule(t *testing.T) {
 			},
 			// wantAssignments is a map of workload name to the status assignments expected to be in the cache after the scheduling cycle.
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				"sales/foo-1": *utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "10").Count(10).Obj()).Obj(),
-				"sales/foo-2": *utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "15").Count(15).Obj()).Obj(),
+				"sales/foo-1": *utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "10").Count(10).Obj()).Obj(),
+				"sales/foo-2": *utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "15").Count(15).Obj()).Obj(),
 			},
 			// wantScheduled is a list of workloads admission status expected to be added to the cache after the scheduling cycle.
 			wantScheduled: []workload.Reference{"sales/foo-2"},
@@ -3572,8 +3523,7 @@ func TestSchedule(t *testing.T) {
 					Admission(
 						utiltesting.MakeAdmission("sales").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "default").
-								ResourceUsage(corev1.ResourceCPU, "10000m").
+								Assignment(corev1.ResourceCPU, "default", "10000m").
 								Count(10).
 								Obj()).
 							Obj(),
@@ -3610,8 +3560,7 @@ func TestSchedule(t *testing.T) {
 					Admission(
 						utiltesting.MakeAdmission("sales").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "default").
-								ResourceUsage(corev1.ResourceCPU, "15000m").
+								Assignment(corev1.ResourceCPU, "default", "15000m").
 								Count(15).
 								Obj()).
 							Obj(),
@@ -5256,16 +5205,13 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("launcher").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
 							Obj(),
 						utiltesting.MakePodSetAssignment("worker").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "0").
+							Assignment(corev1.ResourceCPU, "tas-default", "0").
 							Count(0).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).Obj()).
 							Obj(),
@@ -5295,10 +5241,8 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(
 								utiltesting.MakePodSetAssignment("one").
-									Flavor(corev1.ResourceCPU, "tas-default").
-									ResourceUsage(corev1.ResourceCPU, "1000m").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-									Count(1).
 									Obj(),
 							).
 							Obj(),
@@ -5313,9 +5257,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
@@ -5379,8 +5321,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-reservation").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-reservation", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -5410,8 +5351,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
@@ -5424,8 +5364,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -5450,8 +5389,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
@@ -5466,8 +5404,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						Count(2).
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
@@ -5493,8 +5430,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "3000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
@@ -5507,8 +5443,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "3000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "3000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 							Obj()).
@@ -5538,8 +5473,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "3000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
@@ -5552,8 +5486,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "3000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "3000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 							Obj()).
@@ -5584,8 +5517,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
@@ -5599,8 +5531,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
@@ -5626,8 +5557,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Obj()).
@@ -5640,8 +5570,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -5666,8 +5595,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
@@ -5681,8 +5609,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
@@ -5719,17 +5646,13 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(
 								utiltesting.MakePodSetAssignment("one").
-									Flavor(corev1.ResourceCPU, "tas-default").
-									ResourceUsage(corev1.ResourceCPU, "1000m").
-									Count(1).
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 										Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 										Obj()).
 									Obj(),
 								utiltesting.MakePodSetAssignment("two").
-									Flavor(corev1.ResourceCPU, "tas-default").
-									ResourceUsage(corev1.ResourceCPU, "1000m").
-									Count(1).
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 										Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 										Obj()).
@@ -5744,17 +5667,13 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
 								Obj()).
 							Obj(),
 						utiltesting.MakePodSetAssignment("two").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
@@ -5794,8 +5713,7 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(
 								utiltesting.MakePodSetAssignment("one").
-									Flavor(corev1.ResourceCPU, "tas-default").
-									ResourceUsage(corev1.ResourceCPU, "26").
+									Assignment(corev1.ResourceCPU, "tas-default", "26").
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 									Count(26).
 									Obj(),
@@ -5812,8 +5730,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "26").
+							Assignment(corev1.ResourceCPU, "tas-default", "26").
 							Count(26).
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
@@ -5877,10 +5794,8 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(
 								utiltesting.MakePodSetAssignment("one").
-									Flavor(corev1.ResourceCPU, "tas-second").
-									ResourceUsage(corev1.ResourceCPU, "1000m").
+									Assignment(corev1.ResourceCPU, "tas-second", "1000m").
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-									Count(1).
 									Obj(),
 							).
 							Obj(),
@@ -5895,9 +5810,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-second").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-second", "1000m").
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
@@ -5970,17 +5883,13 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(
 								utiltesting.MakePodSetAssignment("one").
-									Flavor(corev1.ResourceCPU, "tas-default").
-									ResourceUsage(corev1.ResourceCPU, "1").
-									Count(1).
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 										Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 										Obj()).
 									Obj(),
 								utiltesting.MakePodSetAssignment("two").
-									Flavor(corev1.ResourceCPU, "tas-second").
-									ResourceUsage(corev1.ResourceCPU, "1").
-									Count(1).
+									Assignment(corev1.ResourceCPU, "tas-second", "1").
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 									Obj(),
 							).Obj(),
@@ -5995,17 +5904,13 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
 							Obj(),
 						utiltesting.MakePodSetAssignment("two").
-							Flavor(corev1.ResourceCPU, "tas-second").
-							ResourceUsage(corev1.ResourceCPU, "1").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-second", "1").
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
@@ -6040,10 +5945,8 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							Count(1).
 							Obj(),
 					).
 					Obj(),
@@ -6101,10 +6004,8 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(
 								utiltesting.MakePodSetAssignment("one").
-									Flavor(corev1.ResourceCPU, "tas-second").
-									ResourceUsage(corev1.ResourceCPU, "1000m").
+									Assignment(corev1.ResourceCPU, "tas-second", "1000m").
 									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-									Count(1).
 									Obj(),
 							).
 							Obj(),
@@ -6119,9 +6020,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-second").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-second", "1000m").
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
@@ -6158,10 +6057,8 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("one").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-							Count(1).
 							Obj(),
 					).
 					Obj(),
@@ -6193,9 +6090,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6229,9 +6124,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6269,9 +6162,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6308,9 +6199,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "default", "1000m").
 						Obj()).
 					Obj(),
 			},
@@ -6350,14 +6239,10 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("launcher").
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "500m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "default", "500m").
 							Obj(),
 						utiltesting.MakePodSetAssignment("worker").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "500m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "500m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
@@ -6388,9 +6273,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6470,8 +6353,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-custom-flavor").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "tas-custom-flavor", "1").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{"cloud.com/custom-level"}).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6525,9 +6407,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -6605,9 +6485,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "400m").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "400m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -6624,9 +6502,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "500m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "500m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6658,11 +6534,8 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								Flavor(corev1.ResourceMemory, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "500m").
-								ResourceUsage(corev1.ResourceMemory, "500Mi").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "500m").
+								Assignment(corev1.ResourceMemory, "tas-default", "500Mi").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -6680,11 +6553,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						Flavor(corev1.ResourceMemory, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "500m").
-						ResourceUsage(corev1.ResourceMemory, "500Mi").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "500m").
+						Assignment(corev1.ResourceMemory, "tas-default", "500Mi").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -6802,16 +6672,13 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("launcher").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
 							Obj(),
 						utiltesting.MakePodSetAssignment("worker").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "15000m").
+							Assignment(corev1.ResourceCPU, "tas-default", "15000m").
 							Count(15).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 7).Obj()).
@@ -6877,16 +6744,13 @@ func TestScheduleForTAS(t *testing.T) {
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(
 						utiltesting.MakePodSetAssignment("launcher").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "1000m").
-							Count(1).
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
 							Obj(),
 						utiltesting.MakePodSetAssignment("worker").
-							Flavor(corev1.ResourceCPU, "tas-default").
-							ResourceUsage(corev1.ResourceCPU, "15000m").
+							Assignment(corev1.ResourceCPU, "tas-default", "15000m").
 							Count(15).
 							TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 								Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 7).Obj()).
@@ -6941,9 +6805,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1000m").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -6960,9 +6822,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
 							Obj()).
@@ -7024,9 +6884,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -7057,9 +6915,7 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -7107,8 +6963,7 @@ func TestScheduleForTAS(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "150m").
+								Assignment(corev1.ResourceCPU, "tas-default", "150m").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
@@ -7149,11 +7004,8 @@ func TestScheduleForTAS(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/foo": *utiltesting.MakeAdmission("tas-main").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						Flavor(corev1.ResourceMemory, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "0").
-						ResourceUsage(corev1.ResourceMemory, "10Mi").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "0").
+						Assignment(corev1.ResourceMemory, "tas-default", "10Mi").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -7395,9 +7247,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"z1"}, 1).Obj()).
 									Obj()).
@@ -7446,9 +7296,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -7501,9 +7349,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -7552,9 +7398,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "2").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -7573,9 +7417,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "2").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -7626,9 +7468,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "4").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "4").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -7647,9 +7487,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "4").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "4").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
 									Obj()).
@@ -7709,9 +7547,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-main").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "4").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "4").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 									Obj()).
@@ -7959,8 +7795,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "6").
+						Assignment(corev1.ResourceCPU, "tas-default", "6").
 						Count(6).
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
@@ -7988,8 +7823,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								Count(5).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 5).Obj()).
@@ -8036,8 +7870,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								Count(5).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 5).Obj()).
@@ -8057,8 +7890,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "2").
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
@@ -8078,9 +7910,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
 									Obj()).
@@ -8128,8 +7958,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								Count(5).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 5).Obj()).
@@ -8149,8 +7978,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "3").
+								Assignment(corev1.ResourceCPU, "tas-default", "3").
 								Count(3).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 3).Obj()).
@@ -8200,8 +8028,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "5").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
 								Count(5).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 3).Obj()).
@@ -8222,9 +8049,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
 									Obj()).
@@ -8243,9 +8068,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "tas-default", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
 									Obj()).
@@ -8314,9 +8137,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "5").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "5").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
 							Obj()).
@@ -8324,9 +8145,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					Obj(),
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceMemory, "tas-default").
-						ResourceUsage(corev1.ResourceMemory, "5").
-						Count(1).
+						Assignment(corev1.ResourceMemory, "tas-default", "5").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -8367,9 +8186,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -8377,8 +8194,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					Obj(),
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "2").
+						Assignment(corev1.ResourceCPU, "tas-default", "2").
 						Count(2).
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
@@ -8420,9 +8236,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -8468,8 +8282,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "5").
+						Assignment(corev1.ResourceCPU, "tas-default", "5").
 						Count(5).
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 5).Obj()).
@@ -8512,9 +8325,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("tas-cq-a").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "2").
-						Count(1).
+						Assignment(corev1.ResourceCPU, "tas-default", "2").
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 							Obj()).
@@ -8552,8 +8363,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "2").
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
@@ -8617,8 +8427,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "2").
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
@@ -8682,8 +8491,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("tas-cq-a").
 							PodSets(utiltesting.MakePodSetAssignment("one").
-								Flavor(corev1.ResourceCPU, "tas-default").
-								ResourceUsage(corev1.ResourceCPU, "2").
+								Assignment(corev1.ResourceCPU, "tas-default", "2").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 2).Obj()).
@@ -8728,8 +8536,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/b1": *utiltesting.MakeAdmission("tas-cq-b").
 					PodSets(utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "3").
+						Assignment(corev1.ResourceCPU, "tas-default", "3").
 						Count(3).
 						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"y1"}, 3).Obj()).
