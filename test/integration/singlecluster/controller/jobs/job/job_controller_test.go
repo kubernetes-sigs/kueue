@@ -193,8 +193,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			).Obj()
 		admission := testing.MakeAdmission(clusterQueue.Name).
 			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-				Flavor(corev1.ResourceCPU, "on-demand").
-				ResourceUsage(corev1.ResourceCPU, "1m").
+				Assignment(corev1.ResourceCPU, "on-demand", "1m").
 				Count(createdWorkload.Spec.PodSets[0].Count).
 				Obj()).
 			Obj()
@@ -246,8 +245,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
 		admission = testing.MakeAdmission(clusterQueue.Name).
 			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-				Flavor(corev1.ResourceCPU, "spot").
-				ResourceUsage(corev1.ResourceCPU, "1m").
+				Assignment(corev1.ResourceCPU, "spot", "1m").
 				Count(createdWorkload.Spec.PodSets[0].Count).
 				Obj()).
 			Obj()
@@ -828,8 +826,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			ginkgo.By("admit the workload", func() {
 				admission := testing.MakeAdmission(clusterQueueAc.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, "test-flavor").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "test-flavor", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -949,8 +946,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			ginkgo.By("attempt to admit the workload", func() {
 				admission := testing.MakeAdmission(clusterQueueAc.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, "test-flavor").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "test-flavor", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -1026,8 +1022,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			ginkgo.By("Admit the workload created for the job")
 			admission := testing.MakeAdmission("foo").
 				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Flavor(corev1.ResourceCPU, "default").
-					ResourceUsage(corev1.ResourceCPU, "1m").
+					Assignment(corev1.ResourceCPU, "default", "1m").
 					Count(createdWorkload.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
@@ -2540,8 +2535,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				admission = testing.MakeAdmission(cq.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, "on-demand").
-						ResourceUsage(corev1.ResourceCPU, "1m").
+						Assignment(corev1.ResourceCPU, "on-demand", "1m").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -2908,8 +2902,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				ginkgo.By("Admitting the Workload", func() {
 					admission := testing.MakeAdmission(cq.Name).
 						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
-							ResourceUsage(corev1.ResourceCPU, "1m").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 							Count(wl.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
@@ -2965,8 +2958,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 
 				admission := testing.MakeAdmission(cq.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
-						ResourceUsage(corev1.ResourceCPU, "1m").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -3067,8 +3059,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 
 				admission := testing.MakeAdmission(cq.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
-						ResourceUsage(corev1.ResourceCPU, "1m").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()

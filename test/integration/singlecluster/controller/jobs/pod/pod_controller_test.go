@@ -184,8 +184,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					).Obj()
 				admission := testing.MakeAdmission(clusterQueue.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, "default").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -245,8 +244,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					).Obj()
 				admission := testing.MakeAdmission(clusterQueue.Name).
 					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, "default").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -311,8 +309,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						).Obj()
 					admission := testing.MakeAdmission(clusterQueue.Name).
 						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "1").
+							Assignment(corev1.ResourceCPU, "default", "1").
 							Count(createdWorkload.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
@@ -486,8 +483,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					ginkgo.By("admit the workload", func() {
 						admission := testing.MakeAdmission(clusterQueueAc.Name).
 							PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
+								Assignment(corev1.ResourceCPU, "test-flavor", "1").
 								Count(createdWorkload.Spec.PodSets[0].Count).
 								Obj()).
 							Obj()
@@ -542,8 +538,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("Admit workload", func() {
 					admission := testing.MakeAdmission(clusterQueue.Name).
 						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "default").
-							ResourceUsage(corev1.ResourceCPU, "1").
+							Assignment(corev1.ResourceCPU, "default", "1").
 							Count(wl.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
@@ -775,8 +770,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				admission := testing.MakeAdmission(clusterQueue.Name).
 					PodSets(testing.MakePodSetAssignment("bf90803c").
-						Flavor(corev1.ResourceCPU, "default").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -928,8 +922,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("checking that pod is unsuspended when workload is admitted")
 				admission := testing.MakeAdmission(clusterQueue.Name).
 					PodSets(testing.MakePodSetAssignment("bf90803c").
-						Flavor(corev1.ResourceCPU, "default").
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, "default", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -1386,8 +1379,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				admission := testing.MakeAdmission(cq.Name).
 					PodSets(testing.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
-						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
-						ResourceUsage(corev1.ResourceCPU, "1").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
@@ -2036,8 +2028,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 
 			admission := testing.MakeAdmission(cq.Name).
 				PodSets(testing.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
-					Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name)).
-					ResourceUsage(corev1.ResourceCPU, "1").
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
 					Count(wl.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
