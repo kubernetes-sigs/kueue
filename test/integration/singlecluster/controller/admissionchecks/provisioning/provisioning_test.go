@@ -25,11 +25,9 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -1318,17 +1316,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			wlKey = client.ObjectKeyFromObject(wl)
 			admission = testing.MakeAdmission(cq.Name).
-				PodSets(
-					kueue.PodSetAssignment{
-						Name: "ps1",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name),
-						},
-						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
-							corev1.ResourceCPU: resource.MustParse("3"),
-						},
-						Count: ptr.To[int32](3),
-					}).Obj()
+				PodSets(testing.MakePodSetAssignment("ps1").
+					Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name)).
+					ResourceUsage(corev1.ResourceCPU, "3").
+					Count(3).
+					Obj()).
+				Obj()
 		})
 
 		ginkgo.AfterEach(func() {

@@ -357,9 +357,17 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
-							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-							AssignmentPodCount(1).
+						utiltesting.MakeAdmission("cq").
+							PodSets(
+								utiltesting.MakePodSetAssignment("head").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(1).
+									Obj(),
+								utiltesting.MakePodSetAssignment("workers-group-0").
+									Count(1).
+									Obj(),
+							).
 							Obj(),
 					).
 					Admitted(true).
@@ -405,9 +413,17 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
-							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-							AssignmentPodCount(1).
+						utiltesting.MakeAdmission("cq").
+							PodSets(
+								utiltesting.MakePodSetAssignment("head").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(1).
+									Obj(),
+								utiltesting.MakePodSetAssignment("workers-group-0").
+									Count(1).
+									Obj(),
+							).
 							Obj(),
 					).
 					Admitted(true).
@@ -464,7 +480,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment("head").Count(1).Obj(), utiltesting.MakePodSetAssignment("workers-group-0").Count(1).Obj()).Obj()).
 					Generation(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -500,7 +516,7 @@ func TestReconciler(t *testing.T) {
 							}).
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment("head").Count(1).Obj(), utiltesting.MakePodSetAssignment("workers-group-0").Count(1).Obj()).Obj()).
 					Generation(1).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
@@ -577,9 +593,17 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
-							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-							AssignmentPodCount(2).
+						utiltesting.MakeAdmission("cq").
+							PodSets(
+								utiltesting.MakePodSetAssignment("head").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(2).
+									Obj(),
+								utiltesting.MakePodSetAssignment("workers-group-0").
+									Count(2).
+									Obj(),
+							).
 							Obj(),
 					).
 					Admitted(true).
@@ -623,9 +647,17 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
-							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-							AssignmentPodCount(2).
+						utiltesting.MakeAdmission("cq").
+							PodSets(
+								utiltesting.MakePodSetAssignment("head").
+									Flavor(corev1.ResourceCPU, "unit-test-flavor").
+									ResourceUsage(corev1.ResourceCPU, "1").
+									Count(2).
+									Obj(),
+								utiltesting.MakePodSetAssignment("workers-group-0").
+									Count(2).
+									Obj(),
+							).
 							Obj(),
 					).
 					Admitted(true).

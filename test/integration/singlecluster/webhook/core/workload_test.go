@@ -337,8 +337,11 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				testing.MakeAdmission("cluster-queue").
-					Assignment(corev1.ResourceCPU, "flv", "1").
-					AssignmentPodCount(3).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "flv").
+						ResourceUsage(corev1.ResourceCPU, "1").
+						Count(3).
+						Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 		)

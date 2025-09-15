@@ -313,9 +313,12 @@ func TestSchedule(t *testing.T) {
 						State: kueue.CheckStateReady,
 					}).
 					Admission(
-						utiltesting.MakeAdmission("sales", "one").
-							Assignment(corev1.ResourceCPU, "default", "10000m").
-							AssignmentPodCount(10).
+						utiltesting.MakeAdmission("sales").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Flavor(corev1.ResourceCPU, "default").
+								ResourceUsage(corev1.ResourceCPU, "10000m").
+								Count(10).
+								Obj()).
 							Obj(),
 					).
 					Generation(1).
@@ -413,7 +416,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").AssignmentPodCount(40).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "default").ResourceUsage(corev1.ResourceCPU, "40000m").Count(40).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -814,7 +817,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").AssignmentPodCount(45).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "45000m").Count(45).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -940,8 +943,8 @@ func TestSchedule(t *testing.T) {
 							Count(100).
 							Obj(),
 					).Obj(),
-				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
-				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
+				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "50").Count(50).Obj()).Obj(),
+				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "1").Count(1).Obj()).Obj(),
 			},
 			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]string{
@@ -992,7 +995,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request("example.com/gpu", "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor("example.com/gpu", "model-a").ResourceUsage("example.com/gpu", "10").Count(10).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -1027,7 +1030,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request("example.com/gpu", "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor("example.com/gpu", "model-a").ResourceUsage("example.com/gpu", "10").Count(10).Obj()).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -1141,11 +1144,19 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"sales/wl1", "sales/wl2"},
 			wantAssignments: map[string]kueue.Admission{
-				"sales/wl1": *utiltesting.MakeAdmission("cq1", kueue.DefaultPodSetName).
-					Assignment("r1", "default", "16").AssignmentPodCount(1).
+				"sales/wl1": *utiltesting.MakeAdmission("cq1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor("r1", "default").
+						ResourceUsage("r1", "16").
+						Count(1).
+						Obj()).
 					Obj(),
-				"sales/wl2": *utiltesting.MakeAdmission("cq2", kueue.DefaultPodSetName).
-					Assignment("r2", "default", "16").AssignmentPodCount(1).
+				"sales/wl2": *utiltesting.MakeAdmission("cq2").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor("r2", "default").
+						ResourceUsage("r2", "16").
+						Count(1).
+						Obj()).
 					Obj(),
 			},
 		},
@@ -1176,11 +1187,19 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"sales/wl1", "sales/wl2"},
 			wantAssignments: map[string]kueue.Admission{
-				"sales/wl1": *utiltesting.MakeAdmission("cq1", kueue.DefaultPodSetName).
-					Assignment("r1", "default", "16").AssignmentPodCount(1).
+				"sales/wl1": *utiltesting.MakeAdmission("cq1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor("r1", "default").
+						ResourceUsage("r1", "16").
+						Count(1).
+						Obj()).
 					Obj(),
-				"sales/wl2": *utiltesting.MakeAdmission("cq2", kueue.DefaultPodSetName).
-					Assignment("r1", "default", "14").AssignmentPodCount(1).
+				"sales/wl2": *utiltesting.MakeAdmission("cq2").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor("r1", "default").
+						ResourceUsage("r1", "14").
+						Count(1).
+						Obj()).
 					Obj(),
 			},
 		},
@@ -1211,8 +1230,12 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"sales/wl1"},
 			wantAssignments: map[string]kueue.Admission{
-				"sales/wl1": *utiltesting.MakeAdmission("cq1", kueue.DefaultPodSetName).
-					Assignment("r1", "default", "16").AssignmentPodCount(1).
+				"sales/wl1": *utiltesting.MakeAdmission("cq1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor("r1", "default").
+						ResourceUsage("r1", "16").
+						Count(1).
+						Obj()).
 					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]string{
@@ -1336,7 +1359,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "50").Count(50).Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("borrowing", "eng-beta").
 					Queue("main").
@@ -1344,7 +1367,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 55).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "55").AssignmentPodCount(55).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "55").Count(55).Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("older_new", "eng-beta").
 					Queue("main").
@@ -1362,9 +1385,9 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-alpha/all_nominal": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
-				"eng-beta/borrowing":    *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "55").AssignmentPodCount(55).Obj(),
-				"eng-alpha/new":         *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "5").AssignmentPodCount(5).Obj(),
+				"eng-alpha/all_nominal": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "50").Count(50).Obj()).Obj(),
+				"eng-beta/borrowing":    *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "55").Count(55).Obj()).Obj(),
+				"eng-alpha/new":         *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Flavor(corev1.ResourceCPU, "on-demand").ResourceUsage(corev1.ResourceCPU, "5").Count(5).Obj()).Obj(),
 			},
 			wantScheduled: []string{"eng-alpha/new"},
 			wantLeft: map[kueue.ClusterQueueReference][]string{
