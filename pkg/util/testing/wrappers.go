@@ -32,7 +32,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilResource "sigs.k8s.io/kueue/pkg/util/resource"
 )
@@ -521,6 +520,10 @@ func (p *PodSetWrapper) SubGroupCount(count *int32) *PodSetWrapper {
 
 func (p *PodSetWrapper) Obj() *kueue.PodSet {
 	return &p.PodSet
+}
+
+func (p *PodSetWrapper) Clone() *PodSetWrapper {
+	return &PodSetWrapper{PodSet: *p.DeepCopy()}
 }
 
 func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper {
@@ -1134,11 +1137,11 @@ func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
 }
 
 // TopologyWrapper wraps a Topology.
-type TopologyWrapper struct{ kueuealpha.Topology }
+type TopologyWrapper struct{ kueue.Topology }
 
 // MakeTopology creates a wrapper for a Topology.
 func MakeTopology(name string) *TopologyWrapper {
-	return &TopologyWrapper{kueuealpha.Topology{
+	return &TopologyWrapper{kueue.Topology{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
@@ -1147,16 +1150,16 @@ func MakeTopology(name string) *TopologyWrapper {
 
 // Levels sets the levels for a Topology.
 func (t *TopologyWrapper) Levels(levels ...string) *TopologyWrapper {
-	t.Spec.Levels = make([]kueuealpha.TopologyLevel, len(levels))
+	t.Spec.Levels = make([]kueue.TopologyLevel, len(levels))
 	for i, level := range levels {
-		t.Spec.Levels[i] = kueuealpha.TopologyLevel{
+		t.Spec.Levels[i] = kueue.TopologyLevel{
 			NodeLabel: level,
 		}
 	}
 	return t
 }
 
-func (t *TopologyWrapper) Obj() *kueuealpha.Topology {
+func (t *TopologyWrapper) Obj() *kueue.Topology {
 	return &t.Topology
 }
 

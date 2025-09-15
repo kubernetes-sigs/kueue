@@ -31,7 +31,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -116,7 +115,7 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
-	r, err := labels.NewRequirement(kueuealpha.TASLabel, selection.DoesNotExist, nil)
+	r, err := labels.NewRequirement(kueue.TASLabel, selection.DoesNotExist, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build requirement for non-TAS pods: %w", err)
 	}

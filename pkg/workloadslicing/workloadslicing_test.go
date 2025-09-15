@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -1055,7 +1054,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 						// Gated pod - gate should be removed.
 						testPod("test-two", "200", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 						// Gated with some other gate -
-						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate}),
+						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
 						// Other gated pod (not for this job)
 						testPod("other-pod", "400", &batchv1.Job{
 							ObjectMeta: metav1.ObjectMeta{
@@ -1072,7 +1071,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 					// Gated pod - gate removed (resource version increase).
 					testPod("test-two", "201", testJobObject),
 					// Gated with some other gate - other gate remains (resource version increased).
-					testPod("test-three", "301", testJobObject, corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate}),
+					testPod("test-three", "301", testJobObject, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
 					// Other gated pod (not for this job) - no change.
 					testPod("other-pod", "400", &batchv1.Job{
 						ObjectMeta: metav1.ObjectMeta{

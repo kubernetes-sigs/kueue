@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -55,7 +54,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 
 	ginkgo.When("Creating a Job", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			tasFlavor    *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
@@ -99,7 +98,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -122,7 +121,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -174,7 +173,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -227,7 +226,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -255,7 +254,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				RequestAndLimit(extraResource, "1").
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)

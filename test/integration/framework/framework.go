@@ -50,7 +50,6 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -113,9 +112,6 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-
-	err = kueuealpha.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(f.scheme)

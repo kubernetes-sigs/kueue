@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -94,8 +93,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 	earlierTime := metav1.NewTime(now.Add(-NodeFailureDelay))
 
 	basePod := testingpod.MakePod("test-pod", nsName).
-		Annotation(kueuealpha.WorkloadAnnotation, wlName).
-		Label(kueuealpha.TASLabel, "true").
+		Annotation(kueue.WorkloadAnnotation, wlName).
+		Label(kueue.TASLabel, "true").
 		NodeName(nodeName).
 		Obj()
 
@@ -254,8 +253,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 					Status:             corev1.ConditionFalse,
 					LastTransitionTime: earlierTime}).Obj(),
 				workloadWithTwoNodes.DeepCopy(),
-				testingpod.MakePod("pod1", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).NodeName(nodeName).Obj(),
-				testingpod.MakePod("pod2", nsName).Annotation(kueuealpha.WorkloadAnnotation, wlName).NodeName(nodeName2).Obj(),
+				testingpod.MakePod("pod1", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName).Obj(),
+				testingpod.MakePod("pod2", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName2).Obj(),
 			},
 			reconcileRequests: []reconcile.Request{
 				{NamespacedName: types.NamespacedName{Name: nodeName}},

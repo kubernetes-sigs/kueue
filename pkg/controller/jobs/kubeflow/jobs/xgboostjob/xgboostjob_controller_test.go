@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -269,14 +268,14 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingxgboostjob.XGBReplicaSpecRequirement{
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -285,13 +284,13 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
@@ -306,14 +305,14 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingxgboostjob.XGBReplicaSpecRequirement{
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -322,11 +321,11 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.XGBoostJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
 				}
 			},
@@ -375,14 +374,14 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingxgboostjob.XGBReplicaSpecRequirement{
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 						ReplicaCount: 3,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -396,16 +395,16 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingxgboostjob.XGBReplicaSpecRequirement{
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 						ReplicaCount: 3,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -435,18 +434,18 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeMaster,
 						ReplicaCount: 5,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "10",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "10",
 						},
 					},
 					testingxgboostjob.XGBReplicaSpecRequirement{
 						ReplicaType:  kftraining.XGBoostJobReplicaTypeWorker,
 						ReplicaCount: 10,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "20",
 						},
 					},
 				).
@@ -527,8 +526,12 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("xgboostjob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).Obj(),
-						*utiltesting.MakePodSet("worker", 2).Obj(),
+						*utiltesting.MakePodSet("master", 1).
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							Obj(),
+						*utiltesting.MakePodSet("worker", 2).
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							Obj(),
 					).
 					Obj(),
 			},

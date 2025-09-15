@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -267,7 +266,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	return c.updateClusterQueues(log)
 }
 
-func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueuealpha.Topology) sets.Set[kueue.ClusterQueueReference] {
+func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueue.Topology) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	c.tasCache.AddTopology(topology)

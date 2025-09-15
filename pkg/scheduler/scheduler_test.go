@@ -45,7 +45,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -5157,7 +5156,7 @@ func TestScheduleForTAS(t *testing.T) {
 	cases := map[string]struct {
 		nodes           []corev1.Node
 		pods            []corev1.Pod
-		topologies      []kueuealpha.Topology
+		topologies      []kueue.Topology
 		admissionChecks []kueue.AdmissionCheck
 		resourceFlavors []kueue.ResourceFlavor
 		clusterQueues   []kueue.ClusterQueue
@@ -5189,7 +5188,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5232,7 +5231,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload in CQ with ProvisioningRequest; second pass; baseline scenario": {
 			nodes:           defaultSingleNode,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
 			workloads: []kueue.Workload{
@@ -5289,7 +5288,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{
 				*utiltesting.MakeResourceFlavor("tas-reservation").
 					NodeLabel("tas-group", "reservation").
@@ -5342,7 +5341,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; baseline scenario": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5380,7 +5379,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; preferred; fit in different rack": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5421,7 +5420,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; preferred; no fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5464,7 +5463,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; preferred; no fit; FailFast": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5508,7 +5507,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; required rack; fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5548,7 +5547,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; required rack for a single node; fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5586,7 +5585,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; required rack; no fit": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5631,7 +5630,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; two podsets": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -5704,7 +5703,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
 			workloads: []kueue.Workload{
@@ -5772,7 +5771,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor,
 				*utiltesting.MakeResourceFlavor("tas-second").
 					NodeLabel("tas-node-second", "true").
@@ -5851,7 +5850,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor,
 				*utiltesting.MakeResourceFlavor("tas-second").
 					NodeLabel("tas-node-second", "true").
@@ -5931,7 +5930,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload in CQ with ProvisioningRequest gets QuotaReserved only; implicit defaulting": {
 			nodes:           []corev1.Node{},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
 			workloads: []kueue.Workload{
@@ -5983,7 +5982,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor,
 				*utiltesting.MakeResourceFlavor("tas-second").
 					NodeLabel("tas-node-second", "true").
@@ -6042,7 +6041,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload in CQ with ProvisioningRequest gets QuotaReserved only": {
 			nodes:           []corev1.Node{},
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
 			workloads: []kueue.Workload{
@@ -6076,7 +6075,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with a custom AdmissionCheck gets TAS assigned": {
 			nodes:           defaultSingleNode,
 			admissionChecks: []kueue.AdmissionCheck{defaultCustomCheck},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithCustomCheck},
 			workloads: []kueue.Workload{
@@ -6109,7 +6108,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload which does not specify TAS annotation uses the only TAS flavor": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6144,7 +6143,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload requiring TAS skips the non-TAS flavor": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6182,7 +6181,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload which does not need TAS skips the TAS flavor": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6216,7 +6215,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload with mixed PodSets (requiring TAS and not)": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6263,7 +6262,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload required TAS gets scheduled": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6293,7 +6292,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload requests topology level which is not present in topology": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6326,7 +6325,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies: []kueuealpha.Topology{defaultSingleLevelTopology,
+			topologies: []kueue.Topology{defaultSingleLevelTopology,
 				*utiltesting.MakeTopology("tas-custom-topology").
 					Levels("cloud.com/custom-level").
 					Obj(),
@@ -6373,7 +6372,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload does not get scheduled as it does not fit within the node capacity": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6396,7 +6395,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload does not get scheduled as the node capacity is already used by another TAS workload": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6443,7 +6442,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Request(corev1.ResourceCPU, "600m").
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6471,10 +6470,10 @@ func TestScheduleForTAS(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Request(corev1.ResourceCPU, "400m").
 					NodeSelector(corev1.LabelHostname, "x1").
-					Label(kueuealpha.TASLabel, "true").
+					Label(kueue.TASLabel, "true").
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6522,7 +6521,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload gets admitted next to already admitted workload, multiple resources used": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6595,7 +6594,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6650,7 +6649,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6722,7 +6721,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultTwoLevelTopology},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6786,7 +6785,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -6857,7 +6856,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies: []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies: []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{
 				*utiltesting.MakeResourceFlavor("tas-default").
 					NodeLabel("tas-node", "true").
@@ -6904,7 +6903,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"TAS workload gets scheduled as trimmed by partial admission": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6952,7 +6951,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Request(corev1.ResourceCPU, "300m").
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -6994,7 +6993,7 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"workload with zero value request gets scheduled": {
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
@@ -7036,7 +7035,7 @@ func TestScheduleForTAS(t *testing.T) {
 				WithLists(
 					&kueue.AdmissionCheckList{Items: tc.admissionChecks},
 					&kueue.WorkloadList{Items: tc.workloads},
-					&kueuealpha.TopologyList{Items: tc.topologies},
+					&kueue.TopologyList{Items: tc.topologies},
 					&corev1.PodList{Items: tc.pods},
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
@@ -7054,7 +7053,7 @@ func TestScheduleForTAS(t *testing.T) {
 			now := time.Now()
 			fakeClock := testingclock.NewFakeClock(now)
 			qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
+			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
 			for _, ac := range tc.admissionChecks {
@@ -7205,7 +7204,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 	cases := map[string]struct {
 		nodes           []corev1.Node
 		pods            []corev1.Pod
-		topologies      []kueuealpha.Topology
+		topologies      []kueue.Topology
 		resourceFlavors []kueue.ResourceFlavor
 		clusterQueues   []kueue.ClusterQueue
 		workloads       []kueue.Workload
@@ -7227,7 +7226,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			// In this scenario the preemption target, based on quota, is a
 			// using an already deleted node (z).
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("tas-main").
@@ -7283,7 +7282,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			// This test case demonstrates the baseline scenario where there
 			// is only one low-priority workload and it gets preempted.
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
 			workloads: []kueue.Workload{
@@ -7336,7 +7335,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					StatusAllocatable(corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}).
 					Obj(),
 			},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
 			workloads: []kueue.Workload{
@@ -7385,7 +7384,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			// This test case demonstrates the targets are selected according
 			// to priorities, similarly as for regular preemption.
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
 			workloads: []kueue.Workload{
@@ -7455,7 +7454,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			// node, but the workload requires to run on a single node, thus
 			// the lower priority workload is chosen as target.
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
 			workloads: []kueue.Workload{
@@ -7526,7 +7525,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			// to get in, as it is awaiting for the running workloads to
 			// complete.
 			nodes:           defaultSingleNode,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueWithPreemption},
 			workloads: []kueue.Workload{
@@ -7587,7 +7586,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithLists(
 					&kueue.WorkloadList{Items: tc.workloads},
-					&kueuealpha.TopologyList{Items: tc.topologies},
+					&kueue.TopologyList{Items: tc.topologies},
 					&corev1.PodList{Items: tc.pods},
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
@@ -7599,7 +7598,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManager(cl, cqCache)
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
+			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
 			for _, flavor := range tc.resourceFlavors {
@@ -7765,7 +7764,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 	cases := map[string]struct {
 		nodes           []corev1.Node
 		pods            []corev1.Pod
-		topologies      []kueuealpha.Topology
+		topologies      []kueue.Topology
 		resourceFlavors []kueue.ResourceFlavor
 		clusterQueues   []kueue.ClusterQueue
 		workloads       []kueue.Workload
@@ -7785,7 +7784,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 	}{
 		"workload which requires borrowing gets scheduled": {
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -7819,7 +7818,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			// This is a baseline scenario for reclamation within cohort where
 			// a single borrowing workload gets preempted.
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -7865,7 +7864,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			// The test demonstrates the heuristic to select only a subset of
 			// workloads that need to be preempted.
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -7953,7 +7952,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			// admission to 3 units of CPU and memory. It preempts one workload
 			// to fit.
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -8023,7 +8022,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			// was one CPU unit empty. However, the preempting workload b1 books
 			// this capacity.
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB, defaultClusterQueueC},
 			workloads: []kueue.Workload{
@@ -8118,7 +8117,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"two small workloads considered; both get scheduled on different nodes": {
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -8167,7 +8166,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"two small workloads considered; both get scheduled on the same node": {
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -8217,7 +8216,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"two small workloads considered; there is only space for one of them on the initial node": {
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -8260,7 +8259,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"two workloads considered; there is enough space only for the first": {
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -8306,7 +8305,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			// Both of the workloads require 2 CPU units which will make them
 			// both target the x1 node which is smallest in terms of CPU.
 			nodes:           defaultTwoNodes,
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueueA, defaultClusterQueueB},
 			workloads: []kueue.Workload{
@@ -8349,7 +8348,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"preempting workload with targets reserves capacity so that lower priority workload cannot use it": {
 			nodes:           []corev1.Node{defaultNodeY1},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{*utiltesting.MakeClusterQueue("tas-cq-a").
 				Cohort("tas-cohort-main").
@@ -8413,7 +8412,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"preempting workload without targets reserves capacity so that lower priority workload cannot use it": {
 			nodes:           []corev1.Node{defaultNodeY1},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{*utiltesting.MakeClusterQueue("tas-cq-a").
 				Cohort("tas-cohort-main").
@@ -8477,7 +8476,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 		"preempting workload without targets doesn't reserve capacity when it can always reclaim": {
 			nodes:           []corev1.Node{defaultNodeY1},
-			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues: []kueue.ClusterQueue{*utiltesting.MakeClusterQueue("tas-cq-a").
 				Cohort("tas-cohort-main").
@@ -8559,7 +8558,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithLists(
 					&kueue.WorkloadList{Items: tc.workloads},
-					&kueuealpha.TopologyList{Items: tc.topologies},
+					&kueue.TopologyList{Items: tc.topologies},
 					&corev1.PodList{Items: tc.pods},
 					&corev1.NodeList{Items: tc.nodes},
 					&kueue.LocalQueueList{Items: queues}).
@@ -8571,7 +8570,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManager(cl, cqCache)
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
+			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
 			for _, flavor := range tc.resourceFlavors {

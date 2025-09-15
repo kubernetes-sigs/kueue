@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -237,7 +236,7 @@ func TestPodSets(t *testing.T) {
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingjobset.ReplicatedJobRequirements{Name: "job2", Replicas: 3, Parallelism: 2, Completions: 3},
@@ -247,7 +246,7 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 						RequiredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
@@ -273,7 +272,7 @@ func TestPodSets(t *testing.T) {
 						Parallelism: 2,
 						Completions: 3,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -288,7 +287,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
@@ -308,7 +307,7 @@ func TestPodSets(t *testing.T) {
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingjobset.ReplicatedJobRequirements{
@@ -317,7 +316,7 @@ func TestPodSets(t *testing.T) {
 						Parallelism: 2,
 						Completions: 3,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -329,11 +328,11 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[2].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[2].Template.Spec.Template.Spec.DeepCopy()).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
 				}
 			},
@@ -430,8 +429,16 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("jobset", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
-						*utiltesting.MakePodSet("replicated-job-2", 4).Obj(),
+						*utiltesting.MakePodSet("replicated-job-1", 1).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+							SubGroupCount(ptr.To[int32](1)).
+							Obj(),
+						*utiltesting.MakePodSet("replicated-job-2", 4).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+							SubGroupCount(ptr.To[int32](2)).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -466,7 +473,11 @@ func TestReconciler(t *testing.T) {
 					Priority(100).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
+						*utiltesting.MakePodSet("replicated-job-1", 1).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+							SubGroupCount(ptr.To[int32](1)).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -501,7 +512,11 @@ func TestReconciler(t *testing.T) {
 					Priority(200).
 					PriorityClassSource(constants.PodPriorityClassSource).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
+						*utiltesting.MakePodSet("replicated-job-1", 1).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+							SubGroupCount(ptr.To[int32](1)).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -536,7 +551,11 @@ func TestReconciler(t *testing.T) {
 					Priority(100).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
+						*utiltesting.MakePodSet("replicated-job-1", 1).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
+							SubGroupCount(ptr.To[int32](1)).
+							Obj(),
 					).
 					Obj(),
 			},

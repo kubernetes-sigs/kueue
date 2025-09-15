@@ -34,7 +34,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -75,7 +74,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	ginkgo.When("Delete Topology", func() {
 		var (
 			tasFlavor    *kueue.ResourceFlavor
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			clusterQueue *kueue.ClusterQueue
 		)
 
@@ -122,7 +121,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 				})
 
-				createdTopology := &kueuealpha.Topology{}
+				createdTopology := &kueue.Topology{}
 
 				ginkgo.By("check topology has finalizer", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -217,7 +216,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 	ginkgo.When("Negative scenarios for ClusterQueue configuration", func() {
 		var (
-			topology       *kueuealpha.Topology
+			topology       *kueue.Topology
 			tasFlavor      *kueue.ResourceFlavor
 			clusterQueue   *kueue.ClusterQueue
 			admissionCheck *kueue.AdmissionCheck
@@ -269,7 +268,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	ginkgo.When("Single TAS Resource Flavor", func() {
 		var (
 			tasFlavor    *kueue.ResourceFlavor
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
 		)
@@ -601,7 +600,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.It("should not admit the workload after the topology is deleted but should admit it after the topology is created", func() {
-				var updatedTopology kueuealpha.Topology
+				var updatedTopology kueue.Topology
 
 				ginkgo.By("wait for the finalizer to be added to the topology", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -2569,7 +2568,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		var (
 			tasGPUFlavor *kueue.ResourceFlavor
 			tasCPUFlavor *kueue.ResourceFlavor
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
 		)
@@ -2883,7 +2882,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		ginkgo.Context("With Topology-Aware Scheduling", func() {
 			var (
 				tasFlavor    *kueue.ResourceFlavor
-				topology     *kueuealpha.Topology
+				topology     *kueue.Topology
 				localQueue   *kueue.LocalQueue
 				clusterQueue *kueue.ClusterQueue
 			)
@@ -3018,7 +3017,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.Context("Multiple pods in 1 workload TAS scenario", func() {
 				var (
 					tasFlavor    *kueue.ResourceFlavor
-					topology     *kueuealpha.Topology
+					topology     *kueue.Topology
 					localQueue   *kueue.LocalQueue
 					clusterQueue *kueue.ClusterQueue
 				)
@@ -3203,7 +3202,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 var _ = ginkgo.Describe("Topology validations", func() {
 	ginkgo.When("Creating a Topology", func() {
-		ginkgo.DescribeTable("Validate Topology on creation", func(topology *kueuealpha.Topology, matcher types.GomegaMatcher) {
+		ginkgo.DescribeTable("Validate Topology on creation", func(topology *kueue.Topology, matcher types.GomegaMatcher) {
 			err := k8sClient.Create(ctx, topology)
 			if err == nil {
 				defer func() {
@@ -3237,7 +3236,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 	})
 
 	ginkgo.When("Updating a Topology", func() {
-		ginkgo.DescribeTable("Validate Topology on update", func(topology *kueuealpha.Topology, updateTopology func(topology *kueuealpha.Topology), matcher types.GomegaMatcher) {
+		ginkgo.DescribeTable("Validate Topology on update", func(topology *kueue.Topology, updateTopology func(topology *kueue.Topology), matcher types.GomegaMatcher) {
 			util.MustCreate(ctx, k8sClient, topology)
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
@@ -3248,7 +3247,7 @@ var _ = ginkgo.Describe("Topology validations", func() {
 		},
 			ginkgo.Entry("succeed to update topology",
 				testing.MakeDefaultOneLevelTopology("valid"),
-				func(topology *kueuealpha.Topology) {
+				func(topology *kueue.Topology) {
 					topology.Labels = map[string]string{
 						"alpha": "beta",
 					}
@@ -3256,15 +3255,15 @@ var _ = ginkgo.Describe("Topology validations", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("updating levels is prohibited",
 				testing.MakeDefaultOneLevelTopology("valid"),
-				func(topology *kueuealpha.Topology) {
-					topology.Spec.Levels = append(topology.Spec.Levels, kueuealpha.TopologyLevel{
+				func(topology *kueue.Topology) {
+					topology.Spec.Levels = append(topology.Spec.Levels, kueue.TopologyLevel{
 						NodeLabel: "added",
 					})
 				},
 				testing.BeInvalidError()),
 			ginkgo.Entry("updating levels order is prohibited",
 				testing.MakeDefaultThreeLevelTopology("default"),
-				func(topology *kueuealpha.Topology) {
+				func(topology *kueue.Topology) {
 					topology.Spec.Levels[0], topology.Spec.Levels[1] = topology.Spec.Levels[1], topology.Spec.Levels[0]
 				},
 				testing.BeInvalidError()),

@@ -217,6 +217,23 @@ func (j *ClusterWrapper) NodeLabel(rayType rayv1.RayNodeType, key, value string)
 	return j
 }
 
+// NodeAnnotation sets the annotation key and value for specific RayNodeType
+func (j *ClusterWrapper) NodeAnnotation(rayType rayv1.RayNodeType, key, value string) *ClusterWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		if j.Spec.HeadGroupSpec.Template.Annotations == nil {
+			j.Spec.HeadGroupSpec.Template.Annotations = make(map[string]string)
+		}
+		j.Spec.HeadGroupSpec.Template.Annotations[key] = value
+	case rayv1.WorkerNode:
+		if j.Spec.WorkerGroupSpecs[0].Template.Annotations == nil {
+			j.Spec.WorkerGroupSpecs[0].Template.Annotations = make(map[string]string)
+		}
+		j.Spec.WorkerGroupSpecs[0].Template.Annotations[key] = value
+	}
+	return j
+}
+
 // StatusConditions adds a condition
 func (j *ClusterWrapper) StatusConditions(c metav1.Condition) *ClusterWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)

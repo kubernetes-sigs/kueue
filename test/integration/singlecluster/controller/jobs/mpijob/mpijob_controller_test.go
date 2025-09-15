@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -902,7 +901,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -968,8 +967,8 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
 			Queue(localQueue.Name).
 			GenericLauncherAndWorker().
-			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()

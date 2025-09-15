@@ -35,7 +35,6 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -421,8 +420,22 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Spec.PodSets).To(gomega.ContainElements(
-						gomega.BeComparableTo(kueue.PodSet{Name: "replicated-job-1", Count: 4}, checkPSOpts),
-						gomega.BeComparableTo(kueue.PodSet{Name: "replicated-job-2-empty", Count: 0}, checkPSOpts),
+						gomega.BeComparableTo(
+							*testing.MakePodSet("replicated-job-1", 4).
+								PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+								SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+								SubGroupCount(ptr.To[int32](2)).
+								Obj(),
+							checkPSOpts,
+						),
+						gomega.BeComparableTo(
+							*testing.MakePodSet("replicated-job-2-empty", 0).
+								PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+								SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+								SubGroupCount(ptr.To[int32](1)).
+								Obj(),
+							checkPSOpts,
+						),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1132,7 +1145,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -1204,7 +1217,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					Parallelism: 1,
 					Completions: 1,
 					PodAnnotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
 					Image: util.GetAgnHostImage(),
 					Args:  util.BehaviorExitFast,
@@ -1215,7 +1228,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					Parallelism: 1,
 					Completions: 1,
 					PodAnnotations: map[string]string{
-						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
 					Image: util.GetAgnHostImage(),
 					Args:  util.BehaviorExitFast,
