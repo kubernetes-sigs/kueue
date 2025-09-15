@@ -36,6 +36,11 @@ if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
+if ! command -v gcloud >/dev/null 2>&1; then
+  echo "!!! gcloud is not installed. Please install the Google Cloud SDK. See https://cloud.google.com/sdk/docs/install for details."
+  exit 1
+fi
+
 declare -r STAGING_IMAGE_REGISTRY="us-central1-docker.pkg.dev/k8s-staging-images/kueue"
 
 # $1 - image name
