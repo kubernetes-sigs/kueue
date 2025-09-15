@@ -904,7 +904,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
 			return update()
-		})
+		}, clientutil.WithStrict(strict))
 	}
 	wPatched, updated, err := update()
 	if err != nil || !updated {
@@ -1121,14 +1121,53 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
-	evictionReason := reason
-	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+type EvictOption func(*EvictOptions)
+
+type EvictOptions struct {
+	CustomPrepare func() (*kueue.Workload, error)
+}
+
+func DefaultEvictOptions() *EvictOptions {
+	return &EvictOptions{
+		CustomPrepare: nil,
 	}
-	prepareForEviction(wl, clock.Now(), evictionReason, msg)
-	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+}
+
+func WithCustomPrepare(customPrepare func() (*kueue.Workload, error)) EvictOption {
+	return func(o *EvictOptions) {
+		if customPrepare != nil {
+			o.CustomPrepare = customPrepare
+		}
+	}
+}
+
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock, options ...EvictOption) error {
+	opts := DefaultEvictOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	// if there is no customPrepare use wl and wlOrig are equal
+	wl := wlOrig.DeepCopy()
+	if opts.CustomPrepare != nil {
+		var err error
+		wl, err = opts.CustomPrepare()
+		if err != nil {
+			return err
+		}
+	}
+
+	var reportWorkloadEvictedOnce bool
+	if err := PatchAdmissionStatus(ctx, c, wlOrig, true, clock, func() (*kueue.Workload, bool, error) {
+		evictionReason := reason
+		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+			evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+		}
+
+		prepareForEviction(wl, clock.Now(), evictionReason, msg)
+		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
+		return wl, true, nil
+	}); err != nil {
 		return err
 	}
 	if wl.Status.Admission == nil {
