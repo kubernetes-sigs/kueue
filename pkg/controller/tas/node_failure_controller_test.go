@@ -58,9 +58,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		ReserveQuota(
 			utiltesting.MakeAdmission("cq").
 				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Flavor(corev1.ResourceCPU, "unit-test-flavor").
-					ResourceUsage(corev1.ResourceCPU, "1").
-					Count(1).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domains(utiltesting.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
 						Obj()).
@@ -78,8 +76,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		ReserveQuota(
 			utiltesting.MakeAdmission("cq").
 				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Flavor(corev1.ResourceCPU, "unit-test-flavor").
-					ResourceUsage(corev1.ResourceCPU, "1").
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 					Count(2).
 					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domains(

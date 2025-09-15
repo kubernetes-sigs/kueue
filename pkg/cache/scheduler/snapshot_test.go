@@ -175,7 +175,7 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeWorkload("alpha", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, "demand").ResourceUsage(corev1.ResourceCPU, "10000m").Count(5).Obj()).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "demand", "10000m").Count(5).Obj()).Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("beta", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -185,10 +185,8 @@ func TestSnapshot(t *testing.T) {
 					).
 					ReserveQuota(utiltesting.MakeAdmission("b").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "spot").
-							ResourceUsage(corev1.ResourceCPU, "5000m").
-							Flavor("example.com/gpu", "default").
-							ResourceUsage("example.com/gpu", "10").
+							Assignment(corev1.ResourceCPU, "spot", "5000m").
+							Assignment("example.com/gpu", "default", "10").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -201,10 +199,8 @@ func TestSnapshot(t *testing.T) {
 					).
 					ReserveQuota(utiltesting.MakeAdmission("b").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "spot").
-							ResourceUsage(corev1.ResourceCPU, "5000m").
-							Flavor("example.com/gpu", "default").
-							ResourceUsage("example.com/gpu", "5").
+							Assignment(corev1.ResourceCPU, "spot", "5000m").
+							Assignment("example.com/gpu", "default", "5").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -268,8 +264,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "demand").
-												ResourceUsage(corev1.ResourceCPU, "10000m").
+												Assignment(corev1.ResourceCPU, "demand", "10000m").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -317,10 +312,8 @@ func TestSnapshot(t *testing.T) {
 											Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("b").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "spot").
-												ResourceUsage(corev1.ResourceCPU, "5000m").
-												Flavor("example.com/gpu", "default").
-												ResourceUsage("example.com/gpu", "10").
+												Assignment(corev1.ResourceCPU, "spot", "5000m").
+												Assignment("example.com/gpu", "default", "10").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -333,10 +326,8 @@ func TestSnapshot(t *testing.T) {
 										).
 										ReserveQuota(utiltesting.MakeAdmission("b").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "spot").
-												ResourceUsage(corev1.ResourceCPU, "5000m").
-												Flavor("example.com/gpu", "default").
-												ResourceUsage("example.com/gpu", "5").
+												Assignment(corev1.ResourceCPU, "spot", "5000m").
+												Assignment("example.com/gpu", "default", "5").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -460,8 +451,7 @@ func TestSnapshot(t *testing.T) {
 						Request(corev1.ResourceCPU, "2").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("a").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "arm").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "arm", "10000m").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -471,8 +461,7 @@ func TestSnapshot(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("a").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "arm").
-							ResourceUsage(corev1.ResourceCPU, "5000m").
+							Assignment(corev1.ResourceCPU, "arm", "5000m").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -482,8 +471,7 @@ func TestSnapshot(t *testing.T) {
 						Request(corev1.ResourceCPU, "2").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("a").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "x86").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "x86", "10000m").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -540,8 +528,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "arm").
-												ResourceUsage(corev1.ResourceCPU, "10000m").
+												Assignment(corev1.ResourceCPU, "arm", "10000m").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -551,8 +538,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "1").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "arm").
-												ResourceUsage(corev1.ResourceCPU, "5000m").
+												Assignment(corev1.ResourceCPU, "arm", "5000m").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -562,8 +548,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "x86").
-												ResourceUsage(corev1.ResourceCPU, "10000m").
+												Assignment(corev1.ResourceCPU, "x86", "10000m").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -638,8 +623,7 @@ func TestSnapshot(t *testing.T) {
 						Request(corev1.ResourceCPU, "2").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("a").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "arm").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "arm", "10000m").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -649,8 +633,7 @@ func TestSnapshot(t *testing.T) {
 						Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("a").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "arm").
-							ResourceUsage(corev1.ResourceCPU, "5000m").
+							Assignment(corev1.ResourceCPU, "arm", "5000m").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -660,8 +643,7 @@ func TestSnapshot(t *testing.T) {
 						Request(corev1.ResourceCPU, "2").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("a").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Flavor(corev1.ResourceCPU, "x86").
-							ResourceUsage(corev1.ResourceCPU, "10000m").
+							Assignment(corev1.ResourceCPU, "x86", "10000m").
 							Count(5).
 							Obj()).
 						Obj()).
@@ -719,8 +701,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "arm").
-												ResourceUsage(corev1.ResourceCPU, "10000m").
+												Assignment(corev1.ResourceCPU, "arm", "10000m").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -730,8 +711,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "1").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "arm").
-												ResourceUsage(corev1.ResourceCPU, "5000m").
+												Assignment(corev1.ResourceCPU, "arm", "5000m").
 												Count(5).
 												Obj()).
 											Obj()).
@@ -741,8 +721,7 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuota(utiltesting.MakeAdmission("a").
 											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-												Flavor(corev1.ResourceCPU, "x86").
-												ResourceUsage(corev1.ResourceCPU, "10000m").
+												Assignment(corev1.ResourceCPU, "x86", "10000m").
 												Count(5).
 												Obj()).
 											Obj()).

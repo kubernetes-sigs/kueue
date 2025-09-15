@@ -1280,10 +1280,8 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			utiltesting.MakeAdmission("tas-main").
 				PodSets(
 					utiltesting.MakePodSetAssignment("one").
-						Flavor(corev1.ResourceCPU, "tas-default").
-						ResourceUsage(corev1.ResourceCPU, "1000m").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-						Count(1).
 						Obj(),
 				).
 				Obj(),

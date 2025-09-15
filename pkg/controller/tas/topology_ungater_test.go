@@ -124,9 +124,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -166,8 +164,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Count(3).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 3).Obj()).
@@ -217,8 +214,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -299,8 +295,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Count(2).
 								Obj()).
 							Obj(),
@@ -330,8 +325,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
@@ -364,9 +358,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -396,9 +388,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -428,9 +418,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -475,9 +463,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -521,9 +507,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -578,9 +562,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -636,8 +618,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "2").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
@@ -692,9 +673,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -749,8 +728,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "2").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
@@ -808,8 +786,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "5").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
 								Count(5).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -939,8 +916,7 @@ func TestReconcile(t *testing.T) {
 						utiltesting.MakeAdmission("cq").
 							PodSets(
 								utiltesting.MakePodSetAssignment("workers").
-									Flavor(corev1.ResourceCPU, "unit-test-flavor").
-									ResourceUsage(corev1.ResourceCPU, "4").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 									Count(4).
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 										Domains(
@@ -951,9 +927,7 @@ func TestReconcile(t *testing.T) {
 										Obj()).
 									Obj(),
 								utiltesting.MakePodSetAssignment("leader").
-									Flavor(corev1.ResourceCPU, "unit-test-flavor").
-									ResourceUsage(corev1.ResourceCPU, "1").
-									Count(1).
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 										Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 										Obj()).
@@ -1068,8 +1042,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "5").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
 								Count(5).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -1200,8 +1173,7 @@ func TestReconcile(t *testing.T) {
 						utiltesting.MakeAdmission("cq").
 							PodSets(
 								utiltesting.MakePodSetAssignment("workers").
-									Flavor(corev1.ResourceCPU, "unit-test-flavor").
-									ResourceUsage(corev1.ResourceCPU, "4").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 									Count(4).
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 										Domains(
@@ -1212,9 +1184,7 @@ func TestReconcile(t *testing.T) {
 										Obj()).
 									Obj(),
 								utiltesting.MakePodSetAssignment("leader").
-									Flavor(corev1.ResourceCPU, "unit-test-flavor").
-									ResourceUsage(corev1.ResourceCPU, "1").
-									Count(1).
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 									TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 										Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 										Obj()).
@@ -1330,8 +1300,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -1428,9 +1397,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "1").
-								Count(1).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 									Obj()).
@@ -1496,8 +1463,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -1621,8 +1587,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -1748,8 +1713,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(&kueue.TopologyAssignment{
 									Levels: defaultTestLevels,
@@ -1849,8 +1813,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -1962,8 +1925,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -2077,8 +2039,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
@@ -2184,8 +2145,7 @@ func TestReconcile(t *testing.T) {
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
 							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Flavor(corev1.ResourceCPU, "unit-test-flavor").
-								ResourceUsage(corev1.ResourceCPU, "4").
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
 								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
 									Domains(
