@@ -242,11 +242,14 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}
 		admissions := []*kueue.Admission{
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "2").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "3").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelD, "1").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 
 		ginkgo.By("Creating workloads")
@@ -476,11 +479,14 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}
 		admissions := []*kueue.Admission{
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "2").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "3").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelD, "1").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 
 		ginkgo.By("Creating workloads", func() {
