@@ -531,7 +531,7 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 		pod := &podsInGroup.Items[i]
 		return clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
 			return pod, controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
-		}, clientutil.WithNonStrict())
+		}, clientutil.WithStrict(false))
 	})
 }
 
@@ -894,7 +894,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 				log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			}
 			return &pod, removed, nil
-		}, clientutil.WithNonStrict()); err != nil {
+		}, clientutil.WithStrict(false)); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
@@ -936,7 +936,7 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 				log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			}
 			return &pod, removed, nil
-		}, clientutil.WithNonStrict()); err != nil {
+		}, clientutil.WithStrict(false)); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
