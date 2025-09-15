@@ -167,6 +167,7 @@ type entryComparer struct {
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
+
 	// 1: DRF
 	if aDrs != bDrs {
 		return aDrs < bDrs
@@ -181,7 +182,15 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 		}
 	}
 
-	// 3: FIFO
+	// 3: CQ weight
+	aWeight := a.clusterQueueSnapshot.FairWeight.AsApproximateFloat64()
+	bWeight := b.clusterQueueSnapshot.FairWeight.AsApproximateFloat64()
+
+	if aWeight != bWeight {
+		return aWeight > bWeight
+	}
+
+	// 4: FIFO
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
