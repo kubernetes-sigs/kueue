@@ -409,7 +409,11 @@ func TestReconcile(t *testing.T) {
 	}{
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Queue("queue").
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
@@ -419,7 +423,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Queue("queue").
 				AdmissionChecks(
 					kueue.AdmissionCheckState{
@@ -434,7 +442,11 @@ func TestReconcile(t *testing.T) {
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionChecks": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Queue("queue").
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
@@ -442,7 +454,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Queue("queue").
 				AdmissionChecks(
 					kueue.AdmissionCheckState{

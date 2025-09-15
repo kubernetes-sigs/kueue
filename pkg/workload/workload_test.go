@@ -844,7 +844,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	}{
 		"AdmissionCheckStrategy with a flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
@@ -853,7 +857,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		},
 		"AdmissionCheckStrategy with an unmatched flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
@@ -862,7 +870,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		},
 		"AdmissionCheckStrategy without a flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
@@ -871,7 +883,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		},
 		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(
