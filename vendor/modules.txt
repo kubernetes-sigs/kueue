@@ -284,7 +284,7 @@ github.com/pmezard/go-difflib/difflib
 ## explicit; go 1.23.0
 github.com/project-codeflare/appwrapper/api/v1beta2
 github.com/project-codeflare/appwrapper/pkg/utils
-# github.com/prometheus/client_golang v1.23.0
+# github.com/prometheus/client_golang v1.23.2
 ## explicit; go 1.23.0
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil/header
@@ -299,7 +299,7 @@ github.com/prometheus/client_golang/prometheus/testutil/promlint/validations
 # github.com/prometheus/client_model v0.6.2
 ## explicit; go 1.22.0
 github.com/prometheus/client_model/go
-# github.com/prometheus/common v0.65.0
+# github.com/prometheus/common v0.66.1
 ## explicit; go 1.23.0
 github.com/prometheus/common/expfmt
 github.com/prometheus/common/model
@@ -650,8 +650,8 @@ google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/status
 google.golang.org/grpc/tap
-# google.golang.org/protobuf v1.36.7
-## explicit; go 1.22
+# google.golang.org/protobuf v1.36.8
+## explicit; go 1.23
 google.golang.org/protobuf/encoding/protodelim
 google.golang.org/protobuf/encoding/protojson
 google.golang.org/protobuf/encoding/prototext
