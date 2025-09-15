@@ -976,11 +976,9 @@ func HasUnhealthyNode(w *kueue.Workload, nodeName string) bool {
 }
 
 func UnhealthyNodeNames(w *kueue.Workload) []string {
-	unhealthyNodeNames := make([]string, len(w.Status.UnhealthyNodes))
-	for i, unhealthyNode := range w.Status.UnhealthyNodes {
-		unhealthyNodeNames[i] = unhealthyNode.Name
-	}
-	return unhealthyNodeNames
+	return utilslices.Map(w.Status.UnhealthyNodes, func(unhealthyNode *kueue.UnhealthyNode) string {
+		return unhealthyNode.Name
+	})
 }
 
 func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {

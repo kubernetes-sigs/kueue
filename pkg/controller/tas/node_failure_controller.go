@@ -83,7 +83,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.handleFailedNode(ctx, req.Name, affectedWorkloads)
+		return ctrl.Result{}, r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 	}
 	readyCondition := utiltas.GetNodeCondition(&node, corev1.NodeReady)
 	if readyCondition.Status == corev1.ConditionTrue {
@@ -105,7 +105,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	patchErr := r.handleFailedNode(ctx, req.Name, affectedWorkloads)
+	patchErr := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 	return ctrl.Result{}, patchErr
 }
 
@@ -223,7 +223,7 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workload.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
-		log := r.log.WithValues("failedNodes", unhealthyNodeNames)
+		log := r.log.WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
@@ -237,9 +237,9 @@ func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *k
 	return false, nil
 }
 
-// handleFailedNode finds workloads with pods on the specified node
+// handleUnhealthyNode finds workloads with pods on the specified node
 // and patches their status to indicate the node is to replace.
-func (r *nodeFailureReconciler) handleFailedNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+func (r *nodeFailureReconciler) handleUnhealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
 		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
@@ -283,7 +283,7 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 		return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
 	default:
 		r.log.V(3).Info("Node is not ready and has only terminating or failed pods. Marking as failed immediately", "nodeName", nodeName)
-		patchErr := r.handleFailedNode(ctx, nodeName, workloads)
+		patchErr := r.handleUnhealthyNode(ctx, nodeName, workloads)
 		return ctrl.Result{}, patchErr
 	}
 }
