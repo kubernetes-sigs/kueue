@@ -19,6 +19,7 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"k8s.io/utils/ptr"
 
@@ -37,7 +38,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue
 			}
-			if psAssignment.TopologyAssignment != nil && !psAssignment.HasFailedNode(wl) {
+			if psAssignment.TopologyAssignment != nil && !psAssignment.HasUnhealthyNode(wl) {
 				// skip if already computed and doesn't need recomputing
 				// if it already has an assignment but needs recomputing due to a failed node
 				// we add it to the list of TASRequests
@@ -55,15 +56,10 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 	return tasRequests
 }
 
-func (psa *PodSetAssignment) HasFailedNode(wl *workload.Info) bool {
-	if workload.HasUnhealthyNodes(wl.Obj) {
-		for _, domain := range psa.TopologyAssignment.Domains {
-			if workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1]) {
-				return true
-			}
-		}
-	}
-	return false
+func (psa *PodSetAssignment) HasUnhealthyNode(wl *workload.Info) bool {
+	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain kueue.TopologyDomainAssignment) bool {
+		return workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1])
+	})
 }
 
 func podSetTopologyRequest(psAssignment *PodSetAssignment,
