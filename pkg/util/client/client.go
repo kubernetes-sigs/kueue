@@ -25,18 +25,18 @@ import (
 type ClientPatchOption func(*ClientPatchOptions)
 
 type ClientPatchOptions struct {
-	NonStrict bool
+	Strict bool
 }
 
 func DefaultClientPatchOptions() *ClientPatchOptions {
 	return &ClientPatchOptions{
-		NonStrict: false, // default is strict
+		Strict: true, // default is strict
 	}
 }
 
-func WithNonStrict() ClientPatchOption {
+func WithStrict(strict bool) ClientPatchOption {
 	return func(o *ClientPatchOptions) {
-		o.NonStrict = true
+		o.Strict = strict
 	}
 }
 
@@ -45,7 +45,7 @@ func patchCommon(obj client.Object, update func() (client.Object, bool, error), 
 	for _, opt := range options {
 		opt(opts)
 	}
-	strict := !opts.NonStrict
+	strict := opts.Strict
 	return updateAndPatch(obj, strict, update, patchFunc)
 }
 
