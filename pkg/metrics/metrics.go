@@ -198,7 +198,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'local_queue'",
-		}, []string{"name", "namespace"},
+		}, []string{"name", "namespace", "priority_class"},
 	)
 
 	AdmissionWaitTime = prometheus.NewHistogramVec(
@@ -525,8 +525,8 @@ func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, 
 	AdmissionWaitTime.WithLabelValues(string(cqName), priorityClass).Observe(waitTime.Seconds())
 }
 
-func LocalQueueAdmittedWorkload(lq LocalQueueReference, waitTime time.Duration) {
-	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace).Inc()
+func LocalQueueAdmittedWorkload(lq LocalQueueReference, priorityClass string, waitTime time.Duration) {
+	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass).Inc()
 	localQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
@@ -613,7 +613,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible)
 	LocalQueueQuotaReservedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueQuotaReservedWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
-	LocalQueueAdmittedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	localQueueAdmissionWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})

@@ -523,8 +523,8 @@ func ExpectLQReservingActiveWorkloadsMetric(lq *kueue.LocalQueue, value int) {
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, value int) {
-	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace)
+func ExpectLQAdmittedWorkloadsTotalMetric(lq *kueue.LocalQueue, priorityClass string, value int) {
+	metric := metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())

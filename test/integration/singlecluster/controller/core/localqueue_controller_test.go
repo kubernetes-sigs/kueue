@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		// LQ metrics should all be 0 here
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
-		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 0)
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 0)
 		util.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 0)
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 5)
 		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 1)
 
-		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 3)
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 3)
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 
 		ginkgo.By("Finishing workloads")
