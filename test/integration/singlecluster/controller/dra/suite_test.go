@@ -59,10 +59,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	// Enable DRA feature gate once for the entire test suite
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 
-	// Use framework with API server feature gates and runtime config for DRA
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
 		APIServerFeatureGates: []string{
@@ -73,13 +71,8 @@ var _ = ginkgo.BeforeSuite(func() {
 		},
 	}
 
-	// Initialize framework
 	cfg = fwk.Init()
 
-	// Add DRA resources to the scheme
-	gomega.Expect(resourcev1beta2.AddToScheme(fwk.GetScheme())).To(gomega.Succeed())
-
-	// Setup client
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })
 

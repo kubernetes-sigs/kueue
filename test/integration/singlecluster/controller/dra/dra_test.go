@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -524,66 +523,6 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					)),
 				)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("Should handle feature gate disabled scenario", func() {
-			ginkgo.By("Temporarily disabling DRA feature gate")
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, false)
-
-			ginkgo.By("Creating a ResourceClaimTemplate")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "disabled-template",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           2,
-								},
-							}},
-						},
-					},
-				},
-			}
-			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
-
-			ginkgo.By("Creating a workload with DRA resource claim template")
-			wl := utiltesting.MakeWorkload("test-wl-disabled", ns.Name).
-				Queue("test-lq").
-				Obj()
-			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{
-					Name:                      "device-template",
-					ResourceClaimTemplateName: ptr.To("disabled-template"),
-				},
-			}
-			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
-				{Name: "device-template"},
-			}
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-
-			ginkgo.By("Verifying workload is marked as inadmissible (DRA feature gate disabled)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-
-				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
-					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
-					gomega.HaveField("Message", gomega.ContainSubstring("DynamicResourceAllocation feature gate is disabled")),
-				)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Re-enabling DRA feature gate")
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicResourceAllocation, true)
 		})
 	})
 })

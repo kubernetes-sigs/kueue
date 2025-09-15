@@ -191,17 +191,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if workload.Status(&wl) == workload.StatusPending && r.workloadHasDRA(&wl) {
-		if !features.Enabled(features.DynamicResourceAllocation) {
-			log.V(3).Info("Workload is inadmissible because it uses DRA resources but DynamicResourceAllocation feature gate is disabled")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature gate is disabled", r.clock.Now()) {
-				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA feature gate error: %w", err)
-				}
-			}
-			return ctrl.Result{}, nil
-		}
-
+	if workload.Status(&wl) == workload.StatusPending && r.workloadHasDRA(&wl) &&
+		features.Enabled(features.DynamicResourceAllocation) {
 		if r.workloadHasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
