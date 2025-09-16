@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -54,6 +55,7 @@ var (
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind).String(),
+		kftrainer.SchemeGroupVersion.WithKind(kftrainer.TrainJobKind).String(),
 		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
 		corev1.SchemeGroupVersion.WithKind("Pod").String(),

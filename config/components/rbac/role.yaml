@@ -340,6 +340,31 @@ rules:
   - list
   - watch
 - apiGroups:
+  - trainer.kubeflow.org
+  resources:
+  - trainjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - trainer.kubeflow.org
+  resources:
+  - trainjobs/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - trainer.kubeflow.org
+  resources:
+  - trainjobs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - workload.codeflare.dev
   resources:
   - appwrappers
