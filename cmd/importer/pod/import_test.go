@@ -49,7 +49,9 @@ func TestImportNamespace(t *testing.T) {
 			Request(corev1.ResourceCPU, "1").
 			Obj()).
 		ReserveQuota(utiltesting.MakeAdmission("cq1").
-			Assignment(corev1.ResourceCPU, "f1", "1").
+			PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "f1", "1").
+				Obj()).
 			Obj()).
 		Condition(metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
