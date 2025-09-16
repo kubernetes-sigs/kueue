@@ -4846,9 +4846,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		if name != "balanced placement; leader worker set" {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TAS profiles feature gates

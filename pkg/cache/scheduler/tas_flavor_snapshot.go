@@ -711,7 +711,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		sliceCount := count / sliceSize
 		for _, levelDomain := range levelDomains {
 			threshold, fits := balanceThresholdValue(levelDomain, sliceCount, leaderCount, levelIdx == sliceLevelIdx)
-			_, lowerLevelDomainCount, _, _ := numberOfDomainsToFitGreedily(levelDomain.children, sliceCount, leaderCount)
+			_, lowerLevelDomainCount, _, _ := simulateGreedy(levelDomain.children, sliceCount, leaderCount)
 			if fits && (threshold > bestThreshold || (threshold == bestThreshold && lowerLevelDomainCount < bestLowerLevelDomainCount)) {
 				bestThreshold = threshold
 				bestLowerLevelDomainCount = lowerLevelDomainCount
@@ -731,7 +731,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			} else {
 				fitLevelIdx = levelIdx
 			}
-			currFitDomain = placeSlicesOnDomainsBalanced(s.lowerLevelDomains(currFitDomain), sliceCount, leaderCount, sliceSize, bestThreshold)
+			currFitDomain, reason = placeSlicesOnDomainsBalanced(s.lowerLevelDomains(currFitDomain), sliceCount, leaderCount, sliceSize, bestThreshold)
+			if len(reason) > 0 {
+				return nil, reason
+			}
 		}
 	}
 
@@ -1424,10 +1427,9 @@ func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(root *domain, threshold i
 		}
 	}
 	for _, d := range root.children {
+		d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level+1)
 		if d.sliceStateWithLeader < threshold {
 			clearState(d)
-		} else {
-			d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level+1)
 		}
 	}
 }

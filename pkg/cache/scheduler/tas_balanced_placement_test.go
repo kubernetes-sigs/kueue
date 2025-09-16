@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cache
+package scheduler
 
 import (
 	"sort"
@@ -153,7 +153,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 				domains[i] = &clone
 			}
 
-			got := placeSlicesOnDomainsBalanced(domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
+			got, _ := placeSlicesOnDomainsBalanced(domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
 
 			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
