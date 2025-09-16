@@ -41,6 +41,7 @@ feature-gates:
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
+  - name: TASBalancedPlacement
 disable-supported: true
 
 # The following PRR answers are required at beta release

@@ -700,20 +700,59 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/slices
-	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained)
-	if len(reason) > 0 {
-		return nil, reason
+	var currFitDomain []*domain
+	var bestSingleDomain *domain
+	var fitLevelIdx int
+	var useBalancedPlacement bool
+	var bestThreshold, bestLowerLevelDomainCount int32
+	if features.Enabled(features.TASBalancedPlacement) && !required && !unconstrained && levelIdx >= 1 {
+		// check if balanced placement is possible: look one level above the preferred level
+		// see if any (single) domain on that level fits the request and compute for each of
+		// them the balance threshold value
+		domains := s.domainsPerLevel[levelIdx-1]
+		levelDomains := slices.Collect(maps.Values(domains))
+		sliceCount := count / sliceSize
+		for _, levelDomain := range levelDomains {
+			threshold, fits := balanceThresholdValue(levelDomain, sliceCount, leaderCount, levelIdx == sliceLevelIdx)
+			_, lowerLevelDomainCount, _, _ := numberOfDomainsToFitGreedily(levelDomain.children, sliceCount, leaderCount)
+			if fits && (threshold > bestThreshold || (threshold == bestThreshold && lowerLevelDomainCount < bestLowerLevelDomainCount)) {
+				bestThreshold = threshold
+				bestLowerLevelDomainCount = lowerLevelDomainCount
+				bestSingleDomain = levelDomain
+				currFitDomain = []*domain{levelDomain}
+				useBalancedPlacement = true
+			}
+		}
+
+		if useBalancedPlacement {
+			s.pruneDomainsBelowThreshold(bestSingleDomain, bestThreshold, sliceSize, sliceLevelIdx, levelIdx-1)
+			// the balanced placement algorithm selects domains on three levels: levelIdx -1, levelIdx and levelIdx + 1
+			// unless levelIdx == sliceLevelIdx in which case it selects only on two levels: levelIdx -1 and levelIdx
+			if levelIdx < sliceLevelIdx {
+				currFitDomain = selectOptimalDomainSetToFit(bestSingleDomain.children, sliceCount, leaderCount)
+				fitLevelIdx = levelIdx + 1
+			} else {
+				fitLevelIdx = levelIdx
+			}
+			currFitDomain = placeSlicesOnDomainsBalanced(s.lowerLevelDomains(currFitDomain), sliceCount, leaderCount, sliceSize, bestThreshold)
+		}
 	}
 
-	// phase 2b: traverse the tree down level-by-level optimizing the number of
-	// topology domains at each level
-	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateSliceCountsToMinimum(currFitDomain, count, leaderCount, sliceSize, unconstrained)
+	if !useBalancedPlacement {
+		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained)
+		if len(reason) > 0 {
+			return nil, reason
+		}
+		// phase 2b: traverse the tree down level-by-level optimizing the number of
+		// topology domains at each level
+		// if unconstrained is set, we'll only do it once
+		currFitDomain = s.updateSliceCountsToMinimum(currFitDomain, count, leaderCount, sliceSize, unconstrained)
+	}
 	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
 		if levelIdx < sliceLevelIdx {
 			// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
 			// all domains without checking what we've assigned to parent domains.
-			sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
+			sortedLowerDomains := sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
 			currFitDomain = s.updateSliceCountsToMinimum(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained)
 		} else {
 			// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
@@ -721,7 +760,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			// each parent domain and assigning `domain.state` amount of pods its child domains.
 			newCurrFitDomain := make([]*domain, 0)
 			for _, domain := range currFitDomain {
-				sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+				sortedLowerDomains := sortedDomains(domain.children, unconstrained)
 
 				addCurrFitDomain := s.updateCountsToMinimum(sortedLowerDomains, domain.state, domain.leaderState, unconstrained)
 				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
@@ -929,7 +968,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained)
+	sortedDomain := sortedDomainsWithLeader(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
 
 	sliceCount := podSetSize / sliceSize
@@ -981,7 +1020,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = s.sortedDomains(sortedDomain[idx:], unconstrained)
+		sortedDomain = sortedDomains(sortedDomain[idx:], unconstrained)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].sliceState > 0; idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
@@ -1163,7 +1202,7 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
-func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
+func sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
@@ -1196,7 +1235,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // - **LeastFreeCapacity**: `sliceState` (ascending), `state` (ascending), `levelValues` (ascending)
 //
 // `state` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
-func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
+func sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
@@ -1356,4 +1395,42 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %d slice(s)", s.topologyName, totalRequestsSlicesCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
+}
+
+func (d *domain) grandchildren() []*domain {
+	var size int
+	for _, c := range d.children {
+		size += len(c.children)
+	}
+	grandchildren := make([]*domain, 0, size)
+	for _, child := range d.children {
+		grandchildren = append(grandchildren, child.children...)
+	}
+	return grandchildren
+}
+
+func clearState(d *domain) {
+	d.state = int32(0)
+	d.sliceState = int32(0)
+	d.stateWithLeader = int32(0)
+	d.sliceStateWithLeader = int32(0)
+	d.leaderState = int32(0)
+	for _, child := range d.children {
+		clearState(child)
+	}
+}
+
+func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(root *domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int) {
+	for _, d := range root.grandchildren() {
+		if d.sliceStateWithLeader < threshold {
+			clearState(d)
+		}
+	}
+	for _, d := range root.children {
+		if d.sliceStateWithLeader < threshold {
+			clearState(d)
+		} else {
+			d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level+1)
+		}
+	}
 }

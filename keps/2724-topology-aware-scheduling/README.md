@@ -41,6 +41,7 @@
   - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
+  - [Balanced placement](#balanced-placement)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
     - [Targeting the newly provisioned nodes](#targeting-the-newly-provisioned-nodes)
@@ -1125,6 +1126,43 @@ to ungate a Pod. The expectation is fulfilled if the Pod is observed as ungated
 or the ungating request fails. We hold ungating if there are pending ungatings
 within the PodSet.
 
+### Balanced placement
+The balanced placement algorithm provides an alternative to the greedy packing strategies. Instead of iterating over the domains sorted from largest to smallest available space (or based on some other criteria) and trying to pack as many pods as possible to each domain until the request fits, it first finds the optimal set of domains that fit the request and then distributes the pods as evenly as possible across these domains. 
+
+Greedy placement strategies (such as `BestFit` and `LeastFreeCapacity`) might result in a placement with a small
+number of pods assinged to the last considered domain (even though the existing algorithms choose the best possible
+last domain). For example 12 pods distributed among domains with capacities (10,10) will be placed (10,2). However,
+in some applications, a more balanced placement (6,6) would be more efficient. Some examples of such cases would be
+all-to-all communication procedures (e.g. Allgather) since more balanced placement leads to more efficient
+cross-domain traffic.
+
+In the first implemetation, we propose to perform the balanced algorithm only on two consequtive levels indicated
+by the user with the `preferred` flag. Let L be the level indicated by the `preferred` flag. We assume that the
+request must fit within a single domain on level L-1 and otherwise we fallback to the standard algorithm. The above
+assumptions are motivated by the application of the balanced placement algorithm to all-to-all communication
+on the specific networking for GPUs, but if the concept of balanced placement would be useful in other contexts it
+would be possible to lift these assumptions. This balancing algorithm is enabled by the `TASBalancedPlacement` feature gate.
+
+The algorithm could be summarized as follows:
+
+```
+1. For each domain on level L-1:
+ - check if the entire request fits on this domain
+ - calculate T, the maximum possible minimum number of pods that would be placed on a domain on level L+1 if the request is placed on this domain.
+2. If no domain on level L-1 fits the entire request, fallback to the standard algorithm.
+3. Otherwise, pick a domain D on level L-1 that maximizes the value of T.
+4. Prune every descendant of D with capacity below T.
+5. On levels L and L+1 find an optimal subset of ancestors of D that fit the request:
+- first optmize the size of the subset
+- secondly optimize the total capacity of the subset
+6. For the subset on L+1, place the pods by first placing T pods on each domain, and then distribute the rest abritrarily.
+```
+
+The balancing algorithm will support the following features of TAS:
+
+ - Slices. Instead of assigning pods, the balancing algorithm will assign slices.
+ - Leader-worker set.
+
 ### Support for ProvisioningRequests
 
 We are going to support autoscaling via ProvisioningRequest AdmissionCheck.
@@ -1476,4 +1514,3 @@ becomes apparent:
 **Reasons for discarding/deferring**
 Due to code simplicity concerns and a lack of use cases for the algorithm,
 the decision was made to remove it in favor of `BestFit`.
-
