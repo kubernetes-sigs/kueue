@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
@@ -65,7 +66,7 @@ func (c *Config) SetupIndexes(ctx context.Context, mgr ctrl.Manager) error {
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if err := tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-			return fmt.Errorf("could not setup TAX indexer: %w", err)
+			return fmt.Errorf("could not setup TAS indexer: %w", err)
 		}
 	}
 
@@ -95,12 +96,11 @@ func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache 
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
 		c.SetupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		ctrlr, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}
-
-		if err := ctrl.SetupWithManager(mgr); err != nil {
+		if err := ctrlr.SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("could not setup provisioning controller: %w", err)
 		}
 	}
@@ -118,6 +118,9 @@ func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache 
 			multikueue.WithDispatcherName(ptr.Deref(c.Apiconf.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
+		}
+		if failedDispatcher, err := dispatcher.SetupControllers(mgr, &c.Apiconf, ptr.Deref(c.Apiconf.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 
@@ -155,7 +158,6 @@ func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache 
 	if err := jobframework.SetupControllers(ctx, mgr, c.SetupLog, opts...); err != nil {
 		return fmt.Errorf("unable to create controller or webhook for kubernetesVersion %v: %w", serverVersionFetcher.GetServerVersion(), err)
 	}
-
 	return nil
 }
 

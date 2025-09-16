@@ -18,10 +18,6 @@ package manager
 
 import (
 	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -45,35 +41,9 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		goPath := os.Getenv("GOPATH")
-		if goPath == "" {
-			if cmd, err := exec.LookPath("go"); err == nil {
-				if out, err := exec.Command(cmd, "env", "GOPATH").Output(); err == nil {
-					goPath = strings.TrimSpace(string(out))
-				}
-			}
-		}
-		if goPath != "" {
-			setupEnvtest := filepath.Join(goPath, "bin", "setup-envtest")
-			if out, err := exec.Command(setupEnvtest, "use", "-p", "path").Output(); err == nil {
-				envtestPath := strings.TrimSpace(string(out))
-				if envtestPath != "" {
-					_ = os.Setenv("KUBEBUILDER_ASSETS", envtestPath)
-				}
-			}
-		}
-		if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-			if homeDir, err := os.UserHomeDir(); err == nil {
-				fallbackPath := filepath.Join(homeDir, ".local", "share", "kubebuilder-envtest", "k8s", "1.33.0-linux-amd64")
-				if _, err := os.Stat(fallbackPath); err == nil {
-					_ = os.Setenv("KUBEBUILDER_ASSETS", fallbackPath)
-				}
-			}
-		}
+	fwk = &framework.Framework{
+		DepCRDPaths: []string{"../../../../dep-crds/leaderworkerset-operator"},
 	}
-
-	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })

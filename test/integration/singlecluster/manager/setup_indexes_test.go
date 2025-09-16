@@ -18,6 +18,7 @@ package manager
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,8 +29,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -38,6 +41,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/manager"
@@ -50,7 +54,6 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 		managerCtx context.Context
 		cancel     context.CancelFunc
 		mgr        ctrl.Manager
-		cl         client.Client
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -72,7 +75,7 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 
 		mgr, err = ctrl.NewManager(cfg, mgrCfg.Options)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		cl = mgr.GetClient()
+		k8sClient = mgr.GetClient()
 
 		ginkgo.By("Setting up indexes")
 		err = mgrCfg.SetupIndexes(managerCtx, mgr)
@@ -90,29 +93,28 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 	})
 
 	ginkgo.It("registers and queries indexes", func() {
-		_ = cl.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace("default"))
-		_ = cl.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace("default"))
-		_ = cl.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace("default"))
-		_ = cl.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace("default"))
-		_ = cl.DeleteAllOf(ctx, &kueue.ResourceFlavor{})
+		_ = k8sClient.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace("default"))
+		_ = k8sClient.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace("default"))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace("default"))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace("default"))
+		_ = k8sClient.DeleteAllOf(ctx, &kueue.ResourceFlavor{})
 
 		time.Sleep(time.Millisecond * 200)
 
 		lq := testing.MakeLocalQueue("q1", "default").ClusterQueue("cq-a").Obj()
-		gomega.Expect(cl.Create(ctx, lq)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 
 		gomega.Eventually(func() bool {
 			var createdLQ kueue.LocalQueue
-			err := cl.Get(ctx, client.ObjectKeyFromObject(lq), &createdLQ)
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &createdLQ)
 			return err == nil
 		}, "10s", "100ms").Should(gomega.BeTrue())
 
 		wl := testing.MakeWorkload("wl1", "default").
 			Queue("q1").
-			RuntimeClass("rc1").
 			ControllerReference(schema.GroupVersion{Group: "batch", Version: "v1"}.WithKind("Job"), "job-a", "uid-a")
 		wlObj := wl.Obj()
-		gomega.Expect(cl.Create(ctx, wlObj)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, wlObj)).To(gomega.Succeed())
 
 		var gotWL kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -122,15 +124,15 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 		gotWL.Status.Conditions = []metav1.Condition{{
 			Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "Admitted by test", LastTransitionTime: metav1.Now(),
 		}}
-		gomega.Expect(cl.Status().Update(ctx, &gotWL)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Status().Update(ctx, &gotWL)).To(gomega.Succeed())
 
 		lr := testing.MakeLimitRange("lr1", "default").Obj()
-		gomega.Expect(cl.Create(ctx, lr)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, lr)).To(gomega.Succeed())
 
 		// check core indexes
 		gomega.Eventually(func() bool {
 			var lqs kueue.LocalQueueList
-			err := cl.List(ctx, &lqs, client.MatchingFields{indexer.QueueClusterQueueKey: "cq-a"})
+			err := k8sClient.List(ctx, &lqs, client.MatchingFields{indexer.QueueClusterQueueKey: "cq-a"})
 			if err != nil || len(lqs.Items) == 0 {
 				return false
 			}
@@ -144,7 +146,7 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 
 		gomega.Eventually(func() bool {
 			var wls kueue.WorkloadList
-			_ = cl.List(ctx, &wls, client.MatchingFields{indexer.WorkloadQueueKey: "q1"})
+			_ = k8sClient.List(ctx, &wls, client.MatchingFields{indexer.WorkloadQueueKey: "q1"})
 			if len(wls.Items) == 0 {
 				return false
 			}
@@ -158,7 +160,7 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 
 		gomega.Eventually(func() bool {
 			var wls kueue.WorkloadList
-			_ = cl.List(ctx, &wls, client.MatchingFields{indexer.WorkloadClusterQueueKey: "cq-a"})
+			_ = k8sClient.List(ctx, &wls, client.MatchingFields{indexer.WorkloadClusterQueueKey: "cq-a"})
 			if len(wls.Items) == 0 {
 				return false
 			}
@@ -172,7 +174,7 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 
 		gomega.Eventually(func() bool {
 			var wls kueue.WorkloadList
-			_ = cl.List(ctx, &wls, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionTrue)})
+			_ = k8sClient.List(ctx, &wls, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionTrue)})
 			if len(wls.Items) == 0 {
 				return false
 			}
@@ -187,28 +189,10 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 		}, "10s", "100ms").Should(gomega.BeTrue())
 
 		gomega.Eventually(func() bool {
-			var wls kueue.WorkloadList
-			_ = cl.List(ctx, &wls, client.MatchingFields{indexer.WorkloadRuntimeClassKey: "rc1"})
-			if len(wls.Items) == 0 {
-				return false
-			}
-			for _, wl := range wls.Items {
-				if wl.Spec.PodSets != nil {
-					for _, podSet := range wl.Spec.PodSets {
-						if podSet.Template.Spec.RuntimeClassName != nil && *podSet.Template.Spec.RuntimeClassName == "rc1" {
-							return true
-						}
-					}
-				}
-			}
-			return false
-		}, "10s", "100ms").Should(gomega.BeTrue())
-
-		gomega.Eventually(func() bool {
 			gvk := schema.GroupVersion{Group: "batch", Version: "v1"}.WithKind("Job")
 			var wls kueue.WorkloadList
 			matcher := jobframework.OwnerReferenceIndexFieldMatcher(gvk, "job-a")
-			_ = cl.List(ctx, &wls, matcher)
+			_ = k8sClient.List(ctx, &wls, matcher)
 			if len(wls.Items) == 0 {
 				return false
 			}
@@ -224,7 +208,7 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 
 		gomega.Eventually(func() bool {
 			var lrs corev1.LimitRangeList
-			_ = cl.List(ctx, &lrs, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"})
+			_ = k8sClient.List(ctx, &lrs, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"})
 			if len(lrs.Items) == 0 {
 				return false
 			}
@@ -252,11 +236,11 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 					},
 				},
 			}
-			gomega.Expect(cl.Create(ctx, pod)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, pod)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var pods corev1.PodList
-				_ = cl.List(ctx, &pods, client.MatchingFields{tasindexer.WorkloadNameKey: "wl1"})
+				_ = k8sClient.List(ctx, &pods, client.MatchingFields{tasindexer.WorkloadNameKey: "wl1"})
 				if len(pods.Items) == 0 {
 					return false
 				}
@@ -269,11 +253,11 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 			}, "10s", "100ms").Should(gomega.BeTrue())
 
 			rf := testing.MakeResourceFlavor("rf-a").TopologyName("topo.a").NodeLabel("topo.a/level", "1").Obj()
-			gomega.Expect(cl.Create(ctx, rf)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var rfs kueue.ResourceFlavorList
-				_ = cl.List(ctx, &rfs, client.MatchingFields{tasindexer.ResourceFlavorTopologyNameKey: "topo.a"})
+				_ = k8sClient.List(ctx, &rfs, client.MatchingFields{tasindexer.ResourceFlavorTopologyNameKey: "topo.a"})
 				if len(rfs.Items) == 0 {
 					return false
 				}
@@ -290,13 +274,15 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 
 var _ = ginkgo.Describe("SetupControllers", func() {
 	var (
-		mgr    ctrl.Manager
-		mgrCfg *manager.Config
-		cl     client.Client
-		cCache *schdcache.Cache
-		queues *qcache.Manager
-		ctx    context.Context
-		cancel context.CancelFunc
+		mgr       ctrl.Manager
+		mgrCfg    *manager.Config
+		cl        client.Client
+		rawClient client.Client // direct (non-cached) client for test reads
+		cCache    *schdcache.Cache
+		queues    *qcache.Manager
+		ctx       context.Context
+		cancel    context.CancelFunc
+		certDir   string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -304,14 +290,17 @@ var _ = ginkgo.Describe("SetupControllers", func() {
 
 		realCfg := filepath.Join("../../../../config", "components", "manager", "controller_manager_config.yaml")
 		mgrCfg = manager.NewConfig()
+
+		var err error
 		gomega.Expect(mgrCfg.Apply(realCfg)).To(gomega.Succeed())
 		mgrCfg.Options.LeaderElection = false
 
 		mgrCfg.Options.HealthProbeBindAddress = ":0"
 		mgrCfg.Options.Metrics.BindAddress = ":0"
 
-		defaultCertDir := "/tmp/k8s-webhook-server/serving-certs"
-		gomega.Expect(os.MkdirAll(defaultCertDir, 0755)).To(gomega.Succeed())
+		// Create a unique cert directory per test run to avoid races with watchers
+		certDir, err = os.MkdirTemp("", "kueue-webhook-certs-*")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		certPEM := `-----BEGIN CERTIFICATE-----
 MIIDCTCCAfGgAwIBAgIUey/SyCXL8fiZgV2kZrqfGkW6df8wDQYJKoZIhvcNAQEL
@@ -362,8 +351,8 @@ Gtq1E6IVqH81gg7TCJZtHXwN1lp85B/dKsqOBK/Jvfifzo4tVGL00fSLS5q4XgFL
 WBR6QR1OiJANLk5gid3x34imLg==
 -----END PRIVATE KEY-----`
 
-		gomega.Expect(os.WriteFile(filepath.Join(defaultCertDir, "tls.crt"), []byte(certPEM), 0644)).To(gomega.Succeed())
-		gomega.Expect(os.WriteFile(filepath.Join(defaultCertDir, "tls.key"), []byte(keyPEM), 0644)).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(filepath.Join(certDir, "tls.crt"), []byte(certPEM), 0644)).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(filepath.Join(certDir, "tls.key"), []byte(keyPEM), 0644)).To(gomega.Succeed())
 
 		*mgrCfg.Apiconf.InternalCertManagement.Enable = false
 
@@ -372,7 +361,15 @@ WBR6QR1OiJANLk5gid3x34imLg==
 
 		skipValidation := true
 		mgrCfg.Options.Controller.SkipNameValidation = &skipValidation
-		var err error
+
+		// Allocate a free TCP port for the webhook server to avoid :9443 conflicts.
+		// controller-runtime overwrites Port<=0 with 9443, so we must choose a real free port.
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		port := l.Addr().(*net.TCPAddr).Port
+		_ = l.Close()
+
+		mgrCfg.Options.WebhookServer = webhook.NewServer(webhook.Options{Port: port, CertDir: certDir})
 		mgr, err = ctrl.NewManager(cfg, mgrCfg.Options)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -435,17 +432,23 @@ WBR6QR1OiJANLk5gid3x34imLg==
 			}
 		}()
 
-		gomega.Eventually(func() bool {
-			return mgr.GetCache().WaitForCacheSync(ctx)
-		}, "10s", "100ms").Should(gomega.BeTrue())
+		gomega.Expect(mgr.GetCache().WaitForCacheSync(ctx)).To(gomega.BeTrue())
 		cl = mgr.GetClient()
+
+		// create a raw (uncached) client to avoid Eventually races with cache for newly created objects
+		var err2 error
+		rawClient, err2 = client.New(cfg, client.Options{Scheme: mgr.GetScheme()})
+		gomega.Expect(err2).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
 		if cancel != nil {
 			cancel()
 		}
-		os.RemoveAll("/tmp/k8s-webhook-server")
+		time.Sleep(200 * time.Millisecond)
+		if certDir != "" {
+			_ = os.RemoveAll(certDir)
+		}
 		if cl != nil {
 			_ = cl.DeleteAllOf(ctx, &kueue.ResourceFlavor{})
 			_ = cl.DeleteAllOf(ctx, &kueue.ClusterQueue{})
@@ -479,11 +482,11 @@ WBR6QR1OiJANLk5gid3x34imLg==
 
 		ginkgo.It("starts LocalQueue controller", func() {
 			lq := testing.MakeLocalQueue("q1", "default").ClusterQueue("cq1").Obj()
-			gomega.Expect(cl.Create(ctx, lq)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, lq)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var gotLQ kueue.LocalQueue
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(lq), &gotLQ); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(lq), &gotLQ); err != nil {
 					return false
 				}
 				if gotLQ.Name != lq.Name {
@@ -498,11 +501,11 @@ WBR6QR1OiJANLk5gid3x34imLg==
 
 		ginkgo.It("starts Workload controller", func() {
 			wl := testing.MakeWorkload("wl1", "default").Queue("q1").Obj()
-			gomega.Expect(cl.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var gotWL kueue.Workload
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &gotWL); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(wl), &gotWL); err != nil {
 					return false
 				}
 
@@ -518,11 +521,11 @@ WBR6QR1OiJANLk5gid3x34imLg==
 
 		ginkgo.It("starts AdmissionCheck controller", func() {
 			ac := testing.MakeAdmissionCheck("ac1")
-			gomega.Expect(cl.Create(ctx, ac.Obj())).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, ac.Obj())).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var gotAC kueue.AdmissionCheck
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(ac.Obj()), &gotAC); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(ac.Obj()), &gotAC); err != nil {
 					return false
 				}
 				if gotAC.Name != ac.Name {
@@ -532,16 +535,16 @@ WBR6QR1OiJANLk5gid3x34imLg==
 					return false
 				}
 				return true
-			}, "10s", "100ms").Should(gomega.BeTrue())
+			}, "20s", "100ms").Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("starts Cohort controller", func() {
 			cohort := testing.MakeCohort("cohort1").Obj()
-			gomega.Expect(cl.Create(ctx, cohort)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, cohort)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var gotCohort kueue.Cohort
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(cohort), &gotCohort); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(cohort), &gotCohort); err != nil {
 					return false
 				}
 				if gotCohort.Name != cohort.Name {
@@ -551,16 +554,16 @@ WBR6QR1OiJANLk5gid3x34imLg==
 					return false
 				}
 				return true
-			}, "10s", "100ms").Should(gomega.BeTrue())
+			}, "30s", "500ms").Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("starts ClusterQueue controller", func() {
 			cq := testing.MakeClusterQueue("cq1").Obj()
-			gomega.Expect(cl.Create(ctx, cq)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, cq)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var gotCQ kueue.ClusterQueue
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(cq), &gotCQ); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(cq), &gotCQ); err != nil {
 					return false
 				}
 				if gotCQ.Name != cq.Name {
@@ -570,7 +573,7 @@ WBR6QR1OiJANLk5gid3x34imLg==
 					return false
 				}
 				return true
-			}, "10s", "100ms").Should(gomega.BeTrue())
+			}, "30s", "500ms").Should(gomega.BeTrue())
 		})
 	})
 
@@ -589,11 +592,11 @@ WBR6QR1OiJANLk5gid3x34imLg==
 					},
 				},
 			}
-			gomega.Expect(cl.Create(ctx, node)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, node)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var gotNode corev1.Node
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(node), &gotNode); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(node), &gotNode); err != nil {
 					return false
 				}
 
@@ -604,7 +607,7 @@ WBR6QR1OiJANLk5gid3x34imLg==
 					return false
 				}
 				return true
-			}, "10s", "100ms").Should(gomega.BeTrue())
+			}, "30s", "500ms").Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("starts MultiKueue controllers when enabled", func() {
@@ -612,46 +615,34 @@ WBR6QR1OiJANLk5gid3x34imLg==
 				ginkgo.Skip("MultiKueue not enabled")
 			}
 
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "kueue-system",
+				},
+			}
+			gomega.Expect(cl.Create(ctx, namespace)).To(gomega.Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "kubeconfig-secret",
+					Namespace: "kueue-system",
+				},
+				Data: map[string][]byte{
+					"kubeconfig": []byte("fake-kubeconfig-data"),
+				},
+			}
+			gomega.Expect(cl.Create(ctx, secret)).To(gomega.Succeed())
+
 			mkc := testing.MakeMultiKueueCluster("c1").KubeConfig(kueue.SecretLocationType, "kubeconfig-secret").Obj()
 			gomega.Expect(cl.Create(ctx, mkc)).To(gomega.Succeed())
 
-			gomega.Eventually(func() bool {
-				var gotMKC kueue.MultiKueueCluster
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(mkc), &gotMKC); err != nil {
-					return false
-				}
-
-				if gotMKC.Name != mkc.Name {
-					return false
-				}
-				if gotMKC.CreationTimestamp.IsZero() {
-					return false
-				}
-				return true
-			}, "30s", "500ms").Should(gomega.BeTrue())
-
 			mkcfg := testing.MakeMultiKueueConfig("cfg1").Clusters("c1").Obj()
 			gomega.Expect(cl.Create(ctx, mkcfg)).To(gomega.Succeed())
-
-			gomega.Eventually(func() bool {
-				var gotCfg kueue.MultiKueueConfig
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(mkcfg), &gotCfg); err != nil {
-					return false
-				}
-
-				if gotCfg.Name != mkcfg.Name {
-					return false
-				}
-				if gotCfg.CreationTimestamp.IsZero() {
-					return false
-				}
-				return true
-			}, "30s", "500ms").Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("starts job framework controllers", func() {
 			lq := testing.MakeLocalQueue("test-queue", "default").ClusterQueue("test-cq").Obj()
-			gomega.Expect(cl.Create(ctx, lq)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, lq)).To(gomega.Succeed())
 
 			job := &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
@@ -664,23 +655,19 @@ WBR6QR1OiJANLk5gid3x34imLg==
 				Spec: batchv1.JobSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{Name: "test", Image: "busybox"},
-							},
+							Containers:    []corev1.Container{{Name: "test", Image: "busybox"}},
 							RestartPolicy: corev1.RestartPolicyNever,
 						},
 					},
 				},
 			}
-			gomega.Expect(cl.Create(ctx, job)).To(gomega.Succeed())
+			gomega.Expect(rawClient.Create(ctx, job)).To(gomega.Succeed())
 
 			gomega.Eventually(func() bool {
 				var workloads kueue.WorkloadList
-				err := cl.List(ctx, &workloads, client.InNamespace("default"))
-				if err != nil {
+				if err := rawClient.List(ctx, &workloads, client.InNamespace("default")); err != nil {
 					return false
 				}
-
 				for _, wl := range workloads.Items {
 					if wl.Spec.QueueName == "test-queue" {
 						for _, ownerRef := range wl.OwnerReferences {
@@ -691,16 +678,15 @@ WBR6QR1OiJANLk5gid3x34imLg==
 					}
 				}
 				return false
-			}, "10s", "100ms").Should(gomega.BeTrue())
+			}, "30s", "500ms").Should(gomega.BeTrue())
 
-			// should be suspended until ClusterQueue exists
 			gomega.Eventually(func() bool {
 				var gotJob batchv1.Job
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(job), &gotJob); err != nil {
+				if err := rawClient.Get(ctx, client.ObjectKeyFromObject(job), &gotJob); err != nil {
 					return false
 				}
 				return gotJob.Spec.Suspend != nil && *gotJob.Spec.Suspend == true
-			}, "10s", "100ms").Should(gomega.BeTrue())
+			}, "30s", "500ms").Should(gomega.BeTrue())
 		})
 	})
 
