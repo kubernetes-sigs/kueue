@@ -211,6 +211,23 @@ The following table summarizes the behavior based on the combination of the feat
 
 We recommend to set all three feature gates to true to have the fastest feedback loop on workload that encountered node failure.
 
+The recommended configuration looks is express in Kueue's manager deployment as following:
+```diff
+kind: Deployment
+...
+spec:
+  ...
+  template:
+    ...
+    spec:
+      containers:
+      - name: manager
+        args:
+        - --config=/controller_manager_config.yaml
+        - --zap-log-level=2
++       - --feature-gates=TopologyAwareScheduling=true,TASFailedNodeReplacement=true,TASFailedNodeReplacementFailFast=true,TASReplaceNodeOnPodTermination=true
+```
+
 ### Limitations
 
 Currently, there are limitations for the compatibility of TAS with other
