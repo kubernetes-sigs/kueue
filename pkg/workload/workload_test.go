@@ -1358,7 +1358,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 						Count: 2,
 						Requests: resources.Requests{
 							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
-							"foo-accelerator":     1,
+							"foo-accelerator":     2,
 						},
 					},
 				},

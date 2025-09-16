@@ -230,9 +230,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 			}
 		}
-
-		log.V(3).Info("Successfully processed and queued DRA workload")
-		return ctrl.Result{}, nil
+		log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
 	}
 
 	if workload.IsActive(&wl) {
@@ -695,7 +693,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 
 	// It is intentional for this code to be not guarded behind a feature gate
 	// DRA workloads need to have certain error handling and hence to be handled in Reconcile loop
-	if r.workloadHasDRA(e.Object) {
+	if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.Object) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -795,7 +793,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-		if r.workloadHasDRA(e.ObjectNew) {
+		if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
 			err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
@@ -826,13 +824,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// function.
 			if immediate {
 				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-				if !r.workloadHasDRA(e.ObjectNew) {
+				if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
+				} else {
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlCopy)
-				} else {
-					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				}
 			}
 		})
@@ -840,7 +838,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !immediate {
 			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 			// Skip delayed requeue for DRA workloads - they are handled in Reconcile loop
-			if !r.workloadHasDRA(e.ObjectNew) {
+			if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+				log.V(3).Info("Skipping delayed requeue for DRA workload - handled in Reconcile")
+			} else {
 				time.AfterFunc(backoff, func() {
 					updatedWl := kueue.Workload{}
 					err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
@@ -852,8 +852,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 						}
 					}
 				})
-			} else {
-				log.V(3).Info("Skipping delayed requeue for DRA workload - handled in Reconcile")
 			}
 		}
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),

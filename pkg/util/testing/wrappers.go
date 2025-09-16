@@ -608,6 +608,34 @@ func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrappe
 	return p
 }
 
+func (p *PodSetWrapper) ResourceClaimTemplate(claimName, templateName string) *PodSetWrapper {
+	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, corev1.PodResourceClaim{
+		Name:                      claimName,
+		ResourceClaimTemplateName: ptr.To(templateName),
+	})
+	if len(p.Template.Spec.Containers) > 0 {
+		p.Template.Spec.Containers[0].Resources.Claims = append(
+			p.Template.Spec.Containers[0].Resources.Claims,
+			corev1.ResourceClaim{Name: claimName},
+		)
+	}
+	return p
+}
+
+func (p *PodSetWrapper) ResourceClaim(claimName, resourceClaimName string) *PodSetWrapper {
+	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, corev1.PodResourceClaim{
+		Name:              claimName,
+		ResourceClaimName: ptr.To(resourceClaimName),
+	})
+	if len(p.Template.Spec.Containers) > 0 {
+		p.Template.Spec.Containers[0].Resources.Claims = append(
+			p.Template.Spec.Containers[0].Resources.Claims,
+			corev1.ResourceClaim{Name: claimName},
+		)
+	}
+	return p
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 

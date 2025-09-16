@@ -490,22 +490,18 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		}
 		setRes.Requests = resources.NewRequests(effectiveRequests)
-		setRes.Requests.Mul(int64(count))
-		res = append(res, setRes)
-	}
-
-	if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
-		for i := range res {
-			ps := &res[i]
+		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
-					if ps.Requests == nil {
-						ps.Requests = make(resources.Requests)
+					if setRes.Requests == nil {
+						setRes.Requests = make(resources.Requests)
 					}
-					ps.Requests[resName] += resources.ResourceValue(resName, quantity)
+					setRes.Requests[resName] += resources.ResourceValue(resName, quantity)
 				}
 			}
 		}
+		setRes.Requests.Mul(int64(count))
+		res = append(res, setRes)
 	}
 
 	return res
@@ -1211,19 +1207,4 @@ func GetWorkloadPriorityClass(wl *kueue.Workload) string {
 		return wl.Spec.PriorityClassName
 	}
 	return ""
-}
-
-// BuildDRAWorkloadInfoOptions creates workload info options with DRA support if enabled.
-// It takes base options and enhances them with DRA configuration for the specified cluster queue.
-// This centralizes DRA workload info option building logic.
-func BuildDRAWorkloadInfoOptions(baseOptions []InfoOption, client client.Client, clusterQueue string, lookup func(corev1.ResourceName) (corev1.ResourceName, bool)) []InfoOption {
-	infoOptions := make([]InfoOption, 0, len(baseOptions)+1)
-	infoOptions = append(infoOptions, baseOptions...)
-
-	// Add DRA option with the correct cluster queue name if DRA is enabled
-	if features.Enabled(features.DynamicResourceAllocation) && client != nil && lookup != nil {
-		infoOptions = append(infoOptions, WithDRAResources(client, clusterQueue, lookup))
-	}
-
-	return infoOptions
 }
