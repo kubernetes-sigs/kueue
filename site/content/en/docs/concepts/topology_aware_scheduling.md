@@ -144,13 +144,13 @@ the workload gets evicted.
 By default, the node is assumed to have failed if its `conditions.Status.Ready`
 is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
 Since Kueue v0.13, you can enable the `TASReplaceNodeOnPodTermination` feature gate, which adds an additional heuristic:
-a node is also considered failed if it is `NotReady` and at least one of the workload's Pods scheduled on that node are terminated or terminating.
+a node is also considered failed if it is `NotReady` and the workload's Pods scheduled on that node are either terminated or terminating.
 If this happens Kueue will immediately look for replacement without waiting 30 seconds.
-Note that those two heuristic are mutually exclusive and depends on the value of the `TASReplaceNodeOnPodTermination` feature gate.
+Note that those two heuristics are mutually exclusive and depend on the value of the `TASReplaceNodeOnPodTermination` feature gate.
 
 Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
 If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
-Hence, we recommend using FailFast mode describe below or [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
+Hence, we recommend using FailFast mode described below or [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
 and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads from
 waiting for the replacement indefinitely.
 
@@ -178,17 +178,17 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
    - The pods on that node are terminated.
    - Kueue immediately looks for a replacement but cannot find one.
    - With `TASFailedNodeReplacementFailFast` enabled, Kueue will not retry.
-   - The workload immediately gets evicted (doesn't wait 30s or until waits for pod ready) and requeued
+   - The workload immediately gets evicted and requeued (doesn't wait 30s or until `waitForPodsReady.recoveryTimeout` expires)
 
 3. **Node gets deleted**
    - Same scenarios apply as in 1. and 2.
 
-4. **Node requires the whole rack and one of the Nodes becomes `NotRead`:**
+4. **The Workload requires the whole rack and one of the nodes becomes `NotReady`:**
    - A node running a pod from a TAS workload becomes `NotReady`.
    - The pods on that node are terminated.
-   - Kueue immediately looks for a replacement but since the workload asked for the whole rack in the first place, it cannot find one.
-   - With `TASFailedNodeReplacementFailFast` enabled, Kueue will not retry.
-   - The workload immediately gets evicted (doesn't wait 30s or until waits for pod ready) and requeued
+   - Kueue immediately looks for a replacement but since the workload requires the whole rack, it cannot find the replacement.
+   - With `TASFailedNodeReplacementFailFast` enabled, Kueue does not retry the replacement search.
+   - The workload immediately gets evicted and requeued (doesn't wait 30s or until `waitForPodsReady.recoveryTimeout` expires)
 
 ##### Feature Gate Interaction Matrix
 
