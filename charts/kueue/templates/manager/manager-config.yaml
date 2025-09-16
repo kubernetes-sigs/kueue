@@ -6,4 +6,11 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 data:
-  controller_manager_config.yaml: {{ .Values.managerConfig.controllerManagerConfigYaml | toYaml | indent 1 }}
+  controller_manager_config.yaml: |
+{{ .Values.managerConfig.controllerManagerConfigYaml | indent 4 }}
+{{- if not .Values.enableCertManager }}
+    internalCertManagement:
+      enable: true
+      webhookServiceName: {{ include "kueue.fullname" . }}-webhook-service
+      webhookSecretName: {{ include "kueue.fullname" . }}-webhook-server-cert
+{{- end }}
