@@ -294,14 +294,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -309,7 +317,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -334,14 +346,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -349,7 +369,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -375,14 +399,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -406,14 +438,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -436,14 +476,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -451,7 +499,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -476,14 +528,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -491,7 +551,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -516,14 +580,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceMemory, "alpha", "2Gi").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceMemory, "1Gi").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceMemory, "beta", "1Gi").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -531,7 +603,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceMemory, "1Gi").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceMemory, "beta", "1Gi").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -561,14 +637,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-mid", "").
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -576,7 +660,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "6").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "6000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "6000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -638,7 +726,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -646,7 +738,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -670,7 +766,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -678,7 +778,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -686,7 +790,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -710,7 +818,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -718,7 +830,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -726,7 +842,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -756,7 +876,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -764,7 +888,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -772,7 +900,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -797,7 +929,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+						utiltesting.MakeAdmission("d1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -805,7 +941,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+						utiltesting.MakeAdmission("d1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -813,7 +953,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("d2").Assignment(corev1.ResourceCPU, "default", "4").Obj(),
+						utiltesting.MakeAdmission("d2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -838,7 +982,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -846,7 +994,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "5").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "5000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -854,7 +1006,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -862,7 +1018,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -892,7 +1052,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("l1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -900,7 +1064,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("l1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -924,21 +1092,33 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-1", "").
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-2", "").
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -960,7 +1140,11 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-1", "").
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -968,14 +1152,22 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -999,14 +1191,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-mid", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("c1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1014,14 +1214,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-mid", "").
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1045,7 +1253,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("c2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1069,7 +1281,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceMemory, "alpha", "2Gi").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1077,7 +1293,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "2Gi").Obj(),
+						utiltesting.MakeAdmission("standalone").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceMemory, "beta", "2Gi").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1124,7 +1344,11 @@ func TestPreemption(t *testing.T) {
 					Priority(2).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+						utiltesting.MakeAdmission("preventStarvation").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1133,7 +1357,11 @@ func TestPreemption(t *testing.T) {
 					Creation(now).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+						utiltesting.MakeAdmission("preventStarvation").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2").
+								Obj()).
+							Obj(),
 						now.Add(time.Second),
 					).
 					Obj(),
@@ -1142,7 +1370,11 @@ func TestPreemption(t *testing.T) {
 					Creation(now).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+						utiltesting.MakeAdmission("preventStarvation").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1178,7 +1410,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						utiltesting.MakeAdmission("a_best_effort").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "10").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1186,7 +1422,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b_best_effort").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1210,7 +1450,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "10000m").Obj(),
+						utiltesting.MakeAdmission("b_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "10000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1235,7 +1479,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "13").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "13000m").Obj(),
+						utiltesting.MakeAdmission("b_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "13000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1261,7 +1509,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "13").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "13000m").Obj(),
+						utiltesting.MakeAdmission("a_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "13000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1285,7 +1537,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						utiltesting.MakeAdmission("a_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "10").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1293,7 +1549,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1301,7 +1561,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1309,7 +1573,11 @@ func TestPreemption(t *testing.T) {
 					Priority(2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1334,7 +1602,11 @@ func TestPreemption(t *testing.T) {
 					Priority(2).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						utiltesting.MakeAdmission("b_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "10").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1342,7 +1614,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b_standard").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b_standard").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1350,7 +1626,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a_best_effort").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1358,7 +1638,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a_best_effort").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1383,14 +1667,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("lend1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend2-mid", "").
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("lend2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1398,7 +1690,11 @@ func TestPreemption(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("lend2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1423,14 +1719,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("lend1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend1-mid", "").
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+						utiltesting.MakeAdmission("lend1").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1438,14 +1742,22 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+						utiltesting.MakeAdmission("lend2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
 				*utiltesting.MakeWorkload("lend2-mid", "").
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj(),
+						utiltesting.MakeAdmission("lend2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "4000m").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1469,7 +1781,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "10").Obj(),
+						utiltesting.MakeAdmission("lend2").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "10").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1493,7 +1809,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1501,7 +1821,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1509,7 +1833,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1517,7 +1845,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1525,7 +1857,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1533,7 +1869,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1559,7 +1899,12 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Assignment(corev1.ResourceMemory, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1568,7 +1913,12 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Assignment(corev1.ResourceMemory, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1577,7 +1927,12 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Assignment(corev1.ResourceMemory, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1586,7 +1941,12 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Assignment(corev1.ResourceMemory, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1595,7 +1955,12 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Assignment(corev1.ResourceMemory, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1604,7 +1969,12 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Assignment(corev1.ResourceMemory, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1634,7 +2004,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1642,7 +2016,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1650,7 +2028,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1658,7 +2040,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1666,7 +2052,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1674,7 +2064,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1704,7 +2098,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("a").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1712,7 +2110,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1720,7 +2122,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1728,7 +2134,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1736,7 +2146,11 @@ func TestPreemption(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1744,7 +2158,11 @@ func TestPreemption(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+						utiltesting.MakeAdmission("b").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -1788,7 +2206,11 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("to-be-preempted", "").
 					Request(corev1.ResourceCPU, "5").
 					ReserveQuotaAt(
-						utiltesting.MakeAdmission("cq-right").Assignment(corev1.ResourceCPU, "default", "5").Obj(),
+						utiltesting.MakeAdmission("cq-right").
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5").
+								Obj()).
+							Obj(),
 						now,
 					).
 					Obj(),
@@ -2928,7 +3350,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -2988,13 +3411,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-10).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_nominal").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3046,13 +3471,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted2", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3110,19 +3537,22 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_preemptible", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_own_queue", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3176,13 +3606,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_queue", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3248,13 +3680,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-10).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_nominal").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3315,13 +3749,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(10).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(10).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3389,19 +3825,22 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort_preemptible", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_not_preemptible", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3469,19 +3908,22 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_queue_preemptible", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_not_preemptible", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3543,25 +3985,29 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(8).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_prio_9", "").
 					Priority(9).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_prio_10", "").
 					Priority(9).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_nominal", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_nominal").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3626,19 +4072,22 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-10).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_other").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_other_2", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_other").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3702,16 +4151,18 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "1Gi").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "3").
-						Assignment(corev1.ResourceMemory, "default", "1Gi").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").
+							Assignment(corev1.ResourceMemory, "default", "1Gi").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "3Gi").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "1").
-						Assignment(corev1.ResourceMemory, "default", "3Gi").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").
+							Assignment(corev1.ResourceMemory, "default", "3Gi").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3780,13 +4231,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-10).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("evicted_same_cohort", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
 					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
-						Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -3845,7 +4298,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
-						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").
@@ -3955,49 +4409,57 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(-6).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q1").
-						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_2", "").
 					Priority(-5).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q1").
-						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_3", "").
 					Priority(-9).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q2").
-						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_4", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q2").
-						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_5", "").
 					Priority(-4).
 					Request(corev1.ResourceCPU, "4").
 					ReserveQuota(utiltesting.MakeAdmission("q3").
-						Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_6", "").
 					Priority(-3).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuota(utiltesting.MakeAdmission("q3").
-						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_7", "").
 					Priority(4).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("q4").
-						Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_8", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "3").
 					ReserveQuota(utiltesting.MakeAdmission("q4").
-						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("incoming", "").

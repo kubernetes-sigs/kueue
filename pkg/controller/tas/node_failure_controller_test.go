@@ -64,19 +64,12 @@ func TestNodeFailureReconciler(t *testing.T) {
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(
 			utiltesting.MakeAdmission("cq").
-				Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-				AssignmentPodCount(1).
-				TopologyAssignment(&kueue.TopologyAssignment{
-					Levels: []string{corev1.LabelHostname},
-					Domains: []kueue.TopologyDomainAssignment{
-						{
-							Count: 1,
-							Values: []string{
-								nodeName,
-							},
-						},
-					},
-				}).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(utiltesting.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj()).
+						Obj()).
+					Obj()).
 				Obj(),
 		).
 		Admitted(true).
@@ -92,15 +85,16 @@ func TestNodeFailureReconciler(t *testing.T) {
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(
 			utiltesting.MakeAdmission("cq").
-				Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-				AssignmentPodCount(2).
-				TopologyAssignment(&kueue.TopologyAssignment{
-					Levels: []string{corev1.LabelHostname},
-					Domains: []kueue.TopologyDomainAssignment{
-						{Count: 1, Values: []string{nodeName}},
-						{Count: 1, Values: []string{nodeName2}},
-					},
-				}).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+					Count(2).
+					TopologyAssignment(utiltesting.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(
+							utiltesting.MakeTopologyDomainAssignment([]string{nodeName}, 1).Obj(),
+							utiltesting.MakeTopologyDomainAssignment([]string{nodeName2}, 1).Obj(),
+						).
+						Obj()).
+					Obj()).
 				Obj(),
 		).
 		Admitted(true).

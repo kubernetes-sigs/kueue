@@ -714,7 +714,9 @@ func TestDominantResourceShare(t *testing.T) {
 			for fr, v := range tc.usage {
 				admission := utiltesting.MakeAdmission("cq")
 				quantity := resources.ResourceQuantity(fr.Resource, v)
-				admission.Assignment(fr.Resource, fr.Flavor, quantity.String())
+				admission.PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(fr.Resource, fr.Flavor, quantity.String()).
+					Obj())
 
 				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
 

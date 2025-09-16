@@ -337,8 +337,10 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				testing.MakeAdmission("cluster-queue").
-					Assignment(corev1.ResourceCPU, "flv", "1").
-					AssignmentPodCount(3).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flv", "1").
+						Count(3).
+						Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 		)
@@ -536,7 +538,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Status = kueue.WorkloadStatus{
-						Admission: testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
+						Admission: testing.MakeAdmission("cluster-queue").PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj(),
 						Conditions: []metav1.Condition{{
 							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
@@ -551,7 +553,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.Entry("admission can be unset",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).ReserveQuota(
-						testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
+						testing.MakeAdmission("cluster-queue").PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj(),
 					).Obj()
 				},
 				false,
@@ -869,7 +871,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj()
+				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj()
 				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

@@ -576,24 +576,14 @@ func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWr
 
 	if len(podSetNames) == 0 {
 		wrap.PodSetAssignments = []kueue.PodSetAssignment{
-			{
-				Name:          kueue.DefaultPodSetName,
-				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-				ResourceUsage: make(corev1.ResourceList),
-				Count:         ptr.To[int32](1),
-			},
+			MakePodSetAssignment(kueue.DefaultPodSetName).Obj(),
 		}
 		return wrap
 	}
 
 	var psFlavors []kueue.PodSetAssignment
 	for _, name := range podSetNames {
-		psFlavors = append(psFlavors, kueue.PodSetAssignment{
-			Name:          name,
-			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-			ResourceUsage: make(corev1.ResourceList),
-			Count:         ptr.To[int32](1),
-		})
+		psFlavors = append(psFlavors, MakePodSetAssignment(name).Obj())
 	}
 	wrap.PodSetAssignments = psFlavors
 	return wrap
@@ -601,47 +591,6 @@ func MakeAdmission(cq string, podSetNames ...kueue.PodSetReference) *AdmissionWr
 
 func (w *AdmissionWrapper) Obj() *kueue.Admission {
 	return &w.Admission
-}
-
-func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
-	w.AssignmentWithIndex(0, r, f, value)
-	return w
-}
-
-func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
-	w.AssignmentPodCountWithIndex(0, value)
-	return w
-}
-
-func (w *AdmissionWrapper) TopologyAssignment(ts *kueue.TopologyAssignment) *AdmissionWrapper {
-	w.TopologyAssignmentWithIndex(0, ts)
-	return w
-}
-
-func (w *AdmissionWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
-	w.DelayedTopologyRequestWithIndex(0, state)
-	return w
-}
-
-func (w *AdmissionWrapper) AssignmentWithIndex(index int32, r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
-	w.PodSetAssignments[index].Flavors[r] = f
-	w.PodSetAssignments[index].ResourceUsage[r] = resource.MustParse(value)
-	return w
-}
-
-func (w *AdmissionWrapper) AssignmentPodCountWithIndex(index, value int32) *AdmissionWrapper {
-	w.PodSetAssignments[index].Count = ptr.To(value)
-	return w
-}
-
-func (w *AdmissionWrapper) TopologyAssignmentWithIndex(index int32, ts *kueue.TopologyAssignment) *AdmissionWrapper {
-	w.PodSetAssignments[index].TopologyAssignment = ts
-	return w
-}
-
-func (w *AdmissionWrapper) DelayedTopologyRequestWithIndex(index int32, state kueue.DelayedTopologyRequestState) *AdmissionWrapper {
-	w.PodSetAssignments[index].DelayedTopologyRequest = ptr.To(state)
-	return w
 }
 
 func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetAssignment) *AdmissionWrapper {
@@ -1657,4 +1606,129 @@ func AppendOwnerReference(obj client.Object, gvk schema.GroupVersionKind, name, 
 		Controller:         controller,
 		BlockOwnerDeletion: blockDeletion,
 	}))
+}
+
+type EventRecordWrapper struct {
+	EventRecord
+}
+
+func MakeEventRecord(namespace, name, reason, eventType string) *EventRecordWrapper {
+	return &EventRecordWrapper{
+		EventRecord: EventRecord{
+			Key:       types.NamespacedName{Namespace: namespace, Name: name},
+			Reason:    reason,
+			EventType: eventType,
+		},
+	}
+}
+
+func (e *EventRecordWrapper) Message(message string) *EventRecordWrapper {
+	e.EventRecord.Message = message
+	return e
+}
+
+func (e *EventRecordWrapper) Obj() EventRecord {
+	return e.EventRecord
+}
+
+type TopologyDomainAssignmentWrapper struct {
+	kueue.TopologyDomainAssignment
+}
+
+func MakeTopologyDomainAssignment(values []string, count int32) *TopologyDomainAssignmentWrapper {
+	return &TopologyDomainAssignmentWrapper{
+		TopologyDomainAssignment: kueue.TopologyDomainAssignment{
+			Values: values,
+			Count:  count,
+		},
+	}
+}
+
+func (t *TopologyDomainAssignmentWrapper) Obj() kueue.TopologyDomainAssignment {
+	return t.TopologyDomainAssignment
+}
+
+type TopologyAssignmentWrapper struct {
+	kueue.TopologyAssignment
+}
+
+func MakeTopologyAssignment(levels []string) *TopologyAssignmentWrapper {
+	return &TopologyAssignmentWrapper{
+		TopologyAssignment: kueue.TopologyAssignment{
+			Levels: levels,
+		},
+	}
+}
+
+func (t *TopologyAssignmentWrapper) Levels(levels ...string) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Levels = levels
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Domains(domains ...kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Domains = domains
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Domain(domain kueue.TopologyDomainAssignment) *TopologyAssignmentWrapper {
+	t.TopologyAssignment.Domains = append(t.TopologyAssignment.Domains, domain)
+	return t
+}
+
+func (t *TopologyAssignmentWrapper) Obj() *kueue.TopologyAssignment {
+	return &t.TopologyAssignment
+}
+
+type PodSetAssignmentWrapper struct {
+	kueue.PodSetAssignment
+}
+
+func MakePodSetAssignment(name kueue.PodSetReference) *PodSetAssignmentWrapper {
+	return &PodSetAssignmentWrapper{
+		PodSetAssignment: kueue.PodSetAssignment{
+			Name:          name,
+			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+			ResourceUsage: make(corev1.ResourceList),
+			Count:         ptr.To[int32](1),
+		},
+	}
+}
+
+func (p *PodSetAssignmentWrapper) Obj() kueue.PodSetAssignment {
+	return p.PodSetAssignment
+}
+
+func (p *PodSetAssignmentWrapper) Flavor(resource corev1.ResourceName, flavor kueue.ResourceFlavorReference) *PodSetAssignmentWrapper {
+	if p.Flavors == nil {
+		p.Flavors = make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	}
+	p.Flavors[resource] = flavor
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName, quantity string) *PodSetAssignmentWrapper {
+	if p.PodSetAssignment.ResourceUsage == nil {
+		p.PodSetAssignment.ResourceUsage = make(corev1.ResourceList)
+	}
+	p.PodSetAssignment.ResourceUsage[resourceName] = resource.MustParse(quantity)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.Count = ptr.To(count)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) TopologyAssignment(ta *kueue.TopologyAssignment) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.TopologyAssignment = ta
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopologyRequestState) *PodSetAssignmentWrapper {
+	p.PodSetAssignment.DelayedTopologyRequest = ptr.To(state)
+	return p
+}
+
+func (p *PodSetAssignmentWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *PodSetAssignmentWrapper {
+	return p.Flavor(r, f).ResourceUsage(r, value)
 }

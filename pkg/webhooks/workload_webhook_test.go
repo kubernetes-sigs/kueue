@@ -67,8 +67,10 @@ func TestValidateWorkload(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(testingutil.MakeAdmission("cluster-queue").
-					Assignment(corev1.ResourceCPU, "flv", "1").
-					AssignmentPodCount(3).
+					PodSets(testingutil.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flv", "1").
+						Count(3).
+						Obj()).
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
