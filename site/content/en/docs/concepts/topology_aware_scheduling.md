@@ -190,6 +190,27 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
    - With `TASFailedNodeReplacementFailFast` enabled, Kueue will not retry.
    - The workload immediately gets evicted (doesn't wait 30s or until waits for pod ready) and requeued
 
+##### Feature Gate Interaction Matrix
+
+{{% alert title="Note" color="primary" %}}
+`TASFailedNodeReplacement` feature gate is available since Kueue v0.12.
+`TASReplaceNodeOnPodTermination` and `TASFailedNodeReplacementFailFast` are available since Kueue v0.13.
+{{% /alert %}}
+
+The following table summarizes the behavior based on the combination of the feature gates. If `TASFailedNodeReplacement` is `false`, the other two gates have no effect.
+
+| `TASFailedNodeReplacement` | `TASReplaceNodeOnPodTermination` | `TASFailedNodeReplacementFailFast` | End Behavior                                                                                                                                                                                                                                                                                        |
+| :------------------------: | :------------------------------: | :--------------------------------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|          `false`           |              *any*               |               *any*                | **Hot swap is disabled.** Workloads will not have failed nodes replaced and may get stuck until they are evicted.                                                                                                                                                                                   |
+|           `true`           |             `false`              |              `false`               | **Default Hot Swap.** Kueue attempts replacement if a node is `NotReady` for over 30 seconds. It will **retry** until it succeeds or the wait for pods ready evicts it.                                                                                                                             |
+|           `true`           |              `true`              |              `false`               | **Hot Swap with Pod Termination Trigger.** Kueue attempts replacement if the node is `NotReady` and at least one of the workload's pods is terminating, the 30 seconds timeout is disregarded. It will **retry** until it succeeds or the wait for pods ready evicts it                             |
+|           `true`           |             `false`              |               `true`               | **Fast Hot Swap.** Kueue attempts replacement if a node is `NotReady` for over 30 seconds. It will try to find the replacement **only once.** and evict the workload if it fails to do so                                                                                                           |
+|           `true`           |              `true`              |               `true`               | **Fast Hot Swap with Pod Termination Trigger.** Kueue attempts replacement if the node is `NotReady` and at least one of the workload's pods is terminating, the 30 seconds timeout is disregarded.  It will try to find the replacement **only once.** and evict the workload if it fails to do so |
+
+**Recommended configuration**
+
+We recommend to set all three feature gates to true to have the fastest feedback loop on workload that encountered node failure.
+
 ### Limitations
 
 Currently, there are limitations for the compatibility of TAS with other
