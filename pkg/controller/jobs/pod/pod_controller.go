@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -119,7 +118,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return r.ReconcileGenericJob(ctx, req, NewPod(
 		WithExcessPodExpectations(r.expectationsStore),
 		WithClock(realClock),
-		WithAutomaticallyEnabledIntegrations(r.GetAutomaticallyEnabledIntegrations()),
 	))
 }
 
@@ -148,17 +146,16 @@ func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobfram
 }
 
 type Pod struct {
-	pod                              corev1.Pod
-	key                              types.NamespacedName
-	isFound                          bool
-	isGroup                          bool
-	unretriableGroup                 *bool
-	list                             corev1.PodList
-	absentPods                       int
-	excessPodExpectations            *expectations.Store
-	satisfiedExcessPods              bool
-	clock                            clock.Clock
-	automaticallyEnabledIntegrations sets.Set[string]
+	pod                   corev1.Pod
+	key                   types.NamespacedName
+	isFound               bool
+	isGroup               bool
+	unretriableGroup      *bool
+	list                  corev1.PodList
+	absentPods            int
+	excessPodExpectations *expectations.Store
+	satisfiedExcessPods   bool
+	clock                 clock.Clock
 }
 
 var (
@@ -187,14 +184,6 @@ func WithExcessPodExpectations(store *expectations.Store) PodOption {
 func WithClock(clock clock.Clock) PodOption {
 	return func(pod *Pod) {
 		pod.clock = clock
-	}
-}
-
-// WithAutomaticallyEnabledIntegrations sets the automaticallyEnabledIntegrations field of the Pod.
-// This allows the Pod to know which integrations were automatically enabled.
-func WithAutomaticallyEnabledIntegrations(integrations sets.Set[string]) PodOption {
-	return func(pod *Pod) {
-		pod.automaticallyEnabledIntegrations = integrations
 	}
 }
 
@@ -553,16 +542,6 @@ func (p *Pod) Skip() bool {
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
 		return true
-	}
-
-	if p.automaticallyEnabledIntegrations != nil && p.automaticallyEnabledIntegrations.Len() > 0 {
-		if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != "" {
-			return false
-		}
-
-		if p.automaticallyEnabledIntegrations.Has(jobframework.PodIntegrationName) {
-			return true
-		}
 	}
 
 	return false

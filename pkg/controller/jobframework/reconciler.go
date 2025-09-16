@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -276,6 +277,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	} else {
 		err = r.client.Get(ctx, req.NamespacedName, object)
 		dropFinalizers = apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero()
+	}
+
+	integrationName, found := GetIntegrationNameByGVK(object.GetObjectKind().GroupVersionKind())
+	if found && r.automaticallyEnabledIntegrations.Has(integrationName) {
+		// SuspendedByParentAnnotation is specifically designed for the Pod integration.
+		// TODO: Extend annotation support beyond the Pod integration to additional frameworks.
+		if object.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
+			log.V(3).Info("Integration was automatically enabled but object lacks parent annotation, skipping", "integration", integrationName)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if jws, implements := job.(JobWithSkip); implements {

@@ -37,10 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const (
-	PodIntegrationName = "pod"
-)
-
 var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
 	errMissingMandatoryField  = errors.New("mandatory field missing")
@@ -86,6 +82,8 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
+	// The list of integrations automatically enabled as dependencies of the integration.
+	ImplicitlyEnables []string
 }
 
 func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
@@ -109,6 +107,7 @@ type integrationManager struct {
 	enabledIntegrations              set.Set[string]
 	externalIntegrations             map[string]runtime.Object
 	automaticallyEnabledIntegrations sets.Set[string]
+	gvkToName                        map[schema.GroupVersionKind]string
 	mu                               sync.RWMutex
 }
 
@@ -136,6 +135,11 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 
 	m.integrations[name] = cb
 	m.names = append(m.names, name)
+
+	if m.gvkToName == nil {
+		m.gvkToName = make(map[schema.GroupVersionKind]string)
+	}
+	m.gvkToName[cb.getGVK()] = name
 
 	return nil
 }
@@ -328,6 +332,13 @@ func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, boo
 	return IntegrationCallbacks{}, false
 }
 
+// GetIntegrationNameByGVK looks-up the framework name identified by GroupVersionKind in the currently
+// registered list of frameworks returning its name and true if found.
+func GetIntegrationNameByGVK(gvk schema.GroupVersionKind) (string, bool) {
+	name, found := manager.gvkToName[gvk]
+	return name, found
+}
+
 func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
 	apiVersion, kind := gvk.ToAPIVersionAndKind()
 	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
@@ -379,33 +390,19 @@ func GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]Mul
 func (m *integrationManager) autoEnableIntegrations(ctx context.Context, enabledFrameworks sets.Set[string]) {
 	log := ctrl.LoggerFrom(ctx)
 
-	requiredIntegrations := m.findRequiredIntegrations(enabledFrameworks)
-	for integration := range requiredIntegrations {
-		// TODO: Remove this condition to allow automatic enabling of other dependencies
-		if integration == PodIntegrationName {
-			log.Info("Automatically enabling integration for framework support", "integration", integration)
-			enabledFrameworks.Insert(integration)
-		}
-	}
-}
-
-func (m *integrationManager) findRequiredIntegrations(enabledFrameworks sets.Set[string]) sets.Set[string] {
-	requiredIntegrations := sets.New[string]()
-
-	for framework := range enabledFrameworks {
-		integration, found := m.get(framework)
+	for fwkName := range enabledFrameworks {
+		callbacks, found := m.get(fwkName)
 		if !found {
 			continue
 		}
 
-		for _, dependency := range integration.DependencyList {
-			if !enabledFrameworks.Has(dependency) {
-				requiredIntegrations.Insert(dependency)
+		for _, autoFwkName := range callbacks.ImplicitlyEnables {
+			if !enabledFrameworks.Has(autoFwkName) {
+				log.Info("Automatically enabling integration for framework support", "integration", autoFwkName)
+				enabledFrameworks.Insert(autoFwkName)
 			}
 		}
 	}
-
-	return requiredIntegrations
 }
 
 func (m *integrationManager) storeAutomaticallyEnabledIntegrations(originalFrameworks, currentFrameworks sets.Set[string]) {

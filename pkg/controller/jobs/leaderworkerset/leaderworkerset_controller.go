@@ -44,7 +44,7 @@ func init() {
 		SetupWebhook:             SetupWebhook,
 		JobType:                  &leaderworkersetv1.LeaderWorkerSet{},
 		AddToScheme:              leaderworkersetv1.AddToScheme,
-		DependencyList:           []string{"pod"},
+		ImplicitlyEnables:        []string{"pod"},
 		GVK:                      gvk,
 	}))
 }
