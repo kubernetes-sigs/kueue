@@ -573,8 +573,8 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriority
 	expectCounterMetric(metric, v)
 }
 
-func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause string, v int) {
-	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause)
+func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, workloadPriorityClass string, v int) {
+	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, workloadPriorityClass)
 	expectCounterMetric(metric, v)
 }
 
