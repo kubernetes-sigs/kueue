@@ -1,0 +1,33 @@
+suite: test manager-config configmap
+templates:
+  - manager/manager-config.yaml
+tests:
+  - it: should not inject internalCertManagement config when enableCertManager is true
+    set:
+      enableCertManager: true
+    asserts:
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n      enable: true"
+
+  - it: should properly template the webhook using the release name
+    release:
+      name: custom-kueue-name
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "webhookServiceName: custom-kueue-name-webhook-service"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "webhookSecretName: custom-kueue-name-webhook-server-cert"
+
+  - it: should properly template the webhook using the fullnameOverride
+    set:
+      fullnameOverride: "full-override"
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "webhookServiceName: full-override-webhook-service"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "webhookSecretName: full-override-webhook-server-cert"
