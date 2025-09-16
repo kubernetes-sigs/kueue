@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("checking the 'prod' workload is admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("verify the 'prod' workload gets re-admitted twice")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
@@ -324,7 +324,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("the workload exceeded re-queue backoff limit should be deactivated")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 3)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 3)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 3)
 			time.Sleep(podsReadyTimeout)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
@@ -348,7 +348,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// even after timeout until FinishEvictionForWorkloads is called below.
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 4)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 4)
 			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
@@ -697,7 +697,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			ginkgo.By("checking the 'prod' workload is admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 			ginkgo.By("exceed the timeout for the 'prod' workload")
 			time.Sleep(podsReadyTimeout)
 			ginkgo.By("finish the eviction")
@@ -706,7 +706,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			ginkgo.By("verify the 'prod' workload gets re-admitted once")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
