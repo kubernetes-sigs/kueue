@@ -41,12 +41,12 @@ the same "rack" label, but in different "blocks".
 
 For example, this is a representation of the data center hierarchy;
 
-|  node  |  cloud.provider.com/topology-block | cloud.provider.com/topology-rack |
-|:------:|:----------------------------------:|:--------------------------------:|
-| node-1 |               block-1              |              rack-1              |
-| node-2 |               block-1              |              rack-2              |
-| node-3 |               block-2              |              rack-1              |
-| node-4 |               block-2              |              rack-3              |
+|  node  | cloud.provider.com/topology-block | cloud.provider.com/topology-rack |
+| :----: | :-------------------------------: | :------------------------------: |
+| node-1 |              block-1              |              rack-1              |
+| node-2 |              block-1              |              rack-2              |
+| node-3 |              block-2              |              rack-1              |
+| node-4 |              block-2              |              rack-3              |
 
 Note that, there is a pair of nodes, node-1 and node-3, with the same value of
 the "cloud.provider.com/topology-rack" label, but in different blocks.
@@ -139,13 +139,56 @@ of the entire TAS workload we introduce the node hot swap feature.
 With this feature, TAS tries to find a replacement of the failed or deleted node for
 all the affected workloads, without changing the rest of the topology assignment.
 Currently this works only for a single node failure at the time and in case of multiple failures,
-the workload gets evicted. The node is assumed to have failed if its `conditions.Status.Ready`
-is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
+the workload gets evicted.
 
-Note that finding a replacement node within the old domain (like rack) may not always
-be possible. Hence, we recommend using [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
+By default, the node is assumed to have failed if its `conditions.Status.Ready`
+is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
+Since Kueue v0.13, you can enable the `TASReplaceNodeOnPodTermination` feature gate, which adds an additional heuristic:
+a node is also considered failed if it is `NotReady` and at least one of the workload's Pods scheduled on that node are terminated or terminating.
+If this happens Kueue will immediately look for replacement without waiting 30 seconds.
+Note that those two heuristic are mutually exclusive and depends on the value of the `TASReplaceNodeOnPodTermination` feature gate.
+
+Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
+If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
+Hence, we recommend using FailFast mode describe below or [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
 and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads from
-waiting for the replacement indefinetly.
+waiting for the replacement indefinitely.
+
+#### Fast Hot swap
+{{% alert title="Note" color="primary" %}}
+To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
+`TASFailedNodeReplacementFailFast` to `true`. This feature was introduced to Kueue in version 0.13.
+{{% /alert %}}
+
+By default, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, you can enable the `TASFailedNodeReplacementFailFast` feature gate. When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
+
+#### Usage Scenarios
+
+Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTermination` and `TASFailedNodeReplacementFailFast` are enabled:
+
+1. **Node becomes `NotReady`, pods are terminated, and a replacement is found:**
+   - A node running a pod from a TAS workload becomes `NotReady`.
+   - The pods on that node are terminated.
+   - With `TASReplaceNodeOnPodTermination` enabled, Kueue immediately looks for a replacement.
+   - A replacement node is available, and Kueue successfully swaps the failed node.
+   - The workload continues running on the new node.
+
+2. **Node becomes `NotReady`, pods are terminated, and no replacement is found:**
+   - A node running a pod from a TAS workload becomes `NotReady`.
+   - The pods on that node are terminated.
+   - Kueue immediately looks for a replacement but cannot find one.
+   - With `TASFailedNodeReplacementFailFast` enabled, Kueue will not retry.
+   - The workload immediately gets evicted (doesn't wait 30s or until waits for pod ready) and requeued
+
+3. **Node gets deleted**
+   - Same scenarios apply as in 1. and 2.
+
+4. **Node requires the whole rack and one of the Nodes becomes `NotRead`:**
+   - A node running a pod from a TAS workload becomes `NotReady`.
+   - The pods on that node are terminated.
+   - Kueue immediately looks for a replacement but since the workload asked for the whole rack in the first place, it cannot find one.
+   - With `TASFailedNodeReplacementFailFast` enabled, Kueue will not retry.
+   - The workload immediately gets evicted (doesn't wait 30s or until waits for pod ready) and requeued
 
 ### Limitations
 
