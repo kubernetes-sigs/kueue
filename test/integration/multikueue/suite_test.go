@@ -35,7 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -52,7 +53,7 @@ import (
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	"sigs.k8s.io/kueue/pkg/queue"
+	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -117,8 +118,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	cCache := schdcache.New(mgr.GetClient())
+	queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
@@ -296,6 +297,11 @@ func managerAndMultiKueueSetup(
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
 	)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+	_, err = dispatcher.SetupControllers(mgr, configuration, dispatcherName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

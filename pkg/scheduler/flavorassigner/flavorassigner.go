@@ -33,7 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -58,7 +58,7 @@ type Assignment struct {
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
-func (a *Assignment) UpdateForTASResult(result cache.TASAssignmentsResult) {
+func (a *Assignment) UpdateForTASResult(result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
@@ -399,12 +399,12 @@ type FlavorAssignment struct {
 }
 
 type preemptionOracle interface {
-	SimulatePreemption(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int)
+	SimulatePreemption(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) (preemptioncommon.PreemptionPossibility, int)
 }
 
 type FlavorAssigner struct {
 	wl                *workload.Info
-	cq                *cache.ClusterQueueSnapshot
+	cq                *schdcache.ClusterQueueSnapshot
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
 	oracle            preemptionOracle
@@ -420,7 +420,7 @@ type FlavorAssigner struct {
 	preemptWorkloadSlice *workload.Info
 }
 
-func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
+func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
 		cq:                   cq,
@@ -431,7 +431,7 @@ func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[
 	}
 }
 
-func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueueSnapshot) bool {
+func lastAssignmentOutdated(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) bool {
 	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration
 }
 
@@ -541,7 +541,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				// No need to compute again.
 				continue
 			}
-			flavors, status := a.findFlavorForPodSetResource(log, psIDs, requests, resName, assignment.Usage.Quota)
+			flavors, status := a.findFlavorForPodSets(log, psIDs, requests, resName, assignment.Usage.Quota)
 			if status.IsError() || len(flavors) == 0 {
 				groupFlavors = nil
 				groupStatus = *status
@@ -575,7 +575,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, cache.WithWorkload(a.wl.Obj))
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithWorkload(a.wl.Obj))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -588,9 +588,9 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.UpdateForTASResult(result)
 			}
 		}
-		if assignment.RepresentativeMode() == Preempt && !workload.HasNodeToReplace(a.wl.Obj) {
+		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
 			// Don't preempt other workloads if looking for a failed node replacement
-			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, cache.WithSimulateEmpty(true))
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit even if
 				// all workloads are preempted.
@@ -618,12 +618,12 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
 }
 
-// findFlavorForPodSetResource finds the flavor which can satisfy the podSet request
+// findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests
 // for all resources in the same group as resName.
 // Returns the chosen flavor, along with the information about resources that need to be borrowed.
 // If the flavor cannot be immediately assigned, it returns a status with
 // reasons or failure.
-func (a *FlavorAssigner) findFlavorForPodSetResource(
+func (a *FlavorAssigner) findFlavorForPodSets(
 	log logr.Logger,
 	psIDs []int,
 	requests resources.Requests,
@@ -657,43 +657,12 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
-		flavor, exist := a.resourceFlavors[fName]
-		if !exist {
-			log.Error(nil, "Flavor not found", "Flavor", fName)
-			status.appendf("flavor %s not found", fName)
-			continue
-		}
 
-		var flavorUnmatchMessage *string
-		for psIdx, psID := range psIDs {
-			if features.Enabled(features.TopologyAwareScheduling) {
-				ps := &a.wl.Obj.Spec.PodSets[psID]
-				flavorUnmatchMessage = checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor)
-				if flavorUnmatchMessage != nil {
-					log.Error(nil, *flavorUnmatchMessage)
-					break
-				}
+		if fit, err := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, status); !fit {
+			if err != nil {
+				status.err = err
+				return nil, status
 			}
-			podSpec := podSets[psIdx].Template.Spec
-			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
-				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-			})
-			if untolerated {
-				flavorUnmatchMessage = ptr.To(fmt.Sprintf("untolerated taint %s in flavor %s", taint, fName))
-				break
-			}
-			selector := selectors[psIdx]
-			if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
-				if err != nil {
-					status.err = err
-					return nil, status
-				}
-				flavorUnmatchMessage = ptr.To(fmt.Sprintf("flavor %s doesn't match node affinity", fName))
-				break
-			}
-		}
-		if flavorUnmatchMessage != nil {
-			status.reasons = append(status.reasons, *flavorUnmatchMessage)
 			continue
 		}
 		assignments := make(ResourceAssignment, len(requests))
@@ -776,6 +745,51 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	return bestAssignment, status
 }
 
+func (a *FlavorAssigner) checkFlavorForPodSets(
+	log logr.Logger,
+	flavorName kueue.ResourceFlavorReference,
+	psIDs []int,
+	podSets []*kueue.PodSet,
+	selectors []nodeaffinity.RequiredNodeAffinity,
+	status *Status,
+) (bool, error) {
+	flavor, exist := a.resourceFlavors[flavorName]
+	if !exist {
+		log.Error(nil, "Flavor not found", "Flavor", flavorName)
+		status.appendf("flavor %s not found", flavorName)
+		return false, nil
+	}
+
+	for psIdx, psID := range psIDs {
+		if features.Enabled(features.TopologyAwareScheduling) {
+			ps := &a.wl.Obj.Spec.PodSets[psID]
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
+				log.Error(nil, *message)
+				status.appendf("%s", *message)
+				return false, nil
+			}
+		}
+		podSpec := podSets[psIdx].Template.Spec
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
+			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
+		})
+		if untolerated {
+			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
+			return false, nil
+		}
+		selector := selectors[psIdx]
+		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
+			if err != nil {
+				status.err = err
+				return false, err
+			}
+			status.appendf("flavor %s doesn't match node affinity", flavorName)
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueue.FlavorFungibility) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
@@ -848,7 +862,7 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (preemptionMode, int, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota schdcache.ResourceQuota) (preemptionMode, int, *Status) {
 	var status Status
 
 	available := a.cq.Available(fr)

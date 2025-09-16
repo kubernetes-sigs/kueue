@@ -19,7 +19,7 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.33
+ENVTEST_K8S_VERSION ?= 1.34
 
 TEST_LOG_LEVEL ?= -3
 
@@ -38,8 +38,8 @@ INTEGRATION_OUTPUT_OPTIONS ?= --output-interceptor-mode=none
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.31.9 1.32.5 1.33.1
-E2E_K8S_VERSION ?= 1.33
+E2E_K8S_VERSIONS ?= 1.31.12 1.32.8 1.33.4 1.34.0
+E2E_K8S_VERSION ?= 1.34
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
@@ -50,6 +50,9 @@ E2E_USE_HELM ?= false
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
+
+# For restricting to a specific directory
+GO_TEST_TARGET ?= .
 
 ##@ Tests
 
@@ -62,7 +65,7 @@ endif
 
 .PHONY: test
 test: gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.

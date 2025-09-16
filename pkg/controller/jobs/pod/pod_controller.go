@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -52,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -265,8 +265,8 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, &p.pod, true, func() (bool, error) {
-			return true, prepare(&p.pod, podSetsInfo[0])
+		if err := clientutil.Patch(ctx, c, &p.pod, func() (client.Object, bool, error) {
+			return &p.pod, true, prepare(&p.pod, podSetsInfo[0])
 		}); err != nil {
 			return err
 		}
@@ -285,27 +285,27 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, pod, true, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
 			roleHash, err := getRoleHash(*pod)
 			if err != nil {
-				return false, err
+				return nil, false, err
 			}
 
 			podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
 				return string(info.Name) == roleHash
 			})
 			if podSetIndex == -1 {
-				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
+				return nil, false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
 			}
 
 			err = prepare(pod, podSetsInfo[podSetIndex])
 			if err != nil {
-				return false, err
+				return nil, false, err
 			}
 
 			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
 
-			return true, nil
+			return pod, true, nil
 		}); err != nil {
 			return err
 		}
@@ -529,9 +529,9 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		return clientutil.Patch(ctx, c, pod, false, func() (bool, error) {
-			return controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
-		})
+		return clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
+			return pod, controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
+		}, clientutil.WithStrict(false))
 	})
 }
 
@@ -827,22 +827,21 @@ func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
 // - lastActiveTime (pods that were active last are first)
 // - creation timestamp (newer pods are first)
 func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
-	sort.Slice(inactivePods, func(i, j int) bool {
-		pi := &inactivePods[i]
-		pj := &inactivePods[j]
-		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
-		if iFin != jFin {
-			return iFin
-		}
-
-		iLastActive := lastActiveTime(clock, pi)
-		jLastActive := lastActiveTime(clock, pj)
-
-		if iLastActive.Equal(jLastActive) {
-			return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
-		}
-		return jLastActive.Before(iLastActive)
+	slices.SortFunc(inactivePods, func(pi, pj corev1.Pod) int {
+		return cmputil.LazyOr(
+			func() int {
+				return cmputil.CompareBool(
+					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
+					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
+				)
+			},
+			func() int {
+				return lastActiveTime(clock, &pj).Compare(lastActiveTime(clock, &pi))
+			},
+			func() int {
+				return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+			},
+		)
 	})
 }
 
@@ -852,22 +851,26 @@ func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 // - creation timestamp (newer pods are last)
 func sortActivePods(activePods []corev1.Pod) {
 	// Sort active pods by creation timestamp
-	sort.Slice(activePods, func(i, j int) bool {
-		pi := &activePods[i]
-		pj := &activePods[j]
-		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
-		// Prefer to keep pods that have a finalizer.
-		if iFin != jFin {
-			return iFin
-		}
-		iGated := isGated(pi)
-		jGated := isGated(pj)
-		// Prefer to keep pods that aren't gated.
-		if iGated != jGated {
-			return !iGated
-		}
-		return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
+	slices.SortFunc(activePods, func(pi, pj corev1.Pod) int {
+		return cmputil.LazyOr(
+			func() int {
+				// Prefer to keep pods that have a finalizer.
+				return cmputil.CompareBool(
+					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
+					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
+				)
+			},
+			func() int {
+				// Prefer to keep pods that aren't gated.
+				return cmputil.CompareBool(
+					isGated(&pj),
+					isGated(&pi),
+				)
+			},
+			func() int {
+				return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+			},
+		)
 	})
 }
 
@@ -885,11 +888,13 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
-			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
-			return removed, nil
-		}); err != nil {
+			if removed {
+				log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
+			}
+			return &pod, removed, nil
+		}, clientutil.WithStrict(false)); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
@@ -925,11 +930,13 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
-			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
-			return removed, nil
-		}); err != nil {
+			if removed {
+				log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
+			}
+			return &pod, removed, nil
+		}, clientutil.WithStrict(false)); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
@@ -1370,7 +1377,10 @@ func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
 	}
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
 	// Remove the TopologySchedulingGate if the Pod is scheduled without using TAS
-	if _, found := pod.Labels[kueuealpha.TASLabel]; !found {
+	found := slices.ContainsFunc(info.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
+		return g.Name == kueuealpha.TopologySchedulingGate
+	})
+	if !found {
 		utilpod.Ungate(pod, kueuealpha.TopologySchedulingGate)
 	}
 	return nil

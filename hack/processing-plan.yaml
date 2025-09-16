@@ -73,6 +73,7 @@ files:
     removeComments: true
     excludes:
       - kustomization.yaml
+      - subject_transformer.yaml
     continueOnError: true
     operations:
       - type: APPEND
@@ -92,6 +93,9 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
     postOperations:
       - type: INSERT_TEXT
         key: .metadata

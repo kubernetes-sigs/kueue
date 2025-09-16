@@ -20,7 +20,6 @@ import (
 	"context"
 	"iter"
 	"slices"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -29,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -48,17 +46,14 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
-const snapshotWorkers = 5
 
 type ClusterQueueUpdateWatcher interface {
 	NotifyClusterQueueUpdate(*kueue.ClusterQueue, *kueue.ClusterQueue)
@@ -66,31 +61,25 @@ type ClusterQueueUpdateWatcher interface {
 
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
-	client                               client.Client
-	log                                  logr.Logger
-	qManager                             *queue.Manager
-	cache                                *cache.Cache
-	snapshotsQueue                       workqueue.TypedInterface[kueue.ClusterQueueReference]
-	snapUpdateCh                         chan event.GenericEvent
-	nonCQObjectUpdateCh                  chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]
-	watchers                             []ClusterQueueUpdateWatcher
-	reportResourceMetrics                bool
-	fairSharingEnabled                   bool
-	queueVisibilityUpdateInterval        time.Duration
-	queueVisibilityClusterQueuesMaxCount int32
-	clock                                clock.Clock
+	client                client.Client
+	log                   logr.Logger
+	qManager              *qcache.Manager
+	cache                 *schdcache.Cache
+	nonCQObjectUpdateCh   chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]
+	watchers              []ClusterQueueUpdateWatcher
+	reportResourceMetrics bool
+	fairSharingEnabled    bool
+	clock                 clock.Clock
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
 var _ predicate.TypedPredicate[*kueue.ClusterQueue] = (*ClusterQueueReconciler)(nil)
 
 type ClusterQueueReconcilerOptions struct {
-	Watchers                             []ClusterQueueUpdateWatcher
-	ReportResourceMetrics                bool
-	FairSharingEnabled                   bool
-	QueueVisibilityUpdateInterval        time.Duration
-	QueueVisibilityClusterQueuesMaxCount int32
-	clock                                clock.Clock
+	Watchers              []ClusterQueueUpdateWatcher
+	ReportResourceMetrics bool
+	FairSharingEnabled    bool
+	clock                 clock.Clock
 }
 
 // ClusterQueueReconcilerOption configures the reconciler.
@@ -114,30 +103,14 @@ func WithFairSharing(enabled bool) ClusterQueueReconcilerOption {
 	}
 }
 
-// WithQueueVisibilityUpdateInterval specifies the time interval for updates to the structure
-// of the top pending workloads in the queues.
-func WithQueueVisibilityUpdateInterval(interval time.Duration) ClusterQueueReconcilerOption {
-	return func(o *ClusterQueueReconcilerOptions) {
-		o.QueueVisibilityUpdateInterval = interval
-	}
-}
-
-// WithQueueVisibilityClusterQueuesMaxCount indicates the maximal number of pending workloads exposed in the
-// cluster queue status
-func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcilerOption {
-	return func(o *ClusterQueueReconcilerOptions) {
-		o.QueueVisibilityClusterQueuesMaxCount = value
-	}
-}
-
 var defaultCQOptions = ClusterQueueReconcilerOptions{
 	clock: realClock,
 }
 
 func NewClusterQueueReconciler(
 	client client.Client,
-	qMgr *queue.Manager,
-	cache *cache.Cache,
+	qMgr *qcache.Manager,
+	cache *schdcache.Cache,
 	opts ...ClusterQueueReconcilerOption,
 ) *ClusterQueueReconciler {
 	options := defaultCQOptions
@@ -145,19 +118,15 @@ func NewClusterQueueReconciler(
 		opt(&options)
 	}
 	return &ClusterQueueReconciler{
-		client:                               client,
-		log:                                  ctrl.Log.WithName("cluster-queue-reconciler"),
-		qManager:                             qMgr,
-		cache:                                cache,
-		snapshotsQueue:                       workqueue.NewTyped[kueue.ClusterQueueReference](),
-		snapUpdateCh:                         make(chan event.GenericEvent, updateChBuffer),
-		nonCQObjectUpdateCh:                  make(chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], updateChBuffer),
-		watchers:                             options.Watchers,
-		reportResourceMetrics:                options.ReportResourceMetrics,
-		fairSharingEnabled:                   options.FairSharingEnabled,
-		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
-		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
-		clock:                                options.clock,
+		client:                client,
+		log:                   ctrl.Log.WithName("cluster-queue-reconciler"),
+		qManager:              qMgr,
+		cache:                 cache,
+		nonCQObjectUpdateCh:   make(chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], updateChBuffer),
+		watchers:              options.Watchers,
+		reportResourceMetrics: options.ReportResourceMetrics,
+		fairSharingEnabled:    options.FairSharingEnabled,
+		clock:                 options.clock,
 	}
 }
 
@@ -494,8 +463,8 @@ func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
 
 // cqNamespaceHandler handles namespace update events.
 type cqNamespaceHandler struct {
-	qManager *queue.Manager
-	cache    *cache.Cache
+	qManager *qcache.Manager
+	cache    *schdcache.Cache
 }
 
 func (h *cqNamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -539,42 +508,11 @@ func (h *nonCQObjectHandler) Generic(_ context.Context, e event.TypedGenericEven
 	}
 }
 
-type cqSnapshotHandler struct {
-	queueVisibilityUpdateInterval time.Duration
-}
-
-func (h *cqSnapshotHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *cqSnapshotHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *cqSnapshotHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	cq, isCq := e.Object.(*kueue.ClusterQueue)
-	if !isCq {
-		return
-	}
-	remainingTime := constants.UpdatesBatchPeriod
-	if cq.Status.PendingWorkloadsStatus != nil {
-		remainingTime = max(h.queueVisibilityUpdateInterval-time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time), constants.UpdatesBatchPeriod)
-	}
-	q.AddAfter(reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name: cq.Name,
-		}}, remainingTime)
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	nsHandler := cqNamespaceHandler{
 		qManager: r.qManager,
 		cache:    r.cache,
-	}
-	snapHandler := cqSnapshotHandler{
-		queueVisibilityUpdateInterval: r.queueVisibilityUpdateInterval,
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("clusterqueue_controller").
@@ -589,7 +527,6 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String()],
 		}).
 		Watches(&corev1.Namespace{}, &nsHandler).
-		WatchesRawSource(source.Channel(r.snapUpdateCh, &snapHandler)).
 		WatchesRawSource(source.Channel(r.nonCQObjectUpdateCh, &nonCQObjectHandler{})).
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
@@ -618,7 +555,6 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
 	cq.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
-	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
 		Type:               kueue.ClusterQueueActive,
 		Status:             conditionStatus,
@@ -641,80 +577,4 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		return r.client.Status().Update(ctx, cq)
 	}
 	return nil
-}
-
-// Taking snapshot of cluster queue is enabled when maxcount non-zero
-func (r *ClusterQueueReconciler) isVisibilityEnabled() bool {
-	return features.Enabled(features.QueueVisibility) && r.queueVisibilityClusterQueuesMaxCount > 0
-}
-
-func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
-	if !r.isVisibilityEnabled() {
-		return nil
-	}
-	pendingWorkloads := r.qManager.GetSnapshot(kueue.ClusterQueueReference(cq.Name))
-	if cq.Status.PendingWorkloadsStatus == nil ||
-		cq.Status.PendingWorkloadsStatus.Head == nil ||
-		!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
-		return &kueue.ClusterQueuePendingWorkloadsStatus{
-			Head:           pendingWorkloads,
-			LastChangeTime: metav1.Time{Time: r.clock.Now()},
-		}
-	}
-	return cq.Status.PendingWorkloadsStatus
-}
-
-func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
-	if !r.isVisibilityEnabled() {
-		return nil
-	}
-
-	defer r.snapshotsQueue.ShutDown()
-
-	for range snapshotWorkers {
-		go wait.UntilWithContext(ctx, r.takeSnapshot, r.queueVisibilityUpdateInterval)
-	}
-
-	go wait.UntilWithContext(ctx, r.enqueueTakeSnapshot, r.queueVisibilityUpdateInterval)
-
-	<-ctx.Done()
-
-	return nil
-}
-
-func (r *ClusterQueueReconciler) enqueueTakeSnapshot(_ context.Context) {
-	for _, cq := range r.qManager.GetClusterQueueNames() {
-		r.snapshotsQueue.Add(cq)
-	}
-}
-
-func (r *ClusterQueueReconciler) takeSnapshot(ctx context.Context) {
-	for r.processNextSnapshot(ctx) {
-	}
-}
-
-func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
-	log := ctrl.LoggerFrom(ctx).WithName("processNextSnapshot")
-
-	cqName, quit := r.snapshotsQueue.Get()
-	if quit {
-		return false
-	}
-
-	startTime := r.clock.Now()
-	defer func() {
-		log.V(5).Info("Finished snapshot job", "clusterQueue", klog.KRef("", string(cqName)), "elapsed", time.Since(startTime))
-	}()
-
-	defer r.snapshotsQueue.Done(cqName)
-
-	if r.qManager.UpdateSnapshot(cqName, r.queueVisibilityClusterQueuesMaxCount) {
-		log.V(5).Info("Triggering CQ update due to snapshot change", "clusterQueue", klog.KRef("", string(cqName)))
-		r.snapUpdateCh <- event.GenericEvent{Object: &kueue.ClusterQueue{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: string(cqName),
-			},
-		}}
-	}
-	return true
 }

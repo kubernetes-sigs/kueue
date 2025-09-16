@@ -428,6 +428,14 @@ type WorkloadStatus struct {
 	// This field is reset after the Workload is evicted.
 	// +optional
 	ClusterName *string `json:"clusterName,omitempty"`
+
+	// unhealthyNodes holds the failed nodes running at least one pod of this workload
+	// when Topology-Aware Scheduling is used. This field should not be set by the users.
+	// It indicates Kueue's scheduler is searching for replacements of the failed nodes.
+	// Requires enabling the TASFailedNodeReplacement feature gate.
+	//
+	// +optional
+	UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -465,6 +473,14 @@ type WorkloadSchedulingStatsEviction struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	Count int32 `json:"count"`
+}
+
+type UnhealthyNode struct {
+	// name is the name of the unhealthy node.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
 }
 
 type RequeueState struct {

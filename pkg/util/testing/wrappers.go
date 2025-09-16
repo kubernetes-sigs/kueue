@@ -348,6 +348,13 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 	return w
 }
 
+func (w *WorkloadWrapper) UnhealthyNodes(nodeNames ...string) *WorkloadWrapper {
+	for _, nodeName := range nodeNames {
+		w.Status.UnhealthyNodes = append(w.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
+	}
+	return w
+}
+
 // DeletionTimestamp sets a deletion timestamp for the workload.
 func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
 	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
@@ -399,7 +406,7 @@ func (w *WorkloadWrapper) ClusterName(clusterName string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) NominatedClusterNames(nominatedClusterNames []string) *WorkloadWrapper {
+func (w *WorkloadWrapper) NominatedClusterNames(nominatedClusterNames ...string) *WorkloadWrapper {
 	w.Status.NominatedClusterNames = nominatedClusterNames
 	return w
 }

@@ -19,11 +19,9 @@ package job
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,11 +32,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -64,21 +63,15 @@ func applyWorkloadSliceSchedulingGate(job *Job) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
 		return
 	}
-	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
-		Name: kueue.ElasticJobSchedulingGate,
-	}
-	if slices.Contains(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate) {
-		return
-	}
-	job.Spec.Template.Spec.SchedulingGates = append(job.Spec.Template.Spec.SchedulingGates, workloadSliceSchedulingGate)
+	utilpod.GateTemplate(&job.Spec.Template, kueue.ElasticJobSchedulingGate)
 }
 
 type JobWebhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
-	queues                       *queue.Manager
-	cache                        *cache.Cache
+	queues                       *qcache.Manager
+	cache                        *schdcache.Cache
 }
 
 // SetupWebhook configures the webhook for batchJob.

@@ -25,12 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 )
@@ -151,8 +151,8 @@ func TestDefault(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			cqCache := cache.New(client)
-			queueManager := queue.NewManager(client, cqCache)
+			cqCache := schdcache.New(client)
+			queueManager := qcache.NewManager(client, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").

@@ -17,8 +17,9 @@ limitations under the License.
 package mpijob
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 )
@@ -47,8 +48,8 @@ type MpiJobWebhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	kubeServerVersion            *kubeversion.ServerVersionFetcher
-	queues                       *queue.Manager
-	cache                        *cache.Cache
+	queues                       *qcache.Manager
+	cache                        *schdcache.Cache
 }
 
 // SetupMPIJobWebhook configures the webhook for MPIJob.
@@ -103,8 +104,8 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(validationErrs, func(i, j int) bool {
-		return validationErrs[i].Field < validationErrs[j].Field
+	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, validationErrs.ToAggregate()
 }
@@ -121,8 +122,8 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
-	sort.Slice(validationErrs, func(i, j int) bool {
-		return validationErrs[i].Field < validationErrs[j].Field
+	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, allErrs.ToAggregate()
 }

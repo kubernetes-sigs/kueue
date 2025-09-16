@@ -32,18 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type Webhook struct {
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
-	queues                       *queue.Manager
+	queues                       *qcache.Manager
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -142,7 +142,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	// or if the queue-name has been deleted.
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
 	if !isSuspended || newQueueName == "" {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldQueueName, newQueueName, queueNameLabelPath)...)
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
 	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newStatefulSet.Object()) {
 		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(

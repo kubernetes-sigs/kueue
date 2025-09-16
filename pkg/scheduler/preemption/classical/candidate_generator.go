@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -26,7 +27,7 @@ import (
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -35,7 +36,7 @@ type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
-	snapshot                          *cache.Snapshot
+	snapshot                          *schdcache.Snapshot
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
@@ -44,7 +45,7 @@ type candidateIterator struct {
 type candidateElem struct {
 	wl *workload.Info
 	// lca of this queue and cq (queue to which the new workload is submitted)
-	lca *cache.CohortSnapshot
+	lca *schdcache.CohortSnapshot
 	// candidates above priority threshold cannot be preempted if at the same time
 	// cq would borrow from other queues/cohorts
 	preemptionVariant preemptionVariant
@@ -78,20 +79,20 @@ func NewCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
-	snapshot *cache.Snapshot,
+	snapshot *schdcache.Snapshot,
 	clock clock.Clock,
-	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) bool,
+	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
-	sort.Slice(sameQueueCandidates, func(i, j int) bool {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, sameQueueCandidates[i].wl, sameQueueCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	slices.SortFunc(sameQueueCandidates, func(a, b *candidateElem) int {
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
-	sort.Slice(priorityCandidates, func(i, j int) bool {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, priorityCandidates[i].wl, priorityCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	slices.SortFunc(priorityCandidates, func(a, b *candidateElem) int {
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
-	sort.Slice(hierarchyCandidates, func(i, j int) bool {
-		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, hierarchyCandidates[i].wl, hierarchyCandidates[j].wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
+	slices.SortFunc(hierarchyCandidates, func(a, b *candidateElem) int {
+		return ordering(hierarchicalReclaimCtx.Log, enabledAfs, a.wl, b.wl, hierarchicalReclaimCtx.Cq.Name, clock.Now())
 	})
 
 	evictedHierarchicalReclaimCandidates, nonEvictedHierarchicalReclaimCandidates := splitEvicted(hierarchyCandidates)
@@ -140,7 +141,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		return false
 	}
 	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
-	if cache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
+	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}
 	// we don't go all the way to the root but only to the lca node
@@ -148,7 +149,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 		if node == candidate.lca {
 			break
 		}
-		if cache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
+		if schdcache.IsWithinNominalInResources(node, c.frsNeedPreemption) {
 			return false
 		}
 	}

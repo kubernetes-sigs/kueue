@@ -19,10 +19,10 @@ package v1beta1
 import (
 	"k8s.io/apiserver/pkg/registry/rest"
 
-	"sigs.k8s.io/kueue/pkg/queue"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 )
 
-func NewStorage(mgr *queue.Manager) map[string]rest.Storage {
+func NewStorage(mgr *qcache.Manager) map[string]rest.Storage {
 	return map[string]rest.Storage{
 		"clusterqueues":                  NewCqREST(),
 		"clusterqueues/pendingworkloads": NewPendingWorkloadsInCqREST(mgr),

@@ -56,6 +56,7 @@ import (
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,6 +69,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -676,14 +678,18 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
-	wl = wl.DeepCopy()
-	if admission == nil {
-		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", time.Now())
-	} else {
-		workload.SetQuotaReservation(wl, admission, clock.RealClock{})
-	}
-	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, clock.RealClock{})
+func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, admission *kueue.Admission) {
+	clk := testingclock.NewFakeClock(time.Now())
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		updatedWl := &kueue.Workload{}
+		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+		if admission == nil {
+			workload.UnsetQuotaReservationWithCondition(updatedWl, "EvictedByTest", "Evicted By Test", clk.Now())
+		} else {
+			workload.SetQuotaReservation(updatedWl, admission, clk)
+		}
+		g.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, updatedWl, false, clk)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 // SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
@@ -747,7 +753,7 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		if expectExisting {
-			currentCheck := workload.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
+			currentCheck := admissioncheck.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
 			g.Expect(currentCheck).NotTo(gomega.BeNil(), "the check %s was not found in %s", check, workload.Key(wl))
 			currentCheck.State = state
 		} else {
@@ -933,6 +939,14 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectRayClusterUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
+	rayCluster := &rayv1.RayCluster{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, rayCluster)).To(gomega.Succeed())
+		g.Expect(rayCluster.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 

@@ -392,13 +392,7 @@ resources:
 
 ## 配额管理的资源转换 {#transform-resources-for-quota-management}
 
-{{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="注意" color="primary" %}}
-
-`ConfigurableResourceTransformation` 是一个 Beta 特性，默认启用。
-
-你可以通过设置 `ConfigurableResourceTransformation` 特性开关来禁用它。详细的特性开关配置请查阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
-{{% /alert %}}
+{{< feature-state state="beta" for_version="v0.14" >}}
 
 管理员可以自定义 Pod 请求的资源是如何转换成 Workload 的资源请求的。
 这样，ClusterQueue 在执行准入（admission）和配额（quota）计算时，

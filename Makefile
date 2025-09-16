@@ -52,11 +52,13 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+MOCKS_DIR := internal/mocks
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
-BUILDER_IMAGE ?= golang:$(GO_VERSION)
+BASE_BUILDER_IMAGE ?= golang
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
@@ -85,7 +87,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.13.3
+RELEASE_VERSION=v0.13.4
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -131,12 +133,18 @@ update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
+generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+
+.PHONY: generate-mocks
+generate-mocks: mockgen ## Generate mockgen mocks
+	# Clean up previously generated mocks to keep generated mocks up-to-date.
+	rm -rf $(MOCKS_DIR)
+	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

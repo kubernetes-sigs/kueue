@@ -35,6 +35,7 @@ import (
 var (
 	ErrNilParametersRef = errors.New("missing parameters reference")
 	ErrBadParametersRef = errors.New("bad parameters reference")
+	ErrNoActiveClusters = errors.New("no active clusters")
 )
 
 type objAsPtr[T any] interface {
@@ -45,6 +46,12 @@ type objAsPtr[T any] interface {
 type ConfigHelper[PtrT objAsPtr[T], T any] struct {
 	gk     schema.GroupKind
 	client client.Client
+}
+
+type MultiKueueStoreHelper = ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+
+func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
+	return NewConfigHelper[*kueue.MultiKueueConfig](c)
 }
 
 func NewConfigHelper[PtrT objAsPtr[T], T any](c client.Client) (*ConfigHelper[PtrT, T], error) {
@@ -171,4 +178,45 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 		}
 	}
 	return checks
+}
+
+// FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
+func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
+	for i := range checks {
+		if checks[i].Name == checkName {
+			return &checks[i]
+		}
+	}
+
+	return nil
+}
+
+func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.AdmissionCheckState, error) {
+	relevantChecks, err := FilterForController(ctx, c, wl.Status.AdmissionChecks, kueue.MultiKueueControllerName)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(relevantChecks) == 0 {
+		return nil, nil
+	}
+
+	for _, check := range wl.Status.AdmissionChecks {
+		if check.Name == relevantChecks[0] {
+			return &check, nil
+		}
+	}
+	return nil, nil
+}
+
+func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) (sets.Set[string], error) {
+	cfg, err := helper.ConfigForAdmissionCheck(ctx, acName)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.Spec.Clusters) == 0 {
+		return nil, ErrNoActiveClusters
+	}
+
+	return sets.New(cfg.Spec.Clusters...), nil
 }

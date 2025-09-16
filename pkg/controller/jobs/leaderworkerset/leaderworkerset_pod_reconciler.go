@@ -72,7 +72,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
 	if utilpod.IsTerminated(pod) {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
+		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (client.Object, bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info(
@@ -82,18 +82,18 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 					"group", pod.Labels[podconstants.GroupNameLabel],
 				)
 			}
-			return removed, nil
+			return pod, removed, nil
 		}))
 	} else {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
+		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (client.Object, bool, error) {
 			updated, err := r.setDefault(ctx, pod)
 			if err != nil {
-				return false, err
+				return nil, false, err
 			}
 			if updated {
 				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", pod.Labels[podconstants.GroupNameLabel])
 			}
-			return updated, nil
+			return pod, updated, nil
 		}))
 	}
 

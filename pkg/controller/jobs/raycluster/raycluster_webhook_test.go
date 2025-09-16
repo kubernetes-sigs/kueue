@@ -30,10 +30,10 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
@@ -104,8 +104,8 @@ func TestValidateDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
-			cqCache := cache.New(cli)
-			queueManager := queue.NewManager(cli, cqCache)
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManager(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
@@ -149,7 +149,7 @@ func TestValidateCreate(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
+				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job"),
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
