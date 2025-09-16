@@ -25,10 +25,10 @@ import (
 )
 
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
-	d1 := &domain{id: "d1", sliceState: 9, leaderState: 1, sliceStateWithLeader: 8}
-	d2 := &domain{id: "d2", sliceState: 6, leaderState: 0, sliceStateWithLeader: 6}
-	d3 := &domain{id: "d3", sliceState: 4, leaderState: 1, sliceStateWithLeader: 3}
-	d4 := &domain{id: "d4", sliceState: 2, leaderState: 0, sliceStateWithLeader: 2}
+	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
+	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
+	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
+	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -70,7 +70,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got := selectOptimalDomainSetToFit(tc.domains, tc.workerCount, tc.leaderCount)
+			got := selectOptimalDomainSetToFit(tc.domains, tc.workerCount, tc.leaderCount, 1)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
 				gotIDs[i] = string(d.id)
@@ -85,11 +85,11 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 }
 
 func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
-	d1 := &domain{id: "d1", sliceState: 18, sliceStateWithLeader: 18, leaderState: 0}
-	d2 := &domain{id: "d2", sliceState: 18, sliceStateWithLeader: 18, leaderState: 0}
-	d3 := &domain{id: "d3", sliceState: 18, sliceStateWithLeader: 18, leaderState: 0}
-	d4 := &domain{id: "d4", sliceState: 10, sliceStateWithLeader: 10, leaderState: 0}
-	d5 := &domain{id: "d5", sliceState: 2, sliceStateWithLeader: 2, leaderState: 0}
+	d1 := &domain{id: "d1", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d2 := &domain{id: "d2", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d3 := &domain{id: "d3", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d4 := &domain{id: "d4", state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
+	d5 := &domain{id: "d5", state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -106,8 +106,8 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   10,
 			want: []*domain{
-				{id: "d1", sliceState: 10, state: 10, sliceStateWithLeader: 10, leaderState: 0},
-				{id: "d2", sliceState: 10, state: 10, sliceStateWithLeader: 10, leaderState: 0},
+				{id: "d1", sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
+				{id: "d2", sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
 			},
 		},
 		"simple placement on three domains": {
@@ -117,9 +117,9 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   13,
 			want: []*domain{
-				{id: "d1", sliceState: 14, state: 14, sliceStateWithLeader: 14, leaderState: 0},
-				{id: "d2", sliceState: 13, state: 13, sliceStateWithLeader: 13, leaderState: 0},
-				{id: "d3", sliceState: 13, state: 13, sliceStateWithLeader: 13, leaderState: 0},
+				{id: "d1", sliceState: 14, state: 14, stateWithLeader: 14, sliceStateWithLeader: 14, leaderState: 0},
+				{id: "d2", sliceState: 13, state: 13, stateWithLeader: 13, sliceStateWithLeader: 13, leaderState: 0},
+				{id: "d3", sliceState: 13, state: 13, stateWithLeader: 13, sliceStateWithLeader: 13, leaderState: 0},
 			},
 		},
 		"find smallest domain that fits": {
@@ -129,7 +129,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   2,
 			want: []*domain{
-				{id: "d5", sliceState: 2, state: 2, sliceStateWithLeader: 2, leaderState: 0},
+				{id: "d5", sliceState: 2, state: 2, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 0},
 			},
 		},
 		"correctly select domains": {
@@ -139,8 +139,8 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   10,
 			want: []*domain{
-				{id: "d1", sliceState: 15, state: 15, sliceStateWithLeader: 15, leaderState: 0},
-				{id: "d4", sliceState: 10, state: 10, sliceStateWithLeader: 10, leaderState: 0},
+				{id: "d1", sliceState: 15, state: 15, stateWithLeader: 15, sliceStateWithLeader: 15, leaderState: 0},
+				{id: "d4", sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
 			},
 		},
 	}

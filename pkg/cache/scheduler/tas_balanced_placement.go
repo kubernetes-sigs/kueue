@@ -16,6 +16,11 @@ limitations under the License.
 
 package scheduler
 
+import (
+	"maps"
+	"slices"
+)
+
 func simulateGreedy(domains []*domain, sliceCount int32, leaderCount int32) (bool, int32, *domain, *domain) {
 	var selectedDomainsCount int32
 	var sorted []*domain
@@ -87,25 +92,25 @@ func balanceThresholdValue(startingDomain *domain, sliceCount int32, leaderCount
 	return threshold, true
 }
 
-func selectOptimalDomainSetToFit(domains []*domain, count int32, leaderCount int32) []*domain {
-	fit, optimalNumberOfDomains, _, _ := simulateGreedy(domains, count, leaderCount)
+func selectOptimalDomainSetToFit(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32) []*domain {
+	fit, optimalNumberOfDomains, _, _ := simulateGreedy(domains, sliceCount, leaderCount)
 	if !fit {
 		return nil
 	}
 	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
-	// 'j' leaders and 'k' slices left to fit
+	// 'j' leaders and 'k' pods left to fit
 	domainPlacements := make([]map[int32]map[int32][]*domain, optimalNumberOfDomains+1)
 	for i := range domainPlacements {
 		domainPlacements[i] = make(map[int32]map[int32][]*domain)
 	}
-	domainPlacements[0][leaderCount] = map[int32][]*domain{count: {}}
+	domainPlacements[0][leaderCount] = map[int32][]*domain{sliceCount * sliceSize: {}}
 
 	for _, d := range domains {
-		for j := optimalNumberOfDomains; j > 0; j-- {
-			for beforeLeader := range domainPlacements[j-1] {
-				for beforeSlice := range domainPlacements[j-1][beforeLeader] {
-					beforePlacement := domainPlacements[j-1][beforeLeader][beforeSlice]
-					if beforeLeader <= 0 && beforeSlice <= 0 {
+		for i := optimalNumberOfDomains; i > 0; i-- {
+			for _, beforeLeader := range slices.Sorted(maps.Keys(domainPlacements[i-1])) {
+				for _, beforeState := range slices.Sorted(maps.Keys(domainPlacements[i-1][beforeLeader])) {
+					beforePlacement := domainPlacements[i-1][beforeLeader][beforeState]
+					if beforeLeader <= 0 && beforeState <= 0 {
 						continue
 					}
 					newPlacement := make([]*domain, len(beforePlacement), len(beforePlacement)+1)
@@ -114,22 +119,22 @@ func selectOptimalDomainSetToFit(domains []*domain, count int32, leaderCount int
 					// Case 1: Pick this domain with leader
 					if beforeLeader > 0 && d.leaderState > 0 {
 						afterLeader := beforeLeader - d.leaderState
-						afterSlice := beforeSlice - d.sliceStateWithLeader
-						if domainPlacements[j][afterLeader] == nil {
-							domainPlacements[j][afterLeader] = make(map[int32][]*domain)
+						afterState := beforeState - d.stateWithLeader
+						if domainPlacements[i][afterLeader] == nil {
+							domainPlacements[i][afterLeader] = make(map[int32][]*domain)
 						}
-						if _, alreadyThere := domainPlacements[j][afterLeader][afterSlice]; !alreadyThere {
-							domainPlacements[j][afterLeader][afterSlice] = newPlacement
+						if _, alreadyThere := domainPlacements[i][afterLeader][afterState]; !alreadyThere {
+							domainPlacements[i][afterLeader][afterState] = newPlacement
 						}
 					}
 					// Case 2: Pick this domain without leader
 					if d.sliceState > 0 {
-						afterSlice := beforeSlice - d.sliceState
-						if domainPlacements[j][beforeLeader] == nil {
-							domainPlacements[j][beforeLeader] = make(map[int32][]*domain)
+						afterState := beforeState - d.state
+						if domainPlacements[i][beforeLeader] == nil {
+							domainPlacements[i][beforeLeader] = make(map[int32][]*domain)
 						}
-						if _, alreadyThere := domainPlacements[j][beforeLeader][afterSlice]; !alreadyThere {
-							domainPlacements[j][beforeLeader][afterSlice] = newPlacement
+						if _, alreadyThere := domainPlacements[i][beforeLeader][afterState]; !alreadyThere {
+							domainPlacements[i][beforeLeader][afterState] = newPlacement
 						}
 					}
 				}
@@ -140,7 +145,8 @@ func selectOptimalDomainSetToFit(domains []*domain, count int32, leaderCount int
 	bestLeader := int32(-1 << 31) // minus infinity
 	var bestLeaderPlacement map[int32][]*domain
 
-	for leadersLeft := range domainPlacements[optimalNumberOfDomains] {
+	for j := range slices.Sorted(maps.Keys(domainPlacements[optimalNumberOfDomains])) {
+		leadersLeft := int32(j)
 		if leadersLeft > bestLeader && leadersLeft <= 0 {
 			bestLeader = leadersLeft
 			bestLeaderPlacement = domainPlacements[optimalNumberOfDomains][leadersLeft]
@@ -149,7 +155,7 @@ func selectOptimalDomainSetToFit(domains []*domain, count int32, leaderCount int
 	bestSlice := int32(-1 << 31) // minus infinity
 	var bestSlicePlacement []*domain
 
-	for slicesLeft := range bestLeaderPlacement {
+	for _, slicesLeft := range slices.Sorted(maps.Keys(bestLeaderPlacement)) {
 		if slicesLeft > bestSlice && slicesLeft <= 0 {
 			bestSlice = slicesLeft
 			bestSlicePlacement = bestLeaderPlacement[slicesLeft]
@@ -159,7 +165,7 @@ func selectOptimalDomainSetToFit(domains []*domain, count int32, leaderCount int
 }
 
 func placeSlicesOnDomainsBalanced(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32) ([]*domain, string) {
-	resultDomains := selectOptimalDomainSetToFit(domains, sliceCount, leaderCount)
+	resultDomains := selectOptimalDomainSetToFit(domains, sliceCount, leaderCount, sliceSize)
 	if resultDomains == nil {
 		return nil, "TAS Balanced Placement Error: Cannot find optimal domain set to fit"
 	}
@@ -186,6 +192,7 @@ func placeSlicesOnDomainsBalanced(domains []*domain, sliceCount int32, leaderCou
 		domain.state = (threshold + extraSlicesToTake) * sliceSize
 		domain.sliceState = (threshold + extraSlicesToTake)
 		domain.sliceStateWithLeader = domain.sliceState - domain.leaderState
+		domain.stateWithLeader = domain.state - domain.leaderState
 		extraSlicesLeft -= extraSlicesToTake
 	}
 	if extraSlicesLeft > 0 || leadersLeft > 0 {
