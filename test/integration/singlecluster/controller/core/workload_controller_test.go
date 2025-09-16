@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 			})
 
 			ginkgo.By("setting a rejected check condition", func() {
