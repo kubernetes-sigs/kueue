@@ -345,6 +345,15 @@ func (i *Info) IsUsingTAS() bool {
 		})
 }
 
+// IsUsingTAS returns information if the workload is admitted by TAS
+func IsAdmittedByTAS(w *kueue.Workload) bool {
+	return w.Status.Admission != nil && IsAdmitted(w) &&
+		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
+			func(psa kueue.PodSetAssignment) bool {
+				return psa.TopologyAssignment != nil
+			})
+}
+
 // IsExplicitlyRequestingTAS returns information if the workload is requesting TAS
 func IsExplicitlyRequestingTAS(podSets ...kueue.PodSet) bool {
 	return slices.ContainsFunc(podSets,

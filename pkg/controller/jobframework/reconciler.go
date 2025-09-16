@@ -360,7 +360,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
+			if ancestorWorkload, err := getWorkloadForObject(ctx, r.client, ancestorJob); err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
@@ -682,9 +682,9 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 }
 
 // getWorkloadForObject returns the Workload associated with the given job.
-func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+func getWorkloadForObject(ctx context.Context, c client.Client, jobObj client.Object) (*kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
+	if err := c.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 

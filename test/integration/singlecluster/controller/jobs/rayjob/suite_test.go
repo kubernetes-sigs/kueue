@@ -96,6 +96,9 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
+		err = jobframework.SetupIndexes(ctx, mgr.GetClient(), mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		err = rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = rayjob.NewReconciler(mgr.GetClient(),

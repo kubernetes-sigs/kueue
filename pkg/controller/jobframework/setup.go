@@ -20,15 +20,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -39,6 +44,27 @@ const (
 var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
 )
+
+func indexPodTAS(ctx context.Context, c client.Client, o client.Object, opts Options) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	owner, err := FindAncestorJobManagedByKueue(ctx, c, pod, opts.ManageJobsWithoutQueueName)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, fmt.Sprintf("failed to find Job owner for Pod: %s", klog.KObj(pod)))
+		return nil
+	}
+	if owner == nil {
+		return []string{"false"}
+	}
+	wl, err := getWorkloadForObject(ctx, c, owner)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, fmt.Sprintf("failed to find workload for Pod: %s", klog.KObj(pod)))
+		return []string{"false"}
+	}
+	return []string{strconv.FormatBool(workload.IsAdmittedByTAS(wl))}
+}
 
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
@@ -167,8 +193,13 @@ func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
 // they can easily setup indexers for the in-house custom jobs.
 //
 // Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
+func SetupIndexes(ctx context.Context, c client.Client, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, constants.TASKey, func(o client.Object) []string {
+		return indexPodTAS(ctx, c, o, options)
+	}); err != nil {
+		return fmt.Errorf("setting index pod workload: %w", err)
+	}
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
 		if options.EnabledFrameworks.Has(name) {
 			if err := cb.SetupIndexes(ctx, indexer); err != nil {

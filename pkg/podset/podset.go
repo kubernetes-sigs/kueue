@@ -63,7 +63,6 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		Annotations:  make(map[string]string),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
-		info.Labels[kueuealpha.TASLabel] = "true"
 		info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{
 			Name: kueuealpha.TopologySchedulingGate,
 		})

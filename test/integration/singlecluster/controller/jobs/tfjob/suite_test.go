@@ -99,6 +99,9 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
+		err = jobframework.SetupIndexes(ctx, mgr.GetClient(), mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		if setupTASControllers {
 			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)

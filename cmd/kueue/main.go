@@ -311,7 +311,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	opts := []jobframework.Option{
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 	}
-	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
+	return jobframework.SetupIndexes(ctx, mgr.GetClient(), mgr.GetFieldIndexer(), opts...)
 }
 
 func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {

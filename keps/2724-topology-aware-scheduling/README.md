@@ -916,11 +916,6 @@ const (
   // indicate the name of the admitted Workload corresponding to the Job. The
   // annotation is set when starting the Job, and removed on stopping the Job.
   WorkloadAnnotation = "kueue.x-k8s.io/workload"
-
-  // TASLabel is a label set on the Job's PodTemplate to indicate that the
-  // PodSet is admitted using TopologyAwareScheduling, and all Pods created
-  // from the Job's PodTemplate also have the label.
-  TASLabel = "kueue.x-k8s.io/tas"
 )
 ```
 

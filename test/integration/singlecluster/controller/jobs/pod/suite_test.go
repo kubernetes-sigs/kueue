@@ -130,6 +130,9 @@ func managerSetup(
 		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
+		err = jobframework.SetupIndexes(ctx, mgr.GetClient(), mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		if setupTASControllers {
 			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)

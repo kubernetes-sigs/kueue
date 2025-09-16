@@ -135,10 +135,6 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 	if !isPod {
 		return
 	}
-	if _, found := pod.Labels[kueuealpha.TASLabel]; !found {
-		// skip non-TAS pods
-		return
-	}
 	if wlName, found := pod.Annotations[kueuealpha.WorkloadAnnotation]; found {
 		key := types.NamespacedName{
 			Name:      wlName,

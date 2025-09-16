@@ -264,11 +264,11 @@ func TestSetupIndexes(t *testing.T) {
 			defer cancel()
 
 			builder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace(testNamespace))
-			gotIndexerErr := SetupIndexes(ctx, utiltesting.AsIndexer(builder), tc.opts...)
+			k8sClient := builder.Build()
+			gotIndexerErr := SetupIndexes(ctx, k8sClient, utiltesting.AsIndexer(builder), tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotIndexerErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Fatalf("Unexpected setupIndexer error (-want,+got):\n%s", diff)
 			}
-			k8sClient := builder.Build()
 			for _, wl := range tc.workloads {
 				if err := k8sClient.Create(ctx, &wl); err != nil {
 					t.Fatalf("Unable to create workload, %q: %v", klog.KObj(&wl), err)

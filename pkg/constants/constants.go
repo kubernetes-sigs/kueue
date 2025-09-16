@@ -45,3 +45,7 @@ const (
 	ManagedByKueueLabelKey   = "kueue.x-k8s.io/managed"
 	ManagedByKueueLabelValue = "true"
 )
+
+const (
+	TASKey = "metadata.tas"
+)

@@ -187,11 +187,9 @@ func TestFromAssignment(t *testing.T) {
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
 			wantInfo: PodSetInfo{
-				Name:  "name",
-				Count: 4,
-				Labels: map[string]string{
-					kueuealpha.TASLabel: "true",
-				},
+				Name:   "name",
+				Count:  4,
+				Labels: map[string]string{},
 				NodeSelector: map[string]string{
 					"f1l1": "f1v1",
 					"f1l2": "f1v2",
@@ -431,25 +429,6 @@ func TestMergeRestore(t *testing.T) {
 				}).
 				Obj(),
 			wantRestoreChanges: true,
-		},
-		"podset with tas label; empty info": {
-			podSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
-				Obj(),
-			wantPodSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
-				Obj(),
-		},
-		"podset with tas label; info re-adds the same": {
-			podSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
-				Obj(),
-			info: PodSetInfo{
-				Labels: map[string]string{kueuealpha.TASLabel: "true"},
-			},
-			wantPodSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
-				Obj(),
 		},
 	}
 

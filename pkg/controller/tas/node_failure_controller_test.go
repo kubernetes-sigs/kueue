@@ -95,7 +95,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	basePod := testingpod.MakePod("test-pod", nsName).
 		Annotation(kueuealpha.WorkloadAnnotation, wlName).
-		Label(kueuealpha.TASLabel, "true").
 		NodeName(nodeName).
 		Obj()
 
