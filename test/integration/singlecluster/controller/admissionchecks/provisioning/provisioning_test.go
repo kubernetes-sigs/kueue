@@ -142,11 +142,17 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = testing.MakeAdmission(cq.Name, "ps1", "ps2").
-				AssignmentWithIndex(0, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
-				AssignmentPodCountWithIndex(0, 3).
-				AssignmentWithIndex(1, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
-				AssignmentPodCountWithIndex(1, 4).
+			admission = testing.MakeAdmission(cq.Name).
+				PodSets(
+					testing.MakePodSetAssignment("ps1").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
+						Count(3).
+						Obj(),
+					testing.MakePodSetAssignment("ps2").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+						Count(4).
+						Obj(),
+				).
 				Obj()
 		})
 
@@ -825,11 +831,17 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name, "ps1", "ps2").
-				AssignmentWithIndex(0, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
-				AssignmentPodCountWithIndex(0, 3).
-				AssignmentWithIndex(1, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
-				AssignmentPodCountWithIndex(1, 4).
+			admission = testing.MakeAdmission(cq.Name).
+				PodSets(
+					testing.MakePodSetAssignment("ps1").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
+						Count(3).
+						Obj(),
+					testing.MakePodSetAssignment("ps2").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+						Count(4).
+						Obj(),
+				).
 				Obj()
 		})
 
@@ -1246,9 +1258,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name, "ps1").
-				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
-				AssignmentPodCount(3).
+			admission = testing.MakeAdmission(cq.Name).
+				PodSets(testing.MakePodSetAssignment("ps1").
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
+					Count(3).
+					Obj()).
 				Obj()
 		})
 
@@ -1433,13 +1447,18 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = testing.MakeAdmission(cq.Name, "master", "worker").
-				AssignmentWithIndex(0, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
-				AssignmentWithIndex(0, corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
-				AssignmentPodCountWithIndex(0, 1).
-				AssignmentWithIndex(1, corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
-				AssignmentWithIndex(1, corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
-				AssignmentPodCountWithIndex(1, 2).
+			admission = testing.MakeAdmission(cq.Name).
+				PodSets(
+					testing.MakePodSetAssignment("master").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+						Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+						Obj(),
+					testing.MakePodSetAssignment("worker").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+						Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+						Count(2).
+						Obj(),
+				).
 				Obj()
 		})
 

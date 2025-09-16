@@ -195,8 +195,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
 		admission := testing.MakeAdmission(clusterQueue.Name).
-			Assignment(corev1.ResourceCPU, "on-demand", "1m").
-			AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "on-demand", "1m").
+				Count(createdWorkload.Spec.PodSets[0].Count).
+				Obj()).
 			Obj()
 		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -245,8 +247,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
 		admission = testing.MakeAdmission(clusterQueue.Name).
-			Assignment(corev1.ResourceCPU, "spot", "1m").
-			AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "spot", "1m").
+				Count(createdWorkload.Spec.PodSets[0].Count).
+				Obj()).
 			Obj()
 		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -819,8 +823,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			ginkgo.By("admit the workload", func() {
 				admission := testing.MakeAdmission(clusterQueueAc.Name).
-					Assignment(corev1.ResourceCPU, "test-flavor", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "test-flavor", "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -935,8 +941,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			ginkgo.By("attempt to admit the workload", func() {
 				admission := testing.MakeAdmission(clusterQueueAc.Name).
-					Assignment(corev1.ResourceCPU, "test-flavor", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "test-flavor", "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -1008,8 +1016,10 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 
 			ginkgo.By("Admit the workload created for the job")
 			admission := testing.MakeAdmission("foo").
-				Assignment(corev1.ResourceCPU, "default", "1m").
-				AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1m").
+					Count(createdWorkload.Spec.PodSets[0].Count).
+					Obj()).
 				Obj()
 			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -2479,8 +2489,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				admission = testing.MakeAdmission(cq.Name).
-					Assignment(corev1.ResourceCPU, "on-demand", "1m").
-					AssignmentPodCount(wl.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1m").
+						Count(wl.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
@@ -2841,8 +2853,10 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 
 				ginkgo.By("Admitting the Workload", func() {
 					admission := testing.MakeAdmission(cq.Name).
-						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
-						AssignmentPodCount(wl.Spec.PodSets[0].Count).
+						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
+							Count(wl.Spec.PodSets[0].Count).
+							Obj()).
 						Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
@@ -2895,8 +2909,10 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				})
 
 				admission := testing.MakeAdmission(cq.Name).
-					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
-					AssignmentPodCount(wl.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
+						Count(wl.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 
 				ginkgo.By("Admitting the Workload", func() {
@@ -2991,8 +3007,10 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				})
 
 				admission := testing.MakeAdmission(cq.Name).
-					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
-					AssignmentPodCount(wl.Spec.PodSets[0].Count).
+					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
+						Count(wl.Spec.PodSets[0].Count).
+						Obj()).
 					Obj()
 
 				ginkgo.By("Admitting the Workload", func() {
