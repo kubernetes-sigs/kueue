@@ -633,16 +633,24 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"
-		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
+		evictedCond.Message = preservePreviousMessage(evictedCond.Message)
 		evictedCond.LastTransitionTime = metav1.NewTime(clock.Now())
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
 		preemptedCond.Reason = "QuotaReserved"
-		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
+		preemptedCond.Message = preservePreviousMessage(preemptedCond.Message)
 		preemptedCond.LastTransitionTime = metav1.NewTime(clock.Now())
 	}
+}
+
+func preservePreviousMessage(message string) string {
+	if !strings.HasPrefix(message, "Previously: ") {
+		return api.TruncateConditionMessage("Previously: " + message)
+	}
+
+	return message
 }
 
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
