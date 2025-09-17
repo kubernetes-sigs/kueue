@@ -179,7 +179,7 @@ func TestPatch(t *testing.T) {
 				t.Errorf("Patch() error = %v, wantErr %v", err, tt.want.err)
 			}
 			if err := tt.args.clnt.Get(tt.args.ctx, client.ObjectKeyFromObject(tt.args.obj), tt.args.obj); err != nil {
-				t.Errorf("Patch() unexpected error getting object: %v", err)
+				t.Fatalf("Patch() unexpected error getting object: %v", err)
 			}
 			if diff := cmp.Diff(tt.want.obj, tt.args.obj); diff != "" {
 				t.Errorf("Patch() object (-want +got):\n%s", diff)
