@@ -645,7 +645,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		ps := &a.wl.Obj.Spec.PodSets[psID]
 		podSets[idx] = ps
 
-		selectors[idx] = flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
+		selector, err := flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
+		if err != nil {
+			return nil, NewStatus(err.Error())
+		}
+		selectors[idx] = selector
 	}
 
 	var bestAssignment ResourceAssignment
@@ -810,9 +814,53 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 	return true
 }
 
-func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
+// validateAllowedKeysUsage validates that all keys in allowedKeys are used in Pod's NodeSelector or NodeAffinity.
+// This ensures that ResourceFlavor labels are properly constrained by the workload.
+// This validation is enabled by the StrictResourceFlavorLabeling feature gate.
+func validateAllowedKeysUsage(spec *corev1.PodSpec, allowedKeys sets.Set[string]) error {
+	// Skip validation if feature is not enabled or no allowed keys
+	if !features.Enabled(features.StrictResourceFlavorLabeling) || allowedKeys.Len() == 0 {
+		return nil
+	}
+
+	// Check if all allowedKeys are constrained in NodeSelector
+	nodeSelectorKeys := sets.New[string]()
+	for k := range spec.NodeSelector {
+		nodeSelectorKeys.Insert(k)
+	}
+
+	if nodeSelectorKeys.IsSuperset(allowedKeys) {
+		return nil
+	}
+
+	// Check if all allowedKeys are constrained in any single NodeAffinity term
+	if affinity := spec.Affinity; affinity != nil && affinity.NodeAffinity != nil {
+		if required := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; required != nil {
+			for _, term := range required.NodeSelectorTerms {
+				termKeys := sets.New[string]()
+				for _, expr := range term.MatchExpressions {
+					termKeys.Insert(expr.Key)
+				}
+				if termKeys.IsSuperset(allowedKeys) {
+					return nil
+				}
+			}
+		}
+	}
+
+	// If we reach here, allowedKeys are not fully constrained in any single scope
+	return fmt.Errorf("ResourceFlavor label keys %v must be fully constrained either in Pod's nodeSelector or within a single nodeAffinity term", allowedKeys.UnsortedList())
+}
+
+func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) (nodeaffinity.RequiredNodeAffinity, error) {
 	// This function generally replicates the implementation of kube-scheduler's NodeAffinity
 	// Filter plugin as of v1.24.
+
+	// Validate that all allowedKeys are used in Pod's NodeSelector or NodeAffinity
+	if err := validateAllowedKeysUsage(spec, allowedKeys); err != nil {
+		return nodeaffinity.RequiredNodeAffinity{}, err
+	}
+
 	var specCopy corev1.PodSpec
 
 	// Remove affinity constraints with irrelevant keys.
@@ -853,7 +901,7 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 			}
 		}
 	}
-	return nodeaffinity.GetRequiredNodeAffinity(&corev1.Pod{Spec: specCopy})
+	return nodeaffinity.GetRequiredNodeAffinity(&corev1.Pod{Spec: specCopy}), nil
 }
 
 // fitsResourceQuota returns how this flavor could be assigned to the resource,
