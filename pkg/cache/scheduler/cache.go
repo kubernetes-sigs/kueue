@@ -122,7 +122,7 @@ func New(client client.Client, options ...Option) *Cache {
 		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
 		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		hm:               hierarchy.NewManager(newCohort),
 		tasCache:         NewTASCache(client),
 	}
 	for _, option := range options {
