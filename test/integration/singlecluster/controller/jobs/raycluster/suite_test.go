@@ -70,8 +70,10 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := raycluster.NewReconciler(
+		reconciler, _ := raycluster.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -100,8 +102,9 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 
 		err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = raycluster.NewReconciler(mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
+		r, _ := raycluster.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
+			mgr.GetEventRecorderFor(constants.JobControllerName), opts...)
+		_ = r.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

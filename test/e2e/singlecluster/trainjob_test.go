@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.It("Should allow to suspend a JobSet when injected nodeSelector", func() {
+		ginkgo.It("Should allow to suspend a TrainJob when injected nodeSelector", func() {
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).
 				RuntimeRefName("torch-distributed").
 				Queue("main").

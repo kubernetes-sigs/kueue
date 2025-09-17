@@ -201,7 +201,7 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
 				ret = append(ret, kueue.ReclaimablePod{
 					Name:  kueue.NewPodSetReference(spec.Name),
-					Count: status.Succeeded * podsCountPerReplica(spec),
+					Count: status.Succeeded * PodsCountPerReplica(spec),
 				})
 			}
 		}
@@ -223,7 +223,7 @@ func (j *JobSet) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
 }
 
-func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
+func PodsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 	spec := &rj.Template.Spec
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
 	jobPodsCount := ptr.Deref(spec.Parallelism, 1)
@@ -235,7 +235,7 @@ func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 
 func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	// The JobSet's operator validates that this will not overflow.
-	return rj.Replicas * podsCountPerReplica(rj)
+	return rj.Replicas * PodsCountPerReplica(rj)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

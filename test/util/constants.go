@@ -57,14 +57,15 @@ var (
 )
 
 var (
-	AutoscalerCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
-	JobsetCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
-	TrainingOperatorCrds = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
-	KfTrainerCrds        = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-crds")
-	MpiOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
-	AppWrapperCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
-	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
-	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+	AutoscalerCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
+	JobsetCrds               = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
+	TrainingOperatorCrds     = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
+	KfTrainerCrds            = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-crds")
+	KfTrainerClusterRuntimes = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-runtimes")
+	MpiOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
+	AppWrapperCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
+	RayOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
+	WebhookPath              = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
 )
 
 var (

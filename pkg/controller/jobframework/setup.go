@@ -92,12 +92,12 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				logger.Info("No matching API in the server for job framework, deferring setting up controller")
 				go waitForAPI(ctx, mgr, log, gvk, func() {
 					log.Info("API now available, starting controller", "gvk", gvk)
-					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+					if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 						log.Error(err, "Failed to setup controller for job framework")
 					}
 				})
 			} else {
-				if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+				if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 					return err
 				}
 			}
@@ -109,20 +109,35 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 	})
 }
 
-func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
-	if err := cb.NewReconciler(
+func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+	var (
+		err error
+		r   JobReconcilerInterface
+	)
+	if r, err = cb.NewReconciler(
+		ctx,
 		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
 		mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 		opts...,
-	).SetupWithManager(mgr); err != nil {
+	); err == nil {
+		err = r.SetupWithManager(mgr)
+	}
+	if err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 	}
+
 	for _, rec := range cb.NewAdditionalReconcilers {
-		if err := rec(
+		if r, err = rec(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
 			opts...,
-		).SetupWithManager(mgr); err != nil {
+		); err == nil {
+			err = r.SetupWithManager(mgr)
+		}
+		if err != nil {
 			return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 		}
 	}

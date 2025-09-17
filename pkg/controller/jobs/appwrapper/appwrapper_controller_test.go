@@ -389,7 +389,8 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			kcBuilder := utiltesting.NewClientBuilder(awv1beta2.AddToScheme)
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(kcBuilder)); err != nil {
+			indexer := utiltesting.AsIndexer(kcBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
 			kcBuilder = kcBuilder.
@@ -409,7 +410,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler, _ := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 
 			jobKey := client.ObjectKeyFromObject(tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
