@@ -8,9 +8,9 @@ tests:
     asserts:
       - notMatchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "internalCertManagement:\n      enable: true"
+          pattern: "internalCertManagement:\n  enable: true"
 
-  - it: should properly template the webhook using the release name
+  - it: should properly template the webhook using the release name and defaults
     release:
       name: custom-kueue-name
     asserts:
@@ -21,7 +21,7 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "webhookSecretName: custom-kueue-name-webhook-server-cert"
 
-  - it: should properly template the webhook using the fullnameOverride
+  - it: should properly template the webhook using the fullnameOverride and defaults
     set:
       fullnameOverride: "full-override"
     asserts:
@@ -31,3 +31,75 @@ tests:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
           pattern: "webhookSecretName: full-override-webhook-server-cert"
+
+  - it: should parse controllerManagerConfigYaml and preserve custom config
+    set:
+      enableCertManager: false
+      managerConfig:
+        controllerManagerConfigYaml: |
+          leaderElection:
+            leaderElect: true
+          metrics:
+            bindAddress: "0.0.0.0:8080"
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "leaderElection:\n  leaderElect: true"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "metrics:\n  bindAddress: 0.0.0.0:8080"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: true"
+
+  - it: should allow controllerManagerConfigYaml to supersede defaults
+    set:
+      enableCertManager: false
+      managerConfig:
+        controllerManagerConfigYaml: |
+          internalCertManagement:
+            enable: false
+            webhookServiceName: foo
+            webhookSecretName: bar
+          leaderElection:
+            leaderElect: false
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "leaderElection:\n  leaderElect: false"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: false\n  webhookSecretName: bar\n  webhookServiceName: foo"
+
+  - it: should not add internalCertManagement when enableCertManager is true and controllerManagerConfigYaml is provided
+    set:
+      enableCertManager: true
+      managerConfig:
+        controllerManagerConfigYaml: |
+          leaderElection:
+            leaderElect: true
+          metrics:
+            bindAddress: "0.0.0.0:8080"
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "leaderElection:\n  leaderElect: true"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "metrics:\n  bindAddress: 0.0.0.0:8080"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:"
+
+  - it: should handle an empty controllerManagerConfigYaml
+    release:
+      name: testing
+    set:
+      enableCertManager: false
+      managerConfig:
+        controllerManagerConfigYaml: "{}"
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: true\n  webhookSecretName: testing-kueue-webhook-server-cert\n  webhookServiceName: testing-kueue-webhook-service"
+
