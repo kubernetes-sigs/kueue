@@ -1481,7 +1481,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is evicted due to no replacement possible", func() {
 					util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedDueToNodeFailures, "", 1)
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedDueToNodeFailures, "", "", 1)
 					gomega.Eventually(func(g gomega.Gomega) {
 						updatedWl := &kueue.Workload{}
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
@@ -2081,7 +2081,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				wlKey := client.ObjectKeyFromObject(wl1)
 
 				ginkgo.By("verify the workload reserves the quota", func() {
-					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, 1)
+					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, "", 1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl1)
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -2211,7 +2211,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				wlKey := client.ObjectKeyFromObject(wl1)
 
 				ginkgo.By("verify the workload reserves the quota", func() {
-					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, 1)
+					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, "", 1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl1)
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -2326,7 +2326,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				wlKey := client.ObjectKeyFromObject(wl1)
 
 				ginkgo.By("verify the workload reserves the quota", func() {
-					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, 1)
+					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, "", 1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl1)
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -2474,7 +2474,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				wlKey := client.ObjectKeyFromObject(wl1)
 
 				ginkgo.By("verify the workload reserves the quota", func() {
-					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, 1)
+					util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, "", 1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				})
 

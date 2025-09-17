@@ -67,18 +67,27 @@ type nodeFailureReconciler struct {
 }
 
 func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.log.V(3).Info("Getting node", "nodeName", req.NamespacedName)
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile Node")
+
 	var node corev1.Node
 	var affectedWorkloads sets.Set[types.NamespacedName]
+
 	err := r.client.Get(ctx, req.NamespacedName, &node)
-	nodeExists := !apierrors.IsNotFound(err)
-	if err != nil && nodeExists {
-		r.log.V(2).Error(err, "Failed to get Node")
+	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
+	nodeExists := err == nil
 
-	if !nodeExists || utiltas.GetNodeCondition(&node, corev1.NodeReady) == nil {
-		r.log.V(3).Info("Node not found or NodeReady condition is missing, marking as failed immediately")
+	var errMsg string
+	if !nodeExists {
+		errMsg = "Node not found"
+	} else if utiltas.GetNodeCondition(&node, corev1.NodeReady) == nil {
+		errMsg = "NodeReady condition is missing"
+	}
+
+	if errMsg != "" {
+		log.V(3).Info(fmt.Sprintf("%s. Marking as failed immediately", errMsg))
 		affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -100,7 +109,7 @@ func (r *nodeFailureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if NodeFailureDelay > timeSinceNotReady {
 		return ctrl.Result{RequeueAfter: NodeFailureDelay - timeSinceNotReady}, nil
 	}
-	r.log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed", "nodeName", req.NamespacedName)
+	log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed")
 	affectedWorkloads, err = r.getWorkloadsOnNode(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -223,12 +232,12 @@ func (r *nodeFailureReconciler) getWorkloadsForImmediateReplacement(ctx context.
 func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workload.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
-		log := r.log.WithValues("unhealthyNodes", unhealthyNodeNames)
+		log := ctrl.LoggerFrom(ctx).WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
 		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, "", evictionMsg, r.clock); evictionErr != nil {
-			log.V(2).Error(evictionErr, "Failed to complete eviction process")
+			log.Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {
 			return true, nil
@@ -240,16 +249,17 @@ func (r *nodeFailureReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *k
 // handleUnhealthyNode finds workloads with pods on the specified node
 // and patches their status to indicate the node is to replace.
 func (r *nodeFailureReconciler) handleUnhealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+	log := ctrl.LoggerFrom(ctx)
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
-		log := r.log.WithValues("workload", wlKey, "nodeName", nodeName)
+		log = log.WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
 		// fetch workload.
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
 				log.V(4).Info("Workload not found, skipping")
 			} else {
-				log.V(2).Error(err, "Failed to get workload")
+				log.Error(err, "Failed to get workload")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 			}
 			continue
@@ -262,7 +272,7 @@ func (r *nodeFailureReconciler) handleUnhealthyNode(ctx context.Context, nodeNam
 		}
 		if !evictedNow && !workload.IsEvicted(&wl) {
 			if err := r.addUnhealthyNode(ctx, &wl, nodeName); err != nil {
-				log.V(2).Error(err, "Failed to add node to unhealthyNodes")
+				log.Error(err, "Failed to add node to unhealthyNodes")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 				continue
 			}
@@ -282,7 +292,7 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 	case len(workloads) == 0:
 		return ctrl.Result{RequeueAfter: podTerminationCheckPeriod}, nil
 	default:
-		r.log.V(3).Info("Node is not ready and has only terminating or failed pods. Marking as failed immediately", "nodeName", nodeName)
+		ctrl.LoggerFrom(ctx).V(3).Info("Node is not ready and has only terminating or failed pods. Marking as failed immediately")
 		patchErr := r.handleUnhealthyNode(ctx, nodeName, workloads)
 		return ctrl.Result{}, patchErr
 	}
@@ -290,14 +300,16 @@ func (r *nodeFailureReconciler) reconcileForReplaceNodeOnPodTermination(ctx cont
 
 // handleHealthyNode clears the unhealthyNodes field for each of the specified workloads.
 func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName string, affectedWorkloads sets.Set[types.NamespacedName]) error {
+	log := ctrl.LoggerFrom(ctx)
 	var workloadProcessingErrors []error
 	for wlKey := range affectedWorkloads {
+		log = log.WithValues("workload", klog.KRef(wlKey.Namespace, wlKey.Name))
 		var wl kueue.Workload
 		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
 			if apierrors.IsNotFound(err) {
-				r.log.V(4).Info("Workload not found, skipping")
+				log.V(4).Info("Workload not found, skipping")
 			} else {
-				r.log.Error(err, "Failed to get workload")
+				log.Error(err, "Failed to get workload")
 				workloadProcessingErrors = append(workloadProcessingErrors, err)
 			}
 			continue
@@ -307,13 +319,13 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 			continue
 		}
 
-		r.log.V(4).Info("Remove node from unhealthyNodes", "nodeName", nodeName)
+		log.V(4).Info("Remove node from unhealthyNodes")
 		if err := r.removeUnhealthyNodes(ctx, &wl, nodeName); err != nil {
-			r.log.Error(err, "Failed to patch workload status")
+			log.Error(err, "Failed to patch workload status")
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		r.log.V(3).Info("Successfully removed node from the unhealthyNodes field", "nodeName", nodeName)
+		log.V(3).Info("Successfully removed node from the unhealthyNodes field")
 	}
 	if len(workloadProcessingErrors) > 0 {
 		return errors.Join(workloadProcessingErrors...)

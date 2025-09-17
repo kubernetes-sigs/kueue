@@ -134,7 +134,7 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "quota_reserved_workloads_total",
 			Help:      "The total number of quota reserved workloads per 'cluster_queue'",
-		}, []string{"cluster_queue"},
+		}, []string{"cluster_queue", "workload_priority_class"},
 	)
 
 	LocalQueueQuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
@@ -190,7 +190,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'cluster_queue'",
-		}, []string{"cluster_queue"},
+		}, []string{"cluster_queue", "workload_priority_class"},
 	)
 
 	LocalQueueAdmittedWorkloadsTotal = prometheus.NewCounterVec(
@@ -291,7 +291,7 @@ The label 'underlying_cause' can have the following values:
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, []string{"cluster_queue", "reason", "underlying_cause"},
+		}, []string{"cluster_queue", "reason", "underlying_cause", "workload_priority_class"},
 	)
 
 	ReplacedWorkloadSlicesTotal = prometheus.NewCounterVec(
@@ -510,8 +510,8 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
 }
 
-func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
-	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName)).Inc()
+func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
 	quotaReservedWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
@@ -520,8 +520,8 @@ func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Durat
 	localQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
-func AdmittedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
-	AdmittedWorkloadsTotal.WithLabelValues(string(cqName)).Inc()
+func AdmittedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
 	admissionWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
@@ -564,8 +564,8 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause string) {
-	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason, underlyingCause).Inc()
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, workloadPriorityClass string) {
+	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason, underlyingCause, workloadPriorityClass).Inc()
 }
 
 func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
@@ -595,10 +595,10 @@ func ClearClusterQueueMetrics(cqName string) {
 	AdmissionCyclePreemptionSkips.DeleteLabelValues(cqName)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
-	QuotaReservedWorkloadsTotal.DeleteLabelValues(cqName)
+	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	quotaReservedWaitTime.DeleteLabelValues(cqName)
 	PodsReadyToEvictedTimeSeconds.DeleteLabelValues(cqName)
-	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
+	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	admissionWaitTime.DeleteLabelValues(cqName)
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
 	queuedUntilReadyWaitTime.DeleteLabelValues(cqName)

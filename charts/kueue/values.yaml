@@ -146,6 +146,7 @@ managerConfig:
       - "ray.io/rayjob"
       - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
+      - "trainer.kubeflow.org/trainjob"
       - "kubeflow.org/paddlejob"
       - "kubeflow.org/pytorchjob"
       - "kubeflow.org/tfjob"

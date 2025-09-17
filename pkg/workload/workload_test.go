@@ -32,6 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -164,9 +165,11 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
-						Assignment(corev1.ResourceCPU, "f1", "30m").
-						Assignment(corev1.ResourceMemory, "f1", "30Ki").
-						AssignmentPodCount(3).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "30m").
+							Assignment(corev1.ResourceMemory, "f1", "30Ki").
+							Count(3).
+							Obj()).
 						Obj(),
 				).
 				ReclaimablePods(
@@ -203,9 +206,11 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
-						Assignment(corev1.ResourceCPU, "f1", "30m").
-						Assignment(corev1.ResourceMemory, "f1", "30Ki").
-						AssignmentPodCount(3).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "30m").
+							Assignment(corev1.ResourceMemory, "f1", "30Ki").
+							Count(3).
+							Obj()).
 						Obj(),
 				).
 				ReclaimablePods(
@@ -242,9 +247,11 @@ func TestNewInfo(t *testing.T) {
 				).
 				ReserveQuota(
 					utiltesting.MakeAdmission("").
-						Assignment(corev1.ResourceCPU, "f1", "30m").
-						Assignment(corev1.ResourceMemory, "f1", "30Ki").
-						AssignmentPodCount(3).
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "30m").
+							Assignment(corev1.ResourceMemory, "f1", "30Ki").
+							Count(3).
+							Obj()).
 						Obj(),
 				).
 				Obj(),
@@ -828,7 +835,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	}{
 		"AdmissionCheckStrategy with a flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
@@ -837,7 +848,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		},
 		"AdmissionCheckStrategy with an unmatched flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
@@ -846,7 +861,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		},
 		"AdmissionCheckStrategy without a flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
@@ -855,7 +874,11 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		},
 		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(
@@ -1098,20 +1121,13 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						AssignmentPodCount(1).
-						TopologyAssignment(&kueue.TopologyAssignment{
-							Levels: utiltas.Levels(&defaultSingleLevelTopology),
-							Domains: []kueue.TopologyDomainAssignment{
-								{
-									Count: 1,
-									Values: []string{
-										"x0",
-									},
-								},
-							},
-						}).
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
 						Obj(),
 				).
 				Admitted(true).
@@ -1126,20 +1142,13 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						AssignmentPodCount(1).
-						TopologyAssignment(&kueue.TopologyAssignment{
-							Levels: utiltas.Levels(&defaultSingleLevelTopology),
-							Domains: []kueue.TopologyDomainAssignment{
-								{
-									Count: 1,
-									Values: []string{
-										"x0",
-									},
-								},
-							},
-						}).
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
 						Obj(),
 				).
 				Admitted(true).
@@ -1155,20 +1164,13 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						AssignmentPodCount(1).
-						TopologyAssignment(&kueue.TopologyAssignment{
-							Levels: utiltas.Levels(&defaultSingleLevelTopology),
-							Domains: []kueue.TopologyDomainAssignment{
-								{
-									Count: 1,
-									Values: []string{
-										"x1",
-									},
-								},
-							},
-						}).
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj()).
 						Obj(),
 				).
 				Admitted(true).
@@ -1184,20 +1186,13 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						AssignmentPodCount(1).
-						TopologyAssignment(&kueue.TopologyAssignment{
-							Levels: utiltas.Levels(&defaultSingleLevelTopology),
-							Domains: []kueue.TopologyDomainAssignment{
-								{
-									Count: 1,
-									Values: []string{
-										"x0",
-									},
-								},
-							},
-						}).
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
 						Obj(),
 				).
 				Admitted(true).
@@ -1214,20 +1209,13 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						AssignmentPodCount(1).
-						TopologyAssignment(&kueue.TopologyAssignment{
-							Levels: utiltas.Levels(&defaultSingleLevelTopology),
-							Domains: []kueue.TopologyDomainAssignment{
-								{
-									Count: 1,
-									Values: []string{
-										"x0",
-									},
-								},
-							},
-						}).
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
 						Obj(),
 				).
 				Admitted(true).
@@ -1243,10 +1231,14 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-						AssignmentPodCount(1).Obj(),
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(
+							utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+								Obj(),
+						).
+						Obj(),
 				).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "prov-check",
@@ -1263,10 +1255,14 @@ func TestNeedsSecondPass(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main", "one").
-						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-						AssignmentPodCount(1).Obj(),
+					utiltesting.MakeAdmission("tas-main").
+						PodSets(
+							utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+								Obj(),
+						).
+						Obj(),
 				).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "prov-check",
@@ -1291,6 +1287,127 @@ func TestNeedsSecondPass(t *testing.T) {
 			got := NeedsSecondPass(tc.wl)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected NeedsSecondPass() result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWithPreprocessedDRAResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+
+	cases := map[string]struct {
+		workload     kueue.Workload
+		draResources map[kueue.PodSetReference]corev1.ResourceList
+		wantInfo     Info
+	}{
+		"single podset with DRA resources": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "100m").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("2"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						},
+					},
+				},
+			},
+		},
+		"multiple podsets with different DRA resources": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Obj(),
+					*utiltesting.MakePodSet("worker", 2).
+						Request(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("2"),
+				},
+				"worker": {
+					"foo-accelerator": resource.MustParse("1"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						},
+					},
+					{
+						Name:  "worker",
+						Count: 2,
+						Requests: resources.Requests{
+							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
+							"foo-accelerator":     2,
+						},
+					},
+				},
+			},
+		},
+		"no DRA resources for podset": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Obj(),
+					*utiltesting.MakePodSet("worker", 1).
+						Request(corev1.ResourceMemory, "512Mi").
+						Obj(),
+				).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("1"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             1,
+						},
+					},
+					{
+						Name:  "worker",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceMemory: 512 * 1024 * 1024,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources))
+
+			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests); diff != "" {
+				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
 			}
 		})
 	}

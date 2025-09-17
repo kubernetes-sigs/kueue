@@ -131,7 +131,7 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
 		workloadInfoOptions: []workload.InfoOption{},
-		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
+		hm:                  hierarchy.NewManager(newCohort),
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 		secondPassQueue:        newSecondPassQueue(),
@@ -418,19 +418,20 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w)
+	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
 	qKey := queue.KeyFromWorkload(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	allOptions := append(m.workloadInfoOptions, opts...)
+	wInfo := workload.NewInfo(w, allOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -612,13 +613,13 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, queue.KeyFromWorkload(oldW))
 	}
-	return m.AddOrUpdateWorkloadWithoutLock(w)
+	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
