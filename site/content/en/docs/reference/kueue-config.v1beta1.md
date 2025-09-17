@@ -498,6 +498,52 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DeviceClassMapping`     {#DeviceClassMapping}
+    
+
+**Appears in:**
+
+- [Resources](#Resources)
+
+
+<p>DeviceClassMapping holds device class to logical resource mappings
+for Dynamic Resource Allocation support.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>Name is referenced in ClusterQueue.nominalQuota and Workload status.
+Must be a valid fully qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length must not exceed 253 characters.</p>
+</td>
+</tr>
+<tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.
+Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length of each name must not exceed 253 characters.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `FairSharing`     {#FairSharing}
     
 
@@ -982,6 +1028,14 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <td>
    <p>Transformations defines how to transform PodSpec resources into Workload resource requests.
 This is intended to be a map with Input as the key (enforced by validation code)</p>
+</td>
+</tr>
+<tr><td><code>deviceClassMappings</code><br/>
+<a href="#DeviceClassMapping"><code>[]DeviceClassMapping</code></a>
+</td>
+<td>
+   <p>DeviceClassMappings defines mappings from device classes to logical resources
+for Dynamic Resource Allocation support.</p>
 </td>
 </tr>
 </tbody>

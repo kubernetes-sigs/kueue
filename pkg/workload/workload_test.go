@@ -32,6 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -1286,6 +1287,127 @@ func TestNeedsSecondPass(t *testing.T) {
 			got := NeedsSecondPass(tc.wl)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected NeedsSecondPass() result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWithPreprocessedDRAResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+
+	cases := map[string]struct {
+		workload     kueue.Workload
+		draResources map[kueue.PodSetReference]corev1.ResourceList
+		wantInfo     Info
+	}{
+		"single podset with DRA resources": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "100m").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("2"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						},
+					},
+				},
+			},
+		},
+		"multiple podsets with different DRA resources": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Obj(),
+					*utiltesting.MakePodSet("worker", 2).
+						Request(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("2"),
+				},
+				"worker": {
+					"foo-accelerator": resource.MustParse("1"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						},
+					},
+					{
+						Name:  "worker",
+						Count: 2,
+						Requests: resources.Requests{
+							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
+							"foo-accelerator":     2,
+						},
+					},
+				},
+			},
+		},
+		"no DRA resources for podset": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Obj(),
+					*utiltesting.MakePodSet("worker", 1).
+						Request(corev1.ResourceMemory, "512Mi").
+						Obj(),
+				).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("1"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             1,
+						},
+					},
+					{
+						Name:  "worker",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceMemory: 512 * 1024 * 1024,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources))
+
+			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests); diff != "" {
+				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
 			}
 		})
 	}

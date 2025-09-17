@@ -53,6 +53,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -144,6 +145,8 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -186,6 +189,48 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if workload.IsAdmitted(&wl) && workload.HasUnhealthyNodes(&wl) {
 		log.V(3).Info("Skipping reconcile of a workload with nodes to replace", "unhealthyNodes", workload.UnhealthyNodeNames(&wl))
 		return ctrl.Result{}, nil
+	}
+
+	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
+		r.workloadHasDRA(&wl) {
+		if r.workloadHasResourceClaim(&wl) {
+			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
+				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+
+		log.V(3).Info("Processing DRA resources for workload")
+		draResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
+		if err != nil {
+			log.Error(err, "Failed to process DRA resources for workload")
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
+				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+				}
+			}
+			return ctrl.Result{}, err
+		}
+
+		var queueOptions []workload.InfoOption
+		if len(draResources) > 0 {
+			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources))
+		}
+
+		if workload.IsActive(&wl) && !workload.HasQuotaReservation(&wl) {
+			if err := r.queues.AddOrUpdateWorkload(&wl, queueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return ctrl.Result{}, err
+			}
+		} else {
+			if !r.cache.AddOrUpdateWorkload(log, &wl) {
+				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+			}
+		}
+		log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
 	}
 
 	if workload.IsActive(&wl) {
@@ -525,6 +570,32 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	return false, nil
 }
 
+func (r *WorkloadReconciler) workloadHasDRA(wl *kueue.Workload) bool {
+	return r.workloadHasResourceClaim(wl) || r.workloadHasResourceClaimTemplates(wl)
+}
+
+func (r *WorkloadReconciler) workloadHasResourceClaimTemplates(wl *kueue.Workload) bool {
+	for _, ps := range wl.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimTemplateName != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *WorkloadReconciler) workloadHasResourceClaim(wl *kueue.Workload) bool {
+	for _, ps := range wl.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimName != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[kueue.AdmissionCheckReference], c clock.Clock) ([]kueue.AdmissionCheckState, bool) {
 	if len(admissionChecks) == 0 {
 		return nil, len(conds) > 0
@@ -620,6 +691,13 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
+	// It is intentional for this code to be not guarded behind a feature gate
+	// DRA workloads need to have certain error handling and hence to be handled in Reconcile loop
+	if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.Object) {
+		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
+		return true
+	}
+
 	if workload.IsActive(e.Object) && !workload.HasQuotaReservation(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
@@ -714,9 +792,14 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
-		if err != nil {
-			log.V(2).Info("ignored an error for now", "error", err)
+		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
+		if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
+		} else {
+			err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
+			if err != nil {
+				log.V(2).Info("ignored an error for now", "error", err)
+			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(e.ObjectOld)
@@ -740,26 +823,36 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Here we don't take the lock as it is already taken by the wrapping
 			// function.
 			if immediate {
-				if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
-					log.V(2).Info("ignored an error for now", "error", err)
+				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
+				if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
+				} else {
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
+						log.V(2).Info("ignored an error for now", "error", err)
+					}
+					r.queues.DeleteSecondPassWithoutLock(wlCopy)
 				}
-				r.queues.DeleteSecondPassWithoutLock(wlCopy)
 			}
 		})
 
 		if !immediate {
 			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", e.ObjectNew.Status.RequeueState.RequeueAt.Time)
-			time.AfterFunc(backoff, func() {
-				updatedWl := kueue.Workload{}
-				err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
-				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
-					if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
-						log.V(2).Info("ignored an error for now", "error", err)
-					} else {
-						log.V(3).Info("Workload requeued after backoff")
+			// Skip delayed requeue for DRA workloads - they are handled in Reconcile loop
+			if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+				log.V(3).Info("Skipping delayed requeue for DRA workload - handled in Reconcile")
+			} else {
+				time.AfterFunc(backoff, func() {
+					updatedWl := kueue.Workload{}
+					err := r.client.Get(ctx, client.ObjectKeyFromObject(e.ObjectNew), &updatedWl)
+					if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
+						if err = r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
+							log.V(2).Info("ignored an error for now", "error", err)
+						} else {
+							log.V(3).Info("Workload requeued after backoff")
+						}
 					}
-				}
-			})
+				})
+			}
 		}
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)):

@@ -96,9 +96,15 @@ type AssignmentClusterQueueState struct {
 	ClusterQueueGeneration int64
 }
 
+// dra holds DRA-specific configuration for workload.Info construction.
+type dra struct {
+	preprocessedDRAResources map[kueue.PodSetReference]corev1.ResourceList
+}
+
 type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
+	dra
 }
 
 type InfoOption func(*InfoOptions)
@@ -116,6 +122,15 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
 	return func(o *InfoOptions) {
 		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
+	}
+}
+
+// WithPreprocessedDRAResources creates an InfoOption that provides preprocessed DRA resources.
+func WithPreprocessedDRAResources(draResources map[kueue.PodSetReference]corev1.ResourceList) InfoOption {
+	return func(o *InfoOptions) {
+		o.dra = dra{
+			preprocessedDRAResources: draResources,
+		}
 	}
 }
 
@@ -475,9 +490,20 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		}
 		setRes.Requests = resources.NewRequests(effectiveRequests)
+		if features.Enabled(features.DynamicResourceAllocation) && info.preprocessedDRAResources != nil {
+			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
+				for resName, quantity := range draRes {
+					if setRes.Requests == nil {
+						setRes.Requests = make(resources.Requests)
+					}
+					setRes.Requests[resName] += resources.ResourceValue(resName, quantity)
+				}
+			}
+		}
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
+
 	return res
 }
 

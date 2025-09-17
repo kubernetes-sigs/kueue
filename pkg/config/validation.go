@@ -64,6 +64,7 @@ var (
 	internalCertManagementPath           = field.NewPath("internalCertManagement")
 	queueVisibilityPath                  = field.NewPath("queueVisibility")
 	resourceTransformationPath           = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
 	log                                  = ctrl.Log.WithName("config")
@@ -79,6 +80,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
+	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	return allErrs
@@ -349,6 +351,80 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			seenKeys.Insert(transform.Input)
 		}
 	}
+	return allErrs
+}
+
+func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
+	if c.Resources == nil || len(c.Resources.DeviceClassMappings) == 0 {
+		return nil
+	}
+
+	mappings := c.Resources.DeviceClassMappings
+	var allErrs field.ErrorList
+
+	if len(mappings) > 16 {
+		allErrs = append(allErrs, field.TooMany(dynamicResourceAllocationPath, len(mappings), 16))
+	}
+
+	seenResourceNames := make(sets.Set[corev1.ResourceName])
+	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+
+	for idx, mapping := range mappings {
+		mappingPath := dynamicResourceAllocationPath.Index(idx)
+
+		if errs := apimachineryutilvalidation.IsQualifiedName(string(mapping.Name)); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, strings.Join(errs, "; ")))
+		}
+
+		if len(string(mapping.Name)) > 253 {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
+		}
+
+		if seenResourceNames.Has(mapping.Name) {
+			allErrs = append(allErrs, field.Duplicate(mappingPath.Child("name"), mapping.Name))
+		} else {
+			seenResourceNames.Insert(mapping.Name)
+		}
+
+		if len(mapping.DeviceClassNames) == 0 {
+			allErrs = append(allErrs, field.Required(mappingPath.Child("deviceClassNames"),
+				"at least one device class name is required"))
+		}
+
+		if len(mapping.DeviceClassNames) > 8 {
+			allErrs = append(allErrs, field.TooMany(mappingPath.Child("deviceClassNames"), len(mapping.DeviceClassNames), 8))
+		}
+
+		seenDeviceClassNames := make(sets.Set[corev1.ResourceName])
+
+		for dcIdx, deviceClass := range mapping.DeviceClassNames {
+			dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
+
+			if errs := apimachineryutilvalidation.IsQualifiedName(string(deviceClass)); len(errs) > 0 {
+				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
+			}
+
+			if len(string(deviceClass)) > 253 {
+				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, "must not exceed 253 characters"))
+			}
+
+			if seenDeviceClassNames.Has(deviceClass) {
+				allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
+			} else {
+				seenDeviceClassNames.Insert(deviceClass)
+			}
+
+			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
+				if existingResource != mapping.Name {
+					allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+						fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+				}
+			} else {
+				deviceClassToResource[deviceClass] = mapping.Name
+			}
+		}
+	}
+
 	return allErrs
 }
 
