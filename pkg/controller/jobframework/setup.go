@@ -58,8 +58,8 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 
 	originalFrameworks := options.EnabledFrameworks.Clone()
 	m.autoEnableIntegrations(ctx, options.EnabledFrameworks)
-	m.storeAutomaticallyEnabledIntegrations(originalFrameworks, options.EnabledFrameworks)
-	opts = append(opts, WithAutomaticallyEnabledIntegrations(m.automaticallyEnabledIntegrations))
+	m.storeImplicitlyEnabledIntegrations(originalFrameworks, options.EnabledFrameworks)
+	opts = append(opts, WithImplicitlyEnabledFrameworks(m.implicitlyEnabledIntegrations))
 
 	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
 		return fmt.Errorf("check enabled frameworks list: %w", err)

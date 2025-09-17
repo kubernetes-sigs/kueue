@@ -82,7 +82,7 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
-	// The list of integrations automatically enabled as dependencies of the integration.
+	// The list of integrations implicitly enabled as dependencies of the integration.
 	ImplicitlyEnables []string
 }
 
@@ -102,13 +102,13 @@ func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerRefe
 }
 
 type integrationManager struct {
-	names                            []string
-	integrations                     map[string]IntegrationCallbacks
-	enabledIntegrations              set.Set[string]
-	externalIntegrations             map[string]runtime.Object
-	automaticallyEnabledIntegrations sets.Set[string]
-	gvkToName                        map[schema.GroupVersionKind]string
-	mu                               sync.RWMutex
+	names                         []string
+	integrations                  map[string]IntegrationCallbacks
+	enabledIntegrations           set.Set[string]
+	externalIntegrations          map[string]runtime.Object
+	implicitlyEnabledIntegrations sets.Set[string]
+	gvkToName                     map[schema.GroupVersionKind]string
+	mu                            sync.RWMutex
 }
 
 var manager integrationManager
@@ -398,21 +398,21 @@ func (m *integrationManager) autoEnableIntegrations(ctx context.Context, enabled
 
 		for _, autoFwkName := range callbacks.ImplicitlyEnables {
 			if !enabledFrameworks.Has(autoFwkName) {
-				log.Info("Automatically enabling integration for framework support", "integration", autoFwkName)
+				log.Info("Implicitly enabling integration for framework support", "integration", autoFwkName)
 				enabledFrameworks.Insert(autoFwkName)
 			}
 		}
 	}
 }
 
-func (m *integrationManager) storeAutomaticallyEnabledIntegrations(originalFrameworks, currentFrameworks sets.Set[string]) {
-	if m.automaticallyEnabledIntegrations == nil {
-		m.automaticallyEnabledIntegrations = sets.New[string]()
+func (m *integrationManager) storeImplicitlyEnabledIntegrations(originalFrameworks, currentFrameworks sets.Set[string]) {
+	if m.implicitlyEnabledIntegrations == nil {
+		m.implicitlyEnabledIntegrations = sets.New[string]()
 	}
 
 	for integration := range currentFrameworks {
 		if !originalFrameworks.Has(integration) {
-			m.automaticallyEnabledIntegrations.Insert(integration)
+			m.implicitlyEnabledIntegrations.Insert(integration)
 		}
 	}
 }

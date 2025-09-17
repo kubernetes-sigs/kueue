@@ -84,33 +84,33 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
-	client                           client.Client
-	record                           record.EventRecorder
-	manageJobsWithoutQueueName       bool
-	managedJobsNamespaceSelector     labels.Selector
-	waitForPodsReady                 bool
-	labelKeysToCopy                  []string
-	clock                            clock.Clock
-	workloadRetentionPolicy          WorkloadRetentionPolicy
-	enabledFrameworks                sets.Set[string]
-	automaticallyEnabledIntegrations sets.Set[string]
+	client                       client.Client
+	record                       record.EventRecorder
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	waitForPodsReady             bool
+	labelKeysToCopy              []string
+	clock                        clock.Clock
+	workloadRetentionPolicy      WorkloadRetentionPolicy
+	enabledFrameworks            sets.Set[string]
+	implicitlyEnabledFrameworks  sets.Set[string]
 }
 
 type Options struct {
-	ManageJobsWithoutQueueName       bool
-	ManagedJobsNamespaceSelector     labels.Selector
-	WaitForPodsReady                 bool
-	KubeServerVersion                *kubeversion.ServerVersionFetcher
-	IntegrationOptions               map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	EnabledFrameworks                sets.Set[string]
-	EnabledExternalFrameworks        sets.Set[string]
-	AutomaticallyEnabledIntegrations sets.Set[string]
-	ManagerName                      string
-	LabelKeysToCopy                  []string
-	Queues                           *qcache.Manager
-	Cache                            *schdcache.Cache
-	Clock                            clock.Clock
-	WorkloadRetentionPolicy          WorkloadRetentionPolicy
+	ManageJobsWithoutQueueName   bool
+	ManagedJobsNamespaceSelector labels.Selector
+	WaitForPodsReady             bool
+	KubeServerVersion            *kubeversion.ServerVersionFetcher
+	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
+	EnabledFrameworks            sets.Set[string]
+	EnabledExternalFrameworks    sets.Set[string]
+	ImplicitlyEnabledFrameworks  sets.Set[string]
+	ManagerName                  string
+	LabelKeysToCopy              []string
+	Queues                       *qcache.Manager
+	Cache                        *schdcache.Cache
+	Clock                        clock.Clock
+	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 }
 
 // Option configures the reconciler.
@@ -185,10 +185,10 @@ func WithEnabledExternalFrameworks(exFrameworks []string) Option {
 	}
 }
 
-// WithAutomaticallyEnabledIntegrations sets which integrations were automatically enabled.
-func WithAutomaticallyEnabledIntegrations(integrations sets.Set[string]) Option {
+// WithImplicitlyEnabledFrameworks sets which frameworks were implicitly enabled.
+func WithImplicitlyEnabledFrameworks(frameworks sets.Set[string]) Option {
 	return func(o *Options) {
-		o.AutomaticallyEnabledIntegrations = integrations
+		o.ImplicitlyEnabledFrameworks = frameworks
 	}
 }
 
@@ -249,16 +249,16 @@ func NewReconciler(
 	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
-		client:                           client,
-		record:                           record,
-		manageJobsWithoutQueueName:       options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector:     options.ManagedJobsNamespaceSelector,
-		waitForPodsReady:                 options.WaitForPodsReady,
-		labelKeysToCopy:                  options.LabelKeysToCopy,
-		clock:                            options.Clock,
-		workloadRetentionPolicy:          options.WorkloadRetentionPolicy,
-		enabledFrameworks:                options.EnabledFrameworks,
-		automaticallyEnabledIntegrations: options.AutomaticallyEnabledIntegrations,
+		client:                       client,
+		record:                       record,
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		waitForPodsReady:             options.WaitForPodsReady,
+		labelKeysToCopy:              options.LabelKeysToCopy,
+		clock:                        options.Clock,
+		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
+		enabledFrameworks:            options.EnabledFrameworks,
+		implicitlyEnabledFrameworks:  options.ImplicitlyEnabledFrameworks,
 	}
 }
 
@@ -280,11 +280,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	integrationName, found := GetIntegrationNameByGVK(object.GetObjectKind().GroupVersionKind())
-	if found && r.automaticallyEnabledIntegrations.Has(integrationName) {
+	if found && r.implicitlyEnabledFrameworks.Has(integrationName) {
 		// SuspendedByParentAnnotation is specifically designed for the Pod integration.
 		// TODO: Extend annotation support beyond the Pod integration to additional frameworks.
 		if object.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
-			log.V(3).Info("Integration was automatically enabled but object lacks parent annotation, skipping", "integration", integrationName)
+			log.V(3).Info("Integration was implicitly enabled but object lacks parent annotation, skipping", "integration", integrationName)
 			return ctrl.Result{}, nil
 		}
 	}
@@ -1513,8 +1513,4 @@ func workloadSliceEnabled(job GenericJob) bool {
 		return false
 	}
 	return workloadslicing.Enabled(jobObject)
-}
-
-func (r *JobReconciler) GetAutomaticallyEnabledIntegrations() sets.Set[string] {
-	return r.automaticallyEnabledIntegrations
 }
