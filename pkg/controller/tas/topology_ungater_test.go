@@ -906,27 +906,15 @@ func TestReconcile(t *testing.T) {
 						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
-							Assignment(corev1.ResourceCPU, "unit-test-flavor", "5").
-							AssignmentPodCount(3).
-							TopologyAssignment(&kueue.TopologyAssignment{
-								Levels: defaultTestLevels,
-								Domains: []kueue.TopologyDomainAssignment{
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r1",
-										},
-									},
-									{
-										Count: 1,
-										Values: []string{
-											"b1",
-											"r2",
-										},
-									},
-								},
-							}).
+							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
+								Count(5).
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(defaultTestLevels).
+									Domains(
+										utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+										utiltesting.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj()).
+									Obj()).
+								Obj()).
 							Obj(),
 					).
 					Admitted(true).
