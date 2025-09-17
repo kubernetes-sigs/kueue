@@ -69,4 +69,3 @@ managerConfig:
       MultiKueueBatchJobWithManagedBy: true
       TopologyAwareScheduling: true
       LocalQueueMetrics: true
-      TASFailedNodeReplacement: true

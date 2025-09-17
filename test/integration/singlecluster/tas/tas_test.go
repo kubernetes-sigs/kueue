@@ -52,13 +52,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeAll(func() {
-		_ = features.SetEnable(features.TASFailedNodeReplacement, true)
 		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
-		_ = features.SetEnable(features.TASFailedNodeReplacement, false)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1230,8 +1228,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							&kueue.TopologyAssignment{
 								Levels: []string{corev1.LabelHostname},
 								Domains: []kueue.TopologyDomainAssignment{
+									{Count: 1, Values: []string{"x1"}},
 									{Count: 1, Values: []string{"x2"}},
-									{Count: 1, Values: []string{"x3"}},
 								},
 							},
 						))
@@ -1422,8 +1420,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueue)
-
-				_ = features.SetEnable(features.TASFailedNodeReplacementFailFast, true)
 			})
 
 			ginkgo.AfterEach(func() {
@@ -1436,8 +1432,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
-
-				_ = features.SetEnable(features.TASFailedNodeReplacementFailFast, false)
 			})
 
 			ginkgo.It("should evict the Workload if no replacement is possible and place it on another rack", func() {
