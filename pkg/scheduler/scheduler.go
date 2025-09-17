@@ -796,7 +796,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 
-	metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
+	metrics.QuotaReservedWorkload(admission.ClusterQueue, workload.GetWorkloadPriorityClass(newWorkload), waitTime)
 	if features.Enabled(features.LocalQueueMetrics) {
 		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
 	}
