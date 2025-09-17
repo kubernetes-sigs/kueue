@@ -137,12 +137,12 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "workload_priority_class"},
 	)
 
-	LocalQueueQuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
+    LocalQueueQuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_quota_reserved_workloads_total",
 			Help:      "The total number of quota reserved workloads per 'local_queue'",
-		}, []string{"name", "namespace"},
+        }, []string{"name", "namespace", "workload_priority_class"},
 	)
 
 	quotaReservedWaitTime = prometheus.NewHistogramVec(
@@ -515,9 +515,9 @@ func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityC
 	quotaReservedWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
-func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Duration) {
-	LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace).Inc()
-	localQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
+func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+    LocalQueueQuotaReservedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, workloadPriorityClass).Inc()
+    localQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
 func AdmittedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
@@ -611,8 +611,8 @@ func ClearClusterQueueMetrics(cqName string) {
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace, PendingStatusActive)
 	LocalQueuePendingWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible)
-	LocalQueueQuotaReservedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
-	localQueueQuotaReservedWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
+    LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+    localQueueQuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmittedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmissionWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
