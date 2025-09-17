@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
+    kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
 )
@@ -171,6 +172,16 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
+}
+
+func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
+    lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+    ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "")
+
+    expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1", "reason", "Preempted")
+
+    ClearLocalQueueMetrics(lq)
+    expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
 }
 
 func TestGitVersionMetric(t *testing.T) {
