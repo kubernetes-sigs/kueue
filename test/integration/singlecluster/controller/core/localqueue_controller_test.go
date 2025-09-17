@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -649,5 +650,42 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+
+	ginkgo.It("Should increment LocalQueueEvictedWorkloadsTotal when LocalQueue is stopped", framework.SlowSpec, func() {
+		ginkgo.By("Creating resourceFlavors", func() {
+			for _, rf := range resourceFlavors {
+				util.MustCreate(ctx, k8sClient, &rf)
+			}
+		})
+
+		ginkgo.By("Creating a clusterQueue", func() {
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+		})
+
+		// Create and admit a workload so eviction path applies on HoldAndDrain
+		wl := testing.MakeWorkload("evict-me", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			Request(resourceGPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		admission := testing.MakeAdmission(clusterQueue.Name).
+			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj()
+		util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+		util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 1)
+
+		ginkgo.By("Stopping the LocalQueue (HoldAndDrain)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var lq kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &lq)).To(gomega.Succeed())
+			lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+			g.Expect(k8sClient.Update(ctx, &lq)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		util.ExpectLQEvictedWorkloadsTotalMetric(queue, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
 	})
 })

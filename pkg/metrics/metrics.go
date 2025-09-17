@@ -320,7 +320,7 @@ The label 'underlying_cause' can have the following values:
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, []string{"name", "namespace", "reason", "underlying_cause"},
+		}, []string{"name", "namespace", "reason", "underlying_cause", "priority_class"},
 	)
 
 	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
@@ -572,8 +572,8 @@ func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
 	ReplacedWorkloadSlicesTotal.WithLabelValues(string(cqName)).Inc()
 }
 
-func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string) {
-	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause).Inc()
+func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string, priorityClass string) {
+	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause, priorityClass).Inc()
 }
 
 func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, priorityClass string) {

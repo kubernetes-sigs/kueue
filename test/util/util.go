@@ -660,6 +660,11 @@ func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCaus
 	expectCounterMetric(metric, v)
 }
 
+func ExpectLQEvictedWorkloadsTotalMetric(lq *kueue.LocalQueue, reason, underlyingCause, priorityClass string, v int) {
+	metric := metrics.LocalQueueEvictedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, reason, underlyingCause, priorityClass)
+	expectCounterMetric(metric, v)
+}
+
 func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
 	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason)
 	expectCounterMetric(metric, v)

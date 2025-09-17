@@ -1303,7 +1303,12 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause)).Observe(podsReadyToEvictionTime.Seconds())
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, string(underlyingCause))
+		metrics.ReportLocalQueueEvictedWorkloads(
+			metrics.LQRefFromWorkload(wl),
+			reason,
+			string(underlyingCause),
+			wl.Spec.PriorityClassName,
+		)
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {

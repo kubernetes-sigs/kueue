@@ -87,6 +87,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ginkgo.By("Creating initial Workloads with different priorities")
 			lowWl1 := testing.MakeWorkload("low-wl-1", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
@@ -135,6 +136,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
 			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", "", 2)
+			util.ExpectLQEvictedWorkloadsTotalMetric(q, kueue.WorkloadEvictedByPreemption, "", "", 2)
 			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 2)
 			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", "", 2)
 
