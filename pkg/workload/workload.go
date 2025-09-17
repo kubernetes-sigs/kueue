@@ -573,13 +573,19 @@ func UpdateStatus(ctx context.Context,
 
 	newWl := BaseSSAWorkload(wl, false)
 	newWl.Status.Conditions = []metav1.Condition{condition}
+
+	if (conditionType == kueue.WorkloadFinished && conditionStatus == metav1.ConditionTrue) ||
+		(conditionType == kueue.WorkloadQuotaReserved && conditionStatus == metav1.ConditionFalse) {
+		ReportEvictionCompleted(wl, wl.Spec.QueueName, reason, message, now.Time)
+	}
+
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
-func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string, now time.Time) bool {
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, lqName kueue.LocalQueueName, reason, message string, now time.Time) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -597,6 +603,9 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	if SyncAdmittedCondition(wl, now) {
 		changed = true
 	}
+
+	ReportEvictionCompleted(wl, lqName, reason, message, now)
+
 	return changed
 }
 
@@ -1154,6 +1163,34 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
 	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName)
+}
+
+// ReportEvictionCompleted reports the time between when eviction started for running pods (Evicted=True & PodsReady=True) and
+// when it completed (Evicted=True & (QuotaReserved=False || Finished=True || Deactivated=True))
+func ReportEvictionCompleted(wl *kueue.Workload, lqName kueue.LocalQueueName, reason, message string, now time.Time) {
+	// diff between eviction start and eviction completion
+	evictionDuration := workloadCompletedEviction(wl, now)
+	if evictionDuration != nil {
+		metrics.ReportEvictionCompleted(lqName, reason, *evictionDuration)
+	}
+}
+
+func workloadCompletedEviction(wl *kueue.Workload, now time.Time) *time.Duration {
+	evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+
+	// Only measure duration if both Evicted=True AND PodsReady=True
+	if evictedCond != nil && evictedCond.Status == metav1.ConditionTrue &&
+		podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
+		// Use the later of the two timestamps as the actual eviction start time
+		// since we need both conditions to be true simultaneously
+		startTime := evictedCond.LastTransitionTime.Time
+
+		evictionCompleted := now.Sub(startTime)
+		return &evictionCompleted
+	}
+
+	return nil
 }
 
 func References(wls []*Info) []klog.ObjectRef {

@@ -347,6 +347,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			Reason:  remoteFinishedCond.Reason,
 			Message: remoteFinishedCond.Message,
 		})
+		workload.ReportEvictionCompleted(wlPatch, wlPatch.Spec.QueueName, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock.Now())
 		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName+"-finish"), client.ForceOwnership)
 	}
 
