@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -5951,5 +5952,92 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		t.Fatalf("Expected pod %q to be deleted", podKey.String())
 	} else if !apierrors.IsNotFound(err) {
 		t.Fatalf("Got unexpected error %v when checking if pod %q was deleted", err, podKey.String())
+	}
+}
+
+func TestPod_IsActive(t *testing.T) {
+	type fields struct {
+		pod   corev1.Pod
+		list  corev1.PodList
+		clock clock.Clock
+	}
+	tests := map[string]struct {
+		fields fields
+		want   bool
+	}{
+		"RegularPod": {
+			want: false,
+		},
+		"PodGroup_NotActive": {
+			fields: fields{
+				clock: realClock,
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "deleted-with-expired-grace",
+								DeletionTimestamp:          &metav1.Time{Time: time.Now().Add(-time.Minute)},
+								DeletionGracePeriodSeconds: ptr.To(int64(30)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
+							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
+							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+						},
+					},
+				},
+			},
+		},
+		"PodGroup_Active": {
+			fields: fields{
+				clock: realClock,
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "deleted-with-expired-grace",
+								DeletionTimestamp:          &metav1.Time{Time: time.Now().Add(-time.Minute)},
+								DeletionGracePeriodSeconds: ptr.To(int64(30)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
+							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
+							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "deleted-within-grace",
+								DeletionTimestamp:          &metav1.Time{Time: time.Now().Add(-time.Minute)},
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := &Pod{
+				pod:   tt.fields.pod,
+				list:  tt.fields.list,
+				clock: tt.fields.clock,
+			}
+			if got := p.IsActive(); got != tt.want {
+				t.Errorf("IsActive() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
