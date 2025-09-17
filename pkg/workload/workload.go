@@ -698,42 +698,48 @@ func BaseSSAWorkload(w *kueue.Workload, strict bool) *kueue.Workload {
 	return wlCopy
 }
 
-// SetQuotaReservation applies the provided admission to the workload.
-// The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
+// SetQuotaReservation records that quota has been reserved for the given Workload
+// in the specified ClusterQueue and updates the Workload status accordingly.
+//
+// Effects:
+//   - Sets w.Status.Admission to the provided admission.
+//   - Adds or updates a Condition of type kueue.WorkloadQuotaReserved with
+//     Status=True, Reason="QuotaReserved", Message="Quota reserved in ClusterQueue <name>",
+//     and ObservedGeneration set to w.Generation. The message is truncated via
+//     api.TruncateConditionMessage.
+//   - Resets any active "evicted" and "preempted" conditions by invoking
+//     resetActiveCondition for kueue.WorkloadEvicted and kueue.WorkloadPreempted.
 func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock clock.Clock) {
 	w.Status.Admission = admission
-	message := fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue)
-	admittedCond := metav1.Condition{
+
+	reason := "QuotaReserved"
+	msg := fmt.Sprintf("Quota reserved in ClusterQueue %s", admission.ClusterQueue)
+
+	apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
-		Reason:             "QuotaReserved",
-		Message:            api.TruncateConditionMessage(message),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(msg),
 		ObservedGeneration: w.Generation,
-	}
-	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
+	})
 
-	// reset Evicted condition if present.
-	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
-		evictedCond.Status = metav1.ConditionFalse
-		evictedCond.Reason = "QuotaReserved"
-		evictedCond.Message = preservePreviousMessage(evictedCond.Message)
-		evictedCond.LastTransitionTime = metav1.NewTime(clock.Now())
-	}
-	// reset Preempted condition if present.
-	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
-		preemptedCond.Status = metav1.ConditionFalse
-		preemptedCond.Reason = "QuotaReserved"
-		preemptedCond.Message = preservePreviousMessage(preemptedCond.Message)
-		preemptedCond.LastTransitionTime = metav1.NewTime(clock.Now())
-	}
+	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadEvicted, reason)
+	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreempted, reason)
 }
 
-func preservePreviousMessage(message string) string {
-	if !strings.HasPrefix(message, "Previously: ") {
-		return api.TruncateConditionMessage("Previously: " + message)
+func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason string) {
+	prev := apimeta.FindStatusCondition(*conds, condType)
+	// Ignore not found or inactive condition.
+	if prev == nil || prev.Status != metav1.ConditionTrue {
+		return
 	}
-
-	return message
+	apimeta.SetStatusCondition(conds, metav1.Condition{
+		Type:               condType,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage("Previously: " + prev.Message),
+		ObservedGeneration: gen,
+	})
 }
 
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
