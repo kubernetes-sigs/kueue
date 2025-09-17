@@ -407,6 +407,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 1)
 
 		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 3)
+		util.ExpectLQAdmissionWaitTimeMetric(queue, "", 3)
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 
 		ginkgo.By("Finishing workloads")

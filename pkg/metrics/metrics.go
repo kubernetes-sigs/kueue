@@ -228,13 +228,13 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue", "priority_class"},
 	)
 
-	localQueueAdmissionWaitTime = prometheus.NewHistogramVec(
+	LocalQueueAdmissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"name", "namespace"},
+		}, []string{"name", "namespace", "priority_class"},
 	)
 
 	AdmissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -527,7 +527,7 @@ func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, 
 
 func LocalQueueAdmittedWorkload(lq LocalQueueReference, priorityClass string, waitTime time.Duration) {
 	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass).Inc()
-	localQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
+	LocalQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, priorityClass).Observe(waitTime.Seconds())
 }
 
 func ReportAdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration) {
@@ -614,7 +614,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQuotaReservedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueQuotaReservedWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
-	localQueueAdmissionWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	LocalQueueAdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
@@ -800,7 +800,7 @@ func RegisterLQMetrics() {
 		LocalQueueQuotaReservedWorkloadsTotal,
 		localQueueQuotaReservedWaitTime,
 		LocalQueueAdmittedWorkloadsTotal,
-		localQueueAdmissionWaitTime,
+		LocalQueueAdmissionWaitTime,
 		LocalQueueAdmissionChecksWaitTime,
 		LocalQueueQueuedUntilReadyWaitTime,
 		LocalQueueAdmittedUntilReadyWaitTime,
