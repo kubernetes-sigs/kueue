@@ -393,7 +393,17 @@ func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 	}
 }
 
-// IsActive returns true if there are any running pods.
+// IsActive reports whether a Pod or PodGroup should be considered active.
+//
+// For regular Pod, return value is always false.
+//
+// For Pod group, return true if there is at least a single Active pod in the group.
+// A Pod is considered active if it is in the Running phase and has not exceeded
+// its deletion grace period. Pods in other phases are ignored. If a Pod is
+// terminating (has a DeletionTimestamp) and its grace period has already
+// elapsed, it is treated as inactive. This prevents workloads from being
+// blocked by Pods that are stuck terminating, ensuring quota can be released
+// and new Pods admitted.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
 		pod := p.list.Items[i]
@@ -404,13 +414,11 @@ func (p *Pod) IsActive() bool {
 		}
 
 		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
-		// charging quota for it, as doing so could block the user from scaling up
-		// replacement pods.
+		// counting as Active, as doing so could block the workload to release acquired quota.
 		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
 			now := p.clock.Now()
-			deletionTime := pod.DeletionTimestamp.Time
 			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-			if now.After(deletionTime.Add(gracePeriod)) {
+			if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
 				continue
 			}
 		}
