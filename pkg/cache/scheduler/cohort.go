@@ -38,7 +38,7 @@ type cohort struct {
 func newCohort(name kueue.CohortReference) *cohort {
 	return &cohort{
 		Name:         name,
-		Cohort:       hierarchy.NewCohort[*clusterQueue, *cohort](),
+		Cohort:       hierarchy.NewCohort[*clusterQueue](),
 		resourceNode: NewResourceNode(),
 	}
 }
