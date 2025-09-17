@@ -396,9 +396,27 @@ func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 // IsActive returns true if there are any running pods.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		if p.list.Items[i].Status.Phase == corev1.PodRunning {
-			return true
+		pod := p.list.Items[i]
+
+		// Pods that are not in the Running phase are never considered Active.
+		if pod.Status.Phase != corev1.PodRunning {
+			continue
 		}
+
+		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
+		// charging quota for it, as doing so could block the user from scaling up
+		// replacement pods.
+		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
+			now := p.clock.Now()
+			deletionTime := pod.DeletionTimestamp.Time
+			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
+			if now.After(deletionTime.Add(gracePeriod)) {
+				continue
+			}
+		}
+
+		// At this point, the pod is Running and not stuck terminating — count as active.
+		return true
 	}
 	return false
 }
