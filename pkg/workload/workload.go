@@ -1112,7 +1112,7 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {
-	metrics.ReportEvictedWorkloads(cqName, reason, underlyingCause)
+	metrics.ReportEvictedWorkloads(cqName, reason, underlyingCause, GetWorkloadPriorityClass(wl))
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, underlyingCause).Observe(podsReadyToEvictionTime.Seconds())
 	}
