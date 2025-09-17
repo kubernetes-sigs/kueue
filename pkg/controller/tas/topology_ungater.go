@@ -215,7 +215,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		}
 	}
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		if psa.TopologyAssignment != nil {
+		if assignmentIsComplete(psa.TopologyAssignment, int(*psa.Count)) {
 			pods, err := r.podsForPodSet(ctx, wl.Namespace, wl.Name, psa.Name)
 			if err != nil {
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
@@ -298,6 +298,17 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, wlName string, 
 		result = append(result, &pods.Items[i])
 	}
 	return result, nil
+}
+
+func assignmentIsComplete(topologyAssignment *kueue.TopologyAssignment, podsCount int) bool {
+	if topologyAssignment == nil {
+		return false
+	}
+	assignmentCount := 0
+	for i := range topologyAssignment.Domains {
+		assignmentCount += int(topologyAssignment.Domains[i].Count)
+	}
+	return podsCount == assignmentCount
 }
 
 func podsToUngateInfo(
