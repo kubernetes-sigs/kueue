@@ -343,7 +343,7 @@ The label 'detailed_reason' can have the following values:
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, []string{"cluster_queue", "reason", "detailed_reason"},
+		}, []string{"cluster_queue", "reason", "detailed_reason", "workload_priority_class"},
 	)
 
 	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
@@ -576,8 +576,8 @@ func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlying
 	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause).Inc()
 }
 
-func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause string) {
-	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause).Inc()
+func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, workloadPriorityClass string) {
+	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause, workloadPriorityClass).Inc()
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
