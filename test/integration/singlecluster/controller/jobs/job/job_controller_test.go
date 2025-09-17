@@ -2191,6 +2191,8 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 
 		ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor with admission check", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				WorkloadPriorityClass(lowPriorityClass.Name).
@@ -2234,6 +2236,8 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, lowPriorityClass.Name, 1)
 			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, highPriorityClass.Name, 0)
+			util.ExpectLQAdmissionChecksWaitTimeMetric(localQueue, lowPriorityClass.Name, 1)
+			util.ExpectLQAdmissionChecksWaitTimeMetric(localQueue, highPriorityClass.Name, 0)
 
 			highJob := testingjob.MakeJob("high", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -2278,6 +2282,8 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, lowPriorityClass.Name, 1)
 			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, highPriorityClass.Name, 1)
+			util.ExpectLQAdmissionChecksWaitTimeMetric(localQueue, lowPriorityClass.Name, 1)
+			util.ExpectLQAdmissionChecksWaitTimeMetric(localQueue, highPriorityClass.Name, 1)
 		})
 	})
 })

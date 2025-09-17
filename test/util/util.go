@@ -593,6 +593,15 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.LocalQueueAdmissionChecksWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass string, minCount int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		metric := metrics.QueuedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass)
