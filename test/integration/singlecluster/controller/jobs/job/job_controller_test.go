@@ -2140,6 +2140,146 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 		})
 	})
+
+	ginkgo.When("the cluster queue has admission check and workload priority class", func() {
+		var (
+			highPriorityClass *kueue.WorkloadPriorityClass
+			lowPriorityClass  *kueue.WorkloadPriorityClass
+			admissionCheck    *kueue.AdmissionCheck
+			resourceFlavor    *kueue.ResourceFlavor
+			clusterQueue      *kueue.ClusterQueue
+			localQueue        *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			highPriorityClass = testing.MakeWorkloadPriorityClass("high").PriorityValue(highPriorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
+
+			lowPriorityClass = testing.MakeWorkloadPriorityClass("low").PriorityValue(priorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, lowPriorityClass)
+
+			admissionCheck = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+			util.MustCreate(ctx, k8sClient, admissionCheck)
+
+			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+
+			resourceFlavor = testing.MakeResourceFlavor("rf").NodeLabel(instanceKey, "on-demand").Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			clusterQueue = testing.MakeClusterQueue("cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				AdmissionChecks("ac").
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+
+			localQueue = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowPriorityClass, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
+		})
+
+		ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor with admission check", func() {
+			lowJob := testingjob.MakeJob("low", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				WorkloadPriorityClass(lowPriorityClass.Name).
+				Parallelism(5).
+				Request(corev1.ResourceCPU, "1").
+				Suspend(false).
+				Obj()
+			ginkgo.By("Creating a low priority job", func() {
+				util.MustCreate(ctx, k8sClient, lowJob)
+			})
+
+			ginkgo.By("Verifying the low priority job is suspended", func() {
+				createdJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowJob), createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdLowWorkload := &kueue.Workload{}
+			lowWlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID),
+				Namespace: ns.Name,
+			}
+			ginkgo.By("Fetching the created low priority workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, createdLowWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting ready for admission checks in low priority workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, createdLowWorkload)).To(gomega.Succeed())
+					workload.SetAdmissionCheckState(&createdLowWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  kueue.AdmissionCheckReference(admissionCheck.Name),
+						State: kueue.CheckStateReady,
+					}, clock.RealClock{})
+					g.Expect(k8sClient.Status().Update(ctx, createdLowWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, lowPriorityClass.Name, 1)
+			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, highPriorityClass.Name, 0)
+
+			highJob := testingjob.MakeJob("high", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				WorkloadPriorityClass(highPriorityClass.Name).
+				Parallelism(5).
+				Request(corev1.ResourceCPU, "1").
+				Suspend(false).
+				Obj()
+			ginkgo.By("Creating a high priority job", func() {
+				util.MustCreate(ctx, k8sClient, highJob)
+			})
+
+			ginkgo.By("Verifying the high priority job is suspended", func() {
+				createdJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highJob), createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdHighWorkload := &kueue.Workload{}
+			highWlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID),
+				Namespace: ns.Name,
+			}
+			ginkgo.By("Fetching the created high priority workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, highWlLookupKey, createdHighWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting ready for admission checks in high priority workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, highWlLookupKey, createdHighWorkload)).To(gomega.Succeed())
+					workload.SetAdmissionCheckState(&createdHighWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  kueue.AdmissionCheckReference(admissionCheck.Name),
+						State: kueue.CheckStateReady,
+					}, clock.RealClock{})
+					g.Expect(k8sClient.Status().Update(ctx, createdHighWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, lowPriorityClass.Name, 1)
+			util.ExpectAdmissionChecksWaitTimeMetric(clusterQueue, highPriorityClass.Name, 1)
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
