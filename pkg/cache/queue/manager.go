@@ -131,7 +131,7 @@ func NewManager(client client.Client, checker StatusChecker, options ...Option) 
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
 		workloadInfoOptions: []workload.InfoOption{},
-		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
+		hm:                  hierarchy.NewManager(newCohort),
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 		secondPassQueue:        newSecondPassQueue(),

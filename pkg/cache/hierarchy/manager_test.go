@@ -498,7 +498,7 @@ type testCohort struct {
 func newCohort(name kueue.CohortReference) *testCohort {
 	return &testCohort{
 		name:   name,
-		Cohort: NewCohort[*testClusterQueue, *testCohort](),
+		Cohort: NewCohort[*testClusterQueue](),
 	}
 }
 
