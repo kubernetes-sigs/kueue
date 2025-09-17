@@ -201,13 +201,13 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace"},
 	)
 
-	admissionWaitTime = prometheus.NewHistogramVec(
+	AdmissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"cluster_queue"},
+		}, []string{"cluster_queue", "workload_priority_class"},
 	)
 
 	queuedUntilReadyWaitTime = prometheus.NewHistogramVec(
@@ -522,7 +522,7 @@ func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Durat
 
 func AdmittedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
 	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
-	admissionWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+	AdmissionWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
 }
 
 func LocalQueueAdmittedWorkload(lq LocalQueueReference, waitTime time.Duration) {
@@ -599,7 +599,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	quotaReservedWaitTime.DeleteLabelValues(cqName)
 	PodsReadyToEvictedTimeSeconds.DeleteLabelValues(cqName)
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	admissionWaitTime.DeleteLabelValues(cqName)
+	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
 	queuedUntilReadyWaitTime.DeleteLabelValues(cqName)
 	admittedUntilReadyWaitTime.DeleteLabelValues(cqName)
@@ -774,7 +774,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
-		admissionWaitTime,
+		AdmissionWaitTime,
 		admissionChecksWaitTime,
 		queuedUntilReadyWaitTime,
 		admittedUntilReadyWaitTime,
