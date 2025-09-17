@@ -3391,14 +3391,10 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			),
 		)
 
-		managedNs = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "managed-ns-",
-				Labels: map[string]string{
-					"managed-by-kueue": "true",
-				},
-			},
-		}
+		managedNs = testing.MakeNamespaceWrapper("").
+			GenerateName("managed-ns-").
+			Label("managed-by-kueue", "true").
+			Obj()
 		util.MustCreate(ctx, k8sClient, managedNs)
 
 		unmanagedNs = &corev1.Namespace{
