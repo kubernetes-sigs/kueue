@@ -314,6 +314,20 @@ func (c *ClusterQueue) Pending() int {
 	return c.PendingActive() + c.PendingInadmissible()
 }
 
+// Running returns the total number of running workloads.
+func (c *ClusterQueue) Running() int {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	result := 0
+	for _, wl := range c.heap.List() {
+		if apimeta.IsStatusConditionTrue(wl.Obj.Status.Conditions, kueue.WorkloadPodsReady) {
+			result++
+		}
+	}
+
+	return result
+}
+
 // PendingActive returns the number of active pending workloads,
 // workloads that are in the admission queue.
 func (c *ClusterQueue) PendingActive() int {

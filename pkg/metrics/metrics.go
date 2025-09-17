@@ -129,6 +129,22 @@ The label 'result' can have the following values:
 		}, []string{"name", "namespace", "status"},
 	)
 
+	RunningWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "running_workloads",
+			Help:      "The number of running Workloads per 'cluster_queue' and 'status' is `running`. ",
+		}, []string{"cluster_queue"},
+	)
+
+	LocalQueueRunningWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_running_workloads",
+			Help:      "The number of running Workloads that are currently running (pods are ready and making progress), per 'localQueue'",
+		}, []string{"name", "namespace"},
+	)
+
 	QuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -648,6 +664,7 @@ func ReportLocalQueueStatus(lq LocalQueueReference, conditionStatus metav1.Condi
 func ClearCacheMetrics(cqName string) {
 	ReservingActiveWorkloads.DeleteLabelValues(cqName)
 	AdmittedActiveWorkloads.DeleteLabelValues(cqName)
+	RunningWorkloads.DeleteLabelValues(cqName)
 	for _, status := range CQStatuses {
 		ClusterQueueByStatus.DeleteLabelValues(cqName, string(status))
 	}
@@ -656,6 +673,7 @@ func ClearCacheMetrics(cqName string) {
 func ClearLocalQueueCacheMetrics(lq LocalQueueReference) {
 	LocalQueueReservingActiveWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	LocalQueueAdmittedActiveWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	LocalQueueRunningWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	for _, status := range ConditionStatusValues {
 		LocalQueueByStatus.DeleteLabelValues(string(lq.Name), lq.Namespace, string(status))
 	}
@@ -767,6 +785,7 @@ func Register() {
 		PendingWorkloads,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
+		RunningWorkloads,
 		QuotaReservedWorkloadsTotal,
 		quotaReservedWaitTime,
 		PodsReadyToEvictedTimeSeconds,
@@ -797,6 +816,7 @@ func RegisterLQMetrics() {
 		LocalQueuePendingWorkloads,
 		LocalQueueReservingActiveWorkloads,
 		LocalQueueAdmittedActiveWorkloads,
+		LocalQueueRunningWorkloads,
 		LocalQueueQuotaReservedWorkloadsTotal,
 		localQueueQuotaReservedWaitTime,
 		LocalQueueAdmittedWorkloadsTotal,

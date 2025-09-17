@@ -920,6 +920,80 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 	}
 }
 
+func TestRunning(t *testing.T) {
+	tests := map[string]struct {
+		workloads   []*kueue.Workload
+		wantRunning int
+	}{
+		"empty queue": {
+			workloads:   []*kueue.Workload{},
+			wantRunning: 0,
+		},
+		"only running workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("running-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+				utiltesting.MakeWorkload("running-2", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+			},
+			wantRunning: 2,
+		},
+		"only pending workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("pending-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionFalse,
+					}).Obj(),
+				utiltesting.MakeWorkload("no-condition", defaultNamespace).Obj(),
+			},
+			wantRunning: 0,
+		},
+		"mixed running and pending workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("running-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+				utiltesting.MakeWorkload("pending-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionFalse,
+					}).Obj(),
+				utiltesting.MakeWorkload("running-2", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+				utiltesting.MakeWorkload("no-condition", defaultNamespace).Obj(),
+			},
+			wantRunning: 2,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
+
+			for _, wl := range test.workloads {
+				cq.PushOrUpdate(workload.NewInfo(wl))
+			}
+
+			if got := cq.Running(); got != test.wantRunning {
+				t.Errorf("Got %d running workloads, want %d", got, test.wantRunning)
+			}
+		})
+	}
+}
+
 func TestFsAdmission(t *testing.T) {
 	wlCmpOpts := []cmp.Option{
 		cmpopts.EquateEmpty(),
