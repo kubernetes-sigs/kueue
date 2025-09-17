@@ -322,6 +322,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			wl1 := testing.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(podsCountQueue.Name)).
 				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 3).
@@ -342,6 +343,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 1)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(podsCountClusterQ, "", 1)
+				util.ExpectLocalQueueReservedWaitTimeMetric(podsCountQueue, "", 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, "", 1)
 			})
 

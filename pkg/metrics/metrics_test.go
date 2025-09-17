@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
 )
@@ -189,4 +190,22 @@ func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
 	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 1, "name", "lq3", "namespace", "ns3")
 	ClearLocalQueueMetrics(lq)
 	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 0, "name", "lq3", "namespace", "ns3")
+}
+
+func TestReportAndCleanupLocalQueueQuotaReservedNumber(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+	LocalQueueQuotaReservedWorkload(lq, "", 0)
+
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1")
+
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
+}
+
+func TestLocalQueueQuotaReservedWaitTimeHasPriorityLabel(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq2"), Namespace: "ns2"}
+	LocalQueueQuotaReservedWorkload(lq, "p1", 0)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWaitTime, 1, "name", "lq2", "namespace", "ns2")
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWaitTime, 0, "name", "lq2", "namespace", "ns2")
 }
