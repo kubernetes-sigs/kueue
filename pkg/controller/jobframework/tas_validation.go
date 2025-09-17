@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +28,8 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
+
+var podSetGroupNameRegex = regexp.MustCompile("^[a-z][a-z0-9]*$")
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	var allErrs field.ErrorList
@@ -63,6 +66,12 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	}
 	if sliceRequiredFound {
 		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueuealpha.PodSetSliceRequiredTopologyAnnotation))...)
+	}
+
+	// validate PodSetGroupName annotation
+	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueuealpha.PodSetGroupName]
+	if podSetGroupNameFound {
+		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueuealpha.PodSetGroupName))...)
 	}
 
 	unconstrainedErrs := validateTASUnconstrained(annotationsPath, replicaMetadata)
@@ -118,6 +127,19 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 			field.Invalid(
 				annotationsPath.Key(kueuealpha.PodSetSliceSizeAnnotation), sliceSizeValue,
 				"must be greater than or equal to 1",
+			),
+		}
+	}
+
+	return nil
+}
+
+func validatePodSetGroupNameAnnotation(groupName string, annotationPath *field.Path) field.ErrorList {
+	var matchesPattern = podSetGroupNameRegex.MatchString(groupName)
+	if !matchesPattern {
+		return field.ErrorList{
+			field.Invalid(
+				annotationPath, groupName, "must start with a lowercase letter and contain only lowercase letters and numbers",
 			),
 		}
 	}

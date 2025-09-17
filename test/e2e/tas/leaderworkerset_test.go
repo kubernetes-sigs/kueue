@@ -186,7 +186,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "same-group",
+							kueuealpha.PodSetGroupName:                  "samegroup",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -211,7 +211,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "same-group",
+							kueuealpha.PodSetGroupName:                  "samegroup",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -295,7 +295,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "same-group",
+							kueuealpha.PodSetGroupName:                  "samegroup",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetGroupName:                  "same-group",
+							kueuealpha.PodSetGroupName:                  "samegroup",
 						},
 					},
 					Spec: corev1.PodSpec{
