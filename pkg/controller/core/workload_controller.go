@@ -195,11 +195,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.workloadHasDRA(&wl) {
 		if r.workloadHasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
-				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
-				}
+			if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, true, r.clock, func() (*kueue.Workload, bool, error) {
+				update := workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now())
+				return &wl, update, nil
+			}); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 			}
+
 			return ctrl.Result{}, nil
 		}
 
@@ -207,10 +209,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		draResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
 		if err != nil {
 			log.Error(err, "Failed to process DRA resources for workload")
-			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
-				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
-				}
+			if updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, true, r.clock, func() (*kueue.Workload, bool, error) {
+				update := workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
+				return &wl, update, nil
+			}); updateErr != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
 			return ctrl.Result{}, err
 		}
