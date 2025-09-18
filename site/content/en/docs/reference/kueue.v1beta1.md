@@ -975,7 +975,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 Each resource group defines the list of resources and a list of flavors
 that provide quotas for these resources.
 Each resource and each flavor can only form part of one resource group.
-resourceGroups can be up to 16.</p>
+resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
 </td>
 </tr>
 <tr><td><code>cohort</code> <B>[Required]</B><br/>
@@ -2700,7 +2700,8 @@ nodes matching to the Resource Flavor node labels.</p>
    <p>coveredResources is the list of resources covered by the flavors in this
 group.
 Examples: cpu, memory, vendor.com/gpu.
-The list cannot be empty and it can contain up to 16 resources.</p>
+The list cannot be empty and it can contain up to 64 resources. With a total
+of up to 256 covered resources across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 <tr><td><code>flavors</code> <B>[Required]</B><br/>
@@ -2713,7 +2714,8 @@ Typically, different flavors represent different hardware models
 cpus).
 Each flavor MUST list all the resources listed for this group in the same
 order as the .resources field.
-The list cannot be empty and it can contain up to 16 flavors.</p>
+The list cannot be empty and it can contain up to 64 flavors, with a max of
+256 total flavors across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 </tbody>
