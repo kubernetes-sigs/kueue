@@ -394,19 +394,13 @@ func TestValidateTotalFlavors(t *testing.T) {
 		wantErr    bool
 	}{
 		{"within limit (10 flavors)", 10, false},
+		{"At limit (256 flavors)", 256, false},
 		{"over limit (257 flavors)", 257, true},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			cq := &kueue.ClusterQueue{
-				Spec: kueue.ClusterQueueSpec{
-					ResourceGroups: []kueue.ResourceGroup{{
-						CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
-						Flavors:          makeFlavors(tc.numFlavors),
-					}},
-				},
-			}
+			cq := testingutil.MakeClusterQueue("cluster-queue").ResourceGroup(makeFlavors(tc.numFlavors)...).Obj()
 
 			errs := ValidateClusterQueue(cq)
 
