@@ -31,6 +31,7 @@ import (
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"strings"
+	"fmt"
 )
 
 func TestValidateClusterQueue(t *testing.T) {
@@ -372,65 +373,57 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 	}
 }
 
-func makeFlavor(name string) kueue.FlavorQuotas {
-	return kueue.FlavorQuotas{
-		Name: kueue.ResourceFlavorReference(name),
-		Resources: []kueue.ResourceQuota{{
-			Name:         corev1.ResourceCPU,
-			NominalQuota: resource.MustParse("1"),
-		}},
+func makeFlavors(n int) []kueue.FlavorQuotas {
+	flavs := make([]kueue.FlavorQuotas, 0, n)
+	for i := 0; i < n; i++ {
+		flavs = append(flavs, kueue.FlavorQuotas{
+			Name: kueue.ResourceFlavorReference(fmt.Sprintf("f%03d", i)),
+			Resources: []kueue.ResourceQuota{{
+				Name:         corev1.ResourceCPU,
+				NominalQuota: resource.MustParse("1"),
+			}},
+		})
 	}
+	return flavs
 }
 
 func TestValidateTotalFlavors(t *testing.T) {
-	// Construct >256 flavors
-	var flavors []kueue.FlavorQuotas
-	for i := 0; i < 257; i++ {
-		flavors = append(flavors, makeFlavor("f"+string(rune('a'+(i%26)))+string(rune('A'+(i/26)))))
-	}
-	cq := &kueue.ClusterQueue{
-		Spec: kueue.ClusterQueueSpec{
-			ResourceGroups: []kueue.ResourceGroup{{
-				CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
-				Flavors:          flavors,
-			}},
-		},
+	testcases := []struct {
+		name       string
+		numFlavors int
+		wantErr    bool
+	}{
+		{"within limit (10 flavors)", 10, false},
+		{"over limit (257 flavors)", 257, true},
 	}
 
-	errs := ValidateClusterQueue(cq)
-	if len(errs) == 0 {
-		t.Fatalf("expected error for >256 flavors, got none")
-	}
-	found := false
-	for _, e := range errs {
-		if e.Type == field.ErrorTypeInvalid && 
-		strings.Contains(e.Error(), "total number of flavors across all resourceGroups") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected invalid error about total flavors, got %v", errs)
-	}
-}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cq := &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					ResourceGroups: []kueue.ResourceGroup{{
+						CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+						Flavors:          makeFlavors(tc.numFlavors),
+					}},
+				},
+			}
 
-func TestValidateTotalFlavorsWithinLimit(t *testing.T) {
-	// Construct 10 flavors
-	var flavors []kueue.FlavorQuotas
-	for i := 0; i < 10; i++ {
-		flavors = append(flavors, makeFlavor("f"+string(rune('a'+i))))
-	}
-	cq := &kueue.ClusterQueue{
-		Spec: kueue.ClusterQueueSpec{
-			ResourceGroups: []kueue.ResourceGroup{{
-				CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
-				Flavors:          flavors,
-			}},
-		},
-	}
+			errs := ValidateClusterQueue(cq)
 
-	errs := ValidateClusterQueue(cq)
-	if len(errs) != 0 {
-		t.Errorf("expected no error, got %v", errs)
+			if tc.wantErr {
+				if len(errs) == 0 {
+					t.Fatalf("expected error for >256 flavors, got none")
+				}
+				for _, e := range errs {
+					if e.Type == field.ErrorTypeInvalid &&
+						strings.Contains(e.Error(), "total number of flavors across all resourceGroups") {
+						return // success
+					}
+				}
+				t.Errorf("expected invalid error about total flavors, got %v", errs)
+			} else if len(errs) != 0 {
+				t.Errorf("expected no error, got %v", errs)
+			}
+		})
 	}
 }
