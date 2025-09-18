@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/set"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -38,7 +37,7 @@ import (
 var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -116,7 +115,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+									kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 								},
 							},
 						},
@@ -148,7 +147,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+									kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 								},
 							},
 						},
@@ -174,7 +173,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				}).

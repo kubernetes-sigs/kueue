@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -389,12 +388,38 @@ func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 	}
 }
 
-// IsActive returns true if there are any running pods.
+// IsActive reports whether a Pod or PodGroup should be considered active.
+//
+// For regular Pod, return value is always false.
+//
+// For Pod group, return true if there is at least a single Active pod in the group.
+// A Pod is considered active if it is in the Running phase and has not exceeded
+// its deletion grace period. Pods in other phases are ignored. If a Pod is
+// terminating (has a DeletionTimestamp) and its grace period has already
+// elapsed, it is treated as inactive. This prevents workloads from being
+// blocked by Pods that are stuck terminating, ensuring quota can be released
+// and new Pods admitted.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		if p.list.Items[i].Status.Phase == corev1.PodRunning {
-			return true
+		pod := p.list.Items[i]
+
+		// Pods that are not in the Running phase are never considered Active.
+		if pod.Status.Phase != corev1.PodRunning {
+			continue
 		}
+
+		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
+		// counting as Active, as doing so could block the workload to release acquired quota.
+		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
+			now := p.clock.Now()
+			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
+			if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
+				continue
+			}
+		}
+
+		// At this point, the pod is Running and not stuck terminating — count as active.
+		return true
 	}
 	return false
 }
@@ -661,7 +686,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
-			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
+			ptr.To(kueue.PodGroupPodIndexLabel)).Build()
 		if err != nil {
 			return kueue.PodSet{}, err
 		}
@@ -738,7 +763,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 		return err
 	}
 
-	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), kueuealpha.PodGroupPodIndexLabel, groupTotalCount)
+	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), kueue.PodGroupPodIndexLabel, groupTotalCount)
 	if utilpod.IgnoreLabelNotFoundError(err) != nil {
 		return err
 	}
@@ -1378,10 +1403,10 @@ func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
 	// Remove the TopologySchedulingGate if the Pod is scheduled without using TAS
 	found := slices.ContainsFunc(info.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
-		return g.Name == kueuealpha.TopologySchedulingGate
+		return g.Name == kueue.TopologySchedulingGate
 	})
 	if !found {
-		utilpod.Ungate(pod, kueuealpha.TopologySchedulingGate)
+		utilpod.Ungate(pod, kueue.TopologySchedulingGate)
 	}
 	return nil
 }

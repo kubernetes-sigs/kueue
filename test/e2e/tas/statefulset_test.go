@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -34,7 +33,7 @@ import (
 var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 	var (
 		ns           *corev1.Namespace
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		localQueue   *kueue.LocalQueue
 		clusterQueue *kueue.ClusterQueue
@@ -81,7 +80,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				RequestAndLimit(extraResource, "1").
 				Replicas(replicas).
 				Queue(localQueue.Name).
-				PodTemplateSpecAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sts)
@@ -109,7 +108,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				gotAssignment := make(map[string]string, replicas)
 				for _, pod := range pods.Items {
-					index := pod.Labels[kueuealpha.PodGroupPodIndexLabel]
+					index := pod.Labels[kueue.PodGroupPodIndexLabel]
 					gotAssignment[index] = pod.Spec.NodeName
 				}
 				wantAssignment := map[string]string{

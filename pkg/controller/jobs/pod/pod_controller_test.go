@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -149,7 +149,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
@@ -157,7 +157,7 @@ func TestPodSets(t *testing.T) {
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						RequiredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},
@@ -165,7 +165,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
-				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
@@ -173,7 +173,7 @@ func TestPodSets(t *testing.T) {
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},
@@ -181,7 +181,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"without required topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
@@ -195,7 +195,7 @@ func TestPodSets(t *testing.T) {
 		},
 		"without preferred topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
-				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
@@ -295,6 +295,7 @@ func TestReconciler(t *testing.T) {
 				NodeSelector(corev1.LabelArchStable, "arm64").
 				KueueFinalizer().
 				Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Annotation(kueue.WorkloadAnnotation, "unit-test").
 				Obj()},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -334,7 +335,6 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-
 		"non-matching admitted workload is deleted and pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -388,6 +388,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("test-queue").
@@ -716,6 +717,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -771,6 +773,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -840,6 +843,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -927,6 +931,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -1048,6 +1053,7 @@ func TestReconciler(t *testing.T) {
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
 					Label(controllerconsts.PodSetLabel, podUID).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1058,6 +1064,7 @@ func TestReconciler(t *testing.T) {
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
 					Label(controllerconsts.PodSetLabel, podUID).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1078,7 +1085,11 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(
@@ -1610,6 +1621,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("1").
 					Label(controllerconsts.PodSetLabel, podUID).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1752,6 +1764,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("3").
 					Label(controllerconsts.PodSetLabel, podUID).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -2134,7 +2147,12 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").NodeName("test-node").Obj()).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").
+							NodeName("test-node").
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
 					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -2388,6 +2406,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -2852,6 +2871,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -3294,6 +3314,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4126,6 +4147,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("test-queue").
@@ -4184,6 +4206,7 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue("user-queue").
@@ -4460,6 +4483,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now.Add(-time.Hour)).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4470,6 +4494,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(now).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4508,6 +4533,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					GroupTotalCount("2").
 					Label(controllerconsts.PodSetLabel, podUID).
+					Annotation(kueue.WorkloadAnnotation, "test-group").
 					CreationTimestamp(now).
 					Obj(),
 			},
@@ -5951,5 +5977,92 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		t.Fatalf("Expected pod %q to be deleted", podKey.String())
 	} else if !apierrors.IsNotFound(err) {
 		t.Fatalf("Got unexpected error %v when checking if pod %q was deleted", err, podKey.String())
+	}
+}
+
+func TestPod_IsActive(t *testing.T) {
+	type fields struct {
+		pod   corev1.Pod
+		list  corev1.PodList
+		clock clock.Clock
+	}
+	tests := map[string]struct {
+		fields fields
+		want   bool
+	}{
+		"RegularPod": {
+			want: false,
+		},
+		"PodGroup_NotActive": {
+			fields: fields{
+				clock: realClock,
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "deleted-with-expired-grace",
+								DeletionTimestamp:          &metav1.Time{Time: time.Now().Add(-time.Minute)},
+								DeletionGracePeriodSeconds: ptr.To(int64(30)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
+							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
+							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+						},
+					},
+				},
+			},
+		},
+		"PodGroup_Active": {
+			fields: fields{
+				clock: realClock,
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "deleted-with-expired-grace",
+								DeletionTimestamp:          &metav1.Time{Time: time.Now().Add(-time.Minute)},
+								DeletionGracePeriodSeconds: ptr.To(int64(30)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
+							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
+							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "deleted-within-grace",
+								DeletionTimestamp:          &metav1.Time{Time: time.Now().Add(-time.Minute)},
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := &Pod{
+				pod:   tt.fields.pod,
+				list:  tt.fields.list,
+				clock: tt.fields.clock,
+			}
+			if got := p.IsActive(); got != tt.want {
+				t.Errorf("IsActive() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

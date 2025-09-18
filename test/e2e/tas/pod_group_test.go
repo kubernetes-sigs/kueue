@@ -23,7 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -42,7 +41,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 
 	ginkgo.When("Creating a Pod group", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			tasFlavor    *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
@@ -86,7 +85,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 				RequestAndLimit(extraResource, "1").
 				Limit(extraResource, "1").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel)
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel)
 			podGroup := basePod.MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {
@@ -116,7 +115,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 					client.MatchingLabels(basePod.Labels))).To(gomega.Succeed())
 				gotAssignment := make(map[string]string, numPods)
 				for _, pod := range pods.Items {
-					index := pod.Labels[kueuealpha.PodGroupPodIndexLabel]
+					index := pod.Labels[kueue.PodGroupPodIndexLabel]
 					gotAssignment[index] = pod.Spec.NodeName
 				}
 				wantAssignment := map[string]string{

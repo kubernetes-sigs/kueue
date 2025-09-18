@@ -190,6 +190,9 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.6.0
 ## explicit; go 1.23
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
+# github.com/kubeflow/trainer/v2 v2.0.0
+## explicit; go 1.24.0
+github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
 # github.com/kubeflow/training-operator v1.9.3
 ## explicit; go 1.23
 github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1

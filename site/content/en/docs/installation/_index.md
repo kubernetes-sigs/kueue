@@ -264,7 +264,7 @@ spec:
 ### Feature gates for alpha and beta features
 
 | Feature                                       | Default | Stage | Since | Until |
-| --------------------------------------------- | ------- | ----- | ----- | ----- |
+| --------------------------------------------- |---------|-------|-------|-------|
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
@@ -276,7 +276,8 @@ spec:
 | `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6   |       |
 | `LendingLimit`                                | `false` | Alpha | 0.6   | 0.8   |
 | `LendingLimit`                                | `true`  | Beta  | 0.9   |       |
-| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   |       |
+| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9   | 0.13  |
+| `TopologyAwareScheduling`                     | `true`  | Beta  | 0.14  |       |
 | `LocalQueueDefaulting`                        | `false` | Alpha | 0.10  | 0.11  |
 | `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12  |       |
 | `LocalQueueMetrics`                           | `false` | Alpha | 0.10  |       |

@@ -335,6 +335,15 @@ rules:
       - patch
       - update
   - apiGroups:
+      - resource.k8s.io
+    resources:
+      - resourceclaims
+      - resourceclaimtemplates
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
       - scheduling.k8s.io
     resources:
       - priorityclasses
@@ -342,6 +351,31 @@ rules:
       - get
       - list
       - watch
+  - apiGroups:
+      - trainer.kubeflow.org
+    resources:
+      - trainjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - trainer.kubeflow.org
+    resources:
+      - trainjobs/finalizers
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - trainer.kubeflow.org
+    resources:
+      - trainjobs/status
+    verbs:
+      - get
+      - patch
+      - update
   - apiGroups:
       - workload.codeflare.dev
     resources:

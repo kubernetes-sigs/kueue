@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -47,7 +46,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 
 	ginkgo.When("Creating a JobSet", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			tasFlavor    *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
@@ -98,7 +97,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				).
@@ -161,9 +160,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetSliceSizeAnnotation:             "3",
+							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
 				).
@@ -226,8 +225,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetSliceSizeAnnotation:             "3",
+							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
 				).

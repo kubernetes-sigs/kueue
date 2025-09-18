@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -1288,12 +1287,12 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 	podSetsInfo := make([]podset.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, psAssignment := range w.Status.Admission.PodSetAssignments {
-		info, err := podset.FromAssignment(ctx, c, &psAssignment, w.Spec.PodSets[i].Count)
+		info, err := podset.FromAssignment(ctx, c, &psAssignment, &w.Spec.PodSets[i])
 		if err != nil {
 			return nil, err
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			info.Annotations[kueuealpha.WorkloadAnnotation] = w.Name
+			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 
 		info.Labels[controllerconsts.PodSetLabel] = string(psAssignment.Name)

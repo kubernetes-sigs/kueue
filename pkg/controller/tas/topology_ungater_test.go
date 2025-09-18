@@ -36,7 +36,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -91,7 +90,7 @@ func TestReconcile(t *testing.T) {
 		result := make(map[string]*counts, len(pods))
 		for i := range pods {
 			pod := pods[i]
-			if utilpod.HasGate(&pod, kueuealpha.TopologySchedulingGate) {
+			if utilpod.HasGate(&pod, kueue.TopologySchedulingGate) {
 				continue
 			}
 			if utilpod.IsTerminated(&pod) {
@@ -136,14 +135,14 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
@@ -177,23 +176,23 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
@@ -230,23 +229,23 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
@@ -275,14 +274,14 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
@@ -305,14 +304,14 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
@@ -338,14 +337,14 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
@@ -400,13 +399,13 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					TopologySchedulingGate().
 					Obj(),
 			},
@@ -430,7 +429,7 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
@@ -439,7 +438,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
@@ -475,7 +474,7 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Gate("example.com/gate").
@@ -483,7 +482,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
@@ -519,28 +518,28 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-running", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodRunning).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod-gated", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-running", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodRunning).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod-gated", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
@@ -574,28 +573,28 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-running", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodFailed).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod-gated", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-running", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodFailed).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod-gated", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
@@ -631,26 +630,26 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").UID("x").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").UID("y").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").UID("x").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").UID("y").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
@@ -685,28 +684,28 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-succeeded", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodSucceeded).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod-gated", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-already-succeeded", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodSucceeded).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod-gated", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
@@ -741,26 +740,26 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").UID("x").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").UID("y").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").UID("x").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").UID("y").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
@@ -803,33 +802,33 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "4").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
@@ -838,35 +837,35 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "4").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
@@ -940,31 +939,31 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
 					Label(controllerconsts.PodSetLabel, "leader").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "2").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "1").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "3").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "4").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
@@ -973,35 +972,35 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
 					Label(controllerconsts.PodSetLabel, "leader").
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "2").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "1").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "3").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "4").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b2").
@@ -1059,31 +1058,31 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "4").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
@@ -1092,35 +1091,35 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "4").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
@@ -1197,31 +1196,31 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
 					Label(controllerconsts.PodSetLabel, "leader").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "1").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "2").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "3").
 					Label(controllerconsts.PodSetLabel, "workers").
 					TopologySchedulingGate().
@@ -1230,35 +1229,35 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
 					Label(controllerconsts.PodSetLabel, "leader").
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "1").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "2").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p4", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(leaderworkersetv1.WorkerIndexLabelKey, "3").
 					Label(controllerconsts.PodSetLabel, "workers").
 					NodeSelector(tasBlockLabel, "b2").
@@ -1317,25 +1316,25 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
@@ -1344,22 +1343,22 @@ func TestReconcile(t *testing.T) {
 			cmpNS: false,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
@@ -1409,7 +1408,7 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodFailed).
@@ -1417,7 +1416,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
@@ -1426,7 +1425,7 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodFailed).
@@ -1434,7 +1433,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
@@ -1480,7 +1479,7 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1488,7 +1487,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1496,7 +1495,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1504,7 +1503,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1515,7 +1514,7 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1524,7 +1523,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1533,7 +1532,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1542,7 +1541,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1604,7 +1603,7 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1612,7 +1611,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1621,7 +1620,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1630,7 +1629,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1641,7 +1640,7 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1650,7 +1649,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1659,7 +1658,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1668,7 +1667,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1749,7 +1748,7 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1757,7 +1756,7 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1768,7 +1767,7 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("p1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "0").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1777,7 +1776,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("p3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
@@ -1830,27 +1829,27 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "launcher").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1860,14 +1859,14 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "launcher").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1875,7 +1874,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1883,7 +1882,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1942,20 +1941,20 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "launcher").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1963,7 +1962,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1974,14 +1973,14 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("l0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "launcher").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1989,7 +1988,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -1997,7 +1996,7 @@ func TestReconcile(t *testing.T) {
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
 					Label(kftraining.JobRoleLabel, "worker").
 					Label(kftraining.ReplicaIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -2034,7 +2033,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
@@ -2056,26 +2055,26 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "0").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "1").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "2").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "3").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
@@ -2083,29 +2082,29 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "0").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "1").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "2").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("w3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "3").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
@@ -2140,7 +2139,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kueuealpha.PodGroupPodIndexLabel)).
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 						Obj()).
 					ReserveQuota(
 						utiltesting.MakeAdmission("cq").
@@ -2162,27 +2161,27 @@ func TestReconcile(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "0").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "1").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "2").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("w3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "3").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
@@ -2191,29 +2190,29 @@ func TestReconcile(t *testing.T) {
 			cmpNS: true,
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("w0", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "0").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "0").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w1", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "1").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "1").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r1").
 					Obj(),
 				*testingpod.MakePod("w2", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "2").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "2").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b1").
 					NodeSelector(tasRackLabel, "r2").
 					Obj(),
 				*testingpod.MakePod("w3", "ns").
-					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(kueuealpha.PodGroupPodIndexLabel, "3").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(kueue.PodGroupPodIndexLabel, "3").
 					Label(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").

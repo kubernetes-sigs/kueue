@@ -57,6 +57,10 @@ git fetch "${UPSTREAM_REMOTE}" --tags
 find_previous_version() {
   local release_version="$1"
   IFS='.' read -r major minor patch <<< "${release_version#v}"
+  if [ "$patch" -eq 0 ]; then
+    echo "${release_version}-devel"
+    return 0
+  fi
   for tag in $(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r); do
     IFS='.' read -r t_major t_minor t_patch <<< "${tag#v}"
     if [ "$t_major" -lt "$major" ] || \
@@ -88,9 +92,11 @@ function find_head_branch() {
 
 HEAD_BRANCH=$(find_head_branch "$RELEASE_VERSION")
 declare HEAD_BRANCH
+echo "+++ HEAD_BRANCH=$HEAD_BRANCH"
 
 PREVIOUS_VERSION=$(find_previous_version "$RELEASE_VERSION")
 declare PREVIOUS_VERSION
+echo "+++ PREVIOUS_VERSION=$PREVIOUS_VERSION"
 
 START_SHA=$(git rev-parse "${PREVIOUS_VERSION}^{commit}" 2>/dev/null)
 declare START_SHA

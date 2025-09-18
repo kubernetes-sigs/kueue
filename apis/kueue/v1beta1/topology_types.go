@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,6 +74,8 @@ const (
 	// PodSet is admitted using TopologyAwareScheduling, and all Pods created
 	// from the Job's PodTemplate also have the label. For the Pod-based
 	// integrations the label is added in webhook during the Pod creation.
+	// Depracted. This label is no longer added by TAS to Pod. The constant is
+	// only kept to support "reading" the label until 0.16.
 	TASLabel = "kueue.x-k8s.io/tas"
 
 	// PodGroupPodIndexLabel is a label set on the Pod's metadata belonging

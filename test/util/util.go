@@ -31,6 +31,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -162,6 +163,10 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 
 func DeleteAllJobSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &jobset.JobSet{})
+}
+
+func DeleteAllTrainJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftrainerapi.TrainJob{})
 }
 
 func DeleteAllLeaderWorkerSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
@@ -568,8 +573,17 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriority
 	expectCounterMetric(metric, v)
 }
 
-func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause string, v int) {
-	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause)
+func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, count int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.AdmissionWaitTime.WithLabelValues(cq.Name, workloadPriorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, workloadPriorityClass string, v int) {
+	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, workloadPriorityClass)
 	expectCounterMetric(metric, v)
 }
 
@@ -578,8 +592,8 @@ func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string,
 	expectHistogramMetric(metric, cqName, reason, underlyingCause, v)
 }
 
-func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause string, v int) {
-	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause)
+func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause, workloadPriorityClass string, v int) {
+	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause, workloadPriorityClass)
 	expectCounterMetric(metric, v)
 }
 
@@ -588,8 +602,8 @@ func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) 
 	expectCounterMetric(metric, v)
 }
 
-func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
-	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name)
+func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, v int) {
+	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name, workloadPriorityClass)
 	expectCounterMetric(metric, v)
 }
 

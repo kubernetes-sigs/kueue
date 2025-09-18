@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -845,7 +844,7 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -910,7 +909,7 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
 			Component(testingaw.Component{
 				Template: utiltestingjob.MakeJob("job", ns.Name).
-					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 					Request(corev1.ResourceCPU, "1").
 					SetTypeMeta().
 					Obj(),

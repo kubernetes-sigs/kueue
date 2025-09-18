@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -1286,6 +1288,223 @@ func TestNeedsSecondPass(t *testing.T) {
 			got := NeedsSecondPass(tc.wl)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected NeedsSecondPass() result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWithPreprocessedDRAResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicResourceAllocation, true)
+
+	cases := map[string]struct {
+		workload     kueue.Workload
+		draResources map[kueue.PodSetReference]corev1.ResourceList
+		wantInfo     Info
+	}{
+		"single podset with DRA resources": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "100m").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("2"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						},
+					},
+				},
+			},
+		},
+		"multiple podsets with different DRA resources": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Obj(),
+					*utiltesting.MakePodSet("worker", 2).
+						Request(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("2"),
+				},
+				"worker": {
+					"foo-accelerator": resource.MustParse("1"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						},
+					},
+					{
+						Name:  "worker",
+						Count: 2,
+						Requests: resources.Requests{
+							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
+							"foo-accelerator":     2,
+						},
+					},
+				},
+			},
+		},
+		"no DRA resources for podset": {
+			workload: *utiltesting.MakeWorkload("test-wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Obj(),
+					*utiltesting.MakePodSet("worker", 1).
+						Request(corev1.ResourceMemory, "512Mi").
+						Obj(),
+				).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpus": resource.MustParse("1"),
+				},
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "main",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 100,
+							"gpus":             1,
+						},
+					},
+					{
+						Name:  "worker",
+						Count: 1,
+						Requests: resources.Requests{
+							corev1.ResourceMemory: 512 * 1024 * 1024,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources))
+
+			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests); diff != "" {
+				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetQuotaReservation(t *testing.T) {
+	// test clock and time "constants" uses in conditions.
+	testClock := testingclock.NewFakeClock(time.Now())
+	now := testClock.Now()
+	fiveMinutesAgo := now.Add(-5 * time.Minute)
+
+	// admission "constants" values used in all test cases.
+	admission := utiltesting.MakeAdmission("test-queue").Obj()
+	quotaReservedReason := "QuotaReserved"
+	quotaReservedMessage := fmt.Sprintf("Quota reserved in ClusterQueue %s", admission.ClusterQueue)
+
+	// newWorkload wrapper to reduce boilerplate in test cases.
+	newWorkload := func() *utiltesting.WorkloadWrapper {
+		return utiltesting.MakeWorkload("test", "default").Generation(1)
+	}
+
+	// newCondition helper.
+	newCondition := func(condition string, status metav1.ConditionStatus, reason, message string, ltt time.Time) metav1.Condition {
+		return metav1.Condition{
+			Type:               condition,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			ObservedGeneration: 1,
+			LastTransitionTime: metav1.NewTime(ltt),
+		}
+	}
+
+	// test cases.
+	type args struct {
+		workload  *kueue.Workload
+		admission *kueue.Admission
+	}
+	tests := map[string]struct {
+		args args
+		want *kueue.Workload
+	}{
+		"WorkloadWithoutConditions": {
+			args: args{
+				workload:  newWorkload().Obj(),
+				admission: admission,
+			},
+			want: newWorkload().
+				Admission(admission).
+				Condition(newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionTrue, quotaReservedReason, quotaReservedMessage, now)).
+				Obj(),
+		},
+		"WorkloadWithActiveConditions": {
+			args: args{
+				workload: newWorkload().
+					Conditions(
+						newCondition(kueue.WorkloadEvicted, metav1.ConditionTrue, "TestEvictedReason", "test evicted message", fiveMinutesAgo),
+						newCondition(kueue.WorkloadPreempted, metav1.ConditionTrue, "TestPreemptedReason", "test preempted message", fiveMinutesAgo),
+						newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionFalse, "TestReason", "test message", fiveMinutesAgo),
+					).Obj(),
+				admission: admission,
+			},
+			want: newWorkload().
+				Admission(admission).
+				Conditions(
+					newCondition(kueue.WorkloadEvicted, metav1.ConditionFalse, quotaReservedReason, "Previously: test evicted message", now),
+					newCondition(kueue.WorkloadPreempted, metav1.ConditionFalse, quotaReservedReason, "Previously: test preempted message", now),
+					newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionTrue, quotaReservedReason, quotaReservedMessage, now),
+				).
+				Obj(),
+		},
+		"WorkloadWithInactiveConditions": {
+			args: args{
+				workload: newWorkload().
+					Conditions(
+						newCondition(kueue.WorkloadEvicted, metav1.ConditionFalse, quotaReservedReason, "Previously: test evicted message", fiveMinutesAgo),
+						newCondition(kueue.WorkloadPreempted, metav1.ConditionFalse, quotaReservedReason, "Previously: test preempted message", fiveMinutesAgo),
+						newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionFalse, quotaReservedReason, quotaReservedMessage, fiveMinutesAgo),
+					).Obj(),
+				admission: admission,
+			},
+			want: newWorkload().
+				Admission(admission).
+				Conditions(
+					newCondition(kueue.WorkloadEvicted, metav1.ConditionFalse, quotaReservedReason, "Previously: test evicted message", fiveMinutesAgo),
+					newCondition(kueue.WorkloadPreempted, metav1.ConditionFalse, quotaReservedReason, "Previously: test preempted message", fiveMinutesAgo),
+					newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionTrue, quotaReservedReason, quotaReservedMessage, now),
+				).
+				Obj(),
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			SetQuotaReservation(tt.args.workload, tt.args.admission, testClock)
+			if diff := cmp.Diff(tt.want, tt.args.workload); diff != "" {
+				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
 			}
 		})
 	}
