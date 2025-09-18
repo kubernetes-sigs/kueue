@@ -188,8 +188,8 @@ func TestFromAssignment(t *testing.T) {
 			wantInfo: PodSetInfo{
 				Name:  "name",
 				Count: 4,
-				Labels: map[string]string{
-					kueue.TASLabel: "true",
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "true",
 				},
 				NodeSelector: map[string]string{
 					"f1l1": "f1v1",
@@ -238,7 +238,10 @@ func TestFromAssignment(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: tc.flavors}).Build()
 
-			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, tc.defaultCount)
+			podSet := kueue.PodSet{
+				Count: tc.defaultCount,
+			}
+			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, &podSet)
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
