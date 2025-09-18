@@ -807,23 +807,21 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should forbid the change of spec.admission", func() {
+		ginkgo.It("Should forbid the change of status.admission", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
 			util.MustCreate(ctx, k8sClient, workload)
 
-			ginkgo.By("Admitting the Workload")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var newWL kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Obj()
-				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Admitting the Workload", func() {
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), testing.MakeAdmission("cluster-queue").Obj())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+			})
 
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(newWL.Status.Admission).NotTo(gomega.BeNil())
 				newWL.Status.Admission.ClusterQueue = "foo-cluster-queue"
 				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
