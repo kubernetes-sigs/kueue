@@ -3445,7 +3445,7 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 		job := testingjob.MakeJob("unmanaged-job", unmanagedNs.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -3459,7 +3459,7 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 		job := testingjob.MakeJob("managed-job", managedNs.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
