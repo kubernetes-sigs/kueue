@@ -107,9 +107,6 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			},
 		}
 
-		err = dra.CreateMapperFromConfiguration(mappings)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		// Controllers configuration
 		controllersCfg := &config.Configuration{
 			Namespace: ptr.To("kueue-system"),
@@ -122,6 +119,9 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		if modifyConfig != nil {
 			modifyConfig(controllersCfg)
 		}
+
+		err = dra.CreateMapperFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
