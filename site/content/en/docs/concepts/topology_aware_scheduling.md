@@ -73,6 +73,9 @@ As an admin, in order to enable the feature you need to:
 
 {{< include "examples/tas/sample-queues.yaml" "yaml" >}}
 
+An example for managing GPUs:
+{{< include "examples/tas/sample-gpu-queues.yaml" "yaml" >}}
+
 ### User-facing APIs
 
 Once TAS is configured and ready to be used, you can create Jobs with the
@@ -237,6 +240,7 @@ features, including:
   ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
 - a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
 with Topology name (`.spec.topologyName`) is marked as inactive.
+- The taints on the nodes are not respected unless `kubernetes.io/hostname` is on the lowest topology level.
 
 These usage scenarios are considered to be supported in the future releases
 of Kueue.
