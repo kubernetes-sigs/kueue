@@ -73,7 +73,7 @@ As an admin, in order to enable the feature you need to:
 
 {{< include "examples/tas/sample-queues.yaml" "yaml" >}}
 
-An example for managing GPUS:
+An example for managing GPUs:
 {{< include "examples/tas/sample-gpu-queues.yaml" "yaml" >}}
 
 ### User-facing APIs
