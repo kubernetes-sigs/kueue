@@ -573,6 +573,15 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriority
 	expectCounterMetric(metric, v)
 }
 
+func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, count int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.AdmissionWaitTime.WithLabelValues(cq.Name, workloadPriorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, workloadPriorityClass string, v int) {
 	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, workloadPriorityClass)
 	expectCounterMetric(metric, v)
