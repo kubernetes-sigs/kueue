@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -390,8 +391,16 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
-						*utiltesting.MakePodSet("replicated-job-2", 4).Obj(),
+						*utiltesting.MakePodSet("replicated-job-1", 1).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+							SubGroupCount(ptr.To[int32](1)).
+							Obj(),
+						*utiltesting.MakePodSet("replicated-job-2", 4).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+							SubGroupCount(ptr.To[int32](2)).
+							Obj(),
 					).
 					Obj(),
 			},

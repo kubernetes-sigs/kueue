@@ -232,6 +232,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConfigurableResourceTransformations: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},

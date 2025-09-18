@@ -14,7 +14,7 @@ spec:
     singular: topology
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - name: v1beta1
     schema:
       openAPIV3Schema:
         description: Topology is the Schema for the topology API

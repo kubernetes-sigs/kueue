@@ -35,6 +35,7 @@ type KueueV1beta1Interface interface {
 	MultiKueueConfigsGetter
 	ProvisioningRequestConfigsGetter
 	ResourceFlavorsGetter
+	TopologiesGetter
 	WorkloadsGetter
 	WorkloadPriorityClassesGetter
 }
@@ -74,6 +75,10 @@ func (c *KueueV1beta1Client) ProvisioningRequestConfigs() ProvisioningRequestCon
 
 func (c *KueueV1beta1Client) ResourceFlavors() ResourceFlavorInterface {
 	return newResourceFlavors(c)
+}
+
+func (c *KueueV1beta1Client) Topologies() TopologyInterface {
+	return newTopologies(c)
 }
 
 func (c *KueueV1beta1Client) Workloads(namespace string) WorkloadInterface {

@@ -18,6 +18,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 - [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
 - [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
 - [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
   
@@ -264,6 +265,33 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
   
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
+## `Topology`     {#kueue-x-k8s-io-v1beta1-Topology}
+    
+
+**Appears in:**
+
+
+
+<p>Topology is the Schema for the topology API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Topology</code></td></tr>
+    
+  
+<tr><td><code>spec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologySpec"><code>TopologySpec</code></a>
 </td>
 <td>
    <span class="text-muted">No description provided.</span></td>
@@ -2939,6 +2967,38 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
+## `TopologyLevel`     {#kueue-x-k8s-io-v1beta1-TopologyLevel}
+    
+
+**Appears in:**
+
+- [TopologySpec](#kueue-x-k8s-io-v1beta1-TopologySpec)
+
+
+<p>TopologyLevel defines the desired state of TopologyLevel</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>nodeLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>nodeLabel indicates the name of the node label for a specific topology
+level.</p>
+<p>Examples:</p>
+<ul>
+<li>cloud.provider.com/topology-block</li>
+<li>cloud.provider.com/topology-rack</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
     
 (Alias of `string`)
@@ -2954,6 +3014,32 @@ domain indicated by the values field.</p>
 
 
 
+
+## `TopologySpec`     {#kueue-x-k8s-io-v1beta1-TopologySpec}
+    
+
+**Appears in:**
+
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
+
+
+<p>TopologySpec defines the desired state of Topology</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyLevel"><code>[]TopologyLevel</code></a>
+</td>
+<td>
+   <p>levels define the levels of topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `UnhealthyNode`     {#kueue-x-k8s-io-v1beta1-UnhealthyNode}
     

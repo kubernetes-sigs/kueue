@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -2138,7 +2137,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -2215,14 +2214,14 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	ginkgo.It("should admit workload which fits in a required topology domain (single pod)", func() {
 		pod := testingpod.MakePod("pod", ns.Name).
 			Queue(localQueue.Name).
-			Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+			Annotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 			Request(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("creating a pod which requires block", func() {
 			util.MustCreate(ctx, k8sClient, pod)
 			gomega.Expect(pod.Spec.SchedulingGates).Should(gomega.ContainElements(
 				corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
-				corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
+				corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 			))
 		})
 
@@ -2240,7 +2239,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
 						Required:      ptr.To(tasBlockLabel),
-						PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel),
+						PodIndexLabel: ptr.To(kueue.PodGroupPodIndexLabel),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2267,7 +2266,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	ginkgo.It("should admit workload which fits in a required topology domain (pod group)", func() {
 		group := testingpod.MakePod("group", ns.Name).
 			Queue(localQueue.Name).
-			Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+			Annotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 			Request(corev1.ResourceCPU, "100m").
 			MakeIndexedGroup(2)
 		ginkgo.By("Creating the Pod group", func() {
@@ -2275,7 +2274,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 				util.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
-					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 				))
 			}
 		})
@@ -2291,7 +2290,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 					Count: 2,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
 						Required:      ptr.To(tasBlockLabel),
-						PodIndexLabel: ptr.To(kueuealpha.PodGroupPodIndexLabel),
+						PodIndexLabel: ptr.To(kueue.PodGroupPodIndexLabel),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2325,7 +2324,7 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -2432,7 +2431,7 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 		var nodeName string
 		podgroup := testingpod.MakePod(podGroupName, ns.Name).
 			Queue(localQueue.Name).
-			Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+			Annotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Request(corev1.ResourceCPU, "100m").
 			MakeIndexedGroup(2)
 		ginkgo.By("Creating the Pod group", func() {
@@ -2440,7 +2439,7 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 				util.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
-					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 				))
 			}
 		})
@@ -2514,7 +2513,7 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 		var nodeName string
 		podgroup := testingpod.MakePod(podGroupName, ns.Name).
 			Queue(localQueue.Name).
-			Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+			Annotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Request(corev1.ResourceCPU, "100m").
 			MakeIndexedGroup(2)
 		ginkgo.By("Creating the Pod group", func() {
@@ -2522,7 +2521,7 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 				util.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
-					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 				))
 			}
 		})

@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -211,7 +210,7 @@ func TestValidateCreate(t *testing.T) {
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{
-								kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
 					},
@@ -222,7 +221,7 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -232,7 +231,7 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -248,8 +247,8 @@ func TestValidateCreate(t *testing.T) {
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{
-								kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-								kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 							},
 						},
 					},
@@ -260,8 +259,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-									kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 								},
 							},
 						},
@@ -288,9 +287,9 @@ func TestValidateCreate(t *testing.T) {
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{
-								kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-								kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-								kueuealpha.PodSetSliceSizeAnnotation:             "2",
+								kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+								kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+								kueue.PodSetSliceSizeAnnotation:             "2",
 							},
 						},
 					},
@@ -302,9 +301,9 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-									kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-									kueuealpha.PodSetSliceSizeAnnotation:             "10",
+									kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+									kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetSliceSizeAnnotation:             "10",
 								},
 							},
 						},
@@ -315,9 +314,9 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-									kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-									kueuealpha.PodSetSliceSizeAnnotation:             "20",
+									kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+									kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetSliceSizeAnnotation:             "20",
 								},
 							},
 						},

@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -88,7 +87,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -101,7 +100,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -142,7 +141,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -162,7 +161,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
@@ -196,7 +195,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -209,7 +208,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -221,7 +220,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
@@ -255,7 +254,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -269,7 +268,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -304,7 +303,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -318,7 +317,7 @@ func TestPodSets(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -336,7 +335,7 @@ func TestPodSets(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).

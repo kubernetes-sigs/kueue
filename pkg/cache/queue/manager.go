@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -89,7 +88,7 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 }
 
 type TopologyUpdateWatcher interface {
-	NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology)
+	NotifyTopologyUpdate(oldTopology, newTopology *kueue.Topology)
 }
 
 type Manager struct {
@@ -148,7 +147,7 @@ func (m *Manager) AddTopologyUpdateWatcher(watcher TopologyUpdateWatcher) {
 	m.topologyUpdateWatchers = append(m.topologyUpdateWatchers, watcher)
 }
 
-func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueuealpha.Topology) {
+func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueue.Topology) {
 	for _, watcher := range m.topologyUpdateWatchers {
 		watcher.NotifyTopologyUpdate(oldTopology, newTopology)
 	}

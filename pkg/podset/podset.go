@@ -30,7 +30,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -63,9 +62,9 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		Annotations:  make(map[string]string),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
-		info.Labels[kueuealpha.TASLabel] = "true"
+		info.Labels[kueue.TASLabel] = "true"
 		info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{
-			Name: kueuealpha.TopologySchedulingGate,
+			Name: kueue.TopologySchedulingGate,
 		})
 	}
 	for _, flvRef := range assignment.Flavors {

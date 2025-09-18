@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -3928,12 +3927,12 @@ func TestSnapshotError(t *testing.T) {
 	cache := New(client)
 	cache.AddOrUpdateResourceFlavor(log, &flavor)
 	if flavor.Spec.TopologyName != nil {
-		cache.AddOrUpdateTopology(log, &kueuealpha.Topology{
+		cache.AddOrUpdateTopology(log, &kueue.Topology{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: string(*flavor.Spec.TopologyName),
 			},
-			Spec: kueuealpha.TopologySpec{
-				Levels: []kueuealpha.TopologyLevel{
+			Spec: kueue.TopologySpec{
+				Levels: []kueue.TopologyLevel{
 					{
 						NodeLabel: corev1.LabelHostname,
 					},

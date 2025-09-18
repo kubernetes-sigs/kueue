@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -70,14 +69,14 @@ func TestPodSets(t *testing.T) {
 				ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
 				ReplicaCount: 1,
 				Annotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 				},
 			},
 			testingpytorchjob.PyTorchReplicaSpecRequirement{
 				ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
 				ReplicaCount: 4,
 				Annotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			},
 		).
@@ -119,13 +118,13 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet("aw-0", 1).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 					RequiredTopologyRequest("cloud.com/rack").
 					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 					Obj(),
 				*utiltesting.MakePodSet("aw-1", 4).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 					Obj(),
@@ -141,11 +140,11 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltesting.MakePodSet("aw-0", 1).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 					Obj(),
 				*utiltesting.MakePodSet("aw-1", 4).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
 			},
 
@@ -210,7 +209,9 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("aw", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("aw-0", 2).Obj(),
+						*utiltesting.MakePodSet("aw-0", 2).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -243,7 +244,9 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("aw", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
-						*utiltesting.MakePodSet("aw-0", 2).Obj(),
+						*utiltesting.MakePodSet("aw-0", 2).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							Obj(),
 					).
 					Obj(),
 			},

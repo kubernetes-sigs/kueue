@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -40,7 +39,7 @@ func indexPodWorkload(o client.Object) []string {
 	if !ok {
 		return nil
 	}
-	value, found := pod.Annotations[kueuealpha.WorkloadAnnotation]
+	value, found := pod.Annotations[kueue.WorkloadAnnotation]
 	if !found {
 		return nil
 	}
