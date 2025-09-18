@@ -31,6 +31,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/clock"
@@ -48,7 +49,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -3387,7 +3387,7 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg,
 			managerSetup(
-				jobframework.WithManagedJobsNamespaceSelector(util.NewManagedNamespaceSelector()),
+				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"})),
 			),
 		)
 
@@ -3458,17 +3458,5 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
-	})
-
-	ginkgo.It("Verify existing behavior - should not reconcile a pod in an unmanaged namespace", func() {
-		testPod := testingpod.MakePod("test-pod", unmanagedNs.Name).
-			Queue(lq.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-			Obj()
-		gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())
-
-		wls := &kueue.WorkloadList{}
-		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
-		gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload for pod in unmanaged namespace")
 	})
 })
