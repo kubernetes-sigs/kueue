@@ -313,7 +313,7 @@ function install_kubeflow_trainer {
         kubectl apply --kubeconfig="$2" --server-side -k "$manifests_temp_dir/overlays/manager"
     )
     # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
-    kubectl wait --kubeconfig="$2" deploy/kubeflow-trainer-controller-manager -n kubeflow-system --for=condition=available --timeout=1m
+    kubectl wait --kubeconfig="$2" deploy/kubeflow-trainer-controller-manager -n kubeflow-system --for=condition=available --timeout=5m
     kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
