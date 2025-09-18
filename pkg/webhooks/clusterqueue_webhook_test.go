@@ -26,12 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
+	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
-	"k8s.io/apimachinery/pkg/api/resource"
-	"strings"
-	"fmt"
 )
 
 func TestValidateClusterQueue(t *testing.T) {
@@ -400,23 +399,13 @@ func TestValidateTotalFlavors(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			cq := testingutil.MakeClusterQueue("cluster-queue").ResourceGroup(makeFlavors(tc.numFlavors)...).Obj()
+			cq := testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(makeFlavors(tc.numFlavors)...).Obj()
 
-			errs := ValidateClusterQueue(cq)
+			gotErr := ValidateClusterQueue(cq)
 
-			if tc.wantErr {
-				if len(errs) == 0 {
-					t.Fatalf("expected error for >256 flavors, got none")
-				}
-				for _, e := range errs {
-					if e.Type == field.ErrorTypeInvalid &&
-						strings.Contains(e.Error(), "total number of flavors across all resourceGroups") {
-						return // success
-					}
-				}
-				t.Errorf("expected invalid error about total flavors, got %v", errs)
-			} else if len(errs) != 0 {
-				t.Errorf("expected no error, got %v", errs)
+			if diff := cmp.Diff(tc.wantErr, len(gotErr) > 0); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
