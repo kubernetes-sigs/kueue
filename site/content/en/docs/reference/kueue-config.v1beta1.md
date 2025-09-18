@@ -796,6 +796,84 @@ A nil value disables automatic deletion of Workloads.</p>
 </tbody>
 </table>
 
+## `Operation`     {#Operation}
+    
+
+**Appears in:**
+
+- [ResourceTransformation](#ResourceTransformation)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>type</code> <B>[Required]</B><br/>
+<a href="#OperationType"><code>OperationType</code></a>
+</td>
+<td>
+   <p>Type specifies the category of operation, including multiplication,
+addition, and subtraction.</p>
+</td>
+</tr>
+<tr><td><code>target</code> <B>[Required]</B><br/>
+<a href="#OperationTarget"><code>OperationTarget</code></a>
+</td>
+<td>
+   <p>Target specifies the right-hand side operand for the operation.
+It can either be a resource associated with the input or a numerical value.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `OperationTarget`     {#OperationTarget}
+    
+
+**Appears in:**
+
+- [Operation](#Operation)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>targetResource</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>TargetResource specifies the target resource that participates
+in the operation with the input.</p>
+</td>
+</tr>
+<tr><td><code>quantity</code> <B>[Required]</B><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>Quantity specifies a fixed value, and only one of its value and
+that of TargetResource takes effect.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `OperationType`     {#OperationType}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Operation](#Operation)
+
+
+
+
+
 ## `PodIntegrationOptions`     {#PodIntegrationOptions}
     
 
@@ -969,6 +1047,13 @@ re-queuing an evicted workload.</p>
 </td>
 <td>
    <p>Input is the name of the input resource.</p>
+</td>
+</tr>
+<tr><td><code>operation</code> <B>[Required]</B><br/>
+<a href="#Operation"><code>Operation</code></a>
+</td>
+<td>
+   <p>Operation defines the operational behavior for the input resource.</p>
 </td>
 </tr>
 <tr><td><code>strategy</code> <B>[Required]</B><br/>

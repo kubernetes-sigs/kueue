@@ -20,6 +20,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
@@ -466,6 +467,9 @@ type ResourceTransformation struct {
 	// Input is the name of the input resource.
 	Input corev1.ResourceName `json:"input"`
 
+	// Operation defines the operational behavior for the input resource.
+	Operation *Operation `json:"operation"`
+
 	// Strategy specifies if the input resource should be replaced or retained.
 	// Defaults to Retain
 	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
@@ -473,6 +477,34 @@ type ResourceTransformation struct {
 	// Outputs specifies the output resources and quantities per unit of input resource.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
+}
+
+type OperationType string
+
+const (
+	Mul OperationType = "Mul"
+	Add OperationType = "Add"
+	Sub OperationType = "Sub"
+)
+
+type OperationTarget struct {
+	// TargetResource specifies the target resource that participates
+	// in the operation with the input.
+	TargetResource corev1.ResourceName `json:"targetResource"`
+
+	// Quantity specifies a fixed value, and only one of its value and
+	// that of TargetResource takes effect.
+	Quantity resource.Quantity `json:"quantity"`
+}
+
+type Operation struct {
+	// Type specifies the category of operation, including multiplication,
+	// addition, and subtraction.
+	Type OperationType `json:"type"`
+
+	// Target specifies the right-hand side operand for the operation.
+	// It can either be a resource associated with the input or a numerical value.
+	Target OperationTarget `json:"target"`
 }
 
 // DeviceClassMapping holds device class to logical resource mappings
