@@ -94,7 +94,7 @@ following annotations set at the PodTemplate level:
 	indicated by the annotation value (e.g. within a rack or within a block).
 - `kueue.x-k8s.io/podset-unconstrained-topology` - indicates that a PodSet requires
     Topology Aware Scheduling, and requires scheduling all pods on any nodes without
-    topology considerations. In other words, this considers if all pods could be accommodated
+    topology considerations. In other words, this considers if all pods could be accommodated 
     within any nodes which helps to minimize fragmentation by filling the small gaps
     on nodes across the cluster.
 
@@ -128,12 +128,11 @@ newly provisioned nodes (assuming the provisioning class supports it).
 ### Hot swap support
 {{% alert title="Note" color="primary" %}}
 To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
-`TASFailedNodeReplacement` to `true` and the last element of the nodeLabels in
-Topology has to be `kubernetes.io/hostname`. This feature was introduced to
-Kueue in version 0.12.
+`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
+`kubernetes.io/hostname`. This feature was introduced to Kueue in version 0.12.
 {{% /alert %}}
 
-When the last element of the nodeLabels in Topology is set to `kubernetes.io/hostname`, TAS finds a fixed assignment
+When the lowest level of Topology is set to node, TAS finds a fixed assignment
 of pods to nodes and injects a NodeSelector to make sure the pods get scheduled
 on the selected nodes. But this means that in case
 of any node failures or deletions, which occur during the runtime of a workload,
@@ -236,10 +235,10 @@ spec:
 
 Currently, there are limitations for the compatibility of TAS with other
 features, including:
-- Some scheduling directives (e.g. pod affinities and anti-affinities) are ignored.
-- The "podset-required-topology" annotation may fail if the underlying
-  ClusterAutoscaler cannot provision nodes that satisfy the domain constraint.
-- A ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
+- some scheduling directives (e.g. pod affinities and anti-affinities) are ignored,
+- the "podset-required-topology" annotation may fail if the underlying
+  ClusterAutoscaler cannot provision nodes that satisfy the domain constraint,
+- a ClusterQueue for [MultiKueue](multikueue.md) referencing a ResourceFlavor
 with Topology name (`.spec.topologyName`) is marked as inactive.
 - The taints on the nodes are not respected unless `kubernetes.io/hostname` is on the lowest topology level.
 
