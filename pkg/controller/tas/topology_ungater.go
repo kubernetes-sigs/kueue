@@ -134,7 +134,7 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 	if !isPod {
 		return
 	}
-	if _, found := pod.Labels[kueue.TASLabel]; !found {
+	if !utiltas.IsTAS(pod) {
 		// skip non-TAS pods
 		return
 	}
