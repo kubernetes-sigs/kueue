@@ -375,7 +375,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 
 func makeFlavors(n int) []kueue.FlavorQuotas {
 	flavs := make([]kueue.FlavorQuotas, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		flavs = append(flavs, kueue.FlavorQuotas{
 			Name: kueue.ResourceFlavorReference(fmt.Sprintf("f%03d", i)),
 			Resources: []kueue.ResourceQuota{{
