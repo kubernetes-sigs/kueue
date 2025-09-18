@@ -723,11 +723,11 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 		ObservedGeneration: w.Generation,
 	})
 
-	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadEvicted, reason)
-	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreempted, reason)
+	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadEvicted, reason, clock)
+	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreempted, reason, clock)
 }
 
-func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason string) {
+func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason string, clock clock.Clock) {
 	prev := apimeta.FindStatusCondition(*conds, condType)
 	// Ignore not found or inactive condition.
 	if prev == nil || prev.Status != metav1.ConditionTrue {
@@ -739,6 +739,7 @@ func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage("Previously: " + prev.Message),
 		ObservedGeneration: gen,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 	})
 }
 

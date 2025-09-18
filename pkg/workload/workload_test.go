@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1417,7 +1416,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 
 func TestSetQuotaReservation(t *testing.T) {
 	// test clock and time "constants" uses in conditions.
-	testClock := clock.RealClock{}
+	testClock := testingclock.NewFakeClock(time.Now())
 	now := testClock.Now()
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 
@@ -1447,7 +1446,6 @@ func TestSetQuotaReservation(t *testing.T) {
 	type args struct {
 		workload  *kueue.Workload
 		admission *kueue.Admission
-		clock     clock.Clock
 	}
 	tests := map[string]struct {
 		args args
@@ -1457,7 +1455,6 @@ func TestSetQuotaReservation(t *testing.T) {
 			args: args{
 				workload:  newWorkload().Obj(),
 				admission: admission,
-				clock:     testClock,
 			},
 			want: newWorkload().
 				Admission(admission).
@@ -1473,7 +1470,6 @@ func TestSetQuotaReservation(t *testing.T) {
 						newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionFalse, "TestReason", "test message", fiveMinutesAgo),
 					).Obj(),
 				admission: admission,
-				clock:     testClock,
 			},
 			want: newWorkload().
 				Admission(admission).
@@ -1493,7 +1489,6 @@ func TestSetQuotaReservation(t *testing.T) {
 						newCondition(kueue.WorkloadQuotaReserved, metav1.ConditionFalse, quotaReservedReason, quotaReservedMessage, fiveMinutesAgo),
 					).Obj(),
 				admission: admission,
-				clock:     testClock,
 			},
 			want: newWorkload().
 				Admission(admission).
@@ -1507,7 +1502,7 @@ func TestSetQuotaReservation(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			SetQuotaReservation(tt.args.workload, tt.args.admission, tt.args.clock)
+			SetQuotaReservation(tt.args.workload, tt.args.admission, testClock)
 			if diff := cmp.Diff(tt.want, tt.args.workload, cmpopts.EquateApproxTime(time.Second)); diff != "" {
 				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
 			}
