@@ -207,14 +207,14 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 
 	queued := m.requeueWorkloadsCQ(ctx, cqImpl)
-	m.reportPendingWorkloads(kueue.ClusterQueueReference(cq.Name), cqImpl)
+	m.reportWorkloadsMetrics(kueue.ClusterQueueReference(cq.Name), cqImpl)
 
 	// needs to be iterated over again here incase inadmissible workloads were added by requeueWorkloadsCQ
 	if features.Enabled(features.LocalQueueMetrics) {
 		for _, q := range queues.Items {
 			qImpl := m.localQueues[queue.Key(&q)]
 			if qImpl != nil {
-				m.reportLQPendingWorkloads(qImpl)
+				m.reportLQWorkloadsMetrics(qImpl)
 			}
 		}
 	}
@@ -245,11 +245,11 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
 	if (specUpdated && m.requeueWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
-		m.reportPendingWorkloads(cqName, cqImpl)
+		m.reportWorkloadsMetrics(cqName, cqImpl)
 		if features.Enabled(features.LocalQueueMetrics) {
 			for _, q := range m.localQueues {
 				if q.ClusterQueue == cqName {
-					m.reportLQPendingWorkloads(q)
+					m.reportLQWorkloadsMetrics(q)
 				}
 			}
 		}
@@ -390,8 +390,9 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 	if cqImpl == nil {
 		return 0, ErrClusterQueueDoesNotExist
 	}
+	cqImpl.CountWorkloads()
 
-	return cqImpl.Pending(), nil
+	return cqImpl.pendingWorkloadCount, nil
 }
 
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
@@ -438,11 +439,9 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...work
 	}
 	cq.PushOrUpdate(wInfo)
 	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
-		m.reportLQRunningWorkloads(q)
+		m.reportLQWorkloadsMetrics(q)
 	}
-	m.reportPendingWorkloads(q.ClusterQueue, cq)
-	m.reportRunningWorkloads(q.ClusterQueue, cq)
+	m.reportWorkloadsMetrics(q.ClusterQueue, cq)
 	m.Broadcast()
 	return nil
 }
@@ -474,9 +473,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 
 	added := cq.RequeueIfNotPresent(info, reason)
-	m.reportPendingWorkloads(q.ClusterQueue, cq)
+	m.reportWorkloadsMetrics(q.ClusterQueue, cq)
 	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
+		m.reportLQWorkloadsMetrics(q)
 	}
 	if added {
 		m.Broadcast()
@@ -500,12 +499,10 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
 		cq.Delete(w)
-		m.reportPendingWorkloads(q.ClusterQueue, cq)
-		m.reportRunningWorkloads(q.ClusterQueue, cq)
+		m.reportWorkloadsMetrics(q.ClusterQueue, cq)
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		m.reportLQPendingWorkloads(q)
-		m.reportLQRunningWorkloads(q)
+		m.reportLQWorkloadsMetrics(q)
 	}
 }
 
@@ -665,16 +662,14 @@ func (m *Manager) heads() []workload.Info {
 		if wl == nil {
 			continue
 		}
-		m.reportPendingWorkloads(cqName, cq)
-		m.reportRunningWorkloads(cqName, cq)
+		m.reportWorkloadsMetrics(cqName, cq)
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
 		q := m.localQueues[queue.KeyFromWorkload(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
 		if features.Enabled(features.LocalQueueMetrics) {
-			m.reportLQPendingWorkloads(q)
-			m.reportLQRunningWorkloads(q)
+			m.reportLQWorkloadsMetrics(q)
 		}
 	}
 	return workloads
@@ -698,6 +693,16 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 	}, active, inadmissible)
 }
 
+func (m *Manager) reportWorkloadsMetrics(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
+	m.reportPendingWorkloads(cqName, cq)
+	m.reportRunningWorkloads(cqName, cq)
+}
+
+func (m *Manager) reportLQWorkloadsMetrics(lq *LocalQueue) {
+	m.reportLQPendingWorkloads(lq)
+	m.reportLQRunningWorkloads(lq)
+}
+
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
 	active := cq.PendingActive()
 	inadmissible := cq.PendingInadmissible()
@@ -708,15 +713,15 @@ func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq 
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
 }
 
-func (m *Manager) reportRunningWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
-	running := cq.Running()
-	metrics.RunningWorkloads.WithLabelValues(string(cqName)).Set(float64(running))
-}
-
 func (m *Manager) reportLQRunningWorkloads(lq *LocalQueue) {
 	running := m.RunningInLocalQueue(lq)
 	namespace, lqName := queue.MustParseLocalQueueReference(lq.Key)
 	metrics.LocalQueueRunningWorkloads.WithLabelValues(string(lqName), namespace).Set(float64(running))
+}
+
+func (m *Manager) reportRunningWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
+	cq.CountWorkloads()
+	metrics.RunningWorkloads.WithLabelValues(string(cqName)).Set(float64(cq.runningWorkloadCount))
 }
 
 func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {

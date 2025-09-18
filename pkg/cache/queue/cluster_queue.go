@@ -63,6 +63,14 @@ type ClusterQueue struct {
 	namespaceSelector labels.Selector
 	active            bool
 
+	// pendingWorkloadCount is the number of workloads in the ClusterQueue that
+	// are in a pending state.
+	pendingWorkloadCount int
+
+	// runningWorkloadCount is the number of workloads in the ClusterQueue that
+	// are in a running state (i.e. have the WorkloadPodsReady condition set to True).
+	runningWorkloadCount int
+
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads map[workload.Reference]*workload.Info
 
@@ -307,17 +315,21 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	return moved
 }
 
-// Pending returns the total number of pending workloads.
-func (c *ClusterQueue) Pending() int {
+// CountWorkloads counts and sets `pendingWorkloadCount` and `runningWorkloadCount` for the ClusterQueue.
+func (c *ClusterQueue) CountWorkloads() {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
+	c.pendingWorkloadCount = c.pending()
+	c.runningWorkloadCount = c.running()
+}
+
+// Pending returns the total number of pending workloads.
+func (c *ClusterQueue) pending() int {
 	return c.PendingActive() + c.PendingInadmissible()
 }
 
 // Running returns the total number of running workloads.
-func (c *ClusterQueue) Running() int {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
+func (c *ClusterQueue) running() int {
 	result := 0
 	for _, wl := range c.heap.List() {
 		if apimeta.IsStatusConditionTrue(wl.Obj.Status.Conditions, kueue.WorkloadPodsReady) {
