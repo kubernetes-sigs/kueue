@@ -713,14 +713,14 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 	w.Status.Admission = admission
 
 	reason := "QuotaReserved"
-	msg := fmt.Sprintf("Quota reserved in ClusterQueue %s", admission.ClusterQueue)
 
 	apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		Reason:             reason,
-		Message:            api.TruncateConditionMessage(msg),
+		Message:            api.TruncateConditionMessage(fmt.Sprintf("Quota reserved in ClusterQueue %s", admission.ClusterQueue)),
 		ObservedGeneration: w.Generation,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 	})
 
 	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadEvicted, reason, clock)

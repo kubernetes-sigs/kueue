@@ -1437,7 +1437,7 @@ func TestSetQuotaReservation(t *testing.T) {
 			Status:             status,
 			Reason:             reason,
 			Message:            message,
-			ObservedGeneration: newWorkload().Obj().Generation,
+			ObservedGeneration: 1,
 			LastTransitionTime: metav1.NewTime(ltt),
 		}
 	}
@@ -1503,7 +1503,7 @@ func TestSetQuotaReservation(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			SetQuotaReservation(tt.args.workload, tt.args.admission, testClock)
-			if diff := cmp.Diff(tt.want, tt.args.workload, cmpopts.EquateApproxTime(time.Second)); diff != "" {
+			if diff := cmp.Diff(tt.want, tt.args.workload); diff != "" {
 				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
 			}
 		})
