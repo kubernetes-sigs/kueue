@@ -158,24 +158,24 @@ func Test_PushOrUpdate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil)
-			cq.CountWorkloads()
-			if cq.pendingWorkloadCount != 0 {
+			pendingWorkloadCount, _ := cq.CountWorkloads()
+			if pendingWorkloadCount != 0 {
 				t.Error("ClusterQueue should be empty")
 			}
 
 			cq.PushOrUpdate(workload.NewInfo(tc.workload.Clone().Obj()))
-			cq.CountWorkloads()
-			if cq.pendingWorkloadCount != 1 {
+			pendingWorkloadCount, _ = cq.CountWorkloads()
+			if pendingWorkloadCount != 1 {
 				t.Error("ClusterQueue should have one workload")
 			}
 
 			// Just used to validate the update operation.
 			updatedWl := tc.workload.Clone().ResourceVersion("1").Obj()
 			cq.PushOrUpdate(workload.NewInfo(updatedWl))
-			cq.CountWorkloads()
+			pendingWorkloadCount, _ = cq.CountWorkloads()
 			newWl := cq.Pop()
-			if newWl != nil && cq.pendingWorkloadCount != 1 {
-				t.Errorf("unexpected count of pending workloads (want=%d, got=%d)", 1, cq.pendingWorkloadCount)
+			if newWl != nil && pendingWorkloadCount != 1 {
+				t.Errorf("unexpected count of pending workloads (want=%d, got=%d)", 1, pendingWorkloadCount)
 			}
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
@@ -218,22 +218,21 @@ func Test_Delete(t *testing.T) {
 	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
 	cq.PushOrUpdate(workload.NewInfo(wl1))
 	cq.PushOrUpdate(workload.NewInfo(wl2))
-	cq.CountWorkloads()
+	pendingWorkloadCount, _ := cq.CountWorkloads()
 
-	if cq.pendingWorkloadCount != 2 {
+	if pendingWorkloadCount != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
 	cq.Delete(wl1)
-	cq.CountWorkloads()
-
-	if cq.pendingWorkloadCount != 1 {
+	pendingWorkloadCount, _ = cq.CountWorkloads()
+	if pendingWorkloadCount != 1 {
 		t.Error("ClusterQueue should have only one workload")
 	}
 	// Change workload item, ClusterQueue.Delete should only care about the namespace and name.
 	wl2.Spec = kueue.WorkloadSpec{QueueName: "default"}
 	cq.Delete(wl2)
-	cq.CountWorkloads()
-	if cq.pendingWorkloadCount != 0 {
+	pendingWorkloadCount, _ = cq.CountWorkloads()
+	if pendingWorkloadCount != 0 {
 		t.Error("ClusterQueue should have be empty")
 	}
 }
@@ -294,18 +293,18 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 		qImpl.AddOrUpdate(wInfo)
 	}
 
-	cq.CountWorkloads()
+	pendingWorkloadCount, _ := cq.CountWorkloads()
 	wantPending := len(admissibleworkloads) + len(inadmissibleWorkloads)
-	if cq.pendingWorkloadCount != wantPending {
-		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, cq.pendingWorkloadCount)
+	if pendingWorkloadCount != wantPending {
+		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, pendingWorkloadCount)
 	}
 	if len(cq.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
 		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
 	}
 
 	cq.DeleteFromLocalQueue(qImpl)
-	cq.CountWorkloads()
-	if cq.pendingWorkloadCount != 0 {
+	pendingWorkloadCount, _ = cq.CountWorkloads()
+	if pendingWorkloadCount != 0 {
 		t.Error("clusterQueue should be empty")
 	}
 }
@@ -475,9 +474,9 @@ func TestClusterQueueImpl(t *testing.T) {
 			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads, cmpDump...); diff != "" {
 				t.Errorf("Unexpected active workloads in cluster foo (-want,+got):\n%s", diff)
 			}
-			cq.CountWorkloads()
-			if cq.pendingWorkloadCount != test.wantPending {
-				t.Errorf("Got %d pending workloads, want %d", cq.pendingWorkloadCount, test.wantPending)
+			pendingWorkloadCount, _ := cq.CountWorkloads()
+			if pendingWorkloadCount != test.wantPending {
+				t.Errorf("Got %d pending workloads, want %d", pendingWorkloadCount, test.wantPending)
 			}
 		})
 	}
@@ -998,9 +997,9 @@ func TestRunning(t *testing.T) {
 				cq.PushOrUpdate(workload.NewInfo(wl))
 			}
 
-			cq.CountWorkloads()
-			if cq.runningWorkloadCount != test.wantRunning {
-				t.Errorf("Got %d running workloads, want %d", cq.runningWorkloadCount, test.wantRunning)
+			_, runningWorkloadCount := cq.CountWorkloads()
+			if runningWorkloadCount != test.wantRunning {
+				t.Errorf("Got %d running workloads, want %d", runningWorkloadCount, test.wantRunning)
 			}
 		})
 	}

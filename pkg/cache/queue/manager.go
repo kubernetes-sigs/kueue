@@ -390,9 +390,9 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 	if cqImpl == nil {
 		return 0, ErrClusterQueueDoesNotExist
 	}
-	cqImpl.CountWorkloads()
+	pendingWorkloadCount, _ := cqImpl.CountWorkloads()
 
-	return cqImpl.pendingWorkloadCount, nil
+	return pendingWorkloadCount, nil
 }
 
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
@@ -720,8 +720,8 @@ func (m *Manager) reportLQRunningWorkloads(lq *LocalQueue) {
 }
 
 func (m *Manager) reportRunningWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
-	cq.CountWorkloads()
-	metrics.RunningWorkloads.WithLabelValues(string(cqName)).Set(float64(cq.runningWorkloadCount))
+	_, runningWorkloadCount := cq.CountWorkloads()
+	metrics.RunningWorkloads.WithLabelValues(string(cqName)).Set(float64(runningWorkloadCount))
 }
 
 func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {
