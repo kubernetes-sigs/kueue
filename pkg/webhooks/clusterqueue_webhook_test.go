@@ -29,6 +29,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"strings"
 )
 
 func TestValidateClusterQueue(t *testing.T) {
@@ -367,5 +369,68 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func makeFlavor(name string) kueue.FlavorQuotas {
+	return kueue.FlavorQuotas{
+		Name: kueue.ResourceFlavorReference(name),
+		Resources: []kueue.ResourceQuota{{
+			Name:         corev1.ResourceCPU,
+			NominalQuota: resource.MustParse("1"),
+		}},
+	}
+}
+
+func TestValidateTotalFlavors(t *testing.T) {
+	// Construct >256 flavors
+	var flavors []kueue.FlavorQuotas
+	for i := 0; i < 257; i++ {
+		flavors = append(flavors, makeFlavor("f"+string(rune('a'+(i%26)))+string(rune('A'+(i/26)))))
+	}
+	cq := &kueue.ClusterQueue{
+		Spec: kueue.ClusterQueueSpec{
+			ResourceGroups: []kueue.ResourceGroup{{
+				CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+				Flavors:          flavors,
+			}},
+		},
+	}
+
+	errs := ValidateClusterQueue(cq)
+	if len(errs) == 0 {
+		t.Fatalf("expected error for >256 flavors, got none")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Type == field.ErrorTypeInvalid && 
+		strings.Contains(e.Error(), "total number of flavors across all resourceGroups") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected invalid error about total flavors, got %v", errs)
+	}
+}
+
+func TestValidateTotalFlavorsWithinLimit(t *testing.T) {
+	// Construct 10 flavors
+	var flavors []kueue.FlavorQuotas
+	for i := 0; i < 10; i++ {
+		flavors = append(flavors, makeFlavor("f"+string(rune('a'+i))))
+	}
+	cq := &kueue.ClusterQueue{
+		Spec: kueue.ClusterQueueSpec{
+			ResourceGroups: []kueue.ResourceGroup{{
+				CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+				Flavors:          flavors,
+			}},
+		},
+	}
+
+	errs := ValidateClusterQueue(cq)
+	if len(errs) != 0 {
+		t.Errorf("expected no error, got %v", errs)
 	}
 }

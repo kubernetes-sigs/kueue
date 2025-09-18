@@ -110,11 +110,25 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
 	allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
+	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
 	return ValidateClusterQueue(newObj)
+}
+
+func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	total := 0
+	for _, rg := range resourceGroups {
+		total += len(rg.Flavors)
+	}
+	if total > 256 {
+		allErrs = append(allErrs, field.Invalid(path, total,
+			fmt.Sprintf("total number of flavors across all resourceGroups must be ≤ 256, got %d", total)))
+	}
+	return allErrs
 }
 
 func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
