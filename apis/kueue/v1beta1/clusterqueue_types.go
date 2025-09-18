@@ -59,9 +59,9 @@ type ClusterQueueSpec struct {
 	// Each resource group defines the list of resources and a list of flavors
 	// that provide quotas for these resources.
 	// Each resource and each flavor can only form part of one resource group.
-	// resourceGroups can be up to 64, with a max of 256 total flavors across all groups.
+	// resourceGroups can be up to 16, with a max of 256 total flavors across all groups.
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
 	// cohort that this ClusterQueue belongs to. CQs that belong to the
