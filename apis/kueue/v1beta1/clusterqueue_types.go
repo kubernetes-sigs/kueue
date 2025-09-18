@@ -179,9 +179,10 @@ type ResourceGroup struct {
 	// coveredResources is the list of resources covered by the flavors in this
 	// group.
 	// Examples: cpu, memory, vendor.com/gpu.
-	// The list cannot be empty and it can contain up to 16 resources.
+	// The list cannot be empty and it can contain up to 64 resources. With a total
+	// of up to 256 covered resources across all resource groups in the ClusterQueue.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	CoveredResources []corev1.ResourceName `json:"coveredResources"`
 
 	// flavors is the list of flavors that provide the resources of this group.

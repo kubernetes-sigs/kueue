@@ -410,3 +410,50 @@ func TestValidateTotalFlavors(t *testing.T) {
 		})
 	}
 }
+
+func makeCoveredResources(n int) []kueue.ResourceGroup {
+	resources := make([]corev1.ResourceName, n)
+	quotas := make([]kueue.ResourceQuota, n)
+	for i := range n {
+		name := corev1.ResourceName(fmt.Sprintf("res%03d", i))
+		resources[i] = name
+		quotas[i] = kueue.ResourceQuota{
+			Name:         name,
+			NominalQuota: resource.MustParse("1"),
+		}
+	}
+
+	return []kueue.ResourceGroup{{
+		CoveredResources: resources,
+		Flavors: []kueue.FlavorQuotas{{
+			Name:      kueue.ResourceFlavorReference("default"),
+			Resources: quotas,
+		}},
+	}}
+}
+
+func TestValidateTotalCoveredResources(t *testing.T) {
+	testcases := []struct {
+		name          string
+		numCoveredRes int
+		wantErr       bool
+	}{
+		{"within limit (10 covered resources)", 10, false},
+		{"At limit (256 covered resources)", 256, false},
+		{"over limit (257 covered resources)", 257, true},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cq := testingutil.MakeClusterQueue("cluster-queue").
+				Obj()
+			cq.Spec.ResourceGroups = makeCoveredResources(tc.numCoveredRes)
+
+			gotErr := ValidateClusterQueue(cq)
+
+			if diff := cmp.Diff(tc.wantErr, len(gotErr) > 0); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
