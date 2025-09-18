@@ -708,7 +708,7 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		updatedWl := &kueue.Workload{}
 		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-		g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, updatedWl, false, clk, func() (*kueue.Workload, bool, error) {
+		g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, updatedWl, true, clk, func() (*kueue.Workload, bool, error) {
 			if admission == nil {
 				workload.UnsetQuotaReservationWithCondition(updatedWl, "EvictedByTest", "Evicted By Test", clk.Now())
 			} else {
