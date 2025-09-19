@@ -39,7 +39,7 @@ For example, if Tenant A has low historical usage and Tenant B has high usage, b
 
 ## Configuration
 
-### Kueue's configuration
+### Kueue configuration
 
 The following parameters can be configured in Kueue's configuration `.admissionFairSharing`:
 
@@ -47,7 +47,7 @@ The following parameters can be configured in Kueue's configuration `.admissionF
 - `usageSamplingInterval`: How frequently usage is sampled
 - `resourceWeights`: Relative importance of different resource types
 
-#### Exemplary configuration:
+#### Example configuration:
 
 ```
 admissionFairSharing:
@@ -58,7 +58,7 @@ admissionFairSharing:
     memory: 1.0
 ```
 
-### ClusterQueue's configuration
+### ClusterQueue configuration
 
 Enable Admission Fair Sharing by adding an AdmissionScope to your ClusterQueue:
 
@@ -74,7 +74,7 @@ spec:
     # ...existing resource configuration...
 ```
 
-### LocalQueue's configuration
+### LocalQueue configuration
 
 You can define a `fairSharing` section in your LocalQueue to adjust its weight in the fair sharing calculation (defaults to `1`):
 
