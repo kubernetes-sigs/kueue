@@ -684,15 +684,16 @@ underlying job are changed.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>Enable controls the use of internal cert management for the webhook
-and metrics endpoints.
+   <p>Enable controls the use of internal cert management for the webhook,
+metrics and visibility endpoints.
 When enabled Kueue is using libraries to generate and
 self-sign the certificates.
 When disabled, you need to provide the certificates for
-the webhooks and metrics through a third party certificate
+the webhooks, metrics and visibility through a third party certificate
 This secret is mounted to the kueue controller manager pod. The mount
-path for webhooks is /tmp/k8s-webhook-server/serving-certs, whereas for
-metrics endpoint the expected path is <code>/etc/kueue/metrics/certs</code>.
+path for webhooks is /tmp/k8s-webhook-server/serving-certs, for
+metrics endpoint the expected path is <code>/etc/kueue/metrics/certs</code> and for
+visibility endpoint the expected path is <code>/visibility</code>.
 The keys and certs are named tls.key and tls.crt.</p>
 </td>
 </tr>

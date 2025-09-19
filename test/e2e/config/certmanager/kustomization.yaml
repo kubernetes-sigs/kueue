@@ -71,3 +71,29 @@ vars:
     kind: Certificate
     name: serving-cert
     version: v1
+- name: VISIBILITY_SERVICE_NAME
+  objref:
+    kind: Service
+    version: v1
+    name: visibility-server
+- name: VISIBILITY_SERVICE_NAMESPACE
+  objref:
+    kind: Service
+    name: visibility-server
+    version: v1
+  fieldref:
+    fieldPath: metadata.namespace
+- name: VISIBILITY_CERTIFICATE_NAMESPACE
+  objref:
+    kind: Certificate
+    group: cert-manager.io
+    version: v1
+    name: visibility-server-cert # this name should match the one in certificate-visibility-server.yaml
+  fieldref:
+    fieldpath: metadata.namespace
+- name: VISIBILITY_CERTIFICATE_NAME
+  objref:
+    kind: Certificate
+    group: cert-manager.io
+    version: v1
+    name: visibility-server-cert # this name should match the one in certificate-visibility-server.yaml
