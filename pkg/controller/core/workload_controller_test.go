@@ -647,6 +647,7 @@ func TestReconcile(t *testing.T) {
 				Queue("queue").
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
@@ -680,6 +681,7 @@ func TestReconcile(t *testing.T) {
 				Queue("queue").
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionChecks("ac1", "ac2").
 				Obj(),
 			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
