@@ -1674,6 +1674,185 @@ func TestSchedule(t *testing.T) {
 				"c": {"eng-alpha/c1"},
 			},
 		},
+		// b0 is admitted, using 4 capacity.
+		// b1 and c1 are pending.
+		//
+		// Even though b1 has a higher priority, c1 is admitted
+		// as it is in a queue that is borrowing less than b1.
+		"fair sharing two queues with weight 0 schedules workload which borrows less": {
+			enableFairSharing: true,
+			cohorts: []kueue.Cohort{
+				*utiltesting.MakeCohort("A").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "8").Obj(),
+					).Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("b").
+					FairWeight(resource.MustParse("0")).
+					Cohort("A").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).Obj(),
+				*utiltesting.MakeClusterQueue("c").
+					FairWeight(resource.MustParse("0")).
+					Cohort("A").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq-b", "eng-alpha").ClusterQueue("b").Obj(),
+				*utiltesting.MakeLocalQueue("lq-c", "eng-alpha").ClusterQueue("c").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b0", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("b", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "4").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					// high priority for tiebreak
+					Priority(9001).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Priority(0).
+					Queue("lq-c").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/b0": *utiltesting.MakeAdmission("b", "one").
+					PodSets(utiltesting.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "on-demand", "4").
+						Obj()).
+					Obj(),
+				"eng-alpha/c1": *utiltesting.MakeAdmission("c", "one").
+					PodSets(utiltesting.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "on-demand", "4").
+						Obj()).
+					Obj(),
+			},
+			wantScheduled: []workload.Reference{
+				"eng-alpha/c1",
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"b": {"eng-alpha/b1"},
+			},
+			wantInadmissibleLeft: nil,
+		},
+		// b0 is admitted, using 4 capacity.
+		// b1 and c1 are pending.
+		//
+		// Even though b1 has a higher priority, c1 is admitted
+		// as it is in a queue that is borrowing less than b1.
+		"fair sharing two queues with high weight schedules workload which borrows less": {
+			enableFairSharing: true,
+			cohorts: []kueue.Cohort{
+				*utiltesting.MakeCohort("A").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "8").Obj(),
+					).Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("b").
+					FairWeight(resource.MustParse("123456789")).
+					Cohort("A").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).Obj(),
+				*utiltesting.MakeClusterQueue("c").
+					FairWeight(resource.MustParse("123456789")).
+					Cohort("A").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq-b", "eng-alpha").ClusterQueue("b").Obj(),
+				*utiltesting.MakeLocalQueue("lq-c", "eng-alpha").ClusterQueue("c").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b0", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("b", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "4").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					Priority(9001).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Priority(0).
+					Queue("lq-c").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/b0": *utiltesting.MakeAdmission("b", "one").
+					PodSets(utiltesting.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "on-demand", "4").
+						Obj()).
+					Obj(),
+				"eng-alpha/c1": *utiltesting.MakeAdmission("c", "one").
+					PodSets(utiltesting.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "on-demand", "4").
+						Obj()).
+					Obj(),
+			},
+			wantScheduled: []workload.Reference{
+				"eng-alpha/c1",
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"b": {"eng-alpha/b1"},
+			},
+			wantInadmissibleLeft: nil,
+		},
 		// Cohort A has Clusterqueue a, and capacity is
 		// provided by Cohort.
 		//

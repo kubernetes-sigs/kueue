@@ -200,9 +200,8 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShare() int {
-	share, _ := dominantResourceShare(c, nil)
-	return share
+func (c *ClusterQueueSnapshot) DominantResourceShare() DRS {
+	return dominantResourceShare(c, nil)
 }
 
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
