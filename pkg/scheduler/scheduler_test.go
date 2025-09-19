@@ -5173,7 +5173,7 @@ func TestScheduleForTAS(t *testing.T) {
 		// eventCmpOpts are the comparison options for the events
 		eventCmpOpts cmp.Options
 
-		featureGates []featuregate.Feature
+		featureGates map[featuregate.Feature]bool
 	}{
 		"workload with a PodSet of size zero": {
 			nodes: []corev1.Node{
@@ -5418,6 +5418,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; preferred; no fit": {
+			featureGates:    map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueue.Topology{defaultThreeLevelTopology},
@@ -5502,7 +5503,6 @@ func TestScheduleForTAS(t *testing.T) {
 					Message("Workload was evicted as there was no replacement for a failed node: x0").
 					Obj(),
 			},
-			featureGates: []featuregate.Feature{features.TASFailedNodeReplacementFailFast},
 		},
 		"workload with unhealthyNode annotation; second pass; required rack; fit": {
 			nodes:           defaultNodes,
@@ -5583,6 +5583,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; required rack; no fit": {
+			featureGates:    map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueue.Topology{defaultThreeLevelTopology},
@@ -7026,8 +7027,8 @@ func TestScheduleForTAS(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-			for _, fg := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, true)
+			for fg, enable := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
 			}
 			ctx, log := utiltesting.ContextWithLog(t)
 

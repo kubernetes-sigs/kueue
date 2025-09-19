@@ -128,7 +128,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantUnhealthyNodes []kueue.UnhealthyNode
 		wantRequeue        time.Duration
 		wantEvictedCond    *metav1.Condition
-		featureGates       []featuregate.Feature
+		featureGates       map[featuregate.Feature]bool
 	}{
 		"Node Found and Healthy - not marked as unavailable": {
 			initObjs: []client.Object{
@@ -156,6 +156,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		},
 
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -169,6 +170,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantRequeue:        NodeFailureDelay,
 		},
 		"Node Found and Unhealthy (NotReady), delay passed - marked as unavailable": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -181,7 +183,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Node NotReady, pod terminating, marked as unavailable": {
-			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -194,7 +195,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Node NotReady, pod failed, marked as unavailable": {
-			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -207,6 +207,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Node NotReady, pod failed, ReplaceNodeOnPodTermination feature gate off, requeued": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -220,7 +221,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantRequeue:        NodeFailureDelay,
 		},
 		"Node NotReady, pod running, not marked as unavailable, requeued": {
-			featureGates: []featuregate.Feature{features.TASReplaceNodeOnPodTermination},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -242,7 +242,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
 		"Two Nodes Unhealthy (NotReady), delay passed - workload evicted": {
-			featureGates: []featuregate.Feature{features.TASFailedNodeReplacement},
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false},
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
@@ -272,8 +272,8 @@ func TestNodeFailureReconciler(t *testing.T) {
 	for name, tc := range tests {
 		fakeClock.SetTime(testStartTime)
 		t.Run(name, func(t *testing.T) {
-			for _, fg := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, true)
+			for fg, enable := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enable)
 			}
 			fakeClock.SetTime(testStartTime)
 

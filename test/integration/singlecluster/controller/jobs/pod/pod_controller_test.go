@@ -2315,10 +2315,9 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
-		tasBlockLabel  = "cloud.com/topology-block"
 	)
 
 	var (
@@ -2341,7 +2340,6 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.BeforeAll(func() {
-		_ = features.SetEnable(features.TASFailedNodeReplacement, true)
 		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
@@ -2350,12 +2348,10 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
-		_ = features.SetEnable(features.TASFailedNodeReplacement, false)
 	})
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 

@@ -7,6 +7,13 @@ description: >
 ---
 
 {{< feature-state state="beta" for_version="v0.14" >}}
+{{% alert title="Note" color="primary" %}}
+`TopologyAwareScheduling` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `TopologyAwareScheduling` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
 
 It is common that AI/ML workloads require a significant amount of pod-to-pod
 communication. Therefore the network bandwidth between the running Pods
@@ -125,10 +132,13 @@ to see how you can configure Kueue if you want to restrict scheduling to the
 newly provisioned nodes (assuming the provisioning class supports it).
 
 ### Hot swap support
+{{< feature-state state="beta" for_version="v0.14" >}}
 {{% alert title="Note" color="primary" %}}
-To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
-`TASFailedNodeReplacement` to `true` and the lowest topological label has to be
-`kubernetes.io/hostname`. This feature was introduced to Kueue in version 0.12.
+`TASFailedNodeReplacement` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `TASFailedNodeReplacement` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
 {{% /alert %}}
 
 When the lowest level of Topology is set to node, TAS finds a fixed assignment
@@ -143,11 +153,23 @@ all the affected workloads, without changing the rest of the topology assignment
 Currently this works only for a single node failure at the time and in case of multiple failures,
 the workload gets evicted.
 
+#### Replace Node on Pod termination 
+
+{{< feature-state state="beta" for_version="v0.14" >}}
+{{% alert title="Note" color="primary" %}}
+`TASReplaceNodeOnPodTermination` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `TASReplaceNodeOnPodTermination` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
 By default, the node is assumed to have failed if its `conditions.Status.Ready`
 is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
-Since Kueue v0.13, you can enable the `TASReplaceNodeOnPodTermination` feature gate, which adds an additional heuristic:
+Since Kueue v0.13, the `TASReplaceNodeOnPodTermination` feature, introduced an additional heuristic:
 a node is also considered failed if it is `NotReady` and the workload's Pods scheduled on that node are either terminated or terminating.
 If this happens Kueue will immediately look for replacement without waiting 30 seconds.
+
 Note that those two heuristics are mutually exclusive and depend on the value of the `TASReplaceNodeOnPodTermination` feature gate.
 
 Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
@@ -157,9 +179,13 @@ and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads fro
 waiting for the replacement indefinitely.
 
 #### Fast Hot swap
+{{< feature-state state="beta" for_version="v0.14" >}}
 {{% alert title="Note" color="primary" %}}
-To enable the feature, you have to set the [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)
-`TASFailedNodeReplacementFailFast` to `true`. This feature was introduced to Kueue in version 0.13.
+`TASFailedNodeReplacementFailFast` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `TASFailedNodeReplacementFailFast` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
 {{% /alert %}}
 
 By default, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, you can enable the `TASFailedNodeReplacementFailFast` feature gate. When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
@@ -194,11 +220,6 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
 
 ##### Feature Gate Interaction Matrix
 
-{{% alert title="Note" color="primary" %}}
-`TASFailedNodeReplacement` feature gate is available since Kueue v0.12.
-`TASReplaceNodeOnPodTermination` and `TASFailedNodeReplacementFailFast` are available since Kueue v0.13.
-{{% /alert %}}
-
 The following table summarizes the behavior based on the combination of the feature gates. If `TASFailedNodeReplacement` is `false`, the other two gates have no effect.
 
 | `TASFailedNodeReplacement` | `TASReplaceNodeOnPodTermination` | `TASFailedNodeReplacementFailFast` | End Behavior                                                                                                                                                                                                                                                                                        |
@@ -211,24 +232,7 @@ The following table summarizes the behavior based on the combination of the feat
 
 **Recommended configuration**
 
-We recommend to set all three feature gates to true to have the fastest feedback loop on workload that encountered node failure.
-
-The recommended configuration looks is express in Kueue's manager deployment as following:
-```diff
-kind: Deployment
-...
-spec:
-  ...
-  template:
-    ...
-    spec:
-      containers:
-      - name: manager
-        args:
-        - --config=/controller_manager_config.yaml
-        - --zap-log-level=2
-+       - --feature-gates=TASFailedNodeReplacement=true,TASFailedNodeReplacementFailFast=true,TASReplaceNodeOnPodTermination=true
-```
+We recommend keeping all three feature gates enabled to ensure the fastest feedback loop for workloads affected by node failures.
 
 ### Limitations
 
