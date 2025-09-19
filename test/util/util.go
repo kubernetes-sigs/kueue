@@ -607,6 +607,15 @@ func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPri
 	expectCounterMetric(metric, v)
 }
 
+func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, count int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.QuotaReservedWaitTime.WithLabelValues(cq.Name, workloadPriorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric)

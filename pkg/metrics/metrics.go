@@ -145,7 +145,7 @@ The label 'result' can have the following values:
 		}, []string{"name", "namespace"},
 	)
 
-	quotaReservedWaitTime = prometheus.NewHistogramVec(
+	QuotaReservedWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "quota_reserved_wait_time_seconds",
@@ -512,7 +512,7 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
 	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
-	quotaReservedWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
+	QuotaReservedWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
 }
 
 func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Duration) {
@@ -596,7 +596,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	quotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodsReadyToEvictedTimeSeconds.DeleteLabelValues(cqName)
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -768,7 +768,7 @@ func Register() {
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
 		QuotaReservedWorkloadsTotal,
-		quotaReservedWaitTime,
+		QuotaReservedWaitTime,
 		PodsReadyToEvictedTimeSeconds,
 		AdmittedWorkloadsTotal,
 		EvictedWorkloadsTotal,
