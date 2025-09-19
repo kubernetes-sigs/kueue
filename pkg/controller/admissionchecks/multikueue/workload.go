@@ -330,7 +330,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - finished, OR
 	// - has no quota reservation, AND
 	//   - either NOT elastic workload, OR the original workload slice.
-	if group.IsFinished() || (!workload.HasQuotaReservation(group.local) && (!group.IsElasticWorkload() || workloadslicing.ReplacementForKey(group.local) == nil)) {
+	if group.IsFinished() || (!workload.HasQuotaReservation(group.local) && (!group.IsElasticWorkload() || workloadslicing.ScaledUp(group.local))) {
 		var errs []error
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {

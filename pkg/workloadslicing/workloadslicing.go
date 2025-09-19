@@ -158,6 +158,13 @@ func ScaledDown(oldCounts, newCounts workload.PodSetsCounts) bool {
 	return newCounts.HasFewerReplicasThan(oldCounts) && !oldCounts.HasFewerReplicasThan(newCounts)
 }
 
+// ScaledUp returns true if the given workload has the
+// WorkloadSliceReplacementFor annotation, indicating that
+// this workload is a scaled-up replacement for another.
+func ScaledUp(workload *kueue.Workload) bool {
+	return ReplacementForKey(workload) != nil
+}
+
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
 //
 // Returns:
