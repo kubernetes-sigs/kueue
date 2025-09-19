@@ -516,6 +516,9 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 	if reason != "" {
 		return nil, nil, reason
 	}
+	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
+		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %s", nodeToReplace)
+	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
 }
