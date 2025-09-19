@@ -18,6 +18,7 @@ package cert
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
@@ -28,10 +29,9 @@ import (
 )
 
 const (
-	vwcName        = "kueue-validating-webhook-configuration"
-	mwcName        = "kueue-mutating-webhook-configuration"
-	caName         = "kueue-ca"
-	caOrganization = "kueue"
+	caName               = "kueue-ca"
+	caOrganization       = "kueue"
+	webhookServiceSuffix = "-webhook-service"
 )
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update
@@ -42,6 +42,11 @@ const (
 func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan struct{}) error {
 	// DNSName is <service name>.<namespace>.svc
 	var dnsName = fmt.Sprintf("%s.%s.svc", *cfg.InternalCertManagement.WebhookServiceName, *cfg.Namespace)
+
+	// Derive webhook configuration names from the webhook service name
+	webhookBaseName := deriveWebhookBaseName(*cfg.InternalCertManagement.WebhookServiceName)
+	mutatingWebhookName := buildWebhookConfigurationName(webhookBaseName, "mutating")
+	validatingWebhookName := buildWebhookConfigurationName(webhookBaseName, "validating")
 
 	return cert.AddRotator(mgr, &cert.CertRotator{
 		SecretKey: types.NamespacedName{
@@ -55,10 +60,10 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 		IsReady:        setupFinished,
 		Webhooks: []cert.WebhookInfo{{
 			Type: cert.Validating,
-			Name: vwcName,
+			Name: validatingWebhookName,
 		}, {
 			Type: cert.Mutating,
-			Name: mwcName,
+			Name: mutatingWebhookName,
 		}},
 		// When kueue is running in the leader election mode,
 		// we expect webhook server will run in primary and secondary instance
@@ -70,4 +75,15 @@ func WaitForCertsReady(log logr.Logger, certsReady chan struct{}) {
 	log.Info("Waiting for certificate generation to complete")
 	<-certsReady
 	log.Info("Certs ready")
+}
+
+// deriveWebhookBaseName extracts the base name from a webhook service name
+func deriveWebhookBaseName(webhookServiceName string) string {
+	return strings.TrimSuffix(webhookServiceName, webhookServiceSuffix)
+}
+
+// buildWebhookConfigurationName constructs a webhook configuration name
+// from a base name and webhook type suffix.
+func buildWebhookConfigurationName(baseName, webhookType string) string {
+	return fmt.Sprintf("%s-%s-webhook-configuration", baseName, webhookType)
 }
