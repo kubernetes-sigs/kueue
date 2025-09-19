@@ -33,13 +33,14 @@ spec:
       {{- end }}
       containers:
         - name: frontend
+          {{- with .Values.kueueViz.frontend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: '{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.kueueViz.frontend.image.pullPolicy }}'
           ports:
             - containerPort: 8080
-          env:
-            - name: REACT_APP_WEBSOCKET_URL
-              value: 'wss://{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
           resources:
             limits:
               cpu: 500m
