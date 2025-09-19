@@ -7019,14 +7019,15 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; preferred; no fit when using slices; FailFast": {
+			featureGates:    []featuregate.Feature{features.TASFailedNodeReplacementFailFast},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
-			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			topologies:      []kueuealpha.Topology{defaultThreeLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
-					UnhealthyNodes("x0").
+					Annotation(kueuealpha.NodeToReplaceAnnotation, "x0").
 					Queue("tas-main").
 					PodSets(*utiltesting.MakePodSet("one", 2).
 						PreferredTopologyRequest(tasBlockLabel).
