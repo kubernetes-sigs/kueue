@@ -3335,6 +3335,8 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.ExpectAdmissionWaitTimeMetric(clusterQueue, highPriorityClass.Name, 0)
 		util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, lowPriorityClass.Name, 1)
 		util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, highPriorityClass.Name, 0)
+		util.ExpectQuotaReservedWaitTimeMetric(clusterQueue, lowPriorityClass.Name, 1)
+		util.ExpectQuotaReservedWaitTimeMetric(clusterQueue, highPriorityClass.Name, 0)
 
 		ginkgo.By("scale-up low-priority job beyond the queue's nominal capacity")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -3369,6 +3371,8 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.ExpectAdmissionWaitTimeMetric(clusterQueue, highPriorityClass.Name, 1)
 		util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, lowPriorityClass.Name, 1)
 		util.ExpectQuotaReservedWorkloadsTotalMetric(clusterQueue, highPriorityClass.Name, 1)
+		util.ExpectQuotaReservedWaitTimeMetric(clusterQueue, lowPriorityClass.Name, 1)
+		util.ExpectQuotaReservedWaitTimeMetric(clusterQueue, highPriorityClass.Name, 1)
 
 		ginkgo.By("the low priority old workload slice is finished")
 		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityWorkloadSlice))
