@@ -2117,7 +2117,10 @@ func TestRunningWorkloadsUsage(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("admitted", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj(),
 			},
@@ -2129,7 +2132,10 @@ func TestRunningWorkloadsUsage(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("running", "").
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
 					Obj(),
@@ -2142,13 +2148,19 @@ func TestRunningWorkloadsUsage(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("running-1", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
 					Obj(),
 				*utiltesting.MakeWorkload("running-2", "").
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
 					Obj(),
@@ -2161,13 +2173,19 @@ func TestRunningWorkloadsUsage(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("running-1", "").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted-only", "").
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj(),
 			},
@@ -2463,7 +2481,10 @@ func TestLocalQueueRunningWorkloads(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj(),
 			},
@@ -2476,7 +2497,10 @@ func TestLocalQueueRunningWorkloads(t *testing.T) {
 				*utiltesting.MakeWorkload("running", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
 					Obj(),
@@ -2490,14 +2514,20 @@ func TestLocalQueueRunningWorkloads(t *testing.T) {
 				*utiltesting.MakeWorkload("running-1", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted-only", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj(),
 			},
