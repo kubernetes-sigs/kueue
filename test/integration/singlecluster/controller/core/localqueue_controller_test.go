@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -647,6 +648,77 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 					},
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should track metrics with workload priority class labels", func() {
+		ginkgo.By("Creating resourceFlavors")
+		for _, rf := range resourceFlavors {
+			util.MustCreate(ctx, k8sClient, &rf)
+		}
+
+		ginkgo.By("Creating a clusterQueue")
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+
+		ginkgo.By("Creating a WorkloadPriorityClass", func() {
+			wpc := testing.MakeWorkloadPriorityClass("high-priority").PriorityValue(1000).Obj()
+			util.MustCreate(ctx, k8sClient, wpc)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, wpc)).To(gomega.Succeed())
+			})
+		})
+
+		ginkgo.By("Creating a workload with workload priority class", func() {
+			workload := testing.MakeWorkload("test-workload", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				Request(resourceGPU, "1").
+				PriorityClass("high-priority").
+				PriorityClassSource(constants.WorkloadPriorityClassSource).
+				Priority(1000).
+				Obj()
+			util.MustCreate(ctx, k8sClient, workload)
+
+			// Set admission check to ready
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, workload, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, false)
+
+			// Set quota reservation
+			admission := testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelC, "1").Obj()
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+
+			ginkgo.By("Checking metrics with workload priority class label", func() {
+				util.ExpectLQAdmittedWorkloadsTotalMetricWithPriorityClass(queue, "high-priority", 1)
+			})
+
+			ginkgo.By("Finishing the workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, workload)
+			})
+		})
+
+		ginkgo.By("Creating a workload without workload priority class", func() {
+			workload := testing.MakeWorkload("test-workload-2", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				Request(resourceGPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, workload)
+
+			// Set admission check to ready
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, workload, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, false)
+
+			// Set quota reservation
+			admission := testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelC, "1").Obj()
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+
+			ginkgo.By("Checking metrics with empty workload priority class label", func() {
+				util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 1)
+			})
+
+			ginkgo.By("Finishing the workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, workload)
+			})
 		})
 	})
 })
