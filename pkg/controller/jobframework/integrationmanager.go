@@ -82,6 +82,8 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
+	// The list of integrations implicitly enabled as dependencies of the integration.
+	ImplicitlyEnables []string
 }
 
 func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
@@ -100,11 +102,13 @@ func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerRefe
 }
 
 type integrationManager struct {
-	names                []string
-	integrations         map[string]IntegrationCallbacks
-	enabledIntegrations  set.Set[string]
-	externalIntegrations map[string]runtime.Object
-	mu                   sync.RWMutex
+	names                         []string
+	integrations                  map[string]IntegrationCallbacks
+	enabledIntegrations           set.Set[string]
+	externalIntegrations          map[string]runtime.Object
+	implicitlyEnabledIntegrations sets.Set[string]
+	gvkToName                     map[schema.GroupVersionKind]string
+	mu                            sync.RWMutex
 }
 
 var manager integrationManager
@@ -131,6 +135,11 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 
 	m.integrations[name] = cb
 	m.names = append(m.names, name)
+
+	if m.gvkToName == nil {
+		m.gvkToName = make(map[schema.GroupVersionKind]string)
+	}
+	m.gvkToName[cb.getGVK()] = name
 
 	return nil
 }
@@ -323,6 +332,13 @@ func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, boo
 	return IntegrationCallbacks{}, false
 }
 
+// GetIntegrationNameByGVK looks-up the framework name identified by GroupVersionKind in the currently
+// registered list of frameworks returning its name and true if found.
+func GetIntegrationNameByGVK(gvk schema.GroupVersionKind) (string, bool) {
+	name, found := manager.gvkToName[gvk]
+	return name, found
+}
+
 func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
 	apiVersion, kind := gvk.ToAPIVersionAndKind()
 	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
@@ -369,4 +385,34 @@ func GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]Mul
 		return nil, err
 	}
 	return ret, nil
+}
+
+func (m *integrationManager) autoEnableIntegrations(ctx context.Context, enabledFrameworks sets.Set[string]) {
+	log := ctrl.LoggerFrom(ctx)
+
+	for fwkName := range enabledFrameworks {
+		callbacks, found := m.get(fwkName)
+		if !found {
+			continue
+		}
+
+		for _, autoFwkName := range callbacks.ImplicitlyEnables {
+			if !enabledFrameworks.Has(autoFwkName) {
+				log.Info("Implicitly enabling integration for framework support", "integration", autoFwkName)
+				enabledFrameworks.Insert(autoFwkName)
+			}
+		}
+	}
+}
+
+func (m *integrationManager) storeImplicitlyEnabledIntegrations(originalFrameworks, currentFrameworks sets.Set[string]) {
+	if m.implicitlyEnabledIntegrations == nil {
+		m.implicitlyEnabledIntegrations = sets.New[string]()
+	}
+
+	for integration := range currentFrameworks {
+		if !originalFrameworks.Has(integration) {
+			m.implicitlyEnabledIntegrations.Insert(integration)
+		}
+	}
 }
