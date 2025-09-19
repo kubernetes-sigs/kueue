@@ -1157,15 +1157,13 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		}
 	}
 
-	var reportWorkloadEvictedOnce bool
+	evictionReason := reason
+	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
+	}
+	prepareForEviction(wl, clock.Now(), evictionReason, msg)
+	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
 	if err := PatchAdmissionStatus(ctx, c, wlOrig, true, clock, func() (*kueue.Workload, bool, error) {
-		evictionReason := reason
-		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-			evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
-		}
-
-		prepareForEviction(wl, clock.Now(), evictionReason, msg)
-		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
 		return wl, true, nil
 	}); err != nil {
 		return err

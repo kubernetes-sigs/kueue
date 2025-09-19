@@ -201,7 +201,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}); err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 			}
-
 			return ctrl.Result{}, nil
 		}
 
