@@ -2096,6 +2096,139 @@ func TestClusterQueueUsage(t *testing.T) {
 	}
 }
 
+func TestRunningWorkloadsUsage(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("foo").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "10", "10").Obj(),
+		).Obj()
+
+	tests := map[string]struct {
+		workloads              []kueue.Workload
+		wantRunningWorkloads   int
+		wantAdmittedWorkloads  int
+		wantReservingWorkloads int
+	}{
+		"no workloads": {
+			workloads:            []kueue.Workload{},
+			wantRunningWorkloads: 0,
+		},
+		"admitted but not running": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunningWorkloads:   0,
+			wantAdmittedWorkloads:  1,
+			wantReservingWorkloads: 1,
+		},
+		"admitted and running": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("running", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunningWorkloads:   1,
+			wantAdmittedWorkloads:  1,
+			wantReservingWorkloads: 1,
+		},
+		"two running workloads": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("running-1", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+					Obj(),
+				*utiltesting.MakeWorkload("running-2", "").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunningWorkloads:   2,
+			wantAdmittedWorkloads:  2,
+			wantReservingWorkloads: 2,
+		},
+		"one running one admitted": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("running-1", "").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted-only", "").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunningWorkloads:   1,
+			wantAdmittedWorkloads:  2,
+			wantReservingWorkloads: 2,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			ctx, log := utiltesting.ContextWithLog(t)
+			err := cache.AddClusterQueue(ctx, cq)
+			if err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+
+			for i := range tc.workloads {
+				w := &tc.workloads[i]
+				if added := cache.AddOrUpdateWorkload(log, w); !added {
+					t.Fatalf("Workload %s was not added", workload.Key(w))
+				}
+			}
+
+			stats, err := cache.Usage(cq)
+			if err != nil {
+				t.Fatalf("Couldn't get usage: %v", err)
+			}
+
+			if stats.RunningWorkloads != tc.wantRunningWorkloads {
+				t.Errorf("Got %d running workloads, want %d", stats.RunningWorkloads, tc.wantRunningWorkloads)
+			}
+			if stats.AdmittedWorkloads != tc.wantAdmittedWorkloads {
+				t.Errorf("Got %d admitted workloads, want %d", stats.AdmittedWorkloads, tc.wantAdmittedWorkloads)
+			}
+			if stats.ReservingWorkloads != tc.wantReservingWorkloads {
+				t.Errorf("Got %d reserving workloads, want %d", stats.ReservingWorkloads, tc.wantReservingWorkloads)
+			}
+		})
+	}
+}
+
 func TestLocalQueueUsage(t *testing.T) {
 	cq := *utiltesting.MakeClusterQueue("foo").
 		ResourceGroup(
@@ -2317,6 +2450,123 @@ func TestLocalQueueUsage(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestLocalQueueRunningWorkloads(t *testing.T) {
+	cq := *utiltesting.MakeClusterQueue("foo").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "10", "10").Obj(),
+		).Obj()
+	localQueue := *utiltesting.MakeLocalQueue("test", "ns1").
+		ClusterQueue("foo").Obj()
+
+	tests := map[string]struct {
+		workloads     []kueue.Workload
+		wantRunning   int
+		wantAdmitted  int
+		wantReserving int
+	}{
+		"no workloads": {
+			workloads:     []kueue.Workload{},
+			wantRunning:   0,
+			wantAdmitted:  0,
+			wantReserving: 0,
+		},
+		"admitted but not running": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunning:   0,
+			wantAdmitted:  1,
+			wantReserving: 1,
+		},
+		"admitted and running": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("running", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunning:   1,
+			wantAdmitted:  1,
+			wantReserving: 1,
+		},
+		"mixed admitted and running workloads": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("running-1", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted-only", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("foo").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1000m").
+							Obj()).Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Obj(),
+			},
+			wantRunning:   1,
+			wantAdmitted:  2,
+			wantReserving: 2,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			ctx, log := utiltesting.ContextWithLog(t)
+			if err := cache.AddClusterQueue(ctx, &cq); err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+			if err := cache.AddLocalQueue(&localQueue); err != nil {
+				t.Fatalf("Adding LocalQueue: %v", err)
+			}
+
+			for _, w := range tc.workloads {
+				if added := cache.AddOrUpdateWorkload(log, &w); !added {
+					t.Fatalf("Workload %s was not added", workload.Key(&w))
+				}
+			}
+
+			gotUsage, err := cache.LocalQueueUsage(&localQueue)
+			if err != nil {
+				t.Fatalf("Couldn't get usage for the queue: %v", err)
+			}
+
+			if gotUsage.RunningWorkloads != tc.wantRunning {
+				t.Errorf("Got %d running workloads, want %d", gotUsage.RunningWorkloads, tc.wantRunning)
+			}
+			if gotUsage.AdmittedWorkloads != tc.wantAdmitted {
+				t.Errorf("Got %d admitted workloads, want %d", gotUsage.AdmittedWorkloads, tc.wantAdmitted)
+			}
+			if gotUsage.ReservingWorkloads != tc.wantReserving {
+				t.Errorf("Got %d reserving workloads, want %d", gotUsage.ReservingWorkloads, tc.wantReserving)
 			}
 		})
 	}

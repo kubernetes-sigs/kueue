@@ -403,6 +403,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
+			runningWorkloads:   0,
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 		}
@@ -686,6 +687,7 @@ type ClusterQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.FlavorUsage
 	AdmittedWorkloads  int
+	RunningWorkloads   int
 	WeightedShare      int64
 }
 
@@ -704,6 +706,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		ReservingWorkloads: len(cq.Workloads),
 		AdmittedResources:  getUsage(cq.AdmittedUsage, cq),
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
+		RunningWorkloads:   cq.runningWorkloadsCount,
 	}
 
 	if c.fairSharingEnabled {
@@ -804,6 +807,7 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
+	RunningWorkloads   int
 	Flavors            []kueue.LocalQueueFlavorStatus
 }
 
@@ -861,6 +865,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
+		RunningWorkloads:   qImpl.runningWorkloads,
 		Flavors:            flavors,
 	}, nil
 }

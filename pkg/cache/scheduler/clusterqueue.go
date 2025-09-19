@@ -80,6 +80,7 @@ type clusterQueue struct {
 	perFlavorMultiKueueAdmissionChecks []kueue.AdmissionCheckReference
 	tasFlavors                         map[kueue.ResourceFlavorReference]kueue.TopologyReference
 	admittedWorkloadsCount             int
+	runningWorkloadsCount              int
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
 
@@ -468,18 +469,21 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, w *kueue.Workload) {
 func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.AdmittedActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(c.admittedWorkloadsCount))
 	metrics.ReservingActiveWorkloads.WithLabelValues(string(c.Name)).Set(float64(len(c.Workloads)))
+	metrics.RunningWorkloads.WithLabelValues(string(c.Name)).Set(float64(c.runningWorkloadsCount))
 }
 
 func (q *LocalQueue) reportActiveWorkloads() {
 	namespace, name := queue.MustParseLocalQueueReference(q.key)
 	metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.admittedWorkloads))
 	metrics.LocalQueueReservingActiveWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.reservingWorkloads))
+	metrics.LocalQueueRunningWorkloads.WithLabelValues(string(name), namespace).Set(float64(q.runningWorkloads))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
+	running := workload.IsRunning(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
 	for fr, q := range frUsage {
 		if op == add {
@@ -494,6 +498,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 		c.admittedWorkloadsCount += op.asSignedOne()
 	}
+	if running {
+		c.runningWorkloadsCount += op.asSignedOne()
+	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
 		updateFlavorUsage(frUsage, lq.totalReserved, op)
@@ -501,6 +508,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		if admitted {
 			lq.updateAdmittedUsage(frUsage, op)
 			lq.admittedWorkloads += op.asSignedOne()
+		}
+		if running {
+			lq.runningWorkloads += op.asSignedOne()
 		}
 		if features.Enabled(features.LocalQueueMetrics) {
 			lq.reportActiveWorkloads()
@@ -569,6 +579,9 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 				qImpl.updateAdmittedUsage(frq, add)
 				qImpl.admittedWorkloads++
 			}
+			if workload.IsRunning(wl.Obj) {
+				qImpl.runningWorkloads++
+			}
 		}
 	}
 	c.localQueues[qKey] = qImpl
@@ -599,7 +612,7 @@ func (c *clusterQueue) flavorInUse(flavor kueue.ResourceFlavorReference) bool {
 	return false
 }
 
-func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
+func (q *LocalQueue) resetFlavorsAndResources(cqUsage, cqAdmittedUsage resources.FlavorResourceQuantities) {
 	// Clean up removed flavors or resources.
 	q.Lock()
 	defer q.Unlock()

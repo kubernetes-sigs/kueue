@@ -158,21 +158,24 @@ func Test_PushOrUpdate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, fakeClock, nil, false, nil)
-
-			if cq.Pending() != 0 {
+			pendingWorkloadCount, _ := cq.CountWorkloads()
+			if pendingWorkloadCount != 0 {
 				t.Error("ClusterQueue should be empty")
 			}
+
 			cq.PushOrUpdate(workload.NewInfo(tc.workload.Clone().Obj()))
-			if cq.Pending() != 1 {
+			pendingWorkloadCount, _ = cq.CountWorkloads()
+			if pendingWorkloadCount != 1 {
 				t.Error("ClusterQueue should have one workload")
 			}
 
 			// Just used to validate the update operation.
 			updatedWl := tc.workload.Clone().ResourceVersion("1").Obj()
 			cq.PushOrUpdate(workload.NewInfo(updatedWl))
+			pendingWorkloadCount, _ = cq.CountWorkloads()
 			newWl := cq.Pop()
-			if newWl != nil && cq.Pending() != 1 {
-				t.Errorf("unexpected count of pending workloads (want=%d, got=%d)", 1, cq.Pending())
+			if newWl != nil && pendingWorkloadCount != 1 {
+				t.Errorf("unexpected count of pending workloads (want=%d, got=%d)", 1, pendingWorkloadCount)
 			}
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
@@ -215,17 +218,21 @@ func Test_Delete(t *testing.T) {
 	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
 	cq.PushOrUpdate(workload.NewInfo(wl1))
 	cq.PushOrUpdate(workload.NewInfo(wl2))
-	if cq.Pending() != 2 {
+	pendingWorkloadCount, _ := cq.CountWorkloads()
+
+	if pendingWorkloadCount != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
 	cq.Delete(wl1)
-	if cq.Pending() != 1 {
+	pendingWorkloadCount, _ = cq.CountWorkloads()
+	if pendingWorkloadCount != 1 {
 		t.Error("ClusterQueue should have only one workload")
 	}
 	// Change workload item, ClusterQueue.Delete should only care about the namespace and name.
 	wl2.Spec = kueue.WorkloadSpec{QueueName: "default"}
 	cq.Delete(wl2)
-	if cq.Pending() != 0 {
+	pendingWorkloadCount, _ = cq.CountWorkloads()
+	if pendingWorkloadCount != 0 {
 		t.Error("ClusterQueue should have be empty")
 	}
 }
@@ -286,16 +293,18 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 		qImpl.AddOrUpdate(wInfo)
 	}
 
+	pendingWorkloadCount, _ := cq.CountWorkloads()
 	wantPending := len(admissibleworkloads) + len(inadmissibleWorkloads)
-	if pending := cq.Pending(); pending != wantPending {
-		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, pending)
+	if pendingWorkloadCount != wantPending {
+		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, pendingWorkloadCount)
 	}
 	if len(cq.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
 		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
 	}
 
 	cq.DeleteFromLocalQueue(qImpl)
-	if cq.Pending() != 0 {
+	pendingWorkloadCount, _ = cq.CountWorkloads()
+	if pendingWorkloadCount != 0 {
 		t.Error("clusterQueue should be empty")
 	}
 }
@@ -465,8 +474,9 @@ func TestClusterQueueImpl(t *testing.T) {
 			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads, cmpDump...); diff != "" {
 				t.Errorf("Unexpected active workloads in cluster foo (-want,+got):\n%s", diff)
 			}
-			if got := cq.Pending(); got != test.wantPending {
-				t.Errorf("Got %d pending workloads, want %d", got, test.wantPending)
+			pendingWorkloadCount, _ := cq.CountWorkloads()
+			if pendingWorkloadCount != test.wantPending {
+				t.Errorf("Got %d pending workloads, want %d", pendingWorkloadCount, test.wantPending)
 			}
 		})
 	}
@@ -915,6 +925,81 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 
 			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); ok {
 				t.Error("Re-queued a workload that was already present")
+			}
+		})
+	}
+}
+
+func TestRunning(t *testing.T) {
+	tests := map[string]struct {
+		workloads   []*kueue.Workload
+		wantRunning int
+	}{
+		"empty queue": {
+			workloads:   []*kueue.Workload{},
+			wantRunning: 0,
+		},
+		"only running workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("running-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+				utiltesting.MakeWorkload("running-2", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+			},
+			wantRunning: 2,
+		},
+		"only pending workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("pending-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionFalse,
+					}).Obj(),
+				utiltesting.MakeWorkload("no-condition", defaultNamespace).Obj(),
+			},
+			wantRunning: 0,
+		},
+		"mixed running and pending workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("running-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+				utiltesting.MakeWorkload("pending-1", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionFalse,
+					}).Obj(),
+				utiltesting.MakeWorkload("running-2", defaultNamespace).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadPodsReady,
+						Status: metav1.ConditionTrue,
+					}).Obj(),
+				utiltesting.MakeWorkload("no-condition", defaultNamespace).Obj(),
+			},
+			wantRunning: 2,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
+
+			for _, wl := range test.workloads {
+				cq.PushOrUpdate(workload.NewInfo(wl))
+			}
+
+			_, runningWorkloadCount := cq.CountWorkloads()
+			if runningWorkloadCount != test.wantRunning {
+				t.Errorf("Got %d running workloads, want %d", runningWorkloadCount, test.wantRunning)
 			}
 		})
 	}

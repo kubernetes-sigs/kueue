@@ -30,6 +30,7 @@ type LocalQueue struct {
 	key                queue.LocalQueueReference
 	reservingWorkloads int
 	admittedWorkloads  int
+	runningWorkloads   int
 	totalReserved      resources.FlavorResourceQuantities
 	admittedUsage      resources.FlavorResourceQuantities
 }
