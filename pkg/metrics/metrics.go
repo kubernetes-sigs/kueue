@@ -302,7 +302,7 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"cluster_queue"},
 	)
 
-	LocalQueueEvictedWorkloadsTotal = prometheus.NewCounterVec(
+    LocalQueueEvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_evicted_workloads_total",
@@ -320,7 +320,7 @@ The label 'underlying_cause' can have the following values:
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, []string{"name", "namespace", "reason", "underlying_cause"},
+        }, []string{"name", "namespace", "reason", "underlying_cause", "workload_priority_class"},
 	)
 
 	EvictedWorkloadsOnceTotal = prometheus.NewCounterVec(
@@ -572,8 +572,8 @@ func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
 	ReplacedWorkloadSlicesTotal.WithLabelValues(string(cqName)).Inc()
 }
 
-func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string) {
-	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause).Inc()
+func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string, workloadPriorityClass string) {
+    LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause, workloadPriorityClass).Inc()
 }
 
 func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, workloadPriorityClass string) {
@@ -618,7 +618,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueQueuedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmittedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
-	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+    LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus) {

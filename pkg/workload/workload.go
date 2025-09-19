@@ -1149,9 +1149,9 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, underlyingCause).Observe(podsReadyToEvictionTime.Seconds())
 	}
-	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, underlyingCause)
-	}
+    if features.Enabled(features.LocalQueueMetrics) {
+        metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, underlyingCause, GetWorkloadPriorityClass(wl))
+    }
 	eventReason := fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = fmt.Sprintf("%sDueTo%s", eventReason, underlyingCause)
