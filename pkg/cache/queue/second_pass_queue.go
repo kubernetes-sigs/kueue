@@ -17,7 +17,9 @@ limitations under the License.
 package queue
 
 import (
+	"math"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -30,12 +32,15 @@ type secondPassQueue struct {
 
 	prequeued sets.Set[workload.Reference]
 	queued    map[workload.Reference]*workload.Info
+
+	backoffFactor int
 }
 
 func newSecondPassQueue() *secondPassQueue {
 	return &secondPassQueue{
-		prequeued: sets.New[workload.Reference](),
-		queued:    make(map[workload.Reference]*workload.Info),
+		prequeued:     sets.New[workload.Reference](),
+		queued:        make(map[workload.Reference]*workload.Info),
+		backoffFactor: 2,
 	}
 }
 
@@ -77,4 +82,9 @@ func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 
 	delete(q.queued, key)
 	q.prequeued.Delete(key)
+}
+
+// nextSecondPassDelay returns the next backoff duration for the workload's second pass
+func (q *secondPassQueue) nextSecondPassDelay(iteration uint) time.Duration {
+	return time.Duration(math.Pow(float64(q.backoffFactor), float64(iteration))) * time.Second
 }
