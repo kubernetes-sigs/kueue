@@ -234,7 +234,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "local_queue_admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"name", "namespace"},
+		}, []string{"name", "namespace", "workload_priority_class"},
 	)
 
 	admissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -525,9 +525,9 @@ func AdmittedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass 
 	AdmissionWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
 }
 
-func LocalQueueAdmittedWorkload(lq LocalQueueReference, waitTime time.Duration) {
-	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace).Inc()
-	localQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
+func LocalQueueAdmittedWorkload(lq LocalQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+	LocalQueueAdmittedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, workloadPriorityClass).Inc()
+	localQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, workloadPriorityClass).Observe(waitTime.Seconds())
 }
 
 func AdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
@@ -613,8 +613,8 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeleteLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible)
 	LocalQueueQuotaReservedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueQuotaReservedWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
-	LocalQueueAdmittedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
-	localQueueAdmissionWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+	localQueueAdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	localQueueAdmissionChecksWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueQueuedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmittedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
