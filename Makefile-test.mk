@@ -54,6 +54,8 @@ KIND_CLUSTER_NAME ?= kind
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
 
+GINKGO_ARGS ?= --keep-going
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
