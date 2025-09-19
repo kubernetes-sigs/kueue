@@ -252,7 +252,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "local_queue_admission_checks_wait_time_seconds",
 			Help:      "The time from when a workload got the quota reservation until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"name", "namespace"},
+		}, []string{"name", "namespace", "workload_priority_class"},
 	)
 
 	localQueueQueuedUntilReadyWaitTime = prometheus.NewHistogramVec(
@@ -534,8 +534,8 @@ func AdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, waitTime time.D
 	admissionChecksWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
-func LocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, waitTime time.Duration) {
-	localQueueAdmissionChecksWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
+func LocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+	localQueueAdmissionChecksWaitTime.WithLabelValues(string(lq.Name), lq.Namespace, workloadPriorityClass).Observe(waitTime.Seconds())
 }
 
 func ReadyWaitTime(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
@@ -615,7 +615,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	localQueueQuotaReservedWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	LocalQueueAdmittedWorkloadsTotal.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmissionWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
-	localQueueAdmissionChecksWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
+	localQueueAdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 	localQueueQueuedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	localQueueAdmittedUntilReadyWaitTime.DeleteLabelValues(string(lq.Name), lq.Namespace)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})

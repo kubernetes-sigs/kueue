@@ -818,7 +818,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
 		metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
 		if features.Enabled(features.LocalQueueMetrics) {
-			metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), 0)
+			metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), workload.GetWorkloadPriorityClass(newWorkload), 0)
 		}
 	}
 }
