@@ -7068,7 +7068,6 @@ func TestScheduleForTAS(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
 					Message("Workload was evicted as there was no replacement for a failed node: x0").Obj(),
 			},
-			featureGates: []featuregate.Feature{features.TASFailedNodeReplacementFailFast},
 		},
 	}
 	for name, tc := range cases {
