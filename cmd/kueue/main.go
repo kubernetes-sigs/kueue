@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/generic"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
@@ -350,6 +351,24 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		if err != nil {
 			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
+
+		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
+			genericConfigManager := generic.NewConfigManager()
+			if err := genericConfigManager.LoadConfigurations(cfg.MultiKueue.ExternalFrameworks); err != nil {
+				return fmt.Errorf("could not load generic adapter configurations: %w", err)
+			}
+
+			// Add generic adapters to the adapters map
+			for _, adapter := range genericConfigManager.GetAllAdapters() {
+				gvkStr := adapter.GVK().String()
+				if _, exists := adapters[gvkStr]; exists {
+					return fmt.Errorf("duplicate adapter for GVK %s: conflicts with built-in adapter", gvkStr)
+				}
+				setupLog.Info("Creating generic MultiKueue adapter", "gvk", gvkStr)
+				adapters[gvkStr] = adapter
+			}
+		}
+
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),

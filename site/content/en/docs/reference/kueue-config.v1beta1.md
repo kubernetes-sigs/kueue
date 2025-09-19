@@ -767,6 +767,43 @@ if the connection with its reserving worker cluster is lost.</p>
 </ul>
 </td>
 </tr>
+<tr><td><code>externalFrameworks</code><br/>
+<a href="#MultiKueueExternalFramework"><code>[]MultiKueueExternalFramework</code></a>
+</td>
+<td>
+   <p>ExternalFrameworks defines a list of external frameworks that should be supported
+by the generic MultiKueue adapter. Each entry defines how to handle a specific
+GroupVersionKind (GVK) for MultiKueue operations.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueExternalFramework`     {#MultiKueueExternalFramework}
+    
+
+**Appears in:**
+
+- [MultiKueue](#MultiKueue)
+
+
+<p>MultiKueueExternalFramework defines a framework that is not built-in.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the GVK of the resource that are
+managed by external controllers
+the expected format is <code>Kind.version.group.com</code>.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
