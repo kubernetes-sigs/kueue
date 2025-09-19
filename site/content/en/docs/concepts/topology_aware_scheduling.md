@@ -6,7 +6,7 @@ description: >
   Allows scheduling of Pods based on the topology of nodes in a data center.
 ---
 
-{{< feature-state state="alpha" for_version="v0.9" >}}
+{{< feature-state state="beta" for_version="v0.14" >}}
 
 It is common that AI/ML workloads require a significant amount of pod-to-pod
 communication. Therefore the network bandwidth between the running Pods
@@ -64,9 +64,8 @@ domain (like a given rack) by:
 ### Admin-facing APIs
 
 As an admin, in order to enable the feature you need to:
-1. ensure the `TopologyAwareScheduling` feature gate is enabled
-2. create at least one instance of the `Topology` API
-3. reference the `Topology` API from a dedicated ResourceFlavor by the
+1. create at least one instance of the `Topology` API
+2. reference the `Topology` API from a dedicated ResourceFlavor by the
    `.spec.topologyName` field
 
 #### Example
@@ -228,7 +227,7 @@ spec:
         args:
         - --config=/controller_manager_config.yaml
         - --zap-log-level=2
-+       - --feature-gates=TopologyAwareScheduling=true,TASFailedNodeReplacement=true,TASFailedNodeReplacementFailFast=true,TASReplaceNodeOnPodTermination=true
++       - --feature-gates=TASFailedNodeReplacement=true,TASFailedNodeReplacementFailFast=true,TASReplaceNodeOnPodTermination=true
 ```
 
 ### Limitations
