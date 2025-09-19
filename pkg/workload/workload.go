@@ -1168,7 +1168,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}); err != nil {
 		return err
 	}
-	if wl.Status.Admission == nil {
+	if wlOrig.Status.Admission == nil {
 		// This is an extra safeguard for access to `wl.Status.Admission`.
 		// This function is expected to be called only for workload which have
 		// Admission.
