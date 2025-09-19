@@ -82,59 +82,64 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
-func managerSetup(ctx context.Context, mgr manager.Manager) {
-	// Indexes
-	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
+	return func(ctx context.Context, mgr manager.Manager) {
+		// Indexes
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Webhooks
-	failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+		// Webhooks
+		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	mappings := []config.DeviceClassMapping{
-		{
-			Name:             corev1.ResourceName("foo"),
-			DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
-		},
-		{
-			Name:             corev1.ResourceName("res-1"),
-			DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
-		},
-		{
-			Name:             corev1.ResourceName("res-2"),
-			DeviceClassNames: []corev1.ResourceName{"test-deviceclass-2"},
-		},
+		mappings := []config.DeviceClassMapping{
+			{
+				Name:             corev1.ResourceName("foo"),
+				DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+			},
+			{
+				Name:             corev1.ResourceName("res-1"),
+				DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+			},
+			{
+				Name:             corev1.ResourceName("res-2"),
+				DeviceClassNames: []corev1.ResourceName{"test-deviceclass-2"},
+			},
+		}
+
+		// Controllers configuration
+		controllersCfg := &config.Configuration{
+			Namespace: ptr.To("kueue-system"),
+			Resources: &config.Resources{
+				DeviceClassMappings: mappings,
+			},
+		}
+		mgr.GetScheme().Default(controllersCfg)
+		controllersCfg.Metrics.EnableClusterQueueResources = true
+		if modifyConfig != nil {
+			modifyConfig(controllersCfg)
+		}
+
+		err = dra.CreateMapperFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		cCache := schdcache.New(mgr.GetClient())
+		queues := qcache.NewManager(mgr.GetClient(), cCache)
+
+		// Core controllers
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		// Scheduler - required for workload admission
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor("kueue-admission"),
+		)
+		err = mgr.Add(sched)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-
-	err = dra.CreateMapperFromConfiguration(mappings)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	// Controllers configuration
-	controllersCfg := &config.Configuration{
-		Namespace: ptr.To("kueue-system"),
-		Resources: &config.Resources{
-			DeviceClassMappings: mappings,
-		},
-	}
-	mgr.GetScheme().Default(controllersCfg)
-	controllersCfg.Metrics.EnableClusterQueueResources = true
-
-	cCache := schdcache.New(mgr.GetClient())
-	queues := qcache.NewManager(mgr.GetClient(), cCache)
-
-	// Core controllers
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-
-	// Scheduler - required for workload admission
-	sched := scheduler.New(
-		queues,
-		cCache,
-		mgr.GetClient(),
-		mgr.GetEventRecorderFor("kueue-admission"),
-	)
-	err = mgr.Add(sched)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // Helper function to create a ResourceClaim
