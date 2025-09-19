@@ -321,12 +321,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 
-	// 1.1 Handle finished local workload by removing remote workloads and jobs.
-	if group.IsFinished() {
-		// Skip replaced elastic workloads finished workload slices.
-		if group.IsElasticWorkload() && workloadslicing.IsReplaced(group.local.Status) {
-			return reconcile.Result{}, nil
-		}
+	// 0. Ignore Elastic workloads Finished via Replacement.
+	if group.IsFinished() && workloadslicing.IsReplaced(group.local.Status) {
+		return reconcile.Result{}, nil
+	}
+
+	// 1. delete all remote workloads when:
+	// - finished, OR
+	// - has no quota reservation, AND
+	//   - either NOT elastic workload, OR the original workload slice.
+	if group.IsFinished() || (!workload.HasQuotaReservation(group.local) && (!group.IsElasticWorkload() || workloadslicing.ReplacementForKey(group.local) == nil)) {
 		var errs []error
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
@@ -337,20 +341,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
-	// 1.2 Handle local workload without quota reservation by removing remote workloads and jobs.
-	// Exclude elastic job workloads scaled-up workload slice.
-	if !workload.HasQuotaReservation(group.local) && (!group.IsElasticWorkload() || workloadslicing.ReplacementForKey(group.local) == nil) {
-		var errs []error
-		for rem := range group.remotes {
-			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
-				errs = append(errs, err)
-				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
-			}
-		}
-		return reconcile.Result{}, errors.Join(errs...)
-	}
-
-	// 1.3 Sync finished remote workload.
 	if remoteFinishedCond, remote := group.RemoteFinishedCondition(); remoteFinishedCond != nil {
 		// NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
@@ -376,7 +366,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName+"-finish"), client.ForceOwnership)
 	}
 
-	// 2. Delete all remote workloads that are out of sync.
+	// 2. delete all workloads that are out of sync (other than scaled-down elastic workloads)
+	// or are not in the chosen worker.
 	for rem, remWl := range group.remotes {
 		if remWl != nil && !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec) {
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.

@@ -1209,9 +1209,11 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 
 // prepareWorkloadSlice adds necessary workload slice annotations.
 func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
-	// Mark the workload with the elastic-job enabled annotation.
-	// This allows distinguishing whether elastic-job support is enabled
-	// for a given workload at the workload level.
+	// Annotate the workload to indicate that elastic-job support is enabled.
+	// This annotation makes it possible to distinguish workloads with elastic-job
+	// support directly at the workload level, without requiring access to the
+	// associated Job object. This is particularly useful in contexts such as the
+	// MultiKueue workload controller, where the Job may not be immediately available.
 	metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
 
 	// Lookup existing slice for a given job.
@@ -1231,8 +1233,6 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
 
-		// Keep the same cluster assignment between slices.
-		wl.Status.ClusterName = oldSlice.Status.ClusterName
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
