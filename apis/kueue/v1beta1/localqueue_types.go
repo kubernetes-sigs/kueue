@@ -84,7 +84,7 @@ type LocalQueueFlavorStatus struct {
 
 	// topology is the topology that associated with this ResourceFlavor.
 	//
-	// This is an alpha field and requires enabling the TopologyAwareScheduling
+	// This is a beta field and requires enabling the TopologyAwareScheduling
 	// feature gate.
 	//
 	// +optional

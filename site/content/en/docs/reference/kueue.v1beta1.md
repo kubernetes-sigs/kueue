@@ -1595,7 +1595,7 @@ have.</p>
 </td>
 <td>
    <p>topology is the topology that associated with this ResourceFlavor.</p>
-<p>This is an alpha field and requires enabling the TopologyAwareScheduling
+<p>This is a beta field and requires enabling the TopologyAwareScheduling
 feature gate.</p>
 </td>
 </tr>
