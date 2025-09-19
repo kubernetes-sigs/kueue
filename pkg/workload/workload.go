@@ -411,6 +411,26 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	output := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
 		if mapping, ok := transforms[inputName]; ok {
+			// Operate the matched input according to the type. First,
+			// calculate the value of TargetResource. If TargetResource
+			// is not set or is 0, then calculate the value of Quantity.
+			if mapping.Operation != nil {
+				target := mapping.Operation.Target.TargetResource
+				q := input[target]
+				if q.IsZero() {
+					q = mapping.Operation.Target.Quantity
+				}
+
+				switch mapping.Operation.Type {
+				case config.Mul:
+					inputQuantity.Mul(q.Value())
+				case config.Add:
+					inputQuantity.Add(q)
+				case config.Sub:
+					inputQuantity.Sub(q)
+				}
+			}
+
 			for outputName, baseFactor := range mapping.Outputs {
 				outputQuantity := baseFactor.DeepCopy()
 				outputQuantity.Mul(inputQuantity.Value())
