@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -896,6 +897,23 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
+// PatchAdmissionStatus updates the admission status of a workload.
+// If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
+// Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (*kueue.Workload, bool, error)) error {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
+			return update()
+		}, clientutil.WithStrict(strict))
+	}
+	wPatched, updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+
+	return ApplyAdmissionStatus(ctx, c, wPatched, strict, clk)
+}
+
 type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
@@ -1103,17 +1121,54 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
+type EvictOption func(*EvictOptions)
+
+type EvictOptions struct {
+	CustomPrepare func() (*kueue.Workload, error)
+}
+
+func DefaultEvictOptions() *EvictOptions {
+	return &EvictOptions{
+		CustomPrepare: nil,
+	}
+}
+
+func WithCustomPrepare(customPrepare func() (*kueue.Workload, error)) EvictOption {
+	return func(o *EvictOptions) {
+		if customPrepare != nil {
+			o.CustomPrepare = customPrepare
+		}
+	}
+}
+
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock, options ...EvictOption) error {
+	opts := DefaultEvictOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	// if there is no customPrepare use wl and wlOrig are equal
+	wl := wlOrig.DeepCopy()
+	if opts.CustomPrepare != nil {
+		var err error
+		wl, err = opts.CustomPrepare()
+		if err != nil {
+			return err
+		}
+	}
+
 	evictionReason := reason
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		evictionReason = fmt.Sprintf("%sDueTo%s", evictionReason, underlyingCause)
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+	if err := PatchAdmissionStatus(ctx, c, wlOrig, true, clock, func() (*kueue.Workload, bool, error) {
+		return wl, true, nil
+	}); err != nil {
 		return err
 	}
-	if wl.Status.Admission == nil {
+	if wlOrig.Status.Admission == nil {
 		// This is an extra safeguard for access to `wl.Status.Admission`.
 		// This function is expected to be called only for workload which have
 		// Admission.

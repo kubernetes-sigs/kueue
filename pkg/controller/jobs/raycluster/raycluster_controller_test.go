@@ -17,6 +17,7 @@ limitations under the License.
 package raycluster
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -306,15 +307,16 @@ func TestReconciler(t *testing.T) {
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
 	cases := map[string]struct {
-		reconcilerOptions []jobframework.Option
-		job               rayv1.RayCluster
-		initObjects       []client.Object
-		workloads         []kueue.Workload
-		priorityClasses   []client.Object
-		wantJob           rayv1.RayCluster
-		wantWorkloads     []kueue.Workload
-		runInfo           []podset.PodSetInfo
-		wantErr           error
+		reconcilerOptions              []jobframework.Option
+		job                            rayv1.RayCluster
+		initObjects                    []client.Object
+		workloads                      []kueue.Workload
+		priorityClasses                []client.Object
+		wantJob                        rayv1.RayCluster
+		wantWorkloads                  []kueue.Workload
+		removeAdmissionAsInRealCluster bool
+		runInfo                        []podset.PodSetInfo
+		wantErr                        error
 	}{
 		"when workload is admitted, cluster is unsuspended": {
 			initObjects: []client.Object{
@@ -545,6 +547,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			removeAdmissionAsInRealCluster: true,
 		},
 		"RayCluster with NumOfHosts > 1": {
 			initObjects: []client.Object{
@@ -673,56 +676,64 @@ func TestReconciler(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+		for _, enabled := range []bool{false, true} {
+			tc := tc
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
-				t.Fatalf("Could not setup indexes: %v", err)
-			}
-			objs := append(tc.priorityClasses, &tc.job)
-			kcBuilder := clientBuilder.WithObjects(objs...)
-
-			for i := range tc.workloads {
-				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
-			}
-
-			kcBuilder = clientBuilder.WithObjects(tc.initObjects...)
-
-			kClient := kcBuilder.Build()
-			for i := range tc.workloads {
-				if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
-					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+				if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+					t.Fatalf("Could not setup indexes: %v", err)
 				}
-				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
-					t.Fatalf("Could not create workload: %v", err)
-				}
-			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				objs := append(tc.priorityClasses, &tc.job)
+				kcBuilder := clientBuilder.WithObjects(objs...)
 
-			jobKey := client.ObjectKeyFromObject(&tc.job)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: jobKey,
+				for i := range tc.workloads {
+					kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
+				}
+
+				kcBuilder = clientBuilder.WithObjects(tc.initObjects...)
+
+				kClient := kcBuilder.Build()
+				for i := range tc.workloads {
+					tc.workloads[i].ResourceVersion = ""
+					if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
+						t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+					}
+					if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
+						t.Fatalf("Could not create workload: %v", err)
+					}
+				}
+				recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+				reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+
+				jobKey := client.ObjectKeyFromObject(&tc.job)
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: jobKey,
+				})
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+				}
+
+				var gotJob rayv1.RayCluster
+				if err := kClient.Get(ctx, jobKey, &gotJob); err != nil {
+					t.Fatalf("Could not get Job after reconcile: %v", err)
+				}
+				if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
+					t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
+				}
+				var gotWorkloads kueue.WorkloadList
+				if err := kClient.List(ctx, &gotWorkloads); err != nil {
+					t.Fatalf("Could not get Workloads after reconcile: %v", err)
+				}
+				if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.removeAdmissionAsInRealCluster {
+					tc.wantWorkloads[0].Status.Admission = nil
+				}
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
 			})
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
-			}
-
-			var gotJob rayv1.RayCluster
-			if err := kClient.Get(ctx, jobKey, &gotJob); err != nil {
-				t.Fatalf("Could not get Job after reconcile: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
-				t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
-			}
-			var gotWorkloads kueue.WorkloadList
-			if err := kClient.List(ctx, &gotWorkloads); err != nil {
-				t.Fatalf("Could not get Workloads after reconcile: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-			}
-		})
+		}
 	}
 }

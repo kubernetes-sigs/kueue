@@ -3687,7 +3687,7 @@ func TestSchedule(t *testing.T) {
 
 			gotScheduled := make(map[workload.Reference]kueue.Admission)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
 				if tc.admissionError != nil {
 					return tc.admissionError
 				}
@@ -4573,7 +4573,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock))
 			gotScheduled := make(map[workload.Reference]kueue.Admission)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
 				mu.Lock()
 				gotScheduled[workload.Key(w)] = *w.Status.Admission
 				mu.Unlock()
@@ -4786,7 +4786,9 @@ func TestRequeueAndUpdate(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(w1), &updatedWl); err != nil {
 				t.Fatalf("Failed obtaining updated object: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
+			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps, cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+				return a.Type < b.Type
+			})); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
 			// Make sure a second call doesn't make unnecessary updates.
@@ -7142,7 +7144,7 @@ func TestScheduleForTAS(t *testing.T) {
 			scheduler := New(qManager, cqCache, cl, recorder)
 			gotScheduled := make([]workload.Reference, 0)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
 				mu.Lock()
 				gotScheduled = append(gotScheduled, workload.Key(w))
 				mu.Unlock()
@@ -7678,7 +7680,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			scheduler := New(qManager, cqCache, cl, recorder)
 			gotScheduled := make([]workload.Reference, 0)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
 				mu.Lock()
 				gotScheduled = append(gotScheduled, workload.Key(w))
 				mu.Unlock()
@@ -8650,7 +8652,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			scheduler := New(qManager, cqCache, cl, recorder)
 			gotScheduled := make([]workload.Reference, 0)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
 				mu.Lock()
 				gotScheduled = append(gotScheduled, workload.Key(w))
 				mu.Unlock()
@@ -9000,7 +9002,7 @@ func TestScheduleForAFS(t *testing.T) {
 
 			gotScheduled := make(map[workload.Reference]kueue.Admission)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
 				mu.Lock()
 				gotScheduled[workload.Key(w)] = *w.Status.Admission
 				mu.Unlock()
