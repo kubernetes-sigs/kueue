@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 				g.Expect(cq1.Status.AdmittedWorkloads).Should(gomega.Equal(int32(4)))
 				g.Expect(cq1.Status.FairSharing).ShouldNot(gomega.BeNil())
-				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(111)))
+				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(112)))
 
 				g.Expect(cq2.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq2.Status.FairSharing).ShouldNot(gomega.BeNil())
