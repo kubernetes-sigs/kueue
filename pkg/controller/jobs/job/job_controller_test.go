@@ -586,6 +586,7 @@ func TestReconciler(t *testing.T) {
 		enableObjectRetentionPolicies                     bool
 		enableTopologyAwareScheduling                     bool
 		enableManagedJobsNamespaceSelectorAlwaysRespected bool
+		removeAdmissionAsInRealCluster                    bool
 
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
@@ -1064,6 +1065,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to spec.active field being false, job gets suspended and quota is unset": {
+			removeAdmissionAsInRealCluster: true,
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -1146,7 +1148,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is active after deactivation; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
-			enableObjectRetentionPolicies: true,
+			enableObjectRetentionPolicies:  true,
+			removeAdmissionAsInRealCluster: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1237,7 +1240,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is manually deactivated; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should not delete the job": {
-			enableObjectRetentionPolicies: true,
+			enableObjectRetentionPolicies:  true,
+			removeAdmissionAsInRealCluster: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1328,7 +1332,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
-			enableObjectRetentionPolicies: true,
+			enableObjectRetentionPolicies:  true,
+			removeAdmissionAsInRealCluster: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1422,7 +1427,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has not expired": {
-			enableObjectRetentionPolicies: true,
+			enableObjectRetentionPolicies:  true,
+			removeAdmissionAsInRealCluster: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1513,7 +1519,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=60; retention period has expired": {
-			enableObjectRetentionPolicies: true,
+			enableObjectRetentionPolicies:  true,
+			removeAdmissionAsInRealCluster: true,
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -1607,6 +1614,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to pods ready timeout, job gets suspended and quota is unset": {
+			removeAdmissionAsInRealCluster: true,
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -1663,6 +1671,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to admission check, job gets suspended": {
+			removeAdmissionAsInRealCluster: true,
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -1743,6 +1752,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to cluster queue stopped, job gets suspended": {
+			removeAdmissionAsInRealCluster: true,
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -1823,6 +1833,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to local queue stopped, job gets suspended": {
+			removeAdmissionAsInRealCluster: true,
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -1903,6 +1914,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted due to preemption, job gets suspended": {
+			removeAdmissionAsInRealCluster: true,
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				Obj(),
@@ -3853,84 +3865,92 @@ func TestReconciler(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
-			features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelectorAlwaysRespected, tc.enableManagedJobsNamespaceSelectorAlwaysRespected)
+		for _, enabled := range []bool{false, true} {
+			tc := tc
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+				features.SetFeatureGateDuringTest(t, features.ManagedJobsNamespaceSelectorAlwaysRespected, tc.enableManagedJobsNamespaceSelectorAlwaysRespected)
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
-			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
-				t.Fatalf("Could not setup indexes: %v", err)
-			}
+				ctx, _ := utiltesting.ContextWithLog(t)
+				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+					t.Fatalf("Could not setup indexes: %v", err)
+				}
 
-			labelledNamespace := utiltesting.MakeNamespaceWrapper("labelled-ns").
-				Label("managed-by-kueue", "true").
-				Obj()
+				labelledNamespace := utiltesting.MakeNamespaceWrapper("labelled-ns").
+					Label("managed-by-kueue", "true").
+					Obj()
 
-			objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
-			kcBuilder := clientBuilder.
-				WithObjects(objs...)
+				objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
+				kcBuilder := clientBuilder.
+					WithObjects(objs...)
 
-			if len(tc.otherJobs) > 0 {
-				kcBuilder = kcBuilder.WithLists(&batchv1.JobList{Items: tc.otherJobs})
-			}
+				if len(tc.otherJobs) > 0 {
+					kcBuilder = kcBuilder.WithLists(&batchv1.JobList{Items: tc.otherJobs})
+				}
 
-			for i := range tc.workloads {
-				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
-			}
+				for i := range tc.workloads {
+					kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
+				}
 
-			// For prebuilt workloads we are skipping the ownership setup in the test body and
-			// expect the reconciler to do it.
-			_, useesPrebuiltWorkload := tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
+				// For prebuilt workloads we are skipping the ownership setup in the test body and
+				// expect the reconciler to do it.
+				_, useesPrebuiltWorkload := tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
 
-			kClient := kcBuilder.Build()
-			for i := range tc.workloads {
-				controller := metav1.GetControllerOfNoCopy(&tc.workloads[i])
-				if !useesPrebuiltWorkload && controller == nil {
-					if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
-						t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+				kClient := kcBuilder.Build()
+				for i := range tc.workloads {
+					controller := metav1.GetControllerOfNoCopy(&tc.workloads[i])
+					if !useesPrebuiltWorkload && controller == nil {
+						if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
+							t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+						}
+					}
+					tc.workloads[i].ResourceVersion = ""
+					if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
+						t.Fatalf("Could not create workload: %v", err)
 					}
 				}
-				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
-					t.Fatalf("Could not create workload: %v", err)
+				recorder := &utiltesting.EventRecorder{}
+				reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+
+				jobKey := client.ObjectKeyFromObject(&tc.job)
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: jobKey,
+				})
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 				}
-			}
-			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
 
-			jobKey := client.ObjectKeyFromObject(&tc.job)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: jobKey,
+				var gotJob batchv1.Job
+				if err := kClient.Get(ctx, jobKey, &gotJob); client.IgnoreNotFound(err) != nil {
+					t.Fatalf("Could not get Job after reconcile: %v", err)
+				}
+				if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
+					t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
+				}
+				var gotWorkloads kueue.WorkloadList
+				if err := kClient.List(ctx, &gotWorkloads); err != nil {
+					t.Fatalf("Could not get Workloads after reconcile: %v", err)
+				}
+
+				wlCheckOpts := workloadCmpOpts
+				if useesPrebuiltWorkload {
+					wlCheckOpts = workloadCmpOptsWithOwner
+				}
+
+				if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.removeAdmissionAsInRealCluster {
+					tc.wantWorkloads[0].Status.Admission = nil
+				}
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, wlCheckOpts...); diff != "" {
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
+
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
 			})
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
-			}
-
-			var gotJob batchv1.Job
-			if err := kClient.Get(ctx, jobKey, &gotJob); client.IgnoreNotFound(err) != nil {
-				t.Fatalf("Could not get Job after reconcile: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
-				t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
-			}
-			var gotWorkloads kueue.WorkloadList
-			if err := kClient.List(ctx, &gotWorkloads); err != nil {
-				t.Fatalf("Could not get Workloads after reconcile: %v", err)
-			}
-
-			wlCheckOpts := workloadCmpOpts
-			if useesPrebuiltWorkload {
-				wlCheckOpts = workloadCmpOptsWithOwner
-			}
-
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, wlCheckOpts...); diff != "" {
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-			}
-
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+		}
 	}
 }
