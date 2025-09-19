@@ -868,9 +868,8 @@ func TestValidateFeatureGates(t *testing.T) {
 			errorStr:        "Cannot use more than one TAS profiles",
 		},
 		"cannot set TAS profile with TAS disabled": {
-			featureGateMap: map[string]bool{"TASProfileLeastFreeCapacity": true,
-				"TopologyAwareScheduling": true},
-			errorStr: "Cannot use a TAS profile with TAS disabled",
+			featureGateMap: map[string]bool{"TASProfileLeastFreeCapacity": true},
+			errorStr:       "Cannot use a TAS profile with TAS disabled",
 		},
 	}
 	for name, tc := range cases {

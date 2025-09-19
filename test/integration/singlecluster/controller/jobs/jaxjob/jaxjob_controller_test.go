@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjaxjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjaxjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -561,7 +560,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 })
 
-var _ = ginkgo.Describe("JAXJob controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JAXJob controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -584,8 +583,6 @@ var _ = ginkgo.Describe("JAXJob controller when TopologyAwareScheduling enabled"
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jaxjob-")
 
 		nodes = []corev1.Node{
