@@ -6471,7 +6471,7 @@ func TestScheduleForTAS(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Request(corev1.ResourceCPU, "400m").
 					NodeSelector(corev1.LabelHostname, "x1").
-					Label(kueue.TASLabel, "true").
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 					Obj(),
 			},
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},

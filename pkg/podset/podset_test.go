@@ -436,21 +436,21 @@ func TestMergeRestore(t *testing.T) {
 		},
 		"podset with tas label; empty info": {
 			podSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
+				Annotations(map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}).
 				Obj(),
 			wantPodSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
+				Annotations(map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}).
 				Obj(),
 		},
 		"podset with tas label; info re-adds the same": {
 			podSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
+				Annotations(map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}).
 				Obj(),
 			info: PodSetInfo{
-				Labels: map[string]string{kueue.TASLabel: "true"},
+				Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
 			},
 			wantPodSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueue.TASLabel: "true"}).
+				Annotations(map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}).
 				Obj(),
 		},
 	}
