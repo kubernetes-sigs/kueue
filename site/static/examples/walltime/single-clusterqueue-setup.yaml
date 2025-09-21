@@ -18,11 +18,6 @@ spec:
         nominalQuota: 9
       - name: "memory"
         nominalQuota: 36Gi
-  wallTimePolicy:
-    wallTimeFlavors:
-      - name: "default-flavor"
-        wallTimeAllocatedHours: 1
-            
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -32,4 +27,7 @@ metadata:
   name: "user-queue"
 spec:
   clusterQueue: "cluster-queue"
+  wallTimePolicy:
+    wallTimeAllocatedHours: 100
+    actionWhenWallTimeExhausted: Hold
 
