@@ -566,7 +566,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	targetLevel := levelIdx
 	if slicesRequested(tr.PodSet.TopologyRequest) && tr.Count < *tr.PodSet.TopologyRequest.PodSetSliceSize {
 		sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
-		sliceLevelIdx, resolved := s.resolveLevelIdx(sliceTopologyKey)
+		sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
 		if !resolved {
 			return ""
 		}
