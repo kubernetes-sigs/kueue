@@ -707,10 +707,10 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cq, nil)
-		stats.WeightedShare = int64(weightedShare)
+		drs := dominantResourceShare(cq, nil)
+		weightedShare, _ := drs.roundedWeightedShare()
+		stats.WeightedShare = weightedShare
 	}
-
 	return stats, nil
 }
 
@@ -729,8 +729,9 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cohort, nil)
-		stats.WeightedShare = int64(weightedShare)
+		drs := dominantResourceShare(cohort, nil)
+		weightedShare, _ := drs.roundedWeightedShare()
+		stats.WeightedShare = weightedShare
 	}
 
 	return stats, nil

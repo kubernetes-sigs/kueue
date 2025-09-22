@@ -42,7 +42,7 @@ func TestDominantResourceShare(t *testing.T) {
 	type fairSharingResult struct {
 		Name     string
 		NodeType nodeType
-		DrValue  int
+		DrValue  int64
 		DrName   corev1.ResourceName
 	}
 
@@ -728,7 +728,8 @@ func TestDominantResourceShare(t *testing.T) {
 			cacheCohortsMap := cache.hm.Cohorts()
 			gotCache := make([]fairSharingResult, 0, len(cacheClusterQueuesMap)+len(cacheCohortsMap))
 			for _, cq := range cacheClusterQueuesMap {
-				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
+				drs := dominantResourceShare(cq, tc.flvResQ)
+				drVal, drName := drs.roundedWeightedShare()
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     string(cq.Name),
 					NodeType: nodeTypeCq,
@@ -737,7 +738,8 @@ func TestDominantResourceShare(t *testing.T) {
 				})
 			}
 			for _, cohort := range cacheCohortsMap {
-				drVal, drName := dominantResourceShare(cohort, tc.flvResQ)
+				drs := dominantResourceShare(cohort, tc.flvResQ)
+				drVal, drName := drs.roundedWeightedShare()
 				gotCache = append(gotCache, fairSharingResult{
 					Name:     string(cohort.Name),
 					NodeType: nodeTypeCohort,
@@ -753,7 +755,8 @@ func TestDominantResourceShare(t *testing.T) {
 			snapshotCohortsMap := snapshot.Cohorts()
 			gotSnapshot := make([]fairSharingResult, 0, len(snapshotClusterQueuesMap)+len(snapshotCohortsMap))
 			for _, cq := range snapshotClusterQueuesMap {
-				drVal, drName := dominantResourceShare(cq, tc.flvResQ)
+				drs := dominantResourceShare(cq, tc.flvResQ)
+				drVal, drName := drs.roundedWeightedShare()
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     string(cq.Name),
 					NodeType: nodeTypeCq,
@@ -762,7 +765,8 @@ func TestDominantResourceShare(t *testing.T) {
 				})
 			}
 			for _, cohort := range snapshotCohortsMap {
-				drVal, drName := dominantResourceShare(cohort, tc.flvResQ)
+				drs := dominantResourceShare(cohort, tc.flvResQ)
+				drVal, drName := drs.roundedWeightedShare()
 				gotSnapshot = append(gotSnapshot, fairSharingResult{
 					Name:     string(cohort.Name),
 					NodeType: nodeTypeCohort,
