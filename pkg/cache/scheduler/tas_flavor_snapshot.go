@@ -514,12 +514,12 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
-	tr_copy := *tr
+	trCopy := *tr
 	if slicesConfigured(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && tr.Count < *tr.PodSet.TopologyRequest.PodSetSliceSize {
-		tr_copy.PodSet = tr.PodSet.DeepCopy()
-		tr_copy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
+		trCopy.PodSet = tr.PodSet.DeepCopy()
+		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
 	}
-	replacementAssignment, reason := s.findTopologyAssignment(tr_copy, nil, assumedUsage, false, requiredReplacementDomain)
+	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
 		return nil, nil, reason
 	}
