@@ -513,8 +513,11 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
 	tr_copy := *tr
-	tr_copy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
-	replacementAssignment, reason := s.findTopologyAssignment(*tr, nil, assumedUsage, false, requiredReplacementDomain)
+	if slicesConfigured(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && tr.Count < *tr.PodSet.TopologyRequest.PodSetSliceSize {
+		tr_copy.PodSet = tr.PodSet.DeepCopy()
+		tr_copy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
+	}
+	replacementAssignment, reason := s.findTopologyAssignment(tr_copy, nil, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -561,7 +564,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 	targetLevel := levelIdx
-	if slicesConfigured(tr.PodSet.TopologyRequest) && *tr.PodSet.TopologyRequest.PodSetSliceSize > 1 {
+	if slicesConfigured(tr.PodSet.TopologyRequest) && tr.Count < *tr.PodSet.TopologyRequest.PodSetSliceSize {
 		sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
 		sliceLevelIdx, resolved := s.resolveLevelIdx(sliceTopologyKey)
 		if !resolved {
