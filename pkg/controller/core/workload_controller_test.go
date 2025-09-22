@@ -456,6 +456,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadInadmissible,
 					Message: "DynamicResourceAllocation feature does not support use of resource claims",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "DRA resource claims not supported",
+				}).
 				Obj(),
 			wantEvents: nil,
 		},
@@ -596,6 +602,12 @@ func TestReconcile(t *testing.T) {
 						Reason:  kueue.WorkloadInadmissible,
 						Message: "DeviceClass unmapped.example.com is not mapped in DRA configuration for workload wlUnmappedDRA podset main: DeviceClass is not mapped in DRA configuration",
 					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadInadmissible,
+						Message: "DeviceClass unmapped.example.com is not mapped in DRA configuration for workload wlUnmappedDRA podset main: DeviceClass is not mapped in DRA configuration",
+					}).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
 					Name: "gpu", ResourceClaimTemplateName: ptr.To("gpu-template"),
@@ -629,6 +641,12 @@ func TestReconcile(t *testing.T) {
 					Obj()).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
 					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
@@ -2390,7 +2408,7 @@ func TestReconcile(t *testing.T) {
 							break
 						}
 					}
-					if !foundInQueue {
+					if tc.wantWorkloadsInQueue != nil && !foundInQueue {
 						t.Errorf("DRA workload not found in queue - expected to be queued for processing")
 					}
 				} else {

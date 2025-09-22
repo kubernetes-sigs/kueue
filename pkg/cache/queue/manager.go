@@ -27,9 +27,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -87,6 +89,14 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
+func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
+	m.draReconcileChannel = ch
+	if ch != nil {
+		ctrl.Log.WithName("queue-manager").Info("DRA reconcile channel connected")
+	}
+}
+
 type TopologyUpdateWatcher interface {
 	NotifyTopologyUpdate(oldTopology, newTopology *kueue.Topology)
 }
@@ -116,6 +126,8 @@ type Manager struct {
 
 	afsEntryPenalties      *AfsEntryPenalties
 	workloadUpdateWatchers []WorkloadUpdateWatcher
+
+	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 }
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
@@ -313,6 +325,16 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
 			continue
 		}
+
+		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&w) {
+			if m.draReconcileChannel != nil {
+				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
+				log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
+				log.V(2).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
+			}
+			continue
+		}
+
 		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
