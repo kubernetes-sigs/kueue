@@ -5687,6 +5687,97 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload with unhealthyNode; second pass; preferred; can find replacement for slice": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x2").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 2).
+						PreferredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(2).
+						SliceRequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(2).
+								Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(2).
+						Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode; second pass; preferred; cannot find replacement for slice": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x2").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 3).
+						PreferredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(3).
+						SliceRequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(3).
+								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(3).
+						Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
+					Message("Workload was evicted as there was no replacement for a failed node: x2").
+					Obj(),
+			},
+		},
 		"large workload in CQ with ProvisioningRequest; second pass": {
 			// In this scenario we test a workload which is using 26 out of 50
 			// available units of quota, to make sure we are not double counting
