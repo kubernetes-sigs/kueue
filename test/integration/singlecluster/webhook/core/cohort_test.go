@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -84,45 +85,30 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should reject too many flavors in resource group",
-				testing.MakeCohort("cohort").ResourceGroup(
-					*testing.MakeFlavorQuotas("f0").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f2").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f3").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f4").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f5").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f6").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f7").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f8").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f9").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f10").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f11").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f12").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f13").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f14").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f15").Resource(corev1.ResourceCPU).Obj(),
-					*testing.MakeFlavorQuotas("f16").Resource(corev1.ResourceCPU).Obj()).Obj(),
+				func() *kueue.Cohort {
+					var flavors []kueue.FlavorQuotas
+					for i := range 65 {
+						flavors = append(flavors,
+							*testing.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+								Resource(corev1.ResourceCPU).
+								Obj(),
+						)
+					}
+					return testing.MakeCohort("cohort").
+						ResourceGroup(flavors...).
+						Obj()
+				}(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should reject too many resources in resource group",
-				testing.MakeCohort("cohort").ResourceGroup(
-					*testing.MakeFlavorQuotas("flavor").
-						Resource("cpu0").
-						Resource("cpu1").
-						Resource("cpu2").
-						Resource("cpu3").
-						Resource("cpu4").
-						Resource("cpu5").
-						Resource("cpu6").
-						Resource("cpu7").
-						Resource("cpu8").
-						Resource("cpu9").
-						Resource("cpu10").
-						Resource("cpu11").
-						Resource("cpu12").
-						Resource("cpu13").
-						Resource("cpu14").
-						Resource("cpu15").
-						Resource("cpu16").Obj()).Obj(),
+				func() *kueue.Cohort {
+					fq := testing.MakeFlavorQuotas("flavor")
+					for i := range 17 {
+						fq = fq.Resource(corev1.ResourceName(fmt.Sprintf("cpu%d", i)))
+					}
+					return testing.MakeCohort("cohort").
+						ResourceGroup(*fq.Obj()).
+						Obj()
+				}(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow resource with valid name",
 				testing.MakeCohort("cohort").
