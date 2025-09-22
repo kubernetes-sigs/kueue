@@ -75,10 +75,18 @@ The following table lists the configurable parameters of the kueue chart and the
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
 | `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
 | `enableKueueViz`                                       | enable KueueViz dashboard                              | `false`                                     |
+| `KueueViz.backend.env`                                 | Environment variables for KueueViz backend deployment  | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":""}]` |
 | `KueueViz.backend.image`                               | KueueViz dashboard backend image                       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend:main` |
+| `kueueViz.backend.ingress.annotations`                 | KueueViz dashboard backend ingress annotations         | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` |
+| `kueueViz.backend.ingress.ingressClassName`            | KueueViz dashboard backend ingress class name          | `nil`                                       |
+| `kueueViz.backend.ingress.tlsSecretName`               | KueueViz dashboard backend ingress tls secret name     | `"kueueviz-backend-tls"`                    |
 | `kueueViz.backend.nodeSelector`                        | KueueViz backend nodeSelector                          | `{}`                                        |
 | `kueueViz.backend.tolerations`                         | KueueViz backend tolerations                           | `[]`                                        |
+| `kueueViz.frontend.env`                                | Environment variables for KueueViz frontend deployment | `[{"name":"REACT_APP_WEBSOCKET_URL","value":"wss://backend.kueueviz.local"}]` |
 | `KueueViz.frontend.image`                              | KueueViz dashboard frontend image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend:main` |
+| `kueueViz.frontend.ingress.annotations`                | KueueViz dashboard frontend ingress annotations        | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` |
+| `kueueViz.frontend.ingress.ingressClassName`           | KueueViz dashboard frontend ingress class name         | `nil` |
+| `kueueViz.frontend.ingress.tlsSecretName`              | KueueViz dashboard frontend ingress tls secret name    | `"kueueviz-frontend-tls"` |
 | `kueueViz.frontend.nodeSelector`                       | KueueViz frontend nodeSelector                         | `{}`                                        |
 | `kueueViz.frontend.tolerations`                        | KueueViz frontend tolerations                          | `[]`                                        |
 | `controllerManager.manager.priorityClassName`          | controllerManager.manager's Pod priorityClassName      | ``                                          |

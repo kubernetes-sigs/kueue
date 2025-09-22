@@ -585,6 +585,14 @@ files:
     continueOnError: true
     operations:
       - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: UPDATE
         key: .spec.template.spec.containers[0].image
         value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
         onFileCondition: '.metadata.name == "kueueviz-backend"'
@@ -623,26 +631,21 @@ files:
         value: '"{{ .Release.Namespace }}"'
     postOperations:
       - type: INSERT_TEXT
-        position: START
+        key: .spec
         value: |
-          {{- if .Values.enableKueueViz }}
-      - type: INSERT_TEXT
-        position: END
-        value: |
+          {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
           {{- end }}
-      - type: INSERT_TEXT
-        key: .spec.template.spec
-        value: |
-          {{- with .Values.kueueViz.backend.nodeSelector }}
-          nodeSelector:
-          {{- toYaml . | nindent 8 }}
-          {{- end }}
-          {{- with .Values.kueueViz.backend.tolerations }}
-          tolerations:
-          {{- toYaml . | nindent 8 }}
-          {{- end }}
-        onFileCondition: '.kind == "Deployment" and (.metadata.name | contains("kueueviz-backend"))'
         indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.frontend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
       - type: INSERT_TEXT
         key: .spec.template.spec
         value: |
@@ -654,5 +657,113 @@ files:
           tolerations:
           {{- toYaml . | nindent 8 }}
           {{- end }}
-        onFileCondition: '.kind == "Deployment" and (.metadata.name | contains("kueueviz-frontend"))'
         indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.backend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.frontend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.frontend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.backend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.backend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")' 
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableKueueViz }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/internalcert/*.yaml
+    outputDir: ./charts/kueue/templates/internalcert
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if not .Values.enableCertManager }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
