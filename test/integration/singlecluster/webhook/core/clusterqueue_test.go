@@ -39,7 +39,7 @@ import (
 
 const (
 	resourcesMaxItems = 16
-	flavorsMaxItems   = 16
+	flavorsMaxItems   = 64
 )
 
 var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
