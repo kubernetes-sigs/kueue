@@ -1371,6 +1371,6 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
 }
 
-func slicesConfigured(tr *kueue.PodSetTopologyRequest) bool {
+func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
 	return tr != nil && tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil
 }
