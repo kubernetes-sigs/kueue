@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"cmp"
 	"math"
 
 	corev1 "k8s.io/api/core/v1"
@@ -38,7 +39,56 @@ type dominantResourceShareNode interface {
 	hierarchicalResourceNode
 }
 
-// dominantResourceShare returns a value ranging from 0 to math.MaxInt,
+// DRS contains the DominantResourceShare for some
+// node, with convenence methods for precise comparison.
+type DRS struct {
+	fairWeight       *resource.Quantity
+	unweightedRatio  float64
+	dominantResource corev1.ResourceName
+}
+
+// NegativeDRS is used as a starting point for comparisons.
+func NegativeDRS() DRS {
+	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: &oneQuantity}
+}
+
+// IsZero returns whether the DRS is 0. In other words,
+// the node for which this function was called is not
+// borrowing any resources.
+func (d DRS) IsZero() bool {
+	return d.unweightedRatio == 0
+}
+
+func (d DRS) PreciseWeightedShare() float64 {
+	if d.IsZero() {
+		return 0.0
+	}
+	if d.fairWeight.IsZero() {
+		// This branch is used only for logging; functional
+		// branches never reach here.
+		return math.Inf(1)
+	}
+	return d.unweightedRatio / d.fairWeight.AsFloat64Slow()
+}
+
+// CompareDRS compares two DRS values. A lower value
+// indicates that the ClusterQueue/Cohort with this
+// value should be preferred for scheduling, while
+// a higher value preferred for preemption.
+func CompareDRS(a, b DRS) int {
+	switch {
+	case a.zeroWeightBorrows() && b.zeroWeightBorrows():
+		return cmp.Compare(a.unweightedRatio, b.unweightedRatio)
+	case a.zeroWeightBorrows():
+		return 1
+	case b.zeroWeightBorrows():
+		return -1
+	default:
+		return cmp.Compare(a.PreciseWeightedShare(), b.PreciseWeightedShare())
+	}
+}
+
+// roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue, and divided by the weight.  If zero,
@@ -46,9 +96,26 @@ type dominantResourceShareNode interface {
 // quota.  The function also returns the resource name that yielded
 // this value.  When the FairSharing weight is 0, and the ClusterQueue
 // or Cohort is borrowing, we return math.MaxInt.
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
+func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
+	var weightedShare int64
+	if d.zeroWeightBorrows() {
+		weightedShare = math.MaxInt64
+	} else {
+		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
+	}
+	return weightedShare, d.dominantResource
+}
+
+// zeroWeightBorrows returns whether this DRS represents a
+// borrowing state for a ClusterQueue/Cohort with a zero weight.
+func (d DRS) zeroWeightBorrows() bool {
+	return d.fairWeight.IsZero() && !d.IsZero()
+}
+
+func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
+	drs := DRS{fairWeight: node.fairWeight(), unweightedRatio: 0, dominantResource: ""}
 	if !node.HasParent() {
-		return 0, ""
+		return drs
 	}
 
 	borrowing := make(map[corev1.ResourceName]int64, len(node.getResourceNode().SubtreeQuota))
@@ -59,30 +126,21 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 		}
 	}
 	if len(borrowing) == 0 {
-		return 0, ""
+		return drs
 	}
-
-	var drs int64 = -1
-	var dRes corev1.ResourceName
 
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr > 0 {
-			ratio := b * 1000 / lr
+			ratio := float64(b) * 1000.0 / float64(lr)
 			// Use alphabetical order to get a deterministic resource name.
-			if ratio > drs || (ratio == drs && rName < dRes) {
-				drs = ratio
-				dRes = rName
+			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
+				drs.unweightedRatio = ratio
+				drs.dominantResource = rName
 			}
 		}
 	}
-
-	if node.fairWeight().IsZero() {
-		return math.MaxInt, dRes
-	}
-
-	dws := drs * 1000 / node.fairWeight().MilliValue()
-	return max(1, int(dws)), dRes
+	return drs
 }
 
 // calculateLendable aggregates capacity for resources across all

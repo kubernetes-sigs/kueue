@@ -353,7 +353,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
-		if fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, 0) {
+		if fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{}) {
 			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 			candWl := candCQ.PopWorkload()
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
