@@ -457,3 +457,56 @@ func TestValidateTotalCoveredResources(t *testing.T) {
 		})
 	}
 }
+
+func makeFlavorResourceCombinations(numFlavors, numResources int) []kueue.ResourceGroup {
+	flavors := make([]kueue.FlavorQuotas, 0, numFlavors)
+	resources := make([]corev1.ResourceName, numResources)
+	for j := range numResources {
+		resources[j] = corev1.ResourceName(fmt.Sprintf("res%03d", j))
+	}
+
+	for i := range numFlavors {
+		quotas := make([]kueue.ResourceQuota, numResources)
+		for j := range numResources {
+			quotas[j] = kueue.ResourceQuota{
+				Name:         resources[j],
+				NominalQuota: resource.MustParse("1"),
+			}
+		}
+		flavors = append(flavors, kueue.FlavorQuotas{
+			Name:      kueue.ResourceFlavorReference(fmt.Sprintf("f%03d", i)),
+			Resources: quotas,
+		})
+	}
+
+	return []kueue.ResourceGroup{{
+		CoveredResources: resources,
+		Flavors:          flavors,
+	}}
+}
+
+func TestValidateFlavorResourceCombinations(t *testing.T) {
+	testcases := []struct {
+		name         string
+		numFlavors   int
+		numResources int
+		wantErr      bool
+	}{
+		{"within limit (1 flavor × 10 resources = 10)", 1, 10, false},
+		{"at limit (8 flavors × 64 resources = 512)", 8, 64, false},
+		{"over limit (9 flavors × 64 resources = 576)", 9, 64, true},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cq := testingutil.MakeClusterQueue("cluster-queue").Obj()
+			cq.Spec.ResourceGroups = makeFlavorResourceCombinations(tc.numFlavors, tc.numResources)
+
+			gotErr := ValidateClusterQueue(cq)
+
+			if diff := cmp.Diff(tc.wantErr, len(gotErr) > 0); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

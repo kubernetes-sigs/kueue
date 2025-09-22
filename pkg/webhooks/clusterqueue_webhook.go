@@ -112,6 +112,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	return allErrs
 }
 
@@ -141,6 +142,24 @@ func validateTotalCoveredResources(resourceGroups []kueue.ResourceGroup, path *f
 	if total > 256 {
 		allErrs = append(allErrs, field.Invalid(path, total,
 			fmt.Sprintf("total number of covered resources across all resourceGroups must be ≤ 256, got %d", total)))
+	}
+	return allErrs
+}
+
+func validateFlavorResourceCombinations(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	for i, rg := range resourceGroups {
+		total := 0
+		for _, fqs := range rg.Flavors {
+			total += len(fqs.Resources)
+		}
+		if total > 512 {
+			allErrs = append(allErrs, field.Invalid(
+				path.Index(i),
+				total,
+				fmt.Sprintf("number of flavor-resource combinations in a resourceGroup must be ≤ 512, got %d", total),
+			))
+		}
 	}
 	return allErrs
 }
