@@ -512,6 +512,8 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
+	tr_copy := *tr
+	tr_copy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
 	replacementAssignment, reason := s.findTopologyAssignment(*tr, nil, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
 		return nil, nil, reason
@@ -545,7 +547,6 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 	return nil
 }
 
-// requiredReplacementDomain returns required domain for the next pass of findingTopologyAssignment to be compliant with the existing one
 func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *kueue.TopologyAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
@@ -556,9 +557,19 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 	required := isRequired(tr.PodSet.TopologyRequest)
-	if !required {
+	if !required && !slicesConfigured(tr.PodSet.TopologyRequest) {
 		return ""
 	}
+	targetLevel := levelIdx
+	if slicesConfigured(tr.PodSet.TopologyRequest) && *tr.PodSet.TopologyRequest.PodSetSliceSize > 1 {
+		sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
+		sliceLevelIdx, resolved := s.resolveLevelIdx(sliceTopologyKey)
+		if !resolved {
+			return ""
+		}
+		targetLevel = max(targetLevel, sliceLevelIdx)
+	}
+
 	// no domain to comply with so we don't require any domain at all
 	// this happens when the faulty node was the only one in the assignment
 	if len(ta.Domains) == 0 {
@@ -572,7 +583,8 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	nodeDomain := ta.Domains[0].Values[0]
 	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
 	// Find a domain that complies with the required policy
-	for i := nodeLevel; i > levelIdx; i-- {
+
+	for i := nodeLevel; i > targetLevel; i-- {
 		domain = domain.parent
 	}
 	return domain.id
@@ -1354,4 +1366,8 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %d slice(s)", s.topologyName, totalRequestsSlicesCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
+}
+
+func slicesConfigured(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil
 }
