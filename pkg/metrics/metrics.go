@@ -134,7 +134,7 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "quota_reserved_workloads_total",
 			Help:      "The total number of quota reserved workloads per 'cluster_queue'",
-		}, []string{"cluster_queue", "workload_priority_class"},
+		}, []string{"cluster_queue", "priority_class"},
 	)
 
 	LocalQueueQuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
@@ -151,7 +151,7 @@ The label 'result' can have the following values:
 			Name:      "quota_reserved_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until it got quota reservation, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"cluster_queue", "workload_priority_class"},
+		}, []string{"cluster_queue", "priority_class"},
 	)
 
 	PodsReadyToEvictedTimeSeconds = prometheus.NewHistogramVec(
@@ -190,7 +190,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'cluster_queue'",
-		}, []string{"cluster_queue", "workload_priority_class"},
+		}, []string{"cluster_queue", "priority_class"},
 	)
 
 	LocalQueueAdmittedWorkloadsTotal = prometheus.NewCounterVec(
@@ -207,7 +207,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"cluster_queue", "workload_priority_class"},
+		}, []string{"cluster_queue", "priority_class"},
 	)
 
 	queuedUntilReadyWaitTime = prometheus.NewHistogramVec(
@@ -243,7 +243,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "admission_checks_wait_time_seconds",
 			Help:      "The time from when a workload got the quota reservation until admission, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"cluster_queue", "workload_priority_class"},
+		}, []string{"cluster_queue", "priority_class"},
 	)
 
 	localQueueAdmissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -291,7 +291,7 @@ The label 'underlying_cause' can have the following values:
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, []string{"cluster_queue", "reason", "underlying_cause", "workload_priority_class"},
+		}, []string{"cluster_queue", "reason", "underlying_cause", "priority_class"},
 	)
 
 	ReplacedWorkloadSlicesTotal = prometheus.NewCounterVec(
@@ -343,7 +343,7 @@ The label 'detailed_reason' can have the following values:
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
-		}, []string{"cluster_queue", "reason", "detailed_reason", "workload_priority_class"},
+		}, []string{"cluster_queue", "reason", "detailed_reason", "priority_class"},
 	)
 
 	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
@@ -510,9 +510,9 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
 }
 
-func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
-	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
-	QuotaReservedWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
+func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration) {
+	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass).Inc()
+	QuotaReservedWaitTime.WithLabelValues(string(cqName), priorityClass).Observe(waitTime.Seconds())
 }
 
 func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Duration) {
@@ -520,9 +520,9 @@ func LocalQueueQuotaReservedWorkload(lq LocalQueueReference, waitTime time.Durat
 	localQueueQuotaReservedWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
-func AdmittedWorkload(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
-	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), workloadPriorityClass).Inc()
-	AdmissionWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
+func AdmittedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration) {
+	AdmittedWorkloadsTotal.WithLabelValues(string(cqName), priorityClass).Inc()
+	AdmissionWaitTime.WithLabelValues(string(cqName), priorityClass).Observe(waitTime.Seconds())
 }
 
 func LocalQueueAdmittedWorkload(lq LocalQueueReference, waitTime time.Duration) {
@@ -564,8 +564,8 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	LocalQueuePendingWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
-func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, workloadPriorityClass string) {
-	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason, underlyingCause, workloadPriorityClass).Inc()
+func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, priorityClass string) {
+	EvictedWorkloadsTotal.WithLabelValues(string(cqName), evictionReason, underlyingCause, priorityClass).Inc()
 }
 
 func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference) {
@@ -576,8 +576,8 @@ func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlying
 	LocalQueueEvictedWorkloadsTotal.WithLabelValues(string(lq.Name), lq.Namespace, reason, underlyingCause).Inc()
 }
 
-func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, workloadPriorityClass string) {
-	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause, workloadPriorityClass).Inc()
+func ReportEvictedWorkloadsOnce(cqName kueue.ClusterQueueReference, reason, underlyingCause, priorityClass string) {
+	EvictedWorkloadsOnceTotal.WithLabelValues(string(cqName), reason, underlyingCause, priorityClass).Inc()
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
