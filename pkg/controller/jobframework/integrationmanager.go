@@ -83,7 +83,7 @@ type IntegrationCallbacks struct {
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
 	// The list of integrations implicitly enabled as dependencies of the integration.
-	ImplicitlyEnables []string
+	ImplicitlyEnabledFrameworkNames []string
 }
 
 func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
@@ -396,7 +396,7 @@ func (m *integrationManager) autoEnableIntegrations(ctx context.Context, enabled
 			continue
 		}
 
-		for _, autoFwkName := range callbacks.ImplicitlyEnables {
+		for _, autoFwkName := range callbacks.ImplicitlyEnabledFrameworkNames {
 			if !enabledFrameworks.Has(autoFwkName) {
 				log.Info("Implicitly enabling integration for framework support", "integration", autoFwkName)
 				enabledFrameworks.Insert(autoFwkName)
