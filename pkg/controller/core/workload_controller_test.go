@@ -46,7 +46,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -58,7 +57,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	testCases := map[string]struct {
 		workload            kueue.Workload
 		waitForPodsReady    *waitForPodsReadyConfig
-		wantUnderlyingCause workload.EvictedUnderlyingCause
+		wantUnderlyingCause kueue.EvictionUnderlyingCause
 		wantRecheckAfter    time.Duration
 	}{
 		"workload without Admitted condition; not counting": {

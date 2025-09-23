@@ -1303,6 +1303,20 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 
 
 
+## `EvictionUnderlyingCause`     {#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WorkloadSchedulingStatsEviction](#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction)
+
+
+<p>EvictionUnderlyingCause represents the underlying cause of a workload eviction.</p>
+
+
+
+
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
 
@@ -3089,7 +3103,7 @@ level.</p>
 </td>
 </tr>
 <tr><td><code>underlyingCause</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause"><code>EvictionUnderlyingCause</code></a>
 </td>
 <td>
    <p>underlyingCause specifies a finer-grained explanation that complements the eviction reason.

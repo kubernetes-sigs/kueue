@@ -267,13 +267,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	} else {
 		var updated, evicted bool
-		var underlyingCause workload.EvictedUnderlyingCause
+		var underlyingCause kueue.EvictionUnderlyingCause
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 			if dtCond != nil {
-				underlyingCause = workload.EvictedUnderlyingCause(dtCond.Reason)
+				underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
 				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 			}
 			updated = true
@@ -924,7 +924,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 //
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
-func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (workload.EvictedUnderlyingCause, time.Duration) {
+func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
 	if r.waitForPodsReady == nil {
 		// the timeout is not configured for the workload controller
 		return "", 0
