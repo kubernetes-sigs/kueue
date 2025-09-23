@@ -896,6 +896,17 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
+// PatchAdmissionStatus updates the admission status of a workload.
+// It runs the update function and, if updated, applies the SSA Patch status.
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (*kueue.Workload, bool, error)) error {
+	wPatched, updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+
+	return ApplyAdmissionStatus(ctx, c, wPatched, strict, clk)
+}
+
 type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
@@ -1110,7 +1121,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := ApplyAdmissionStatus(ctx, c, wl, true, clock); err != nil {
+	if err := PatchAdmissionStatus(ctx, c, wl, true, clock, func() (*kueue.Workload, bool, error) {
+		return wl, true, nil
+	}); err != nil {
 		return err
 	}
 	if wl.Status.Admission == nil {
