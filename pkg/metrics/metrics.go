@@ -530,8 +530,8 @@ func LocalQueueAdmittedWorkload(lq LocalQueueReference, waitTime time.Duration) 
 	localQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
-func ReportAdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
-	AdmissionChecksWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
+func ReportAdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration) {
+	AdmissionChecksWaitTime.WithLabelValues(string(cqName), priorityClass).Observe(waitTime.Seconds())
 }
 
 func LocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, waitTime time.Duration) {
