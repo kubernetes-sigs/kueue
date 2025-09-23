@@ -988,9 +988,7 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := features.SetEnable(features.ElasticJobsViaWorkloadSlices, tt.featureEnabled); err != nil {
-				t.Errorf("applyWorkloadSliceSchedulingGate() unexpcted error enabling feature: %v", err)
-			}
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tt.featureEnabled)
 			applyWorkloadSliceSchedulingGate(tt.args.job)
 			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
 				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)

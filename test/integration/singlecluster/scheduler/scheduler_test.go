@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	}
 
 	ginkgo.BeforeEach(func() {
-		_ = features.SetEnable(features.FlavorFungibility, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibility, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -2615,10 +2615,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 		ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
 			ginkgo.BeforeEach(func() {
-				_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-			})
-			ginkgo.AfterEach(func() {
-				_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityImplicitPreferenceDefault, true)
 			})
 			ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
 				fungibility := kueue.FlavorFungibility{

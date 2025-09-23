@@ -88,11 +88,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 	})
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
-	})
-
-	ginkgo.BeforeEach(func() {
-		gomega.Expect(features.SetEnable(features.LocalQueueMetrics, true)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
