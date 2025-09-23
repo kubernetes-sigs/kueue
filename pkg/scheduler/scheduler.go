@@ -537,7 +537,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 		}
 	}
 
-	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
+	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() && replaceableWorkloadSlice == nil {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(log, nextCounts)
 			mode := assignment.RepresentativeMode()
