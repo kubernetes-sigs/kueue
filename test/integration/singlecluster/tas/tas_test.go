@@ -37,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -1139,7 +1140,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should update workload TopologyAssignment after a node recovers", func() {
+			ginkgo.It("should update workload TopologyAssignment after a node becomes available", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 				var wl1, wl2 *kueue.Workload
 				nodeName := nodes[0].Name
 
@@ -1225,8 +1227,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							&kueue.TopologyAssignment{
 								Levels: []string{corev1.LabelHostname},
 								Domains: []kueue.TopologyDomainAssignment{
-									{Count: 1, Values: []string{"x1"}},
 									{Count: 1, Values: []string{"x2"}},
+									{Count: 1, Values: []string{"x3"}},
 								},
 							},
 						))
