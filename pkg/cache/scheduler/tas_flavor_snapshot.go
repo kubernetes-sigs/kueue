@@ -572,9 +572,8 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return s.findIncompleteSliceDomain(tr, ta, tr.Count)
 	}
 
-	required := isRequired(tr.PodSet.TopologyRequest)
-	if !required {
-		return ""
+	if !isRequired(tr.PodSet.TopologyRequest) {
+		return ""	
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
