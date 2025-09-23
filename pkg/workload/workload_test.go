@@ -40,6 +40,71 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+func TestIsRunning(t *testing.T) {
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"not admitted": {
+			workload: utiltesting.MakeWorkload("wl", "ns").Obj(),
+			want:     false,
+		},
+		"admitted but not pods ready": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadAdmitted,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			want: false,
+		},
+		"admitted and pods ready": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadAdmitted,
+					Status: metav1.ConditionTrue,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			want: true,
+		},
+		"pods ready but not admitted": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			want: false,
+		},
+		"admitted and pods ready false": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadAdmitted,
+					Status: metav1.ConditionTrue,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				}).
+				Obj(),
+			want: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := IsRunning(tc.workload)
+			if got != tc.want {
+				t.Errorf("IsRunning() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
 		workload    kueue.Workload

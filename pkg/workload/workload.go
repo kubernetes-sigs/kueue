@@ -951,6 +951,11 @@ func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
 
+// IsRunning returns true if the workload is running (pods are admitted and ready).
+func IsRunning(w *kueue.Workload) bool {
+	return IsAdmitted(w) && apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady)
+}
+
 // IsFinished returns true if the workload is finished.
 func IsFinished(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)

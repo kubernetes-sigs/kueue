@@ -46,6 +46,36 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 	}
 }
 
+func TestRunningWorkloadsMetrics(t *testing.T) {
+	// Test cluster queue running workloads metric
+	RunningWorkloads.WithLabelValues("cq1").Set(5)
+	RunningWorkloads.WithLabelValues("cq2").Set(3)
+
+	// Test local queue running workloads metric
+	LocalQueueRunningWorkloads.WithLabelValues("lq1", "ns1").Set(2)
+	LocalQueueRunningWorkloads.WithLabelValues("lq2", "ns1").Set(1)
+
+	// Verify metrics are set correctly
+	expectFilteredMetricsCount(t, RunningWorkloads, 1, "cluster_queue", "cq1")
+	expectFilteredMetricsCount(t, RunningWorkloads, 1, "cluster_queue", "cq2")
+	expectFilteredMetricsCount(t, LocalQueueRunningWorkloads, 1, "name", "lq1", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueRunningWorkloads, 1, "name", "lq2", "namespace", "ns1")
+
+	// Test clearing metrics
+	ClearCacheMetrics("cq1")
+	ClearLocalQueueCacheMetrics(LocalQueueReference{Name: "lq1", Namespace: "ns1"})
+
+	// Verify metrics are cleared
+	expectFilteredMetricsCount(t, RunningWorkloads, 0, "cluster_queue", "cq1")
+	expectFilteredMetricsCount(t, RunningWorkloads, 1, "cluster_queue", "cq2") // Should still exist
+	expectFilteredMetricsCount(t, LocalQueueRunningWorkloads, 0, "name", "lq1", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueRunningWorkloads, 1, "name", "lq2", "namespace", "ns1") // Should still exist
+
+	// Clean up remaining metrics for next tests
+	ClearCacheMetrics("cq2")
+	ClearLocalQueueCacheMetrics(LocalQueueReference{Name: "lq2", Namespace: "ns1"})
+}
+
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)

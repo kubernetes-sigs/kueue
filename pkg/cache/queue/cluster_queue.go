@@ -307,11 +307,29 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	return moved
 }
 
-// Pending returns the total number of pending workloads.
-func (c *ClusterQueue) Pending() int {
+// CountWorkloads returns the total number of pending and running workloads.
+func (c *ClusterQueue) CountWorkloads() (int, int) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
+
+	return c.pending(), c.running()
+}
+
+// Pending returns the total number of pending workloads.
+func (c *ClusterQueue) pending() int {
 	return c.PendingActive() + c.PendingInadmissible()
+}
+
+// Running returns the total number of running workloads.
+func (c *ClusterQueue) running() int {
+	result := 0
+	for _, wl := range c.heap.List() {
+		if apimeta.IsStatusConditionTrue(wl.Obj.Status.Conditions, kueue.WorkloadPodsReady) {
+			result++
+		}
+	}
+
+	return result
 }
 
 // PendingActive returns the number of active pending workloads,

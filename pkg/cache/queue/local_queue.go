@@ -17,6 +17,8 @@ limitations under the License.
 package queue
 
 import (
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -75,6 +77,22 @@ func (m *Manager) PendingInadmissibleInLocalQueue(lq *LocalQueue) int {
 	for _, wl := range c.inadmissibleWorkloads {
 		wlLqKey := queue.KeyFromWorkload(wl.Obj)
 		if wlLqKey == lq.Key {
+			result++
+		}
+	}
+	return result
+}
+
+func (m *Manager) RunningInLocalQueue(lq *LocalQueue) int {
+	c, ok := m.getClusterQueueLockless(lq.ClusterQueue)
+	if !ok {
+		return 0
+	}
+	result := 0
+	for _, wl := range c.heap.List() {
+		wlLqKey := queue.KeyFromWorkload(wl.Obj)
+		if wlLqKey == lq.Key &&
+			apimeta.IsStatusConditionTrue(wl.Obj.Status.Conditions, kueue.WorkloadPodsReady) {
 			result++
 		}
 	}
