@@ -582,7 +582,6 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	nodeDomain := ta.Domains[0].Values[0]
 	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
 	// Find a domain that complies with the required policy
-
 	for i := nodeLevel; i > levelIdx; i-- {
 		domain = domain.parent
 	}
