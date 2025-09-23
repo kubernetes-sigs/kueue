@@ -149,7 +149,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
 		log.V(2).Error(err, "Error adding or updating cohort in the cache")
 	}
-	r.qManager.AddOrUpdateCohort(ctx, &cohort)
+	r.qManager.AddOrUpdateCohort(ctx, cohort.DeepCopy())
 
 	err := r.updateCohortStatusIfChanged(ctx, &cohort)
 	return ctrl.Result{}, client.IgnoreNotFound(err)
