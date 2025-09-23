@@ -491,8 +491,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		)
 
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, true)).To(gomega.Succeed())
-
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 			cq1 = testing.MakeClusterQueue("cq1").
 				ResourceGroup(*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "8").Obj()).
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
@@ -828,7 +827,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		)
 
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, true)).To(gomega.Succeed())
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, true)
 
 			cq1 = testing.MakeClusterQueue("cq1").
 				Cohort("all").
@@ -866,10 +865,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.MustCreate(ctx, k8sClient, lqA)
 			util.MustCreate(ctx, k8sClient, lqB)
 			util.MustCreate(ctx, k8sClient, lqC)
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(features.SetEnable(features.AdmissionFairSharing, false)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("should promote a workload from LQ with lower recent usage", func() {

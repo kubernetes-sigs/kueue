@@ -114,10 +114,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := features.SetEnable(features.MultiKueueAdaptersForCustomJobs, tt.featureEnabled)
-			if err != nil {
-				t.Fatalf("failed to set feature gate %s", err.Error())
-			}
+			features.SetFeatureGateDuringTest(t, features.MultiKueueAdaptersForCustomJobs, tt.featureEnabled)
 
 			adapter := &genericAdapter{
 				gvk: schema.GroupVersionKind{
