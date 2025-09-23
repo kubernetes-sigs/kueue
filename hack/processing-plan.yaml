@@ -96,6 +96,9 @@ files:
       - type: APPEND
         key: .subjects.[].name
         value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: DELETE
+        key: .spec.insecureSkipTLSVerify
+        onFileCondition: '.kind == "APIService"'
     postOperations:
       - type: INSERT_TEXT
         key: .metadata
@@ -110,6 +113,23 @@ files:
           {{- include "kueue.selectorLabels" . | nindent 4 }}
         indentation: 2
         onFileCondition: '.kind == "Service"'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- if .Values.enableCertManager }}
+          annotations:
+            cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-visibility-server-cert'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "APIService"'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if not .Values.enableCertManager }}
+          insecureSkipTLSVerify: true
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "APIService"'
   - path: ./config/components/visibility-apf/*.yaml
     outputDir: ./charts/kueue/templates/visibility-apf
     removeComments: true
@@ -901,6 +921,14 @@ files:
           - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
         indentation: 2
         onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-visibility-server.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-visibility-server.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("visibility-server-cert")'
       - type: INSERT_TEXT
         position: START
         value: |
