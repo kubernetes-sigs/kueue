@@ -237,13 +237,13 @@ The label 'underlying_cause' can have the following values:
 		}, []string{"name", "namespace"},
 	)
 
-	admissionChecksWaitTime = prometheus.NewHistogramVec(
+	AdmissionChecksWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_checks_wait_time_seconds",
 			Help:      "The time from when a workload got the quota reservation until admission, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, []string{"cluster_queue"},
+		}, []string{"cluster_queue", "workload_priority_class"},
 	)
 
 	localQueueAdmissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -530,8 +530,8 @@ func LocalQueueAdmittedWorkload(lq LocalQueueReference, waitTime time.Duration) 
 	localQueueAdmissionWaitTime.WithLabelValues(string(lq.Name), lq.Namespace).Observe(waitTime.Seconds())
 }
 
-func AdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
-	admissionChecksWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+func ReportAdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, workloadPriorityClass string, waitTime time.Duration) {
+	AdmissionChecksWaitTime.WithLabelValues(string(cqName), workloadPriorityClass).Observe(waitTime.Seconds())
 }
 
 func LocalQueueAdmissionChecksWaitTime(lq LocalQueueReference, waitTime time.Duration) {
@@ -600,7 +600,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	PodsReadyToEvictedTimeSeconds.DeleteLabelValues(cqName)
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	admissionChecksWaitTime.DeleteLabelValues(cqName)
+	AdmissionChecksWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	queuedUntilReadyWaitTime.DeleteLabelValues(cqName)
 	admittedUntilReadyWaitTime.DeleteLabelValues(cqName)
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -775,7 +775,7 @@ func Register() {
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		AdmissionWaitTime,
-		admissionChecksWaitTime,
+		AdmissionChecksWaitTime,
 		queuedUntilReadyWaitTime,
 		admittedUntilReadyWaitTime,
 		ClusterQueueResourceUsage,
