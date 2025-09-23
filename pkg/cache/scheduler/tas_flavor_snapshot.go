@@ -515,7 +515,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
 	trCopy := *tr
-	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && tr.Count < *tr.PodSet.TopologyRequest.PodSetSliceSize {
+	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%*tr.PodSet.TopologyRequest.PodSetSliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
 	}
@@ -561,19 +561,6 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	if !found {
 		return ""
 	}
-	required := isRequired(tr.PodSet.TopologyRequest)
-	if !required && !slicesRequested(tr.PodSet.TopologyRequest) {
-		return ""
-	}
-	targetLevel := levelIdx
-	if slicesRequested(tr.PodSet.TopologyRequest) && tr.Count < *tr.PodSet.TopologyRequest.PodSetSliceSize {
-		sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
-		sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
-		if !found {
-			return ""
-		}
-		targetLevel = max(targetLevel, sliceLevelIdx)
-	}
 
 	// no domain to comply with so we don't require any domain at all
 	// this happens when the faulty node was the only one in the assignment
@@ -581,15 +568,22 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 
+	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%*tr.PodSet.TopologyRequest.PodSetSliceSize != 0) {
+		return s.findIncompleteSliceDomain(tr, ta, tr.Count)
+	}
+
+	required := isRequired(tr.PodSet.TopologyRequest)
+	if !required {
+		return ""
+	}
+
 	nodeLevel := len(s.levelKeys) - 1
-	// Since all Domains comply with the required policy, take a random one
-	// in this case, the first one
 	// We know at this point that values contains only hostname
 	nodeDomain := ta.Domains[0].Values[0]
 	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
 	// Find a domain that complies with the required policy
 
-	for i := nodeLevel; i > targetLevel; i-- {
+	for i := nodeLevel; i > levelIdx; i-- {
 		domain = domain.parent
 	}
 	return domain.id
@@ -620,6 +614,41 @@ func deleteDomain(currentTopologyAssignment *kueue.TopologyAssignment, unhealthy
 	}
 	currentTopologyAssignment.Domains = updatedAssignment
 	return noAffectedPods
+}
+
+func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *kueue.TopologyAssignment, missingCount int32) utiltas.TopologyDomainID {
+	// this function assumes that all assignments are at the hostname level
+	sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
+	sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
+	if !found {
+		return ""
+	}
+
+	sliceSize := *tr.PodSet.TopologyRequest.PodSetSliceSize
+
+	// domainToUsage maps a domain at sliceLevel to the number of pods in it
+	domainToUsage := make(map[utiltas.TopologyDomainID]int32)
+	nodeLevel := len(s.levelKeys) - 1
+
+	for _, domain := range ta.Domains {
+		nodeDomain, ok := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domain.Values)]
+		if !ok {
+			continue
+		}
+
+		sliceDomain := nodeDomain
+		for i := nodeLevel; i > sliceLevelIdx; i-- {
+			sliceDomain = sliceDomain.parent
+		}
+		domainToUsage[sliceDomain.id] += domain.Count
+	}
+
+	for domainID, count := range domainToUsage {
+		if (count+missingCount)%sliceSize == 0 {
+			return domainID
+		}
+	}
+	return ""
 }
 
 // Algorithm overview:
