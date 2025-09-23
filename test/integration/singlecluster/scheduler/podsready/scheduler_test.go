@@ -174,6 +174,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("create a workload and await its admission")
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
+			// This resolves the issue that PodsReady status (while set manually) is overwritten by scheduler admission
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 
 			ginkgo.By("update the workload with PodsReady=True")
 			gomega.Eventually(func(g gomega.Gomega) {
