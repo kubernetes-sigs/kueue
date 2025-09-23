@@ -1123,7 +1123,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, underlyingCause, msg)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause, GetWorkloadPriorityClass(wl))
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause, wl.Spec.PriorityClassName)
 	}
 	return nil
 }
@@ -1145,7 +1145,7 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {
-	metrics.ReportEvictedWorkloads(cqName, reason, underlyingCause, GetWorkloadPriorityClass(wl))
+	metrics.ReportEvictedWorkloads(cqName, reason, underlyingCause, wl.Spec.PriorityClassName)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, underlyingCause).Observe(podsReadyToEvictionTime.Seconds())
 	}
@@ -1213,13 +1213,4 @@ func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.Workl
 		return true
 	}
 	return false
-}
-
-// GetWorkloadPriorityClass returns the WorkloadPriorityClass name if it exists.
-// Otherwise, it returns an empty string.
-func GetWorkloadPriorityClass(wl *kueue.Workload) string {
-	if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource {
-		return wl.Spec.PriorityClassName
-	}
-	return ""
 }
