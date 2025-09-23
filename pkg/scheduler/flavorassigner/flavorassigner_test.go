@@ -3047,3 +3047,124 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 		})
 	}
 }
+
+func TestAssignment_TotalRequestsFor(t *testing.T) {
+	type fields struct {
+		PodSets              []PodSetAssignment
+		replaceWorkloadSlice *workload.Info
+	}
+	type args struct {
+		wl *workload.Info
+	}
+	tests := map[string]struct {
+		fields fields
+		args   args
+		want   resources.FlavorResourceQuantities
+	}{
+		"RegularWorkload": {
+			// Regular workload without replacement workload-slice and with full admission (vs. partial).
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+						},
+						Count: 2, // Assigned 2 pods.
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test", "default").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Obj()). // Has 2 pods.
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{ // Want quantities for 2 pods.
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    2 * 1000,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 2 * 1048576,
+			},
+		},
+		"WorkloadWithPartialAdmission": {
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+						},
+						Count: 1, // Assigned 1 pod (partial assignment).
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test", "default").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Obj()). // Has 2 pods.
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{ // Want quantity for 1 pod.
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    1000,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 1048576,
+			},
+		},
+		"WorkloadWithReplacement": {
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+						},
+						Count: 71, // Assigned 1 pod.
+					},
+				},
+				replaceWorkloadSlice: workload.NewInfo(utiltesting.MakeWorkload("test", "default").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj()),
+			},
+			args: args{
+				wl: workload.NewInfo(utiltesting.MakeWorkload("test", "default").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    2 * 1000,
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: 2 * 1048576,
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			a := &Assignment{
+				PodSets:              tt.fields.PodSets,
+				replaceWorkloadSlice: tt.fields.replaceWorkloadSlice,
+			}
+			got := a.TotalRequestsFor(tt.args.wl)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("TotalRequestsFor() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
