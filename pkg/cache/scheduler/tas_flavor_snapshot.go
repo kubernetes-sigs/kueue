@@ -573,7 +573,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	if !isRequired(tr.PodSet.TopologyRequest) {
-		return ""	
+		return ""
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
