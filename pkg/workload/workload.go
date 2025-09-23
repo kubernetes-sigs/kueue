@@ -74,6 +74,9 @@ var (
 // Reference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
 type Reference string
 
+// EvictedUnderlyingCause represents the underlying cause of a workload eviction.
+type EvictedUnderlyingCause string
+
 func NewReference(namespace, name string) Reference {
 	return Reference(namespace + "/" + name)
 }
@@ -1103,10 +1106,10 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	return acNames
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, underlyingCause, msg string, clock clock.Clock) error {
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause EvictedUnderlyingCause, clock clock.Clock) error {
 	evictionReason := reason
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		evictionReason = ReasonWithCause(evictionReason, underlyingCause)
+		evictionReason = ReasonWithCause(evictionReason, string(underlyingCause))
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
@@ -1121,9 +1124,9 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, underlyingCause, msg)
+	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, underlyingCause, wl.Spec.PriorityClassName)
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), wl.Spec.PriorityClassName)
 	}
 	return nil
 }
@@ -1144,17 +1147,17 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 	w.Status.UnhealthyNodes = nil
 }
 
-func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, underlyingCause, message string) {
-	metrics.ReportEvictedWorkloads(cqName, reason, underlyingCause, wl.Spec.PriorityClassName)
+func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause EvictedUnderlyingCause) {
+	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), wl.Spec.PriorityClassName)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
-		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, underlyingCause).Observe(podsReadyToEvictionTime.Seconds())
+		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause)).Observe(podsReadyToEvictionTime.Seconds())
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, underlyingCause)
+		metrics.ReportLocalQueueEvictedWorkloads(metrics.LQRefFromWorkload(wl), reason, string(underlyingCause))
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		eventReason = ReasonWithCause(eventReason, underlyingCause)
+		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
 	recorder.Event(wl, corev1.EventTypeNormal, eventReason, message)
 }
@@ -1174,12 +1177,12 @@ func References(wls []*Info) []klog.ObjectRef {
 	return keys
 }
 
-func workloadEvictionStateInc(wl *kueue.Workload, reason, underlyingCause string) bool {
-	evictionState := findSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
+func workloadEvictionStateInc(wl *kueue.Workload, reason string, underlyingCause EvictedUnderlyingCause) bool {
+	evictionState := findSchedulingStatsEvictionByReason(wl, reason, string(underlyingCause))
 	if evictionState == nil {
 		evictionState = &kueue.WorkloadSchedulingStatsEviction{
 			Reason:          reason,
-			UnderlyingCause: underlyingCause,
+			UnderlyingCause: string(underlyingCause),
 		}
 	}
 	report := evictionState.Count == 0
