@@ -3,16 +3,16 @@ title: "设置 MultiKueue 环境"
 date: 2024-02-26
 weight: 9
 description: >
-  设置 multikueue 集群所需的额外步骤。
+  设置 Multikueue 集群所需的额外步骤。
 ---
 
-本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/docs/tasks/run_jobsets/#jobset-definition) 和 [batch/Jobs](/docs/tasks/run_jobs/#1-define-the-job)。
+本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/zh-CN/docs/tasks/run_jobsets/#jobset-definition) 和 [batch/Jobs](/zh-CN/docs/tasks/run_jobs/#1-define-the-job)。
 
-请查看概念部分了解 [MultiKueue 概述](/docs/concepts/multikueue/)。
+请查看概念部分了解 [MultiKueue 概述](/zh-CN/docs/concepts/multikueue/)。
 
 假设您的管理集群名为 `manager-cluster`，工作集群名为 `worker1-cluster`。
 要遵循本教程，请确保所有这些集群的凭据都存在于您本地机器的 kubeconfig 中。
-查看 [kubectl 文档](https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/) 了解更多关于如何配置多集群访问的信息。
+查看 [kubectl 文档](https://kubernetes.io/zh-cn/docs/tasks/access-application-cluster/configure-access-multiple-clusters/) 了解更多关于如何配置多集群访问的信息。
 
 ## 在工作集群中
 
@@ -32,9 +32,9 @@ kubectl config use-context worker1-cluster
 
 {{< include "examples/admin/single-clusterqueue-setup.yaml" "yaml" >}}
 
-### MultiKueue 专用 Kubeconfig
+### MultiKueue 专用 kubeconfig
 
-为了在工作集群中委托作业，管理集群需要能够创建、删除和监视工作负载及其父作业。
+为了在工作集群中委托作业，管理集群需要能够创建、删除和监视工作负载及其父 Job。
 
 当 `kubectl` 设置为使用工作集群时，下载：
 {{< include "examples/multikueue/create-multikueue-kubeconfig.sh" "bash" >}}
@@ -46,7 +46,7 @@ chmod +x create-multikueue-kubeconfig.sh
 ./create-multikueue-kubeconfig.sh worker1.kubeconfig
 ```
 
-这将创建一个 Kubeconfig，可以在管理集群中使用它来委托当前工作集群中的作业。
+这将创建一个 kubeconfig，可以在管理集群中使用它来委托当前工作集群中的 Job。
 
 ### Kubeflow 安装
 
@@ -65,7 +65,7 @@ kubectl config use-context manager-cluster
 
 ### CRD 安装
 
-有关与 MultiKueue 兼容的 CRD 安装，请参阅专用页面[这里](/docs/tasks/run/multikueue/)。
+有关与 MultiKueue 兼容的 CRD 安装，请参阅专用页面[这里](/zh-CN/docs/tasks/run/multikueue/)。
 
 ### 创建工作集群的 Kubeconfig 密钥
 
@@ -75,11 +75,11 @@ kubectl config use-context manager-cluster
  kubectl create secret generic worker1-secret -n kueue-system --from-file=kubeconfig=worker1.kubeconfig
 ```
 
-有关 Kubeconfig 生成的详细信息，请查看[工作集群](#multikueue-专用-kubeconfig)部分。
+有关 Kubeconfig 生成的详细信息，请查看[工作集群](#multikueue-specific-kubeconfig)部分。
 
 ### 创建示例设置
 
-应用以下配置来创建一个示例设置，其中提交到 ClusterQueue `cluster-queue` 的作业被委托给工作集群 `worker1`
+应用以下配置来创建一个示例设置，其中提交到 ClusterQueue `cluster-queue` 的 Job 被委托给工作集群 `worker1`
 
 {{< include "examples/multikueue/multikueue-setup.yaml" "yaml" >}}
 
