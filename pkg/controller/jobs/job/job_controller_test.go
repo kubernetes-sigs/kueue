@@ -17,7 +17,6 @@ limitations under the License.
 package job
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -1167,7 +1167,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:             workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
 						LastTransitionTime: metav1.NewTime(testStartTime),
 					}).
@@ -1204,13 +1204,13 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -1346,7 +1346,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:             workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
 						LastTransitionTime: metav1.NewTime(testStartTime),
 					}).
@@ -1383,13 +1383,13 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -1443,7 +1443,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:             workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
 						LastTransitionTime: metav1.NewTime(testStartTime.Add(-time.Minute)),
 					}).
@@ -1480,13 +1480,13 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -1531,7 +1531,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:             workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
 						LastTransitionTime: metav1.NewTime(testStartTime.Add(-time.Minute)),
 					}).
@@ -1568,13 +1568,13 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{

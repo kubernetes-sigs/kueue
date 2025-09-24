@@ -57,7 +57,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	testCases := map[string]struct {
 		workload            kueue.Workload
 		waitForPodsReady    *waitForPodsReadyConfig
-		wantUnderlyingCause string
+		wantUnderlyingCause kueue.EvictionUnderlyingCause
 		wantRecheckAfter    time.Duration
 	}{
 		"workload without Admitted condition; not counting": {

@@ -451,6 +451,10 @@ type SchedulingStats struct {
 	Evictions []WorkloadSchedulingStatsEviction `json:"evictions,omitempty"`
 }
 
+// EvictionUnderlyingCause represents the underlying cause of a workload eviction.
+// +kubebuilder:validation:MaxLength=316
+type EvictionUnderlyingCause string
+
 type WorkloadSchedulingStatsEviction struct {
 	// reason specifies the programmatic identifier for the eviction cause.
 	//
@@ -464,8 +468,7 @@ type WorkloadSchedulingStatsEviction struct {
 	//
 	// +required
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=316
-	UnderlyingCause string `json:"underlyingCause"`
+	UnderlyingCause EvictionUnderlyingCause `json:"underlyingCause"`
 
 	// count tracks the number of evictions for this reason and detailed reason.
 	//
