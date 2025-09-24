@@ -2723,6 +2723,108 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("testing ready wait time metrics with priority classes", func() {
+		ginkgo.BeforeEach(func() {
+			waitForPodsReadyTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyRecoveryTimeout = nil
+		})
+
+		ginkgo.It("should record ready wait time metrics with workload priority class label", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+
+			ginkgo.By("creating workload priority classes")
+			lowPriorityClass := testing.MakeWorkloadPriorityClass("low-priority").PriorityValue(priorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, lowPriorityClass)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lowPriorityClass, true)
+			})
+
+			highPriorityClass := testing.MakeWorkloadPriorityClass("high-priority").PriorityValue(highPriorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
+			})
+
+			ginkgo.By("creating low priority job")
+			lowJob := testingjob.MakeJob("low-job", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClass(lowPriorityClass.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowJob)
+			lowJobKey := client.ObjectKeyFromObject(lowJob)
+			lowWl := &kueue.Workload{}
+			lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: lowJob.Namespace}
+
+			ginkgo.By("creating high priority job")
+			highJob := testingjob.MakeJob("high-job", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClass(highPriorityClass.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, highJob)
+			highJobKey := client.ObjectKeyFromObject(highJob)
+			highWl := &kueue.Workload{}
+			highWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: highJob.Namespace}
+
+			ginkgo.By("setting quota reservation for both jobs")
+			util.SetQuotaReservation(ctx, k8sClient, lowWlKey, testing.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, highWlKey, testing.MakeAdmission(cq.Name).Obj())
+
+			ginkgo.By("setting low priority job's pods to be ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lowJobKey, lowJob)).Should(gomega.Succeed())
+				lowJob.Status.Active = 1
+				lowJob.Status.Ready = ptr.To[int32](1)
+				g.Expect(k8sClient.Status().Update(ctx, lowJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring low priority workload has PodsReady=True condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lowWlKey, lowWl)).Should(gomega.Succeed())
+				g.Expect(lowWl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("setting high priority job's pods to be ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, highJobKey, highJob)).Should(gomega.Succeed())
+				highJob.Status.Active = 1
+				highJob.Status.Ready = ptr.To[int32](1)
+				g.Expect(k8sClient.Status().Update(ctx, highJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("ensuring high priority workload has PodsReady=True condition")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, highWlKey, highWl)).Should(gomega.Succeed())
+				g.Expect(highWl.Status.Conditions).Should(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying ready wait time metrics are recorded with workload priority class labels")
+			util.ExpectReadyWaitTimeMetricAtLeast(cq, lowPriorityClass.Name, 1)
+			util.ExpectReadyWaitTimeMetricAtLeast(cq, highPriorityClass.Name, 1)
+			util.ExpectAdmittedUntilReadyWaitTimeMetricAtLeast(cq, lowPriorityClass.Name, 1)
+			util.ExpectAdmittedUntilReadyWaitTimeMetricAtLeast(cq, highPriorityClass.Name, 1)
+
+			ginkgo.By("verifying local queue ready wait time metrics are recorded with workload priority class labels")
+			util.ExpectLocalQueueReadyWaitTimeMetricAtLeast(lq, lowPriorityClass.Name, 1)
+			util.ExpectLocalQueueReadyWaitTimeMetricAtLeast(lq, highPriorityClass.Name, 1)
+			util.ExpectLocalQueueAdmittedUntilReadyWaitTimeMetricAtLeast(lq, lowPriorityClass.Name, 1)
+			util.ExpectLocalQueueAdmittedUntilReadyWaitTimeMetricAtLeast(lq, highPriorityClass.Name, 1)
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {

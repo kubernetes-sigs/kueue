@@ -591,6 +591,42 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass string, minCount int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.QueuedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectAdmittedUntilReadyWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass string, minCount int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.AdmittedUntilReadyWaitTime.WithLabelValues(cq.Name, priorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLocalQueueReadyWaitTimeMetricAtLeast(lq *kueue.LocalQueue, priorityClass string, minCount int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.LocalQueueQueuedUntilReadyWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectLocalQueueAdmittedUntilReadyWaitTimeMetricAtLeast(lq *kueue.LocalQueue, priorityClass string, minCount int) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		metric := metrics.LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
+		v, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.BeNumerically(">=", minCount))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, priorityClass string, v int) {
 	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass)
 	expectCounterMetric(metric, v)

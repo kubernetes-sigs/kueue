@@ -509,13 +509,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if condition.Status == metav1.ConditionTrue {
 				cqName := wl.Status.Admission.ClusterQueue
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, queuedUntilReadyWaitTime)
+				metrics.ReadyWaitTime(cqName, wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.AdmittedUntilReadyWaitTime(cqName, admittedUntilReadyWaitTime)
+				metrics.ReportAdmittedUntilReadyWaitTime(cqName, wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), queuedUntilReadyWaitTime)
-					metrics.LocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), admittedUntilReadyWaitTime)
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
+					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
 				}
 			}
 			return ctrl.Result{}, nil
