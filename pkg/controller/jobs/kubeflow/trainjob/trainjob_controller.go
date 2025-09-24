@@ -188,6 +188,9 @@ func (t *TrainJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 				{Name: string(info.Name)},
 			},
 			// TODO: Set the labels/annotations when supported. See https://github.com/kubeflow/trainer/pull/2785
+			//
+			// NOTE: Due to the issue above, in TAS mode, missing PodSet-specific labels and annotations
+			//       prevent removal of the scheduling gate, leaving the Pod in a Pending state.
 			NodeSelector:    info.NodeSelector,
 			Tolerations:     info.Tolerations,
 			SchedulingGates: info.SchedulingGates,
