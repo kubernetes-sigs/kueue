@@ -93,7 +93,7 @@ func New(
 		fsStrategies:      parseStrategies(fs.PreemptionStrategies),
 		enabledAfs:        enabledAfs,
 	}
-	p.applyPreemption = p.applyPreemptionWithSSA
+	p.applyPreemption = p.patchPreemption
 	return p
 }
 
@@ -193,7 +193,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	return int(successfullyPreempted.Load()), errCh.ReceiveError()
 }
 
-func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
+func (p *Preemptor) patchPreemption(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
 	wOrig := w.DeepCopy()
 	return workload.Evict(ctx, p.client, p.recorder, wOrig, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
