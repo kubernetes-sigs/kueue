@@ -174,15 +174,12 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
-		// Either use replacement workload-slice or partial admission to scale usage.
+		newCount := a.PodSets[i].Count
 		if a.replaceWorkloadSlice != nil {
-			ps = *ps.ScaledTo(ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count)
-		} else {
-			aps := a.PodSets[i]
-			if aps.Count != ps.Count {
-				ps = *ps.ScaledTo(aps.Count)
-			}
+			newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
 		}
+		ps = *ps.ScaledTo(newCount)
+
 		for res, q := range ps.Requests {
 			flv := a.PodSets[i].Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
