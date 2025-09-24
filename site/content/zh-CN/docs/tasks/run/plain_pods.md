@@ -4,19 +4,19 @@ linkTitle: "普通 Pod"
 date: 2023-09-27
 weight: 6
 description: >
-  运行单个 Pod 或一组 Pod 作为 Kueue 管理的作业。
+  以 Kueue 管理的作业来运行一个或一组 Pod。
 ---
 
-本页面展示了如何在运行普通 Pod 时利用 Kueue 的调度和资源管理功能。Kueue 支持管理
-[单个 Pod](#running-a-single-pod-admitted-by-kueue) 或
-[Pod 组](#running-a-group-of-pods-to-be-admitted-together)。
+本页面展示了如何在运行普通 Pod 时利用 Kueue 的调度和资源管理功能。
+Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
+或[一组 Pod](#running-a-group-of-pods-to-be-admitted-together)。
 
-本指南适用于对 Kueue 有基本了解的[批处理用户](/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
 ## 开始之前
 
 1. 默认情况下，`pod` 集成未启用。
-   学习如何[使用自定义管理器配置安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)
+   学习如何[使用自定义管理器配置安装 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)
    并启用 `pod` 集成。
 
    为了允许 Kubernetes 系统 Pod 成功调度，您必须限制 `pod` 集成的范围。
@@ -54,8 +54,8 @@ description: >
 {{% /alert %}}
 
 
-2. 如果启用了 Pod 集成，Kueue 将为所有创建的 Pod 运行 webhook。webhook namespaceSelector 可用于
-   过滤需要协调的 Pod。默认的 webhook namespaceSelector 是：
+2. 如果启用了 Pod 集成，Kueue 将为所有创建的 Pod 运行 Webhook。Webhook namespaceSelector
+   可用于过滤需要协调的 Pod。默认的 Webhook namespaceSelector 是：
    ```yaml
    matchExpressions:
    - key: kubernetes.io/metadata.name
@@ -63,8 +63,8 @@ description: >
      values: [ kube-system, kueue-system ]
    ```
    
-   当您[通过 Helm 安装 Kueue](/docs/installation/#install-via-helm) 时，webhook 命名空间选择器
-   将匹配 `values.yaml` 中的 `managedJobsNamespaceSelector`。
+   当您[通过 Helm 安装 Kueue](/zh-CN/docs/installation/#install-via-helm) 时，Webhook
+   命名空间选择器将匹配 `values.yaml` 中的 `managedJobsNamespaceSelector`。
 
    确保 namespaceSelector 永远不匹配 kueue 命名空间，否则
    Kueue 部署将无法创建 Pod。
@@ -72,15 +72,15 @@ description: >
 3. 属于 Kueue 管理的其他 API 资源的 Pod 被排除在 `pod` 集成的队列之外。
    例如，由 `batch/v1.Job` 管理的 Pod 不会被 `pod` 集成管理。
 
-4. 查看[管理集群配额](/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+4. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
-## 运行由 Kueue 接纳的单个 Pod
+## 运行由 Kueue 准入的单个 Pod
 
 在 Kueue 上运行 Pod 时，请考虑以下方面：
 
 ### a. 队列选择
 
-目标[本地队列](/docs/concepts/local_queue)应在 Pod 配置的 `metadata.labels` 部分中指定。
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 Pod 配置的 `metadata.labels` 部分中指定。
 
 ```yaml
 metadata:
@@ -119,7 +119,7 @@ Kueue 将注入 `kueue.x-k8s.io/managed=true` 标签来指示哪些 Pod 由其�
 kubectl create -f kueue-pod.yaml
 ```
 
-## 运行一组一起被接纳的 Pod
+## 运行一组一起被准入的 Pod
 
 为了将一组 Pod 作为单个单元运行（称为 Pod 组），请一致地为组的所有成员添加
 "pod-group-name" 标签和 "pod-group-total-count" 注解：
@@ -146,7 +146,7 @@ Kueue 仅提供运行 Pod 组所需的最小功能，
 
 {{% alert title="注意" color="primary" %}}
 我们建议使用 Kubernetes Job API 或类似的 CRD，如
-JobSet、MPIJob、RayJob（更多信息请参见[这里](/docs/tasks/#batch-user)）。
+JobSet、MPIJob、RayJob（更多信息请参见[这里](/zh-CN/docs/tasks/#batch-user)）。
 {{% /alert %}}
 
 ### 终止
