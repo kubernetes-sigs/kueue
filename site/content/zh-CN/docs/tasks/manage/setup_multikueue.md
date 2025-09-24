@@ -3,7 +3,7 @@ title: "设置 MultiKueue 环境"
 date: 2024-02-26
 weight: 9
 description: >
-  设置 Multikueue 集群所需的额外步骤。
+  设置 MultiKueue 集群所需的额外步骤。
 ---
 
 本教程解释了如何在 MultiKueue 环境中配置管理集群和一个工作集群来运行 [JobSets](/zh-CN/docs/tasks/run_jobsets/#jobset-definition) 和 [batch/Jobs](/zh-CN/docs/tasks/run_jobs/#1-define-the-job)。
@@ -34,7 +34,7 @@ kubectl config use-context worker1-cluster
 
 ### MultiKueue 专用 kubeconfig
 
-为了在工作集群中委托作业，管理集群需要能够创建、删除和监视工作负载及其父 Job。
+为了在工作集群中委托 Job，管理集群需要能够创建、删除和监视工作负载及其父 Job。
 
 当 `kubectl` 设置为使用工作集群时，下载：
 {{< include "examples/multikueue/create-multikueue-kubeconfig.sh" "bash" >}}
@@ -75,7 +75,7 @@ kubectl config use-context manager-cluster
  kubectl create secret generic worker1-secret -n kueue-system --from-file=kubeconfig=worker1.kubeconfig
 ```
 
-有关 Kubeconfig 生成的详细信息，请查看[工作集群](#multikueue-specific-kubeconfig)部分。
+有关 kubeconfig 生成的详细信息，请查看[工作集群](#multikueue-specific-kubeconfig)部分。
 
 ### 创建示例设置
 
