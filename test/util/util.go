@@ -401,9 +401,11 @@ func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient cli
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-		workload.SetRequeuedCondition(&wl, kueue.WorkloadEvictedByPodsReadyTimeout,
-			fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()), false)
-		g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true, clock.RealClock{})).Should(gomega.Succeed())
+		g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, true, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+			workload.SetRequeuedCondition(&wl, kueue.WorkloadEvictedByPodsReadyTimeout,
+				fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()), false)
+			return &wl, true, nil
+		})).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -751,12 +753,14 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		updatedWl := &kueue.Workload{}
 		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-		if admission == nil {
-			workload.UnsetQuotaReservationWithCondition(updatedWl, "EvictedByTest", "Evicted By Test", clk.Now())
-		} else {
-			workload.SetQuotaReservation(updatedWl, admission, clk)
-		}
-		g.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, updatedWl, false, clk)).To(gomega.Succeed())
+		g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, updatedWl, true, clk, func() (*kueue.Workload, bool, error) {
+			if admission == nil {
+				workload.UnsetQuotaReservationWithCondition(updatedWl, "EvictedByTest", "Evicted By Test", clk.Now())
+			} else {
+				workload.SetQuotaReservation(updatedWl, admission, clk)
+			}
+			return updatedWl, true, nil
+		})).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -766,10 +770,13 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
-		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		if workload.SyncAdmittedCondition(&updatedWorkload, time.Now()) {
-			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false, clock.RealClock{})).To(gomega.Succeed())
-		}
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, true, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+				updated := workload.SyncAdmittedCondition(&updatedWorkload, time.Now())
+				return &updatedWorkload, updated, nil
+			})).To(gomega.Succeed())
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
@@ -792,11 +799,11 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			var updatedWorkload kueue.Workload
 			g.Expect(k8sClient.Get(ctx, key, &updatedWorkload)).Should(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
-				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now())
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true, clock.RealClock{})).Should(
-					gomega.Succeed(),
-					fmt.Sprintf("Unable to unset quota reservation for %q", key),
-				)
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, true, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+					workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now())
+					return &updatedWorkload, true, nil
+				}),
+				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 			}
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}

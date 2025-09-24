@@ -335,18 +335,22 @@ func (r *nodeFailureReconciler) handleHealthyNode(ctx context.Context, nodeName 
 
 func (r *nodeFailureReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if workload.HasUnhealthyNode(wl, nodeName) {
-		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
-			return n.Name == nodeName
+		return workload.PatchAdmissionStatus(ctx, r.client, wl, true, r.clock, func() (*kueue.Workload, bool, error) {
+			wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
+				return n.Name == nodeName
+			})
+			return wl, true, nil
 		})
-		return workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
 	}
 	return nil
 }
 
 func (r *nodeFailureReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if !workload.HasUnhealthyNode(wl, nodeName) {
-		wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
-		return workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
+		return workload.PatchAdmissionStatus(ctx, r.client, wl, true, r.clock, func() (*kueue.Workload, bool, error) {
+			wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
+			return wl, true, nil
+		})
 	}
 	return nil
 }

@@ -500,8 +500,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					workload.SetEvictedCondition(wl, "ByTest", "by test")
-					g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock)).To(gomega.Succeed())
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, true, realClock, func() (*kueue.Workload, bool, error) {
+						workload.SetEvictedCondition(wl, "ByTest", "by test")
+						return wl, true, nil
+					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 

@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -1505,6 +1506,62 @@ func TestSetQuotaReservation(t *testing.T) {
 			SetQuotaReservation(tt.args.workload, tt.args.admission, testClock)
 			if diff := cmp.Diff(tt.want, tt.args.workload); diff != "" {
 				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+func TestPatchAdmissionStatus(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	type patchCall struct {
+		updated bool
+		err     error
+	}
+
+	errUpdate := errors.New("update error")
+
+	tests := map[string]struct {
+		patchCall patchCall
+		wantErr   error
+	}{
+		"update returns true": {
+			patchCall: patchCall{updated: true, err: nil},
+			wantErr:   nil,
+		},
+		"update returns false": {
+			patchCall: patchCall{updated: false, err: nil},
+			wantErr:   nil,
+		},
+		"update returns error": {
+			patchCall: patchCall{updated: false, err: errUpdate},
+			wantErr:   errUpdate,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := utiltesting.MakeWorkload("foo", "default").Obj()
+			cl := utiltesting.NewFakeClientSSAAsSM(wl)
+			called := false
+			gotErr := PatchAdmissionStatus(
+				ctx,
+				cl,
+				wl,
+				true,
+				fakeClock,
+				func() (*kueue.Workload, bool, error) {
+					called = true
+					return wl, tc.patchCall.updated, tc.patchCall.err
+				},
+			)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+			if !called {
+				t.Errorf("expected update func to be called when feature enabled")
+			}
+			if tc.patchCall.updated && !called {
+				t.Errorf("expected update func to be called when feature disabled and update true")
 			}
 		})
 	}

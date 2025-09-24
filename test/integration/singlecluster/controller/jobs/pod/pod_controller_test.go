@@ -795,11 +795,14 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that the Pods get a deletion timestamp when the workload is evicted", func() {
-					gomega.Expect(func() error {
-						w := createdWorkload.DeepCopy()
-						workload.SetEvictedCondition(w, "ByTest", "by test")
-						return workload.ApplyAdmissionStatus(ctx, k8sClient, w, false, realClock)
-					}()).Should(gomega.Succeed())
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, true, realClock, func() (*kueue.Workload, bool, error) {
+							workload.SetEvictedCondition(createdWorkload, "ByTest", "by test")
+							return createdWorkload, true, nil
+						})).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
@@ -1387,10 +1390,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("setting evicted condition to true", func() {
-					workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test")
-					gomega.Expect(
-						workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock),
-					).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, true, realClock, func() (*kueue.Workload, bool, error) {
+							workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test")
+							return wl, true, nil
+						})).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				podKey := client.ObjectKeyFromObject(pod)
