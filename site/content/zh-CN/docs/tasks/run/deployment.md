@@ -15,25 +15,24 @@ description: >
 其中 Deployment 中的每个 Pod 都被表示为一个独立的 Plain Pod。
 这种方法允许对 Pod 进行独立的资源管理，从而实现 Deployment 的扩容和缩容。
 
-本指南适用于对 Kueue 有基本了解的[服务用户](/docs/tasks#serving-user)。
-更多信息，请参见 [Kueue 概述](/docs/overview)。
+本指南适用于对 Kueue 有基本了解的[服务用户](/zh-CN/docs/tasks#serving-user)。
+更多信息，请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
 ## 开始之前
 
-1. 学习如何[使用自定义管理器配置安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)。
+1. 学习如何[使用自定义管理器配置来安装 Kueue](/docs/installation/#install-a-custom-configured-released-version)。
 
-2. 按照[运行 Plain Pod](/docs/tasks/run/plain_pods/#before-you-begin)中的步骤
-学习如何启用和配置 `pod` 集成。
+2. 按照[运行 Plain Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin)中的步骤学习如何启用和配置 `pod` 集成。
 
-3. 查看[管理集群配额](/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
+3. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
-## 运行由 Kueue 接纳的 Deployment
+## 运行由 Kueue 准入的 Deployment
 
 在 Kueue 上运行 Deployment 时，需要考虑以下方面：
 
 ### a. 队列选择
 
-目标[本地队列](/docs/concepts/local_queue)应在 Deployment 配置的 `metadata.labels` 部分中指定。
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 Deployment 配置的 `metadata.labels` 部分中指定。
 
 ```yaml
 metadata:
@@ -55,16 +54,16 @@ metadata:
 
 您可以对 Deployment 执行扩容或缩容操作。
 在缩容时，多余的 Pod 会被删除，配额会被释放。
-在扩容时，会创建新的 Pod，这些 Pod 会保持挂起状态，直到相应的工作负载被接纳。
+在扩容时，会创建新的 Pod，这些 Pod 会保持挂起状态，直到相应的工作负载被准入。
 如果集群中没有足够的配额，Deployment 可能只运行部分 Pod。
 因此，如果您的工作负载对业务至关重要，
 您可以考虑通过 ClusterQueue 的 `lendingLimit` 仅为服务工作负载保留配额。
 `lendingLimit` 允许您快速扩容关键的服务工作负载。
-有关 `lendingLimit` 的更多详细信息，请参见 [ClusterQueue 页面](docs/concepts/cluster_queue#lendinglimit)。
+有关 `lendingLimit` 的更多详细信息，请参见 [ClusterQueue 页面](/zh-CN/docs/concepts/cluster_queue#lendinglimit)。
 
 ### d. 限制
 
-- Deployment 的范围由 pod 集成的命名空间选择器隐含决定。没有对 deployment 的独立控制。
+- Deployment 的范围由 `pod` 集成的命名空间选择器所默示。不能独立控制 Deployment。
 
 ## 示例
 
