@@ -628,17 +628,16 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta 
 	domainToUsage := make(map[utiltas.TopologyDomainID]int32)
 	nodeLevel := len(s.levelKeys) - 1
 
-	for _, domain := range ta.Domains {
-		nodeDomain, ok := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domain.Values)]
+	for _, domainFromAssignment := range ta.Domains {
+		domain, ok := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainFromAssignment.Values)]
 		if !ok {
 			continue
 		}
 
-		sliceDomain := nodeDomain
 		for i := nodeLevel; i > sliceLevelIdx; i-- {
-			sliceDomain = sliceDomain.parent
+			domain = domain.parent
 		}
-		domainToUsage[sliceDomain.id] += domain.Count
+		domainToUsage[domain.id] += domainFromAssignment.Count
 	}
 
 	for domainID, count := range domainToUsage {
