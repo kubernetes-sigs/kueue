@@ -514,7 +514,12 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
-	replacementAssignment, reason := s.findTopologyAssignment(*tr, nil, assumedUsage, false, requiredReplacementDomain)
+	trCopy := *tr
+	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%*tr.PodSet.TopologyRequest.PodSetSliceSize != 0) {
+		trCopy.PodSet = tr.PodSet.DeepCopy()
+		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(int32(1))
+	}
+	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain)
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -547,7 +552,6 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 	return nil
 }
 
-// requiredReplacementDomain returns required domain for the next pass of findingTopologyAssignment to be compliant with the existing one
 func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *kueue.TopologyAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
@@ -557,19 +561,22 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	if !found {
 		return ""
 	}
-	required := isRequired(tr.PodSet.TopologyRequest)
-	if !required {
-		return ""
-	}
+
 	// no domain to comply with so we don't require any domain at all
 	// this happens when the faulty node was the only one in the assignment
 	if len(ta.Domains) == 0 {
 		return ""
 	}
 
+	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%*tr.PodSet.TopologyRequest.PodSetSliceSize != 0) {
+		return s.findIncompleteSliceDomain(tr, ta, tr.Count)
+	}
+
+	if !isRequired(tr.PodSet.TopologyRequest) {
+		return ""
+	}
+
 	nodeLevel := len(s.levelKeys) - 1
-	// Since all Domains comply with the required policy, take a random one
-	// in this case, the first one
 	// We know at this point that values contains only hostname
 	nodeDomain := ta.Domains[0].Values[0]
 	domain := s.domainsPerLevel[nodeLevel][utiltas.TopologyDomainID(nodeDomain)]
@@ -605,6 +612,40 @@ func deleteDomain(currentTopologyAssignment *kueue.TopologyAssignment, unhealthy
 	}
 	currentTopologyAssignment.Domains = updatedAssignment
 	return noAffectedPods
+}
+
+func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *kueue.TopologyAssignment, missingCount int32) utiltas.TopologyDomainID {
+	// this function assumes that all assignments are at the hostname level
+	sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
+	sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
+	if !found {
+		return ""
+	}
+
+	sliceSize := *tr.PodSet.TopologyRequest.PodSetSliceSize
+
+	// domainToUsage maps a domain at sliceLevel to the number of pods in it
+	domainToUsage := make(map[utiltas.TopologyDomainID]int32)
+	nodeLevel := len(s.levelKeys) - 1
+
+	for _, domainFromAssignment := range ta.Domains {
+		domain, ok := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainFromAssignment.Values)]
+		if !ok {
+			continue
+		}
+
+		for i := nodeLevel; i > sliceLevelIdx; i-- {
+			domain = domain.parent
+		}
+		domainToUsage[domain.id] += domainFromAssignment.Count
+	}
+
+	for domainID, count := range domainToUsage {
+		if (count+missingCount)%sliceSize == 0 {
+			return domainID
+		}
+	}
+	return ""
 }
 
 // Algorithm overview:
@@ -1356,4 +1397,8 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %d slice(s)", s.topologyName, totalRequestsSlicesCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
+}
+
+func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil
 }

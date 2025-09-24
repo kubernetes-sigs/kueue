@@ -5866,6 +5866,262 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload with unhealthyNode; second pass; slices; baseline": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x2").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 2).
+						PreferredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(2).
+						SliceRequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(2).
+								Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(2).
+						Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode; second pass; slices; unhealthy node hosts incomplete slice": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x2").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 8).
+						PreferredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(8).
+						SliceRequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "250").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(8).
+								Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 4).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 4).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(8).
+						Assignment(corev1.ResourceCPU, "tas-default", "2000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 4).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 4).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode; second pass; slices; unhealthy node hosts whole slices": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x3").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 12).
+						RequiredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(4).
+						SliceRequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "250m").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(12).
+								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 4).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 4).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 4).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(12).
+						Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 4).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 4).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x4"}, 4).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode; second pass; slices; unhealthy node hosts whole slice and incomplete slice": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 8).
+						RequiredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(2).
+						SliceRequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "200m").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(8).
+								Assignment(corev1.ResourceCPU, "tas-default", "1600m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 3).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 5).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(8).
+						Assignment(corev1.ResourceCPU, "tas-default", "1600m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x2"}, 5).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 3).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode; second pass; slices; unhealthy node hosts the whole workload": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 4).
+						RequiredTopologyRequest(tasRackLabel).
+						SliceSizeTopologyRequest(2).
+						SliceRequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "250").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(4).
+								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 4).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(4).
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x5"}, 4).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode; second pass; slices; finds correct slice domain": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					UnhealthyNodes("x7").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 8).
+						PreferredTopologyRequest(tasBlockLabel).
+						SliceSizeTopologyRequest(4).
+						SliceRequiredTopologyRequest(tasBlockLabel).
+						Request(corev1.ResourceCPU, "500m").
+						Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("tas-main").
+							PodSets(utiltesting.MakePodSetAssignment("one").Count(8).
+								Assignment(corev1.ResourceCPU, "tas-default", "4000m").
+								TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 2).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x5"}, 2).Obj()).
+									Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x7"}, 2).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main").
+					PodSets(utiltesting.MakePodSetAssignment("one").Count(8).
+						Assignment(corev1.ResourceCPU, "tas-default", "4000m").
+						TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x3"}, 2).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x5"}, 2).Obj()).
+							Domain(utiltesting.MakeTopologyDomainAssignment([]string{"x6"}, 2).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
 		"large workload in CQ with ProvisioningRequest; second pass": {
 			// In this scenario we test a workload which is using 26 out of 50
 			// available units of quota, to make sure we are not double counting
