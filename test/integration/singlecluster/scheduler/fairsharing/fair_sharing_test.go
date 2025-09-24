@@ -352,7 +352,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			// wlA2 will be preempted as it is lower priority than wlA1
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA2)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA2)
-			util.ExpectEvictedWorkloadsTotalMetric(cqA.Name, kueue.WorkloadEvictedByPreemption, "", "", 1)
+			util.ExpectEvictedWorkloadsTotalMetric(cqA.Name, kueue.WorkloadEvictedByPreemption, 1)
 
 			ginkgo.By("Check Admission")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB1)
@@ -364,8 +364,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Checking that there are no more preemptions")
 			util.ExpectPreemptedWorkloadsTotalMetric(cqA.Name, "InCohortFairSharing", 0)
 			util.ExpectPreemptedWorkloadsTotalMetric(cqB.Name, "InCohortFairSharing", 1)
-			util.ExpectEvictedWorkloadsTotalMetric(cqA.Name, kueue.WorkloadEvictedByPreemption, "", "", 1)
-			util.ExpectEvictedWorkloadsTotalMetric(cqB.Name, kueue.WorkloadEvictedByPreemption, "", "", 0)
+			util.ExpectEvictedWorkloadsTotalMetric(cqA.Name, kueue.WorkloadEvictedByPreemption, 1)
+			util.ExpectEvictedWorkloadsTotalMetric(cqB.Name, kueue.WorkloadEvictedByPreemption, 0)
 		})
 	})
 

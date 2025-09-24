@@ -16,7 +16,7 @@ limitations under the License.
 
 package fairsharing
 
-import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+import schdcache "sigs.k8s.io/kueue/pkg/cache"
 
 // PreemptorNewShare is the DominantResourceShare of the Preemptor
 // after the incoming workload's usage has been added. It is used for
