@@ -55,6 +55,17 @@ type Assignment struct {
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
+
+	// replaceWorkloadSlice identifies the workload slice that will be replaced by this workload.
+	// It is needed to correctly compute TotalRequestsFor applying (subtracting) replaced
+	// workload resources quantities.
+	//
+	// Note: This value may be nil in the following cases:
+	//   - Workload slicing is not enabled (either globally or for this specific workload).
+	//   - The current workload does not represent a scale-up slice.
+	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
+	// non-sliced workloads.
+	replaceWorkloadSlice *workload.Info
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
@@ -157,17 +168,20 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 }
 
 // TotalRequestsFor - returns the total quota needs of the wl, taking into account the potential
-// scaling needed in case of partial admission.
+// workload slice replacement, or scaling needed in case of partial admission.
+//
+// Note: ElasticJobsViaWorkloadSlices is mutually exclusive with PartialAdmission.
 func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
-		// in case of partial admission scale down the quantity
-		aps := a.PodSets[i]
-		if aps.Count != ps.Count {
-			ps = *ps.ScaledTo(aps.Count)
+		newCount := a.PodSets[i].Count
+		if a.replaceWorkloadSlice != nil {
+			newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
 		}
+		ps = *ps.ScaledTo(newCount)
+
 		for res, q := range ps.Requests {
-			flv := aps.Flavors[res].Name
+			flv := a.PodSets[i].Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
@@ -409,15 +423,15 @@ type FlavorAssigner struct {
 	enableFairSharing bool
 	oracle            preemptionOracle
 
-	// preemptWorkloadSlice identifies the workload slice that will be mandatorily preempted
-	// by this workload. It must be considered during flavor computation and included in the preemption targets.
+	// replaceWorkloadSlice identifies the workload slice that will be replaced by this workload.
+	// It must be considered during flavor computation and included in the preemption targets.
 	//
 	// Note: This value may be nil in the following cases:
 	//   - Workload slicing is not enabled (either globally or for this specific workload).
 	//   - The current workload does not represent a scale-up slice.
 	// In these scenarios, flavor assignment proceeds as in the original flow—i.e., as for regular,
 	// non-sliced workloads.
-	preemptWorkloadSlice *workload.Info
+	replaceWorkloadSlice *workload.Info
 }
 
 func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool, oracle preemptionOracle, preemptWorkloadSlice *workload.Info) *FlavorAssigner {
@@ -427,7 +441,7 @@ func New(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot, resourceFlavors 
 		resourceFlavors:      resourceFlavors,
 		enableFairSharing:    enableFairSharing,
 		oracle:               oracle,
-		preemptWorkloadSlice: preemptWorkloadSlice,
+		replaceWorkloadSlice: preemptWorkloadSlice,
 	}
 }
 
@@ -478,6 +492,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
 		},
+		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
 	groupedRequests := newPodSetGroups()
@@ -670,9 +685,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		representativeMode := granularMode{preemptionMode: fit, needsBorrowing: false}
 		for rName, val := range requests {
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
-			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.preemptWorkloadSlice != nil {
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 				for _, psID := range psIDs {
-					preemptWorkloadRequests := a.preemptWorkloadSlice.TotalRequests[psID]
+					preemptWorkloadRequests := a.replaceWorkloadSlice.TotalRequests[psID]
 
 					// Enforce consistent resource flavor assignment between slices.
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
