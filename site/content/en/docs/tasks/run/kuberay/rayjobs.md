@@ -91,6 +91,6 @@ kubectl create -f ray-job-sample.yaml
 ```
 
 {{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-job.sample.yaml) 
+The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-job.sample.yaml) 
 and only has the `queue-name` label added and requests updated.
 {{% /alert %}}
