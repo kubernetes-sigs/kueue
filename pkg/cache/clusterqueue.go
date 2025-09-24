@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -57,7 +56,7 @@ type clusterQueue struct {
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        resource.Quantity
+	FairWeight        float64
 	FlavorFungibility kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
@@ -621,8 +620,8 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 
 // Implements dominantResourceShareNode interface.
 
-func (c *clusterQueue) fairWeight() *resource.Quantity {
-	return &c.FairWeight
+func (c *clusterQueue) fairWeight() float64 {
+	return c.FairWeight
 }
 
 func (c *clusterQueue) isTASOnly() bool {
