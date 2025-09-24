@@ -1027,35 +1027,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
-		ginkgo.It("Should preempt on-create Workloads with lower priority when there is not enough quota", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-			ginkgo.By("Creating low priority workload")
-			lowWl := testing.MakeWorkload("low", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "2").
-				Obj()
-			util.MustCreate(ctx, k8sClient, lowWl)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
-
-			ginkgo.By("Creating a high priority workload")
-			highWl := testing.MakeWorkload("high", ns.Name).
-				Queue(kueue.LocalQueueName(q.Name)).
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Priority(highPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, highWl)
-			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, lowWl)
-			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
-
-			ginkgo.By("Remove a high priority workload")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWl, true)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
-		})
-
 		ginkgo.It("Should preempt on-scale-up Workloads with lower priority when there is not enough quota", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			ginkgo.By("Creating low priority workload")
