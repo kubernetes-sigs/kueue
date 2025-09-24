@@ -75,8 +75,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 For quick access during development or testing(had tested by Docker Desktop):
 
 ```bash
-kubectl port-forward svc/kueue-kueue-viz-frontend -n kueue-system 8080
-kubectl port-forward svc/kueue-kueue-viz-backend  -n kueue-system 8081:8080
+kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080
+kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
 ```
 
 Edit the kueue-viz-frontend Deployment to set env `REACT_APP_WEBSOCKET_URL=ws://localhost:8081`.
