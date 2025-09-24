@@ -43,11 +43,6 @@ import (
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
-const (
-	queueVisibilityClusterQueuesMaxValue              = 4000
-	queueVisibilityClusterQueuesUpdateIntervalSeconds = 1
-)
-
 var (
 	integrationsPath                     = field.NewPath("integrations")
 	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
@@ -62,7 +57,6 @@ var (
 	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
 	afsPath                              = field.NewPath("admissionFairSharing")
 	internalCertManagementPath           = field.NewPath("internalCertManagement")
-	queueVisibilityPath                  = field.NewPath("queueVisibility")
 	resourceTransformationPath           = field.NewPath("resources", "transformations")
 	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
@@ -73,7 +67,6 @@ var (
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
-	allErrs = append(allErrs, validateQueueVisibility(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
@@ -157,25 +150,6 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 		if ptr.Deref(strategy.BackoffMaxSeconds, 0) < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffMaxSeconds"),
 				*strategy.BackoffMaxSeconds, apimachineryvalidation.IsNegativeErrorMsg))
-		}
-	}
-	return allErrs
-}
-
-func validateQueueVisibility(cfg *configapi.Configuration) field.ErrorList {
-	var allErrs field.ErrorList
-	if cfg.QueueVisibility != nil {
-		if cfg.QueueVisibility.ClusterQueues != nil {
-			maxCountPath := queueVisibilityPath.Child("clusterQueues").Child("maxCount")
-			if cfg.QueueVisibility.ClusterQueues.MaxCount < 0 {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, apimachineryvalidation.IsNegativeErrorMsg))
-			}
-			if cfg.QueueVisibility.ClusterQueues.MaxCount > queueVisibilityClusterQueuesMaxValue {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))
-			}
-		}
-		if cfg.QueueVisibility.UpdateIntervalSeconds < queueVisibilityClusterQueuesUpdateIntervalSeconds {
-			allErrs = append(allErrs, field.Invalid(queueVisibilityPath.Child("updateIntervalSeconds"), cfg.QueueVisibility.UpdateIntervalSeconds, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)))
 		}
 	}
 	return allErrs

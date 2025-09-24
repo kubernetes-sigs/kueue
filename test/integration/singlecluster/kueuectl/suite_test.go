@@ -86,12 +86,6 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	mgr.GetScheme().Default(controllersCfg)
 
 	controllersCfg.Metrics.EnableClusterQueueResources = true
-	controllersCfg.QueueVisibility = &config.QueueVisibility{
-		UpdateIntervalSeconds: 2,
-		ClusterQueues: &config.ClusterQueueVisibility{
-			MaxCount: 3,
-		},
-	}
 
 	cCache := schdcache.New(mgr.GetClient())
 	queues := qcache.NewManager(mgr.GetClient(), cCache)

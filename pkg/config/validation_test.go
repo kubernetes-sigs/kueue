@@ -43,12 +43,6 @@ func TestValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defaultQueueVisibility := &configapi.QueueVisibility{
-		UpdateIntervalSeconds: configapi.DefaultQueueVisibilityUpdateIntervalSeconds,
-		ClusterQueues: &configapi.ClusterQueueVisibility{
-			MaxCount: configapi.DefaultClusterQueuesMaxCount,
-		},
-	}
 	systemNamespacesSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -77,48 +71,6 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "integrations",
-				},
-			},
-		},
-		"invalid queue visibility UpdateIntervalSeconds": {
-			cfg: &configapi.Configuration{
-				QueueVisibility: &configapi.QueueVisibility{
-					UpdateIntervalSeconds: 0,
-				},
-				Integrations: defaultIntegrations,
-			},
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("queueVisibility").Child("updateIntervalSeconds"), 0, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)),
-			},
-		},
-		"invalid queue visibility cluster queue max count due to exceeding maximal value": {
-			cfg: &configapi.Configuration{
-				QueueVisibility: &configapi.QueueVisibility{
-					ClusterQueues: &configapi.ClusterQueueVisibility{
-						MaxCount: 4001,
-					},
-					UpdateIntervalSeconds: 1,
-				},
-				Integrations: defaultIntegrations,
-			},
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("queueVisibility").Child("clusterQueues").Child("maxCount"), 4001, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)),
-			},
-		},
-		"negative queue visibility cluster queue max cont": {
-			cfg: &configapi.Configuration{
-				QueueVisibility: &configapi.QueueVisibility{
-					ClusterQueues: &configapi.ClusterQueueVisibility{
-						MaxCount: -1,
-					},
-					UpdateIntervalSeconds: 1,
-				},
-				Integrations: defaultIntegrations,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "queueVisibility.clusterQueues.maxCount",
 				},
 			},
 		},
@@ -209,7 +161,6 @@ func TestValidate(t *testing.T) {
 		},
 		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
 					PodOptions: nil,
@@ -224,8 +175,7 @@ func TestValidate(t *testing.T) {
 		},
 		"emptyLabelSelector": {
 			cfg: &configapi.Configuration{
-				Namespace:       ptr.To("kueue-system"),
-				QueueVisibility: defaultQueueVisibility,
+				Namespace: ptr.To("kueue-system"),
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
@@ -246,7 +196,6 @@ func TestValidate(t *testing.T) {
 		},
 		"valid managedJobsNamespaceSelector ": {
 			cfg: &configapi.Configuration{
-				QueueVisibility:              defaultQueueVisibility,
 				ManagedJobsNamespaceSelector: systemNamespacesSelector,
 				Integrations:                 defaultIntegrations,
 			},
@@ -255,7 +204,6 @@ func TestValidate(t *testing.T) {
 
 		"prohibited namespace in MatchLabels": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
@@ -276,7 +224,6 @@ func TestValidate(t *testing.T) {
 		},
 		"prohibited namespace in MatchLabels managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						corev1.LabelMetadataName: "kube-system",
@@ -293,7 +240,6 @@ func TestValidate(t *testing.T) {
 		},
 		"prohibited namespace in MatchExpressions with operator In": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
@@ -318,7 +264,6 @@ func TestValidate(t *testing.T) {
 		},
 		"prohibited namespace in MatchExpressions with operator In managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
@@ -339,7 +284,6 @@ func TestValidate(t *testing.T) {
 		},
 		"prohibited namespace in MatchExpressions with operator NotIn": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
 					PodOptions: &configapi.PodIntegrationOptions{
@@ -359,7 +303,6 @@ func TestValidate(t *testing.T) {
 		},
 		"prohibited namespace in MatchExpressions with operator NotIn managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
-				QueueVisibility: defaultQueueVisibility,
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{

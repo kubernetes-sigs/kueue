@@ -64,12 +64,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{defaultJobFrameworkName},
 	}
-	defaultQueueVisibility := &QueueVisibility{
-		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
-		ClusterQueues: &ClusterQueueVisibility{
-			MaxCount: 10,
-		},
-	}
 	defaultManagedJobsNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -122,7 +116,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -166,7 +159,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -197,8 +189,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				Integrations:    defaultIntegrations,
-				QueueVisibility: defaultQueueVisibility,
+				Integrations: defaultIntegrations,
 			},
 			want: &Configuration{
 				Namespace: ptr.To(DefaultNamespace),
@@ -227,7 +218,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -271,7 +261,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -291,7 +280,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 overwriteNamespaceIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -312,7 +300,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 overwriteNamespaceIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -340,7 +327,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Burst: ptr.To[int32](456),
 				},
 				Integrations:                 overwriteNamespaceIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -362,7 +348,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 overwriteNamespaceIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
@@ -396,7 +381,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
@@ -421,7 +405,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
@@ -461,7 +444,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
@@ -484,38 +466,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
-				},
-				QueueVisibility:              defaultQueueVisibility,
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             &WaitForPodsReady{},
-			},
-		},
-		"queue visibility": {
-			original: &Configuration{
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				QueueVisibility: &QueueVisibility{
-					UpdateIntervalSeconds: 10,
-					ClusterQueues: &ClusterQueueVisibility{
-						MaxCount: 0,
-					},
-				},
-			},
-			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
-				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
-					Enable: ptr.To(false),
-				},
-				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
-				QueueVisibility: &QueueVisibility{
-					UpdateIntervalSeconds: 10,
-					ClusterQueues: &ClusterQueueVisibility{
-						MaxCount: 0,
-					},
 				},
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
@@ -542,7 +492,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
-				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
@@ -573,7 +522,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
-				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: time.Second},
 					Origin:            ptr.To(DefaultMultiKueueOrigin),
@@ -602,7 +550,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
-				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
 					GCInterval:        &metav1.Duration{},
 					Origin:            ptr.To("multikueue-manager1"),
@@ -630,7 +577,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				FairSharing: &FairSharing{
@@ -660,7 +606,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				ObjectRetentionPolicies: &ObjectRetentionPolicies{
@@ -693,7 +638,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				Resources: &Resources{
