@@ -89,6 +89,6 @@ kubectl create -f ray-job-sample.yaml
 ```
 
 {{% alert title="注意" color="primary" %}}
-上述示例来自[这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-job.sample.yaml)
+上述示例来自[这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-job.sample.yaml)
 并且只添加了 `queue-name` 标签和更新了请求。
 {{% /alert %}}
