@@ -19,8 +19,7 @@
 /docs/tasks/run_jobsets            /docs/tasks/run/jobsets                                                  301
 /docs/tasks/run_kubeflow_jobs      /docs/tasks/run/kubeflow                                                 301
 /docs/tasks/run_plain_pods         /docs/tasks/run/plain_pods                                               301
-/docs/tasks/run_rayclusters        /docs/tasks/run/rayclusters                                              301
-/docs/tasks/run_rayjobs            /docs/tasks/run/rayjobs                                                  301
+/docs/tasks/run_kuberay_crds       /docs/tasks/run/kuberay                                                  301
 
 /docs/tasks/run_kubeflow_jobs/run_mpijobs     /docs/tasks/run/kubeflow/mpijobs     301
 /docs/tasks/run_kubeflow_jobs/run_paddlejobs  /docs/tasks/run/kubeflow/paddlejobs  301
@@ -28,3 +27,6 @@
 /docs/tasks/run_kubeflow_jobs/run_tfjobs      /docs/tasks/run/kubeflow/tfjobs      301
 /docs/tasks/run_kubeflow_jobs/run_xgboostjobs /docs/tasks/run/kubeflow/xgboostjobs 301
 
+/docs/tasks/run_kuberay_crds/run_rayclusters  /docs/tasks/run/kuberay/rayclusters  301
+/docs/tasks/run_kuberay_crds/run_rayjobs      /docs/tasks/run/kuberay/rayjobs      301
+/docs/tasks/run_kuberay_crds/run_rayservices  /docs/tasks/run/kuberay/rayservices  301
