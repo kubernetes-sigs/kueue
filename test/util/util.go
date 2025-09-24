@@ -568,31 +568,31 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, v int) {
-	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, workloadPriorityClass)
+func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
+	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass)
 	expectCounterMetric(metric, v)
 }
 
-func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, count int) {
+func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.AdmissionWaitTime.WithLabelValues(cq.Name, workloadPriorityClass)
+		metric := metrics.AdmissionWaitTime.WithLabelValues(cq.Name, priorityClass)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, count int) {
+func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.AdmissionChecksWaitTime.WithLabelValues(cq.Name, workloadPriorityClass)
+		metric := metrics.AdmissionChecksWaitTime.WithLabelValues(cq.Name, priorityClass)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, workloadPriorityClass string, v int) {
-	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, workloadPriorityClass)
+func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, priorityClass string, v int) {
+	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass)
 	expectCounterMetric(metric, v)
 }
 
@@ -601,8 +601,8 @@ func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string,
 	expectHistogramMetric(metric, cqName, reason, underlyingCause, v)
 }
 
-func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause, workloadPriorityClass string, v int) {
-	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause, workloadPriorityClass)
+func ExpectEvictedWorkloadsOnceTotalMetric(cqName string, reason, underlyingCause, priorityClass string, v int) {
+	metric := metrics.EvictedWorkloadsOnceTotal.WithLabelValues(cqName, reason, underlyingCause, priorityClass)
 	expectCounterMetric(metric, v)
 }
 
@@ -611,14 +611,14 @@ func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) 
 	expectCounterMetric(metric, v)
 }
 
-func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, v int) {
-	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name, workloadPriorityClass)
+func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int) {
+	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name, priorityClass)
 	expectCounterMetric(metric, v)
 }
 
-func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, workloadPriorityClass string, count int) {
+func ExpectQuotaReservedWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		metric := metrics.QuotaReservedWaitTime.WithLabelValues(cq.Name, workloadPriorityClass)
+		metric := metrics.QuotaReservedWaitTime.WithLabelValues(cq.Name, priorityClass)
 		v, err := testutil.GetHistogramMetricCount(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
