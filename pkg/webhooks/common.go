@@ -41,12 +41,20 @@ type validationConfig struct {
 
 // validateFairSharing validates the FairSharing config for both ClusterQueues and Cohorts.
 func validateFairSharing(fs *kueue.FairSharing, fldPath *field.Path) field.ErrorList {
-	if fs == nil {
+	if fs == nil || fs.Weight == nil {
 		return nil
 	}
 	var allErrs field.ErrorList
-	if fs.Weight != nil && fs.Weight.Cmp(resource.Quantity{}) < 0 {
+
+	// validate non-negative
+	if fs.Weight.Cmp(resource.Quantity{}) < 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath, fs.Weight.String(), apimachineryvalidation.IsNegativeErrorMsg))
+	}
+
+	// validate that not a value which will collapse:
+	// 0 < value <= 10e-9
+	if fs.Weight.Cmp(resource.Quantity{}) > 0 && fs.Weight.Cmp(resource.MustParse("1n")) <= 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, fs.Weight.String(), "When not 0, weight must be > 10e-9"))
 	}
 	return allErrs
 }

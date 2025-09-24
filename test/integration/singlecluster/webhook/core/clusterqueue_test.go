@@ -548,7 +548,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				gomega.Succeed()),
-			ginkgo.Entry("Should allow zero fair share weight",
+			ginkgo.Entry("Should allow zero FairSharing weight",
 				&kueue.ClusterQueue{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cluster-queue",
@@ -560,7 +560,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				gomega.Succeed()),
-			ginkgo.Entry("Should allow fractional weight",
+			ginkgo.Entry("Should allow fractional FairSharing weight",
 				&kueue.ClusterQueue{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cluster-queue",
@@ -572,7 +572,72 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				gomega.Succeed()),
-			ginkgo.Entry("Should forbid negative weight",
+			ginkgo.Entry("Should allow small FairSharing weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							// 10^-3
+							Weight: ptr.To(resource.MustParse("1m")),
+						},
+					},
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow even smaller FairSharing weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							// 10^-6
+							Weight: ptr.To(resource.MustParse("1u")),
+						},
+					},
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow smallest FairSharing weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							// 2 * 10^-9
+							Weight: ptr.To(resource.MustParse("2n")),
+						},
+					},
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should forbid threshold FairSharing weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							// 10^-9
+							Weight: ptr.To(resource.MustParse("1n")),
+						},
+					},
+				},
+				testing.BeForbiddenError()),
+			ginkgo.Entry("Should forbid collapsed FairSharing weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							// 10^-10
+							Weight: ptr.To(resource.MustParse("0.0000000001")),
+						},
+					},
+				},
+				testing.BeForbiddenError()),
+			ginkgo.Entry("Should forbid negative FairSharing weight",
 				&kueue.ClusterQueue{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cluster-queue",

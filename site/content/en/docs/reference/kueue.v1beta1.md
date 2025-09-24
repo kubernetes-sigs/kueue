@@ -1172,7 +1172,8 @@ ClusterQueues and Cohorts with the lowest share and
 preempting workloads from the ClusterQueues and Cohorts
 with the highest share.  A zero weight implies infinite
 share value, meaning that this Node will always be at
-disadvantage against other ClusterQueues and Cohorts.</p>
+disadvantage against other ClusterQueues and Cohorts.
+When not 0, Weight must be greater than 10^-9.</p>
 </td>
 </tr>
 </tbody>

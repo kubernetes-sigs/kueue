@@ -80,6 +80,7 @@ spec:
                         with the highest share.  A zero weight implies infinite
                         share value, meaning that this Node will always be at
                         disadvantage against other ClusterQueues and Cohorts.
+                        When not 0, Weight must be greater than 10^-9.
                       pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                       x-kubernetes-int-or-string: true
                   type: object
