@@ -110,7 +110,7 @@ func TestPatch(t *testing.T) {
 					obj.Spec.Suspend = ptr.To(true)
 					return obj, true, nil
 				},
-				options: []PatchOption{WithStrict(false)},
+				options: []PatchOption{WithLoose()},
 			},
 			want: want{
 				// Unlike "Strict" version - this update is successful since the resource version is not
@@ -128,7 +128,7 @@ func TestPatch(t *testing.T) {
 					obj.Spec.Suspend = ptr.To(true)
 					return obj, true, nil
 				},
-				options: []PatchOption{WithStrict(false)},
+				options: []PatchOption{WithLoose()},
 			},
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
@@ -235,7 +235,7 @@ func TestPatchStatus(t *testing.T) {
 					obj.Status.Active = 1
 					return obj, true, nil
 				},
-				options: []PatchOption{WithStrict(false)},
+				options: []PatchOption{WithLoose()},
 			},
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
@@ -251,7 +251,7 @@ func TestPatchStatus(t *testing.T) {
 					obj.Status.Active = 1
 					return obj, true, nil
 				},
-				options: []PatchOption{WithStrict(false)},
+				options: []PatchOption{WithLoose()},
 			},
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
