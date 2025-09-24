@@ -47,7 +47,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -3650,7 +3650,7 @@ func TestSchedule(t *testing.T) {
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range allQueues {
@@ -4552,7 +4552,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme,
 				corev1.EventSource{Component: constants.AdmissionName})
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range queues {
@@ -4745,7 +4745,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)
 			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
@@ -4961,7 +4961,7 @@ func TestResourcesToReserve(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flavor := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flavor)
 			}
@@ -7348,7 +7348,7 @@ func TestScheduleForTAS(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			now := time.Now()
 			fakeClock := testingclock.NewFakeClock(now)
 			qManager := queue.NewManager(cl, cqCache, queue.WithClock(fakeClock))
@@ -7895,7 +7895,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
@@ -8867,7 +8867,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
 				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
