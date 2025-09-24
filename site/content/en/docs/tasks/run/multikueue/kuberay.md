@@ -26,7 +26,7 @@ kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v1
 
 ## MultiKueue integration
 
-Once the setup is complete you can test it by running a RayJob [`ray-job-sample.yaml`](/docs/tasks/run/rayjobs/#example-rayjob).
+Once the setup is complete you can test it by running a RayJob [`ray-job-sample.yaml`](/docs/tasks/run/kuberay/rayjobs/#example-rayjob).
 
 {{% alert title="Note" color="primary" %}}
 Kueue defaults the `spec.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for KubeRay Jobs (RayJob, RayCluster, RayService). 

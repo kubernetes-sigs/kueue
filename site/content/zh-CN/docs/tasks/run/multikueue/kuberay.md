@@ -27,7 +27,7 @@ kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v1
 
 ## MultiKueue 集成 {#multikueue-integration}
 
-完成设置后，你可以通过运行 RayJob [`ray-job-sample.yaml`](/zh-CN/docs/tasks/run/rayjobs/#example-rayjob)进行测试。
+完成设置后，你可以通过运行 RayJob [`ray-job-sample.yaml`](/zh-CN/docs/tasks/run/kuberay/rayjobs/#example-rayjob)进行测试。
 
 {{% alert title="注意" color="primary" %}}
 注意：Kueue 会在管理集群上的 KubeRay Job（RayJob、RayCluster、RayService）默认设置 `spec.managedBy` 字段为 `kueue.x-k8s.io/multikueue`。
