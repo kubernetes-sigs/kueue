@@ -20,7 +20,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
 
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -43,7 +43,7 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 	logV.Info("Workload evaluated for admission", args...)
 }
 
-func logSnapshotIfVerbose(log logr.Logger, s *cache.Snapshot) {
+func logSnapshotIfVerbose(log logr.Logger, s *schdcache.Snapshot) {
 	if logV := log.V(6); logV.Enabled() {
 		s.Log(logV)
 	}

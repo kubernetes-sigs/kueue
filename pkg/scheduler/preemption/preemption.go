@@ -35,7 +35,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -68,10 +68,10 @@ type Preemptor struct {
 type preemptionCtx struct {
 	log               logr.Logger
 	preemptor         workload.Info
-	preemptorCQ       *cache.ClusterQueueSnapshot
-	snapshot          *cache.Snapshot
+	preemptorCQ       *schdcache.ClusterQueueSnapshot
+	snapshot          *schdcache.Snapshot
 	workloadUsage     workload.Usage
-	tasRequests       cache.WorkloadTASRequests
+	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
 }
 
@@ -107,7 +107,7 @@ type Target struct {
 
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
-func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
+func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot) []*Target {
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	tasRequests := assignment.WorkloadsTopologyRequests(&wl, cq)
 	return p.getTargets(&preemptionCtx{
@@ -273,7 +273,7 @@ func fillBackWorkloads(preemptionCtx *preemptionCtx, targets []*Target, allowBor
 	return targets
 }
 
-func restoreSnapshot(snapshot *cache.Snapshot, targets []*Target) {
+func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 	for _, t := range targets {
 		snapshot.AddWorkload(t.WorkloadInfo)
 	}
@@ -417,7 +417,7 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
+func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
 	preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
@@ -477,7 +477,7 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 	return candidates
 }
 
-func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
+func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
 	if !cq.HasParent() {
 		return false
 	}

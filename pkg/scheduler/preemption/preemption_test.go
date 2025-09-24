@@ -38,7 +38,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -55,11 +55,11 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v int64) bool { return v == 0 }),
-	cmp.AllowUnexported(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}),
-	cmpopts.IgnoreFields(hierarchy.Manager[*cache.ClusterQueueSnapshot, *cache.CohortSnapshot]{}, "cohortFactory"),
-	cmpopts.IgnoreFields(cache.CohortSnapshot{}, "Cohort"),
-	cmp.AllowUnexported(cache.ClusterQueueSnapshot{}),
-	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "ClusterQueue"),
+	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
+	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
+	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
+	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),
 }
 
 func TestPreemption(t *testing.T) {
@@ -2237,7 +2237,7 @@ func TestPreemption(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
 
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flv := range flavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
@@ -3155,7 +3155,7 @@ func TestFairPreemptions(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flv := range flavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
@@ -4561,7 +4561,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
 
-			cqCache := cache.New(cl)
+			cqCache := schdcache.New(cl)
 			for _, flv := range flavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flv)
 			}
