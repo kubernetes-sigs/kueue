@@ -772,7 +772,7 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 	for _, wl := range wls {
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, false, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+			g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, true, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
 				updated := workload.SyncAdmittedCondition(&updatedWorkload, time.Now())
 				return &updatedWorkload, updated, nil
 			})).To(gomega.Succeed())
