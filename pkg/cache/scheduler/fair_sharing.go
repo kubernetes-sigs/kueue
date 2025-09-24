@@ -21,35 +21,34 @@ import (
 	"math"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
-var (
-	oneQuantity = resource.MustParse("1")
+const (
+	defaultWeight = 1.0
 )
 
 // dominantResourceShareNode is a node in the Cohort tree on which we
 // can compute its dominantResourceShare.
 type dominantResourceShareNode interface {
 	// see FairSharing.Weight in the API.
-	fairWeight() *resource.Quantity
+	fairWeight() float64
 	hierarchicalResourceNode
 }
 
 // DRS contains the DominantResourceShare for some
 // node, with convenence methods for precise comparison.
 type DRS struct {
-	fairWeight       *resource.Quantity
+	fairWeight       float64
 	unweightedRatio  float64
 	dominantResource corev1.ResourceName
 }
 
 // NegativeDRS is used as a starting point for comparisons.
 func NegativeDRS() DRS {
-	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: &oneQuantity}
+	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
 // IsZero returns whether the DRS is 0. In other words,
@@ -59,21 +58,20 @@ func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
 
+func (d DRS) isWeightZero() bool {
+	return d.fairWeight == 0
+}
+
 func (d DRS) PreciseWeightedShare() float64 {
 	if d.IsZero() {
 		return 0.0
 	}
-	if d.fairWeight.IsZero() {
+	if d.isWeightZero() {
 		// This branch is used only for logging; functional
 		// branches never reach here.
 		return math.Inf(1)
 	}
-	// We make a copy to ensure the fairWeight object doesn’t change after calling AsFloat64Slow().
-	// This can happen because quantity.AsDec mutates the underlying state
-	// (see https://github.com/kubernetes/apimachinery/blob/da5b06e2fb6698d6db8866899150ec2c1b4518d9/pkg/api/resource/quantity.go#L538).
-	// This mutation triggers the golang data race reporting when the DRS structure is used from multiple goroutines.
-	frWeightCopy := d.fairWeight.DeepCopy()
-	return d.unweightedRatio / frWeightCopy.AsFloat64Slow()
+	return d.unweightedRatio / d.fairWeight
 }
 
 // CompareDRS compares two DRS values. A lower value
@@ -114,7 +112,7 @@ func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 // zeroWeightBorrows returns whether this DRS represents a
 // borrowing state for a ClusterQueue/Cohort with a zero weight.
 func (d DRS) zeroWeightBorrows() bool {
-	return d.fairWeight.IsZero() && !d.IsZero()
+	return d.isWeightZero() && !d.IsZero()
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
@@ -168,9 +166,16 @@ func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]in
 
 // parseFairWeight parses FairSharing.Weight if it exists,
 // or otherwise returns the default value of 1.
-func parseFairWeight(fs *kueue.FairSharing) resource.Quantity {
+func parseFairWeight(fs *kueue.FairSharing) float64 {
 	if fs == nil || fs.Weight == nil {
-		return oneQuantity
+		return defaultWeight
 	}
-	return *fs.Weight
+
+	// We make a deep copy to avoid any data race, as this is a
+	// mutating method. Even though parseFairWeight is only called
+	// when we're holding the cache's write lock, we race with the
+	// informer cache. See
+	// https://github.com/kubernetes/apimachinery/blob/da5b06e2fb6698d6db8866899150ec2c1b4518d9/pkg/api/resource/quantity.go#L538-L539
+	weightDeepCopy := fs.Weight.DeepCopy()
+	return weightDeepCopy.AsFloat64Slow()
 }
