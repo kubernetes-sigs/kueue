@@ -1,37 +1,37 @@
 ---
-title: "使用就绪态 Pod 配置全有或全无调度"
+title: "Configure all-or-nothing scheduling with ready Pods"
 date: 2022-03-14
 weight: 5
-description: 基于超时的全有或全无调度实现
+description: All-or-nothing scheduling implementation based on timeout
 ---
 
-有些作业需要所有 Pod 同时运行才能工作；
-例如，同步的分布式训练或基于 MPI 的作业需要 Pod 间通信。
-在默认的 Kueue 配置下，如果可用的物理资源与 Kueue 中配置的配额不匹配，这类作业可能会死锁。
-而如果这些作业的 Pod 能够顺序调度，则可以顺利完成。
+Some jobs require all Pods to run simultaneously to work;
+for example, synchronous distributed training or MPI-based jobs require inter-Pod communication.
+Under the default Kueue configuration, if the available physical resources don't match the quotas configured in Kueue, such jobs may deadlock.
+However, if the Pods of these jobs can be scheduled sequentially, they can complete successfully.
 
-为了解决这一需求，从 0.3.0 版本开始，我们引入了一个可选机制，
-通过 `waitForPodsReady` 标志进行配置，提供了全有或全无调度的简单实现。
-启用后，Kueue 会监控工作负载，直到其所有 Pod 就绪（即已调度、运行并通过可选的就绪态检测）。
-如果在配置的超时时间内工作负载对应的所有 Pod 并未完全就绪，
-则该工作负载会被驱逐并重新排队。
+To address this need, starting from version 0.3.0, we introduced an optional mechanism,
+configured through the `waitForPodsReady` flag, providing a simple implementation of all-or-nothing scheduling.
+When enabled, Kueue monitors workloads until all their Pods are ready (i.e., scheduled, running, and passing optional readiness checks).
+If all Pods corresponding to a workload are not fully ready within the configured timeout period,
+the workload will be evicted and requeued.
 
-本页面向你展示如何配置 Kueue 使用 `waitForPodsReady`，
-这是全有或全无调度的简单实现。
-本页面面向[批处理管理员](/zh-CN/docs/tasks#batch-administrator)。
+This page shows you how to configure Kueue to use `waitForPodsReady`,
+which is a simple implementation of all-or-nothing scheduling.
+This page is for [batch administrators](/docs/tasks#batch-administrator).
 
-## 开始之前 {#before-you-begin}
+## Before you begin {#before-you-begin}
 
-请确保满足以下条件：
+Make sure you meet the following requirements:
 
-- Kubernetes 集群已运行。
-- kubectl 命令行工具已能与你的集群通信。
-- [已安装 Kueue](/zh-CN/docs/installation)，版本为 0.3.0 或更高。
+- Kubernetes cluster is running.
+- kubectl command-line tool can communicate with your cluster.
+- [Kueue is installed](/docs/installation) with version 0.3.0 or higher.
 
-## 启用 waitForPodsReady {#enabling-waitforpodsready}
+## Enabling waitForPodsReady {#enabling-waitforpodsready}
 
-请按照[此处](/zh-CN/docs/installation#install-a-custom-configured-released-version)的说明，
-使用如下字段扩展配置来安装某个发布版本：
+Follow the instructions described [here](/docs/installation#install-a-custom-configured-released-version)
+to install a release version by extending the configuration with the following fields:
 
 ```yaml
     waitForPodsReady:
@@ -46,96 +46,96 @@ description: 基于超时的全有或全无调度实现
         backoffMaxSeconds: 3600
 ```
 
-{{% alert title="注意" color="primary" %}}
-如果你更新了现有的 Kueue 安装，可能需要重启 `kueue-controller-manager` Pod
-以使 Kueue 读取更新后的配置。在这种情况下请运行：
+{{% alert title="Note" color="primary" %}}
+If you update an existing Kueue installation, you may need to restart the `kueue-controller-manager` Pod
+for Kueue to read the updated configuration. In this case, run:
 
 ```shell
 kubectl delete pods --all -n kueue-system
 ```
 {{% /alert %}}
 
-`timeout`（`waitForPodsReady.timeout`）是一个可选参数，默认值为 5 分钟。
+`timeout` (`waitForPodsReady.timeout`) is an optional parameter with a default value of 5 minutes.
 
-当已准入的 Workload 超过 `timeout`，
-且其 Pod 还未全部调度（即 Workload 条件仍为 `PodsReady=False`），
-则该 Workload 的准入会被取消，相应的作业会被挂起，Workload 会被重新入队。
+When an admitted Workload exceeds the `timeout`,
+and its Pods are not all scheduled (i.e., the Workload condition remains `PodsReady=False`),
+the Workload's admission will be cancelled, the corresponding job will be suspended, and the Workload will be requeued.
 
-`recoveryTimeout` 是一个可选参数，
-用于已运行但有一个或多个 Pod 处于未就绪状态（如 Pod 故障）的 Workload。
-如果 Pod 未就绪，Workload 通常无法推进，
-导致资源浪费。为防止这种情况，用户可以配置一个愿意等待恢复 Pod 的超时时间。
-如果 `recoveryTimeout` 到期，与常规超时类似，Workload 会被驱逐并重新入队。
-该参数无默认值，需显式设置。
+`recoveryTimeout` is an optional parameter,
+used for Workloads that are running but have one or more Pods in an unready state (such as Pod failures).
+If Pods are not ready, Workloads usually cannot progress,
+leading to resource waste. To prevent this, users can configure a timeout period they are willing to wait for Pod recovery.
+If `recoveryTimeout` expires, similar to regular timeout, the Workload will be evicted and requeued.
+This parameter has no default value and must be explicitly set.
 
-`blockAdmission`（`waitForPodsReady.blockAdmission`）是一个可选参数。
-启用后，Workload 会被顺序准入，以防止如下例所示的死锁情况。
+`blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
+When enabled, Workloads will be admitted sequentially to prevent deadlock situations as shown in the example below.
 
-### 重新排队策略 {#requeuing-strategy}
+### Requeuing Strategy {#requeuing-strategy}
 
 {{< feature-state state="stable" for_version="v0.6" >}}
 
-{{% alert title="注意" color="primary" %}}
-`backoffBaseSeconds` 和 `backoffMaxSeconds` 仅在 Kueue v0.7.0 及更高版本可用
+{{% alert title="Note" color="primary" %}}
+`backoffBaseSeconds` and `backoffMaxSeconds` are only available in Kueue v0.7.0 and higher
 {{% /alert %}}
 
-`requeuingStrategy`（`waitForPodsReady.requeuingStrategy`）包含以下可选参数：
+`requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains the following optional parameters:
 - `timestamp`
 - `backoffLimitCount`
 - `backoffBaseSeconds`
 - `backoffMaxSeconds`
 
-`timestamp` 字段定义 Kueue 用于在队列中排序 Workload 的时间戳：
+The `timestamp` field defines the timestamp that Kueue uses to sort Workloads in the queue:
 
-- `Eviction`（默认）：Workload 中 `Evicted=true` 条件且原因为 `PodsReadyTimeout` 的 `lastTransitionTime`。
-- `Creation`：Workload 的 creationTimestamp。
+- `Eviction` (default): The `lastTransitionTime` of the `Evicted=true` condition with reason `PodsReadyTimeout` in the Workload.
+- `Creation`: The creationTimestamp of the Workload.
 
-如果希望被 `PodsReadyTimeout` 驱逐的 Workload 重新入队时回到队列原始位置，
-应将 timestamp 设置为 `Creation`。
+If you want Workloads evicted by `PodsReadyTimeout` to return to their original position in the queue when requeued,
+set timestamp to `Creation`.
 
-Kueue 会将因 `PodsReadyTimeout` 被驱逐的 Workload 重新入队，
-直到重新入队次数达到 `backoffLimitCount`。
-如果未指定 `backoffLimitCount`，Workload 会根据 `timestamp` 不断、无限制地重新入队。
-一旦重新入队次数达到上限，Kueue 会[停用该 Workload](/zh-CN/docs/concepts/workload/#active)。
+Kueue will requeue Workloads evicted by `PodsReadyTimeout`,
+until the requeue count reaches `backoffLimitCount`.
+If `backoffLimitCount` is not specified, Workloads will be requeued continuously and indefinitely based on `timestamp`.
+Once the requeue count reaches the limit, Kueue will [deactivate the Workload](/docs/concepts/workload/#active).
 
-每次超时后，Workload 重新入队的时间会以 2 为底数指数递增。
-第一次延迟由 `backoffBaseSeconds` 参数决定（默认为 60）。
-可通过设置 `backoffMaxSeconds`（默认为 3600）配置最大退避时间。
-使用默认值时，驱逐的 Workload 会在大约 `60, 120, 240, ..., 3600, ..., 3600` 秒后重新入队。
-即使退避时间达到 `backoffMaxSeconds`，
-Kueue 仍会以 `backoffMaxSeconds` 的间隔继续重新入队，
-直到重新入队次数达到 `backoffLimitCount`。
+After each timeout, the time for Workload requeuing will increase exponentially with base 2.
+The first delay is determined by the `backoffBaseSeconds` parameter (default is 60).
+The maximum backoff time can be configured by setting `backoffMaxSeconds` (default is 3600).
+With default values, evicted Workloads will be requeued after approximately `60, 120, 240, ..., 3600, ..., 3600` seconds.
+Even when the backoff time reaches `backoffMaxSeconds`,
+Kueue will continue requeuing at `backoffMaxSeconds` intervals,
+until the requeue count reaches `backoffLimitCount`.
 
-## 示例 {#examples}
+## Examples {#examples}
 
-本示例演示在 Kueue 中启用 `waitForPodsReady` 的影响。
-我们创建两个作业，
-这两个作业都要求其所有 Pod 同时运行才能完成。
-集群资源只够同时运行其中一个作业。
+This example demonstrates the impact of enabling `waitForPodsReady` in Kueue.
+We create two jobs,
+both requiring all their Pods to run simultaneously to complete.
+The cluster resources are only sufficient to run one of the jobs at a time.
 
-{{% alert title="注意" color="primary" %}}
-本示例使用禁用自动扩容的集群，
-以模拟资源无法满足配置配额的情况。
+{{% alert title="Note" color="primary" %}}
+This example uses a cluster with auto-scaling disabled,
+to simulate a situation where resources cannot meet the configured quotas.
 {{% /alert %}}
 
-### 1. 准备工作 {#1-preparation}
+### 1. Preparation {#1-preparation}
 
-首先，检查集群中可分配内存的总量。
-通常可以用以下命令完成：
+First, check the total amount of allocatable memory in the cluster.
+This can usually be done with the following command:
 
 ```shell
 TOTAL_ALLOCATABLE=$(kubectl get node --selector='!node-role.kubernetes.io/master,!node-role.kubernetes.io/control-plane' -o jsonpath='{range .items[*]}{.status.allocatable.memory}{"\n"}{end}' | numfmt --from=auto | awk '{s+=$1} END {print s}')
 echo $TOTAL_ALLOCATABLE
 ```
 
-在我们的例子中，输出为 `8838569984`，可近似为 `8429Mi`。
+In our example, the output is `8838569984`, which can be approximated as `8429Mi`.
 
-#### 配置 ClusterQueue 配额
+#### Configure ClusterQueue Quota
 
-我们将 memory flavor 配置为集群可分配内存的两倍，
-以模拟资源不足的情况。
+We configure the memory flavor to be twice the cluster's allocatable memory,
+to simulate a resource shortage situation.
 
-将以下 cluster queues 配置保存为 `cluster-queues.yaml`：
+Save the following cluster queues configuration as `cluster-queues.yaml`:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -166,19 +166,19 @@ spec:
   clusterQueue: "cluster-queue"
 ```
 
-然后应用配置：
+Then apply the configuration:
 
 ```shell
 kubectl apply -f cluster-queues.yaml
 ```
 
-#### 准备作业模板
+#### Prepare Job Template
 
-将以下作业模板保存为 `job-template.yaml` 文件。
-注意 `_ID_` 占位符，将用于为两个作业生成配置。
-请将容器的 memory 字段配置为每个 Pod 可分配内存的 75%。
-在本例中为 `75%*(8429Mi/20)=316Mi`。
-在这种情况下，资源不足以同时运行两个作业的所有 Pod，容易死锁。
+Save the following job template as `job-template.yaml` file.
+Note the `_ID_` placeholder, which will be used to generate configurations for the two jobs.
+Configure the container's memory field to be 75% of the allocatable memory per Pod.
+In this example, it's `75%*(8429Mi/20)=316Mi`.
+In this case, resources are insufficient to run all Pods of both jobs simultaneously, making deadlock likely.
 
 ```yaml
 apiVersion: v1
@@ -288,10 +288,10 @@ spec:
   backoffLimit: 0
 ```
 
-#### 额外的快速作业
+#### Additional Quick Job
 
-我们还准备了一个额外的作业以增加时序差异，使死锁更容易发生。
-将以下 yaml 保存为 `quick-job.yaml`：
+We also prepared an additional job to increase timing differences, making deadlock more likely to occur.
+Save the following yaml as `quick-job.yaml`:
 
 ```yaml
 apiVersion: batch/v1
@@ -318,9 +318,9 @@ spec:
   backoffLimit: 0
 ```
 
-### 2. 在默认配置下诱发死锁（可选） {#2-induce-a-deadlock-under-the-default-configuration-optional}
+### 2. Induce Deadlock Under Default Configuration (Optional) {#2-induce-a-deadlock-under-the-default-configuration-optional}
 
-#### 运行作业 {#run-the-jobs}
+#### Run the Jobs {#run-the-jobs}
 
 ```yaml
 sed 's/_ID_/1/g' job-template.yaml > /tmp/job1.yaml
