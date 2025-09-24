@@ -68,7 +68,12 @@ func (d DRS) PreciseWeightedShare() float64 {
 		// branches never reach here.
 		return math.Inf(1)
 	}
-	return d.unweightedRatio / d.fairWeight.AsFloat64Slow()
+	// We make a copy to ensure the fairWeight object doesn’t change after calling AsFloat64Slow().
+	// This can happen because quantity.AsDec mutates the underlying state
+	// (see https://github.com/kubernetes/apimachinery/blob/da5b06e2fb6698d6db8866899150ec2c1b4518d9/pkg/api/resource/quantity.go#L538).
+	// This mutation triggers the golang data race reporting when the DRS structure is used from multiple goroutines.
+	frWeightCopy := d.fairWeight.DeepCopy()
+	return d.unweightedRatio / frWeightCopy.AsFloat64Slow()
 }
 
 // CompareDRS compares two DRS values. A lower value
