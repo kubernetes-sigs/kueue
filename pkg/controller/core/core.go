@@ -77,12 +77,17 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "ClusterQueue", err
 	}
 
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
+	workloadRec := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
-	).SetupWithManager(mgr, cfg); err != nil {
+	)
+	if features.Enabled(features.DynamicResourceAllocation) {
+		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
+	}
+
+	if err := workloadRec.SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
 	qManager.AddTopologyUpdateWatcher(cqRec)

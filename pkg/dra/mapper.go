@@ -17,16 +17,13 @@ limitations under the License.
 package dra
 
 import (
-	"sync"
-
 	corev1 "k8s.io/api/core/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 var (
-	globalMapper     *ResourceMapper
-	globalMapperOnce sync.Once
+	globalMapper *ResourceMapper
 )
 
 // ResourceMapper provides device class to logical resource name mapping
@@ -64,11 +61,11 @@ func (m *ResourceMapper) populateFromConfiguration(mappings []configapi.DeviceCl
 	return nil
 }
 
-// Mapper returns the singleton DRA mapper instance initializing the mapper lazily on first access.
+// Mapper returns the singleton DRA mapper instance.
 func Mapper() *ResourceMapper {
-	globalMapperOnce.Do(func() {
+	if globalMapper == nil {
 		globalMapper = newDRAResourceMapper()
-	})
+	}
 	return globalMapper
 }
 

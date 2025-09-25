@@ -110,15 +110,16 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log               logr.Logger
-	queues            *qcache.Manager
-	cache             *schdcache.Cache
-	client            client.Client
-	watchers          []WorkloadUpdateWatcher
-	waitForPodsReady  *waitForPodsReadyConfig
-	recorder          record.EventRecorder
-	clock             clock.Clock
-	workloadRetention *workloadRetentionConfig
+	log                 logr.Logger
+	queues              *qcache.Manager
+	cache               *schdcache.Cache
+	client              client.Client
+	watchers            []WorkloadUpdateWatcher
+	waitForPodsReady    *waitForPodsReadyConfig
+	recorder            record.EventRecorder
+	clock               clock.Clock
+	workloadRetention   *workloadRetentionConfig
+	draReconcileChannel chan event.TypedGenericEvent[*kueue.Workload]
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -126,12 +127,13 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
 
 func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder record.EventRecorder, options ...Option) *WorkloadReconciler {
 	r := &WorkloadReconciler{
-		log:      ctrl.Log.WithName("workload-reconciler"),
-		client:   client,
-		queues:   queues,
-		cache:    cache,
-		recorder: recorder,
-		clock:    realClock,
+		log:                 ctrl.Log.WithName("workload-reconciler"),
+		client:              client,
+		queues:              queues,
+		cache:               cache,
+		recorder:            recorder,
+		clock:               realClock,
+		draReconcileChannel: make(chan event.TypedGenericEvent[*kueue.Workload], updateChBuffer),
 	}
 	for _, option := range options {
 		option(r)
@@ -192,13 +194,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if features.Enabled(features.DynamicResourceAllocation) && workload.Status(&wl) == workload.StatusPending &&
-		r.workloadHasDRA(&wl) {
-		if r.workloadHasResourceClaim(&wl) {
+		workload.HasDRA(&wl) {
+		workload.AdjustResources(ctx, r.client, &wl)
+		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, true, r.clock, func() (*kueue.Workload, bool, error) {
-				return &wl, workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()), nil
-			}); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, "DynamicResourceAllocation feature does not support use of resource claims", r.clock.Now()) {
+				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false)
+				if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+				}
 			}
 			return ctrl.Result{}, nil
 		}
@@ -207,12 +211,30 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		draResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
 		if err != nil {
 			log.Error(err, "Failed to process DRA resources for workload")
-			if updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, true, r.clock, func() (*kueue.Workload, bool, error) {
-				return &wl, workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()), nil
-			}); updateErr != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
+				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, err.Error(), false)
+				if updateErr := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock); updateErr != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
+				}
 			}
 			return ctrl.Result{}, err
+		}
+
+		quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+
+		var conditionsCleared bool
+		if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			conditionsCleared = true
+		}
+		if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+			conditionsCleared = true
+		}
+
+		if conditionsCleared {
+			log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
 		}
 
 		var queueOptions []workload.InfoOption
@@ -609,32 +631,6 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	return false, nil
 }
 
-func (r *WorkloadReconciler) workloadHasDRA(wl *kueue.Workload) bool {
-	return r.workloadHasResourceClaim(wl) || r.workloadHasResourceClaimTemplates(wl)
-}
-
-func (r *WorkloadReconciler) workloadHasResourceClaimTemplates(wl *kueue.Workload) bool {
-	for _, ps := range wl.Spec.PodSets {
-		for _, prc := range ps.Template.Spec.ResourceClaims {
-			if prc.ResourceClaimTemplateName != nil {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (r *WorkloadReconciler) workloadHasResourceClaim(wl *kueue.Workload) bool {
-	for _, ps := range wl.Spec.PodSets {
-		for _, prc := range ps.Template.Spec.ResourceClaims {
-			if prc.ResourceClaimName != nil {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[kueue.AdmissionCheckReference], c clock.Clock) ([]kueue.AdmissionCheckState, bool) {
 	if len(admissionChecks) == 0 {
 		return nil, len(conds) > 0
@@ -734,7 +730,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 
 	// It is intentional for this code to be not guarded behind a feature gate
 	// DRA workloads need to have certain error handling and hence to be handled in Reconcile loop
-	if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.Object) {
+	if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.Object) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -834,7 +830,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-		if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		} else {
 			err := r.queues.UpdateWorkload(e.ObjectOld, wlCopy)
@@ -865,7 +861,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// function.
 			if immediate {
 				// Skip queue operations for DRA workloads - they are handled in Reconcile loop
-				if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+				if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				} else {
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy); err != nil {
@@ -879,7 +875,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !immediate {
 			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 			// Skip delayed requeue for DRA workloads - they are handled in Reconcile loop
-			if features.Enabled(features.DynamicResourceAllocation) && r.workloadHasDRA(e.ObjectNew) {
+			if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(e.ObjectNew) {
 				log.V(3).Info("Skipping delayed requeue for DRA workload - handled in Reconcile")
 			} else {
 				time.AfterFunc(backoff, func() {
@@ -933,6 +929,7 @@ func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	ruh := &resourceUpdatesHandler{r: r}
 	wqh := &workloadQueueHandler{r: r}
+	deh := &draEventHandler{}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("workload_controller").
 		WatchesRawSource(source.TypedKind(
@@ -941,6 +938,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
 			r,
 		)).
+		WatchesRawSource(source.Channel(r.draReconcileChannel, deh)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
@@ -1035,7 +1033,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	}
 }
 
-func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _ workqueue.TypedRateLimitingInterface[reconcile.Request], opts ...client.ListOption) {
+func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
 	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
@@ -1049,6 +1047,19 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
+
+		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(wlCopy) {
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      wlCopy.Name,
+					Namespace: wlCopy.Namespace,
+				},
+			}
+			q.Add(req)
+			log.V(2).Info("Queued reconcile for DRA workload due to resource update")
+			continue
+		}
+
 		if err = h.r.queues.AddOrUpdateWorkload(wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -1158,4 +1169,34 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfLocalQueue(ctx contex
 		wq.Add(req)
 		log.V(5).Info("Queued reconcile for workload")
 	}
+}
+
+type draEventHandler struct{}
+
+var _ handler.TypedEventHandler[*kueue.Workload, reconcile.Request] = (*draEventHandler)(nil)
+
+func (h *draEventHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *draEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *draEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	reconcileReq := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      e.Object.Name,
+			Namespace: e.Object.Namespace,
+		},
+	}
+	q.Add(reconcileReq)
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Object))
+	log.V(2).Info("Queued reconcile for DRA workload from event channel")
+}
+
+// GetDRAReconcileChannel returns the DRA reconcile channel for connecting to the queue manager.
+func (r *WorkloadReconciler) GetDRAReconcileChannel() chan<- event.TypedGenericEvent[*kueue.Workload] {
+	return r.draReconcileChannel
 }

@@ -972,6 +972,35 @@ func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
 }
 
+// HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
+func HasDRA(w *kueue.Workload) bool {
+	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
+}
+
+// HasResourceClaimTemplates returns true if the workload has ResourceClaimTemplates.
+func HasResourceClaimTemplates(w *kueue.Workload) bool {
+	for _, ps := range w.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimTemplateName != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasResourceClaim returns true if the workload has ResourceClaims.
+func HasResourceClaim(w *kueue.Workload) bool {
+	for _, ps := range w.Spec.PodSets {
+		for _, prc := range ps.Template.Spec.ResourceClaims {
+			if prc.ResourceClaimName != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
 func IsEvictedByDeactivation(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
