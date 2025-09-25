@@ -318,7 +318,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		if updated {
 			if evicted {
-				if err := workload.Evict(ctx, r.client, r.recorder, &wl, reason, message, underlyingCause, r.clock); err != nil {
+				if err := workload.Evict(ctx, r.client, r.recorder, wlOrig, reason, message, underlyingCause, r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+					return &wl, nil
+				})); err != nil {
 					if !apierrors.IsNotFound(err) {
 						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 					}
@@ -683,11 +685,13 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return recheckAfter, nil
 	}
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
-	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
-		return 0, err
-	}
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
-	err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByPodsReadyTimeout, message, underlyingCause, r.clock)
+	err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByPodsReadyTimeout, message, underlyingCause, r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+		if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
+			return nil, err
+		}
+		return wl, nil
+	}))
 	return 0, err
 }
 

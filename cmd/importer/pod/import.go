@@ -105,6 +105,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			admission.PodSetAssignments[0].Flavors[r] = flv
 		}
 
+		wlOrig := wl.DeepCopy()
 		wl.Status.Admission = &admission
 		reservedCond := metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
@@ -120,7 +121,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
-		if err := admitWorkload(ctx, c, wl); err != nil {
+		if err := admitWorkload(ctx, c, wlOrig, wl); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -199,9 +200,9 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	return err
 }
 
-func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+func admitWorkload(ctx context.Context, c client.Client, wlOrig, wl *kueue.Workload) error {
 	var realClock = clock.RealClock{}
-	err := workload.PatchAdmissionStatus(ctx, c, wl, true, realClock, func() (*kueue.Workload, bool, error) {
+	err := workload.PatchAdmissionStatus(ctx, c, wlOrig, true, realClock, func() (*kueue.Workload, bool, error) {
 		return wl, true, nil
 	})
 	retry, _, timeout := checkError(err)
@@ -213,7 +214,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) err
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.PatchAdmissionStatus(ctx, c, wl, true, realClock, func() (*kueue.Workload, bool, error) {
+		err = workload.PatchAdmissionStatus(ctx, c, wlOrig, true, realClock, func() (*kueue.Workload, bool, error) {
 			return wl, true, nil
 		})
 		retry, _, timeout = checkError(err)

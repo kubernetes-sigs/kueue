@@ -84,7 +84,7 @@ type Scheduler struct {
 	schedulingCycle int64
 
 	// Stubs.
-	patchAdmission func(ctx context.Context, wl *kueue.Workload) error
+	patchAdmission func(ctx context.Context, original *kueue.Workload, updated *kueue.Workload) error
 }
 
 type options struct {
@@ -314,9 +314,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
-			if err := workload.PatchAdmissionStatus(ctx, s.client, e.Obj, false, s.clock, func() (*kueue.Workload, bool, error) {
-				workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
-				return e.Obj, true, nil
+			wl := e.Obj.DeepCopy()
+			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, false, s.clock, func() (*kueue.Workload, bool, error) {
+				workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
+				return wl, true, nil
 			}); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
@@ -565,7 +566,7 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled")
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for a failed node: %s", wl.Status.UnhealthyNodes[0].Name)
-	if err := workload.Evict(ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock); err != nil {
+	if err := workload.Evict(ctx, s.client, s.recorder, wl.DeepCopy(), kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock); err != nil {
 		return err
 	}
 	return nil
@@ -603,6 +604,7 @@ func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Inf
 func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
+	origWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
 		PodSetAssignments: e.assignment.ToAPI(),
@@ -632,7 +634,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchAdmission(ctx, newWorkload)
+		err := s.patchAdmission(ctx, origWorkload, newWorkload)
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
@@ -658,8 +660,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	return nil
 }
 
-func (s *Scheduler) patchAdmissionStatus(ctx context.Context, w *kueue.Workload) error {
-	return workload.PatchAdmissionStatus(ctx, s.client, w, false, s.clock, func() (*kueue.Workload, bool, error) {
+func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wOrig, w *kueue.Workload) error {
+	return workload.PatchAdmissionStatus(ctx, s.client, wOrig, false, s.clock, func() (*kueue.Workload, bool, error) {
 		return w, true, nil
 	})
 }
@@ -771,8 +773,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped {
-		if err := workload.PatchAdmissionStatus(ctx, s.client, e.Obj, true, s.clock, func() (*kueue.Workload, bool, error) {
-			wl := e.Obj.DeepCopy()
+		wl := e.Obj.DeepCopy()
+		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, true, s.clock, func() (*kueue.Workload, bool, error) {
 			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
 			resourceRequestsIsChanged := workload.PropagateResourceRequests(wl, &e.Info)
 			return wl, reservationIsChanged || resourceRequestsIsChanged, nil

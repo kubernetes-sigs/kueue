@@ -193,6 +193,11 @@ const (
 	//
 	// Enable MultiKueue support for external custom Jobs via configurable adapters.
 	MultiKueueAdaptersForCustomJobs featuregate.Feature = "MultiKueueAdaptersForCustomJobs"
+
+	// owner: @mszadkow
+	//
+	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
+	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
 )
 
 func init() {
@@ -302,6 +307,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueueAdaptersForCustomJobs: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
