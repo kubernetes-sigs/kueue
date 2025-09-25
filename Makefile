@@ -229,12 +229,21 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: ci-lint
-ci-lint: golangci-lint
+ci-lint: golangci-lint golangci-lint-kal
 	find . -path ./site -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml $(GOLANGCI_LINT_EXTRA_ARGS)
 
 .PHONY: lint-fix
 lint-fix: GOLANGCI_LINT_FIX=--fix
 lint-fix: ci-lint
+
+.PHONY: lint-api
+lint-api: golangci-lint-kal
+	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml $(GOLANGCI_LINT_EXTRA_ARGS)
+
+.PHONY: lint-api-fix
+lint-api-fix: golangci-lint-kai
+	GOLANGCI_LINT_EXTRA_ARGS=--fix $(MAKE) lint-api
 
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.

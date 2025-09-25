@@ -70,6 +70,11 @@ LEADERWORKERSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sig
 golangci-lint: ## Download golangci-lint locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
+.PHONY: golangci-lint-kal
+golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
+	cd $(TOOLS_DIR)
+	@GOBIN=$(BIN_DIR) $(GO_CMD) build -o "${BIN_DIR}/kube-api-linter.so" -buildmode=plugin sigs.k8s.io/kube-api-linter/pkg/plugin
+
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
