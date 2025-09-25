@@ -1561,31 +1561,14 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should run a TrainJob on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
 			kueue.PodSetAssignment{
-				Name: "replicated-job-1",
-			}, kueue.PodSetAssignment{
-				Name: "replicated-job-2",
+				Name: "node",
 			},
 		)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob1", managerNs.Name).
 			Queue(managerLq.Name).
-			Obj()
-		childJobSet := testingtrainjob.MakeJobSetWrapperFromTrainjob(trainJob).
-			ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-1",
-					Replicas:    1,
-					Parallelism: 1,
-					Completions: 1,
-				}, testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-2",
-					Replicas:    3,
-					Parallelism: 1,
-					Completions: 1,
-				},
-			).
+			RuntimeRefName("torch-distributed").
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, trainJob)
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, childJobSet)
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: managerNs.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdWorkload := &kueue.Workload{}

@@ -126,7 +126,7 @@ func TestPodReconciler(t *testing.T) {
 
 			kClient := clientBuilder.WithObjects(tc.lws, tc.pod).Build()
 
-			reconciler := NewPodReconciler(kClient, nil)
+			reconciler, _ := NewPodReconciler(ctx, kClient, nil, nil)
 
 			podKey := client.ObjectKeyFromObject(tc.pod)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: podKey})

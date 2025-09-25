@@ -70,8 +70,10 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := xgboostjob.NewReconciler(
+		reconciler, _ := xgboostjob.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
 		err := xgboostjob.SetupIndexes(ctx, mgr.GetFieldIndexer())

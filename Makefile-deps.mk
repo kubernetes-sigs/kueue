@@ -148,6 +148,10 @@ kf-training-operator-manifests: ## Copy whole manifests folder from the training
 	mkdir -p "$(EXTERNAL_CRDS_DIR)/training-operator"
 	cp -rf "$(KF_TRAINING_ROOT)/manifests" "$(EXTERNAL_CRDS_DIR)/training-operator"
 
+.PHONY: kf-trainer-runtimes
+kf-trainer-runtimes: ## Copy the kubeflow trainer runtimes manifests to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
+	cp -rf $(KF_TRAINER_ROOT)/manifests/base/runtimes/*_distributed.yaml $(EXTERNAL_CRDS_DIR)/kf-trainer-runtimes/
 
 .PHONY: kf-trainer-crd 
 kf-trainer-crd: ## Copy the CRDs of the kubeflow trainer to the dep-crds directory.
@@ -213,7 +217,7 @@ leaderworkerset-operator-crd: ## Copy the CRDs from the leaderworkerset-operator
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs

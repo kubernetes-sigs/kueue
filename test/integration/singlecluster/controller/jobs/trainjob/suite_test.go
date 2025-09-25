@@ -17,11 +17,17 @@ limitations under the License.
 package trainjob
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
+	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -60,7 +66,44 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	installClusterTrainerRuntimes()
 })
+
+// Install ClusterTrainingRuntime manifests so that they can be referenced in the tests.
+func installClusterTrainerRuntimes() {
+	basePath := util.KfTrainerClusterRuntimes
+
+	err := filepath.WalkDir(basePath, func(path string, d os.DirEntry, err error) error {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ext := filepath.Ext(path)
+		if ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
+		for {
+			var crt kftrainerapi.ClusterTrainingRuntime
+			if err = decoder.Decode(&crt); err != nil {
+				if err == io.EOF {
+					break
+				}
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if crt.Name == "" {
+				// Discard non addressable runtimes
+				continue
+			}
+
+			err := k8sClient.Create(ctx, &crt)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		return nil
+	})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
 
 var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
@@ -68,11 +111,14 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := trainjob.NewReconciler(
+		reconciler, err := trainjob.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := trainjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = trainjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

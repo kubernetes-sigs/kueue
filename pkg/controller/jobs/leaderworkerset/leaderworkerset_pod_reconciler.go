@@ -45,8 +45,8 @@ type PodReconciler struct {
 	client client.Client
 }
 
-func NewPodReconciler(client client.Client, _ record.EventRecorder, _ ...jobframework.Option) jobframework.JobReconcilerInterface {
-	return &PodReconciler{client: client}
+func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, _ ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+	return &PodReconciler{client: client}, nil
 }
 
 var _ jobframework.JobReconcilerInterface = (*PodReconciler)(nil)
