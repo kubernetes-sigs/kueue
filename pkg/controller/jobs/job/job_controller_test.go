@@ -535,7 +535,6 @@ var (
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
-
 	workloadCmpOptsWithOwner = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {

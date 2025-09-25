@@ -519,8 +519,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		for _, check := range workload.RejectedChecks(wl) {
 			rejectedCheckNames = append(rejectedCheckNames, check.Name)
 		}
-		wlOrig := wl.DeepCopy()
-		err := workload.PatchAdmissionStatus(ctx, r.client, wlOrig, true, r.clock, func() (*kueue.Workload, bool, error) {
+		err := workload.PatchAdmissionStatus(ctx, r.client, wl, true, r.clock, func() (*kueue.Workload, bool, error) {
 			workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", stringsutils.Join(rejectedCheckNames, ",")))
 			return wl, true, nil
 		})
@@ -685,11 +684,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		log.V(4).Info("Workload not yet ready and did not exceed its timeout", "recheckAfter", recheckAfter)
 		return recheckAfter, nil
 	}
-
-	wlOrig := wl.DeepCopy()
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
-	err := workload.Evict(ctx, r.client, r.recorder, wlOrig, kueue.WorkloadEvictedByPodsReadyTimeout, message, underlyingCause, r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+	err := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByPodsReadyTimeout, message, underlyingCause, r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
 		if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
 			return nil, err
 		}

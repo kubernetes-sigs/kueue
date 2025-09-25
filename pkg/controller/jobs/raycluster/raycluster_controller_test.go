@@ -675,7 +675,6 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
-			tc := tc
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				ctx, _ := utiltesting.ContextWithLog(t)

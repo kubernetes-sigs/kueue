@@ -315,8 +315,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
 			wl := e.Obj.DeepCopy()
-			wlOrig := e.Obj.DeepCopy()
-			if err := workload.PatchAdmissionStatus(ctx, s.client, wlOrig, false, s.clock, func() (*kueue.Workload, bool, error) {
+			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, false, s.clock, func() (*kueue.Workload, bool, error) {
 				workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
 				return wl, true, nil
 			}); err != nil {
@@ -774,9 +773,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped {
-		wlOrig := e.Obj.DeepCopy()
-		if err := workload.PatchAdmissionStatus(ctx, s.client, wlOrig, true, s.clock, func() (*kueue.Workload, bool, error) {
-			wl := e.Obj.DeepCopy()
+		wl := e.Obj.DeepCopy()
+		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, true, s.clock, func() (*kueue.Workload, bool, error) {
 			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
 			resourceRequestsIsChanged := workload.PropagateResourceRequests(wl, &e.Info)
 			return wl, reservationIsChanged || resourceRequestsIsChanged, nil

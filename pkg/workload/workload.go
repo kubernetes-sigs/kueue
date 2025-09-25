@@ -902,7 +902,7 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
 func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (*kueue.Workload, bool, error)) error {
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
-		patchOptions := []clientutil.PatchOption{}
+		var patchOptions []clientutil.PatchOption
 		if !strict {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
@@ -1174,14 +1174,14 @@ func WithCustomPrepare(customPrepare func() (*kueue.Workload, error)) EvictOptio
 	}
 }
 
-func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wlOrig *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, options ...EvictOption) error {
+func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, wl *kueue.Workload, reason, msg string, underlyingCause kueue.EvictionUnderlyingCause, clock clock.Clock, options ...EvictOption) error {
 	opts := DefaultEvictOptions()
 	for _, opt := range options {
 		opt(opts)
 	}
 
 	// if there is no customPrepare, wl and wlOrig are equal
-	wl := wlOrig.DeepCopy()
+	wlOrig := wl.DeepCopy()
 	if opts.CustomPrepare != nil {
 		var err error
 		wl, err = opts.CustomPrepare()
