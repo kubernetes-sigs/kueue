@@ -2,18 +2,24 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  {{- with .Values.kueueViz.backend.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   name: '{{ include "kueue.fullname" . }}-kueueviz-backend-ingress'
   namespace: '{{ .Release.Namespace }}'
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
   tls:
     - hosts:
-        - backend.kueueviz.local
-      secretName: '{{ include "kueue.fullname" . }}-kueueviz-tls-secret'
+        - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
+      secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+  {{- end }}
+  {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
+  ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
+  {{- end }}
   rules:
-    - host: backend.kueueviz.local
+    - host: '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
       http:
         paths:
           - path: /

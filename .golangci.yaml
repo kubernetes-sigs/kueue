@@ -89,6 +89,10 @@ linters:
       - linters:
           - fatcontext
         path: ^test/*
+      - linters:
+          - revive
+        path: 'util/*'
+        text: 'var-naming: avoid meaningless package names'
     paths:
       - bin
       - vendor

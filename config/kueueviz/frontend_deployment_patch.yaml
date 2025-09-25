@@ -1,0 +1,14 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueueviz-frontend
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: 'wss://backend.kueueviz.local'
