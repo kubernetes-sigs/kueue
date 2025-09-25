@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -138,7 +140,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			wlKey = client.ObjectKeyFromObject(wl)
 			provReqKey = types.NamespacedName{
-				Namespace: wlKey.Namespace,
+				Namespace: ns.Name,
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
@@ -1510,4 +1512,622 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 	})
+})
+
+type successExpectation bool
+
+const (
+	// works indicates that in this test scenario Kueue behaves as intened.
+	works = successExpectation(true)
+
+	// stuck indicates that in this test scenario workloads get stuck, which is not intended (see issue #6966).
+	// The purpose of these test cases is **not** to bake this stuck behavior into Kueue;
+	// to the contrary, any changes promoting some test cases from "stuck" to "works" are welcome.
+	//
+	// The real purpose of these test cases is to:
+	// - document cases of issue #6966 in an easily reproducible way;
+	// - also document what exactly goes wrong (see "if expectSuccess" blocks in the test scenario);
+	// - enhance further exploring "in which cases does this error happen?"
+	//   (which may in turn provide more hints about its root cause(s)).
+	stuck = successExpectation(false)
+)
+
+type admissionCheckUsage int
+
+const (
+	noAC          = admissionCheckUsage(0)
+	firstFlavorAC = admissionCheckUsage(1)
+	bothAC        = admissionCheckUsage(2)
+)
+
+type memoryConfig struct {
+	withMemory bool
+	limit      string
+	request    string
+}
+
+// cpuConfig specifies the CPU quotas and requests for the test scenario below.
+//
+// For a meaningful scenario, the following should hold:
+// flavor1 >= job2 > flavor2 >= job1, and also job1 + job2 > flavor1.
+// (where we mean ordering of actual values, e.g. "900m" < "1.1").
+//
+// Under these assumptions, Job1 should be first admitted to Flavor1,
+// but then preempted by Job2 (of a higher priority)
+// which otherwise wouldn't fit on Flavor2 (alone) or on Flavor1 (together with Job1).
+// Then, Job1 should be re-admitted to Flavor2 (as it fits there).
+type cpuConfig struct {
+	flavor1 string
+	flavor2 string
+	job1    string
+	job2    string
+}
+
+var noMemory = memoryConfig{}
+var defaultCpu = &cpuConfig{
+	flavor1: "0.75",
+	flavor2: "0.5",
+	job1:    "500m",
+	job2:    "750m",
+}
+
+func memory(limit, request string) memoryConfig {
+	return memoryConfig{
+		withMemory: true,
+		limit:      limit,
+		request:    request,
+	}
+}
+
+func cpu(large, small string) *cpuConfig {
+	return &cpuConfig{
+		flavor1: large,
+		flavor2: small,
+		job1:    small,
+		job2:    large,
+	}
+}
+
+func (e successExpectation) String() string {
+	if e {
+		return "expected to work well"
+	} else {
+		return "expected to get stuck"
+	}
+}
+
+func (a admissionCheckUsage) String() string {
+	switch a {
+	case noAC:
+		return "without AdmissionCheck"
+	case firstFlavorAC:
+		return "with AdmissionCheck for the first flavor"
+	case bothAC:
+		return "with AdmissionCheck for both flavors"
+	default:
+		return "unknown AdmissionCheck usage setting"
+	}
+}
+
+func (a admissionCheckUsage) forFlavor1() bool {
+	return a != noAC
+}
+
+func (a admissionCheckUsage) forFlavor2() bool {
+	return a == bothAC
+}
+
+func (m memoryConfig) String() string {
+	if m.withMemory {
+		return fmt.Sprintf("RAM: (limit %s, req %s)", m.limit, m.request)
+	} else {
+		return "no RAM"
+	}
+}
+
+func (c *cpuConfig) String() string {
+	if c == defaultCpu {
+		return "default CPU"
+	} else {
+		return fmt.Sprintf("CPU: (flavor1 %s, flavor2 %s, job1 %s, job2 %s)", c.flavor1, c.flavor2, c.job1, c.job2)
+	}
+}
+
+func testCase(args ...any) ginkgo.TableEntry {
+	return ginkgo.Entry(nil, args...)
+}
+
+var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		wlKey          types.NamespacedName
+		ac1            *kueue.AdmissionCheck
+		ac2            *kueue.AdmissionCheck
+		prc            *kueue.ProvisioningRequestConfig
+		provReqKey     types.NamespacedName
+		provReqKey2    types.NamespacedName
+		rf1            *kueue.ResourceFlavor
+		rf2            *kueue.ResourceFlavor
+		cq             *kueue.ClusterQueue
+		lq             *kueue.LocalQueue
+		createdRequest autoscaling.ProvisioningRequest
+		priorityClass  *kueue.WorkloadPriorityClass
+		wlObj          kueue.Workload
+	)
+
+	const (
+		flavor1Name       = "flavor-1"
+		flavor2Name       = "flavor-2"
+		flavor1Ref        = kueue.ResourceFlavorReference(flavor1Name)
+		flavor2Ref        = kueue.ResourceFlavorReference(flavor2Name)
+		priorityClassName = "priority-class"
+		priorityValue     = 1000
+	)
+
+	baseConfig := testing.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
+
+	ginkgo.JustBeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController))
+	})
+
+	ginkgo.JustBeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+
+		rf1 = testing.MakeResourceFlavor(flavor1Name).NodeLabel("ns1", "ns1v").Obj()
+		util.MustCreate(ctx, k8sClient, rf1)
+		rf2 = testing.MakeResourceFlavor(flavor2Name).NodeLabel("ns2", "ns2v").Obj()
+		util.MustCreate(ctx, k8sClient, rf2)
+
+		priorityClass = testing.MakeWorkloadPriorityClass(priorityClassName).PriorityValue(priorityValue).Obj()
+		util.MustCreate(ctx, k8sClient, priorityClass)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf2, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
+		if ac1 != nil {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac1, true)
+		}
+		if ac2 != nil {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
+		}
+		if prc != nil {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+		}
+	})
+
+	ginkgo.AfterEach(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.DescribeTable("A workload passes a provision request in a 2-flavor setting",
+		func(expectSuccess successExpectation, useAC admissionCheckUsage, memCfg memoryConfig, cpuCfg *cpuConfig) {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				if useAC.forFlavor1() {
+					prc = baseConfig.Clone().RetryLimit(1).Obj()
+					util.MustCreate(ctx, k8sClient, prc)
+
+					ac1 = testing.MakeAdmissionCheck("ac-prov").
+						ControllerName(kueue.ProvisioningRequestControllerName).
+						Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+						Obj()
+					util.MustCreate(ctx, k8sClient, ac1)
+				} else {
+					prc = nil
+					ac1 = nil
+				}
+				if useAC.forFlavor2() {
+					ac2 = testing.MakeAdmissionCheck("ac-prov2").
+						ControllerName(kueue.ProvisioningRequestControllerName).
+						Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+						Obj()
+					util.MustCreate(ctx, k8sClient, ac2)
+				} else {
+					ac2 = nil
+				}
+
+				var flavors []kueue.FlavorQuotas
+				if memCfg.withMemory {
+					flavors = []kueue.FlavorQuotas{
+						*testing.MakeFlavorQuotas(rf1.Name).
+							Resource(corev1.ResourceCPU, cpuCfg.flavor1).
+							Resource(corev1.ResourceMemory, memCfg.limit).Obj(),
+						*testing.MakeFlavorQuotas(rf2.Name).
+							Resource(corev1.ResourceCPU, cpuCfg.flavor2).
+							Resource(corev1.ResourceMemory, memCfg.limit).Obj(),
+					}
+				} else {
+					flavors = []kueue.FlavorQuotas{
+						*testing.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, cpuCfg.flavor1).Obj(),
+						*testing.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, cpuCfg.flavor2).Obj(),
+					}
+				}
+				cqBuilder := testing.MakeClusterQueue("cluster-queue").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(flavors...)
+				if useAC.forFlavor1() {
+					rules := []kueue.AdmissionCheckStrategyRule{
+						{
+							Name:      kueue.AdmissionCheckReference(ac1.Name),
+							OnFlavors: []kueue.ResourceFlavorReference{flavor1Ref},
+						},
+					}
+					if useAC.forFlavor2() {
+						rules = append(rules, kueue.AdmissionCheckStrategyRule{
+							Name:      kueue.AdmissionCheckReference(ac2.Name),
+							OnFlavors: []kueue.ResourceFlavorReference{flavor2Ref},
+						})
+					}
+					cqBuilder.AdmissionCheckStrategy(rules...)
+				}
+				cq = cqBuilder.Obj()
+				util.MustCreate(ctx, k8sClient, cq)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				util.MustCreate(ctx, k8sClient, lq)
+				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+			var wl2Key types.NamespacedName
+
+			ginkgo.By("submit the Job", func() {
+				jobBuilder := testingjob.MakeJob("job1", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Request(corev1.ResourceCPU, cpuCfg.job1)
+				if memCfg.withMemory {
+					jobBuilder.Request(corev1.ResourceMemory, memCfg.request)
+				}
+				job1 := jobBuilder.Obj()
+				util.MustCreate(ctx, k8sClient, job1)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job1, true)
+				})
+				wlKey = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for the Workload to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			if useAC.forFlavor1() {
+				ginkgo.By("await for the Workload to have QuotaReserved", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+						g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("await for the ProvisioningRequest on flavor-1 to be created", func() {
+					provReqKey = types.NamespacedName{
+						Namespace: wlKey.Namespace,
+						Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac1.Name), 1),
+					}
+
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("set the ProvisioningRequest on flavor-1 as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			}
+
+			ginkgo.By("await for the Workload to be Admitted on flavor-1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+					g.Expect(wlObj.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+
+					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: flavor1Ref,
+					}
+					if memCfg.withMemory {
+						expectedFlavors[corev1.ResourceMemory] = flavor1Ref
+					}
+
+					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("submit a high-priority job2", func() {
+				jobBuilder := testingjob.MakeJob("job2", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					WorkloadPriorityClass(priorityClassName).
+					Request(corev1.ResourceCPU, cpuCfg.job2)
+				if memCfg.withMemory {
+					jobBuilder.Request(corev1.ResourceMemory, memCfg.request)
+				}
+				job2 := jobBuilder.Obj()
+				util.MustCreate(ctx, k8sClient, job2)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job2, true)
+				})
+				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for wl2 to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for wl2 to have QuotaReserved or be Admitted", func() {
+				ev := gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.BeElementOf(
+						workload.StatusQuotaReserved,
+						workload.StatusAdmitted,
+					))
+				}, util.Timeout, util.Interval)
+				switch expectSuccess {
+				case works:
+					ev.Should(gomega.Succeed())
+				case stuck:
+					// If this expectation fails, it may be actually a good thing.
+					// Maybe the test case can be promoted from "stuck" to "works"?
+					// (See the comment on the definition of "stuck").
+					ev.ShouldNot(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("await for the Workload to be no longer Admitted on flavor-1", func() {
+				ev := gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+
+					var isAdmittedOnFlavor1 = false
+					if wlObj.Status.Admission != nil {
+						psa := wlObj.Status.Admission.PodSetAssignments
+						isAdmittedOnFlavor1 = len(psa) == 1 &&
+							psa[0].Flavors[corev1.ResourceCPU] == flavor1Ref
+					}
+
+					g.Expect(isAdmittedOnFlavor1).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval)
+				switch expectSuccess {
+				case works:
+					ev.Should(gomega.Succeed())
+				case stuck:
+					// If this expectation fails, it may be actually a good thing.
+					// Maybe the test case can be promoted from "stuck" to "works"?
+					// (See the comment on the definition of "stuck").
+					ev.ShouldNot(gomega.Succeed())
+				}
+			})
+
+			if useAC.forFlavor2() {
+				ginkgo.By("await for the Workload to have QuotaReserved on flavor-2", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+						g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("await for the ProvisioningRequest on flavor-2 to be created", func() {
+					provReqKey2 = types.NamespacedName{
+						Namespace: wlKey.Namespace,
+						Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac2.Name), 1),
+					}
+
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("set the ProvisioningRequest on flavor-2 as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			}
+
+			ginkgo.By("await for the Workload to be Admitted on flavor-2", func() {
+				ev := gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+					g.Expect(wlObj.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+
+					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: flavor2Ref,
+					}
+					if memCfg.withMemory {
+						expectedFlavors[corev1.ResourceMemory] = flavor2Ref
+					}
+
+					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
+				}, util.Timeout, util.Interval)
+				switch expectSuccess {
+				case works:
+					ev.Should(gomega.Succeed())
+				case stuck:
+					// If this expectation fails, it may be actually a good thing.
+					// Maybe the test case can be promoted from "stuck" to "works"?
+					// (See the comment on the definition of "stuck").
+					ev.ShouldNot(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("await for the Workload to have status for AdmissionCheck1 cleared", func() {
+				ev := gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					hasAc1 := false
+					for _, ac := range wlObj.Status.AdmissionChecks {
+						if ac.Name == kueue.AdmissionCheckReference(ac1.Name) {
+							hasAc1 = true
+							break
+						}
+					}
+					g.Expect(hasAc1).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval)
+				switch expectSuccess {
+				case works:
+					ev.Should(gomega.Succeed())
+				case stuck:
+					// If this expectation fails, it may be actually a good thing.
+					// Maybe the test case can be promoted from "stuck" to "works"?
+					// (See the comment on the definition of "stuck").
+					ev.ShouldNot(gomega.Succeed())
+				}
+			})
+		},
+		func(expectSuccess successExpectation, useAC admissionCheckUsage, memCfg memoryConfig, cpuCfg *cpuConfig) string {
+			return fmt.Sprintf("%s: %s, %s, %s", expectSuccess, useAC, memCfg, cpuCfg)
+		},
+		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/5477 ***
+
+		testCase(works, firstFlavorAC, noMemory, defaultCpu),
+		testCase(works, bothAC, noMemory, defaultCpu),
+
+		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/6966 ***
+
+		// Works if memory _limit_ is given in decimal style
+		testCase(works, firstFlavorAC, memory("5G", "220Mi"), defaultCpu),
+
+		// Works if memory _request_ is NOT divisible by 1000 bytes, no matter how specified
+		testCase(works, firstFlavorAC, memory("1Gi", "1Gi"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5Gi", "220Mi"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5Gi", "220Ki"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5Gi", "1.5Gi"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "230686720"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "2"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "20"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "200"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "20002"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "200022"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "999"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "1001"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "1.001k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "1.01k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "1.1k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "1.0001M"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0.0001M"), defaultCpu),    // 100 B
+		testCase(works, firstFlavorAC, memory("5G", "0.0002M"), defaultCpu),    // 200 B
+		testCase(works, firstFlavorAC, memory("5G", "0.0000002G"), defaultCpu), // 200 B
+		testCase(works, firstFlavorAC, memory("5G", "500"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0.48828125Ki"), defaultCpu), // 500 B
+
+		// Fails in _most_ cases when memory _request_ is divisible by 1000 bytes
+		// (but see exceptional cases described below!)
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "220M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5Gi", "220M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5Gi", "220k"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5Gi", "1.5G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "220000000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "2000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "20000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "200000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "2000000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "20000000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "3000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "159000"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "1.001M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "1.01M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "1.1M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.1M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.01M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.1G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.01G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.001G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.0001G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.00001G"), defaultCpu), // 10 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "0.2M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.02M"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.002M"), defaultCpu), // 2 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "0.2G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.02G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.002G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.0002G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.00002G"), defaultCpu),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.000002G"), defaultCpu), // 2 000 B
+
+		// Exception #1: the specific value of 1000 bytes
+		testCase(works, firstFlavorAC, memory("5G", "1000"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0.001M"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0.000001G"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0.0000001G"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0.9765625Ki"), defaultCpu), // 1 000 B
+
+		// Exception #2: multiplicities of 128 000 bytes seem to pass
+		testCase(works, firstFlavorAC, memory("5G", "500Ki"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "512k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "250Ki"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "256k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "125Ki"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "128k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "375Ki"), defaultCpu),   // 3 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "384k"), defaultCpu),    // 3 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "675Ki"), defaultCpu),   // 5 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "640k"), defaultCpu),    // 5 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "19875Ki"), defaultCpu), // 159 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "20352k"), defaultCpu),  // 159 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "39750Ki"), defaultCpu), // 159 * 256 000 B
+		testCase(works, firstFlavorAC, memory("5G", "40704k"), defaultCpu),  // 159 * 256 000 B
+
+		// ... including 0 bytes:
+		testCase(works, firstFlavorAC, memory("5G", "0"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0k"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0Ki"), defaultCpu),
+
+		// However, 128 is special. Going down does not work:
+		testCase(stuck, firstFlavorAC, memory("5G", "62.5Ki"), defaultCpu),     // 64 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "31.25Ki"), defaultCpu),    // 32 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "15.625Ki"), defaultCpu),   // 16 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "7.8125Ki"), defaultCpu),   // 8 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "3.90625Ki"), defaultCpu),  // 4 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCpu), // 2 000 B
+
+		// Neither works doing "one off" in full thousands:
+		testCase(stuck, firstFlavorAC, memory("5G", "20351k"), defaultCpu), // 159 * 128 000 B (succeeding) - 1 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "20353k"), defaultCpu), // 159 * 128 000 B (succeeding) + 1 000 B
+
+		// When AdmissionChecks are not attached to flavor-1, things seem to just work.
+		// (The cases below are derived from a small sample of the "testCase(stuck, withAC)" group)
+		testCase(works, noAC, memory("1G", "1G"), defaultCpu),
+		testCase(works, noAC, memory("5G", "220M"), defaultCpu),
+		testCase(works, noAC, memory("5G", "159000"), defaultCpu),
+		testCase(works, noAC, memory("5G", "62.5Ki"), defaultCpu),
+		testCase(works, noAC, memory("5G", "1.953125Ki"), defaultCpu),
+
+		// CPU settings seem irrelevant - things still behave same way as for "defaultCpu"
+		testCase(works, firstFlavorAC, noMemory, cpu("3000", "2000")),
+		testCase(works, firstFlavorAC, noMemory, cpu("3000m", "2000m")),
+		testCase(works, firstFlavorAC, noMemory, cpu("3", "2")),
+		testCase(works, firstFlavorAC, noMemory, cpu("2", "1")),
+		testCase(works, firstFlavorAC, noMemory, &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
+
+		testCase(works, firstFlavorAC, memory("1G", "200Mi"), cpu("3000", "2000")),
+		testCase(works, firstFlavorAC, memory("1G", "200Mi"), cpu("3000m", "2000m")),
+		testCase(works, firstFlavorAC, memory("1G", "200Mi"), cpu("3", "2")),
+		testCase(works, firstFlavorAC, memory("1G", "200Mi"), cpu("2", "1")),
+		testCase(works, firstFlavorAC, memory("1G", "200Mi"), &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
+
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), cpu("3000", "2000")),
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), cpu("3000m", "2000m")),
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), cpu("3", "2")),
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), cpu("2", "1")),
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
+	)
 })
