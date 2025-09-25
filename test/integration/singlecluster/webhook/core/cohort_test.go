@@ -326,15 +326,35 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			ginkgo.Entry("Should allow FairSharing weight",
 				testing.MakeCohort("cohort").FairWeight(resource.MustParse("1")).Obj(),
 				gomega.Succeed()),
-			ginkgo.Entry("Should allow zero FareSharing weight",
+			ginkgo.Entry("Should allow zero FairSharing weight",
 				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0")).Obj(),
 				gomega.Succeed()),
-			ginkgo.Entry("Should forbid negative FareSharing weight",
+			ginkgo.Entry("Should forbid negative FairSharing weight",
 				testing.MakeCohort("cohort").FairWeight(resource.MustParse("-1")).Obj(),
 				testing.BeForbiddenError()),
-			ginkgo.Entry("Should allow fractional FareSharing weight",
+			ginkgo.Entry("Should allow fractional FairSharing weight",
 				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0.5")).Obj(),
 				gomega.Succeed()),
+			ginkgo.Entry("Should allow small FairSharing weight",
+				// 10^-3
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("1m")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow even smaller FairSharing weight",
+				// 10^-6
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("1u")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow smallest FairSharing weight",
+				// 2 * 10^-9
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("2n")).Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should forbid threshold FairSharing weight",
+				// 10^-9
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("1n")).Obj(),
+				testing.BeForbiddenError()),
+			ginkgo.Entry("Should forbid collapsed FairSharing weight",
+				// 10^-10
+				testing.MakeCohort("cohort").FairWeight(resource.MustParse("0.0000000001")).Obj(),
+				testing.BeForbiddenError()),
 		)
 	})
 
