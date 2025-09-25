@@ -24,9 +24,9 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
+	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
 	Admission                            *AdmissionApplyConfiguration            `json:"admission,omitempty"`
 	RequeueState                         *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
-	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
 	ReclaimablePods                      []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
 	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
 	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
@@ -43,6 +43,19 @@ func WorkloadStatus() *WorkloadStatusApplyConfiguration {
 	return &WorkloadStatusApplyConfiguration{}
 }
 
+// WithConditions adds the given value to the Conditions field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Conditions field.
+func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithConditions")
+		}
+		b.Conditions = append(b.Conditions, *values[i])
+	}
+	return b
+}
+
 // WithAdmission sets the Admission field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Admission field is set to the value of the last call.
@@ -56,19 +69,6 @@ func (b *WorkloadStatusApplyConfiguration) WithAdmission(value *AdmissionApplyCo
 // If called multiple times, the RequeueState field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithRequeueState(value *RequeueStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.RequeueState = value
-	return b
-}
-
-// WithConditions adds the given value to the Conditions field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Conditions field.
-func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *WorkloadStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithConditions")
-		}
-		b.Conditions = append(b.Conditions, *values[i])
-	}
 	return b
 }
 

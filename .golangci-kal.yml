@@ -1,0 +1,71 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - kubeapilinter # linter for Kube API conventions
+  settings:
+    custom:
+      kubeapilinter:
+        type: module
+        description: KAL is the Kube-API-Linter and lints Kube like APIs based on API conventions and best practices.
+        settings:
+          linters:
+            enable:
+              - "commentstart" # Ensure comments start with the serialized version of the field name.
+              - "conditions" # Ensure conditions have the correct json tags and markers.
+              - "conflictingmarkers"
+              - "duplicatemarkers" # Ensure there are no exact duplicate markers. for types and fields.
+              #- "forbiddenmarkers" # Ensure that types and fields do not contain any markers that are forbidden.
+              # - "integers" # Ensure only int32 and int64 are used for integers.
+              - "jsontags" # Ensure every field has a json tag.
+              # - "maxlength" # Ensure all strings and arrays have maximum lengths/maximum items.
+              # - "nobools" # Bools do not evolve over time, should use enums instead.
+              # - "nodurations" # Prevents usage of `Duration` types.
+              # - "nofloats" # Ensure floats are not used.
+              # - "nomaps" # Ensure maps are not used.
+              - "nonullable" # Ensure that types and fields do not have the nullable marker.
+              - "notimestamp" # Prevents usage of 'Timestamp' fields
+              # - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and
+                                 # having the `omitempty` value in their `json` tag where appropriate.
+              # - "optionalorrequired" # Every field should be marked as `+optional` or `+required`.
+              # - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`.
+              # - "ssatags" # Ensure array fields have the appropriate listType markers
+              # - "statusoptional" # Ensure all first children within status should be optional.
+              # - "statussubresource" # All root objects that have a `status` field should have a status subresource.
+              - "uniquemarkers" # Ensure that types and fields do not contain more than a single definition of a marker that should only be present once.
+              - "nophase" # Phase fields are discouraged by the Kube API conventions, use conditions instead.
+
+            # Linters below this line are disabled, pending conversation on how and when to enable them.
+            disable:
+            - "*" # We will manually enable new linters after understanding the impact. Disable all by default.
+          lintersConfig:
+            conflictingmarkers:
+              conflicts:
+              - name: "default_vs_required"
+                sets:
+                  - ["default", "kubebuilder:default"]
+                  - ["required", "kubebuilder:validation:Required", "k8s:required"]
+                description: "A field with a default value cannot be required"
+            conditions:
+              isFirstField: Warn # Require conditions to be the first field in the status struct.
+              usePatchStrategy: Ignore # Ignore patchStrategy markers on the Conditions field.
+              useProtobuf: Forbid # We don't use protobuf, so protobuf tags are not required.
+            #optionalfields:
+            #  pointers:
+            #    preference: WhenRequired # Always | WhenRequired # Whether to always require pointers, or only when required. Defaults to `Always`.
+            #    policy: SuggestFix # SuggestFix | Warn # The policy for pointers in optional fields. Defaults to `SuggestFix`.
+            #  omitempty:
+            #    policy: SuggestFix # SuggestFix | Warn | Ignore # The policy for omitempty in optional fields. Defaults to `SuggestFix`.
+
+  exclusions:
+    generated: strict
+    rules:
+    ## KAL should only run on API folders.
+    - path-except: "apis/kueue/*"
+      linters:
+        - kubeapilinter
+
+issues:
+  max-same-issues: 0

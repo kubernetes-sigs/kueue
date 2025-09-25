@@ -110,7 +110,16 @@ type TopologyInfo struct {
 
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
-	// PendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
+	// conditions hold the latest available observations of the LocalQueue
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 
@@ -124,15 +133,6 @@ type LocalQueueStatus struct {
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 
-	// Conditions hold the latest available observations of the LocalQueue
-	// current state.
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
-
 	// flavorsReservation are the reserved quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
 	// +listType=map
@@ -141,7 +141,7 @@ type LocalQueueStatus struct {
 	// +optional
 	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation"`
 
-	// flavorsUsage are the used quotas, by flavor currently in use by the
+	// flavorUsage are the used quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
@@ -156,7 +156,7 @@ type LocalQueueStatus struct {
 	// +optional
 	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
 
-	// FairSharing contains the information about the current status of fair sharing.
+	// fairSharing contains the information about the current status of fair sharing.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 }
@@ -197,10 +197,13 @@ type LocalQueueResourceUsage struct {
 
 // LocalQueue is the Schema for the localQueues API
 type LocalQueue struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the LocalQueue.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   LocalQueueSpec   `json:"spec,omitempty"`
+	// spec is the specification of the LocalQueue.
+	Spec LocalQueueSpec `json:"spec,omitempty"`
+	// status is the status of the LocalQueue.
 	Status LocalQueueStatus `json:"status,omitempty"`
 }
 
