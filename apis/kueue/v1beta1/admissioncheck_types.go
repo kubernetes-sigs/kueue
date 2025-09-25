@@ -52,7 +52,7 @@ type AdmissionCheckSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ControllerName string `json:"controllerName"`
 
-	// RetryDelayMinutes specifies how long to keep the workload suspended after
+	// retryDelayMinutes specifies how long to keep the workload suspended after
 	// a failed check (after it transitioned to False). When the delay period has passed, the check
 	// state goes to "Unknown". The default is 15 min.
 	// +optional
@@ -60,22 +60,22 @@ type AdmissionCheckSpec struct {
 	// Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.
 	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
 
-	// Parameters identifies a configuration with additional parameters for the
+	// parameters identifies a configuration with additional parameters for the
 	// check.
 	// +optional
 	Parameters *AdmissionCheckParametersReference `json:"parameters,omitempty"`
 }
 
 type AdmissionCheckParametersReference struct {
-	// ApiGroup is the group for the resource being referenced.
+	// apiGroup is the group for the resource being referenced.
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	APIGroup string `json:"apiGroup"`
-	// Kind is the type of the resource being referenced.
+	// kind is the type of the resource being referenced.
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern="^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$"
 	Kind string `json:"kind"`
-	// Name is the name of the resource being referenced.
+	// name is the name of the resource being referenced.
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	Name string `json:"name"`
@@ -108,10 +108,14 @@ const (
 
 // AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheck struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the AdmissionCheck.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AdmissionCheckSpec   `json:"spec,omitempty"`
+	// spec is the specification of the AdmissionCheck.
+	Spec AdmissionCheckSpec `json:"spec,omitempty"`
+
+	// status is the status of the AdmissionCheck.
 	Status AdmissionCheckStatus `json:"status,omitempty"`
 }
 
