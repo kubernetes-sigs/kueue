@@ -815,7 +815,11 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	metrics.AdmittedWorkload(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, waitTime)
 
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
+		metrics.LocalQueueAdmittedWorkload(
+			metrics.LQRefFromWorkload(newWorkload),
+			newWorkload.Spec.PriorityClassName,
+			waitTime,
+		)
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {

@@ -365,7 +365,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			metrics.AdmittedWorkload(cqName, wl.Spec.PriorityClassName, queuedWaitTime)
 			metrics.ReportAdmissionChecksWaitTime(cqName, wl.Spec.PriorityClassName, quotaReservedWaitTime)
 			if features.Enabled(features.LocalQueueMetrics) {
-				metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(&wl), queuedWaitTime)
+				metrics.LocalQueueAdmittedWorkload(
+					metrics.LQRefFromWorkload(&wl),
+					wl.Spec.PriorityClassName,
+					queuedWaitTime,
+				)
 				metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(&wl), quotaReservedWaitTime)
 			}
 		}
