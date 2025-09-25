@@ -39,8 +39,8 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --version={{< param "chart_version" >}} \
   --namespace kueue-system \
   --create-namespace \
-  --set enableKueueViz=true \ # enable KueueViz
-  --wait --timeout 300s
+  --wait --timeout 300s \
+  --set enableKueueViz=true # enable KueueViz
 ```
 
 For more information on installing Kueue, please refer to [Installation](/docs/installation).

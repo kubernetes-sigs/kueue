@@ -41,8 +41,8 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --version={{< param "chart_version" >}} \
   --namespace kueue-system \
   --create-namespace \
-  --set enableKueueViz=true \ # 启用 KueueViz
-  --wait --timeout 300s
+  --wait --timeout 300s \
+  --set enableKueueViz=true # 启用 KueueViz
 ```
 
 有关安装 Kueue 的更多信息，请参阅[安装](/zh-CN/docs/installation)。
