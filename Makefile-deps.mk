@@ -41,6 +41,7 @@ LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.i
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
+GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
 CONTROLLER_GEN = $(BIN_DIR)/controller-gen
 KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
@@ -72,8 +73,7 @@ golangci-lint: ## Download golangci-lint locally if necessary.
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd $(TOOLS_DIR)
-	@GOBIN=$(BIN_DIR) $(GO_CMD) build -o "${BIN_DIR}/kube-api-linter.so" -buildmode=plugin sigs.k8s.io/kube-api-linter/pkg/plugin
+	cd $(TOOLS_DIR); $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
