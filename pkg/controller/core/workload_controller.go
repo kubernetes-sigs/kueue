@@ -1197,7 +1197,7 @@ func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 	}
 	q.Add(reconcileReq)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Object))
-	log.V(2).Info("Queued reconcile for DRA workload from event channel")
+	log.V(4).Info("Queued reconcile for DRA workload from event channel")
 }
 
 // GetDRAReconcileChannel returns the DRA reconcile channel for connecting to the queue manager.
