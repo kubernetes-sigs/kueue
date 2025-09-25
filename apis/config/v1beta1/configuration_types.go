@@ -291,7 +291,7 @@ type MultiKueue struct {
 type MultiKueueExternalFramework struct {
 	// Name is the GVK of the resource that are
 	// managed by external controllers
-	// the expected format is `Kind.version.group.com`.
+	// the expected format is `kind.version.group`.
 	Name string `json:"name"`
 }
 

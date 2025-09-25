@@ -56,11 +56,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/generic"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
@@ -353,19 +353,15 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		}
 
 		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
-			genericConfigManager := generic.NewConfigManager()
-			if err := genericConfigManager.LoadConfigurations(cfg.MultiKueue.ExternalFrameworks); err != nil {
-				return fmt.Errorf("could not load generic adapter configurations: %w", err)
+			if err := externalframeworks.Initialize(cfg.MultiKueue.ExternalFrameworks); err != nil {
+				return fmt.Errorf("could not initialize external frameworks: %w", err)
 			}
 
-			// Add generic adapters to the adapters map
-			for _, adapter := range genericConfigManager.GetAllAdapters() {
-				gvkStr := adapter.GVK().String()
-				if _, exists := adapters[gvkStr]; exists {
-					return fmt.Errorf("duplicate adapter for GVK %s: conflicts with built-in adapter", gvkStr)
-				}
-				setupLog.Info("Creating generic MultiKueue adapter", "gvk", gvkStr)
-				adapters[gvkStr] = adapter
+			// Add external framework adapters to the adapters map
+			for _, adapter := range externalframeworks.GetAllAdapters() {
+				gvk := adapter.GVK().String()
+				setupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
+				adapters[gvk] = adapter
 			}
 		}
 
