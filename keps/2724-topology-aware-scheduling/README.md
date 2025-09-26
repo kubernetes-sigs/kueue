@@ -1054,7 +1054,7 @@ Selection of the algorithm depends on TAS profiles expressed by feature gates, a
 | TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
-Feature gates: `TASProfileLeastAllocated`, `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
+Feature gates: `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
 
 We recommend the BestFit algorithm for most of use cases, however we give more flexibility to users with those experimental feature gates.
 Based on the collected feedback we will introduce TAS configuration that would allow user to select the desired algorithm.
