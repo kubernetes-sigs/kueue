@@ -361,7 +361,9 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
@@ -389,7 +391,7 @@ type WorkloadStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=name
 	// +kubebuilder:validation:MaxItems=8
-	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty"`
+	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
 	// resourceRequests provides a detailed view of the resources that were
 	// requested by a non-admitted workload when it was considered for admission.

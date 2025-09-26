@@ -271,7 +271,9 @@ type ClusterQueueStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
 	// +listType=map

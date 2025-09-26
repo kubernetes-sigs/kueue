@@ -115,7 +115,9 @@ type LocalQueueStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
 	// +optional
