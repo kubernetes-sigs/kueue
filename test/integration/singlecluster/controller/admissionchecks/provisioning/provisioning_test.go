@@ -1633,10 +1633,6 @@ func (c *cpuConfig) String() string {
 	}
 }
 
-func testCase(args ...any) ginkgo.TableEntry {
-	return ginkgo.Entry(nil, args...)
-}
-
 var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
@@ -1997,49 +1993,49 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 		},
 		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/5477 ***
 
-		testCase(works, firstFlavorAC, noMemory, defaultCPU),
-		testCase(works, bothAC, noMemory, defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, noMemory, defaultCPU),
+		ginkgo.Entry(nil, works, bothAC, noMemory, defaultCPU),
 
 		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/6966 ***
 
 		// Works if memory _limit_ is given in decimal style
-		testCase(works, firstFlavorAC, memory("5G", "220Mi"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "220Mi"), defaultCPU),
 
 		// Works if memory _request_ is NOT divisible by 1000 bytes, no matter how specified
-		testCase(works, firstFlavorAC, memory("1Gi", "1Gi"), defaultCPU),
-		testCase(works, firstFlavorAC, memory("5G", "230686720"), defaultCPU),
-		testCase(works, firstFlavorAC, memory("5G", "1.0001M"), defaultCPU),
-		testCase(works, firstFlavorAC, memory("5G", "0.48828125Ki"), defaultCPU), // 500 B
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("1Gi", "1Gi"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "230686720"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "1.0001M"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0.48828125Ki"), defaultCPU), // 500 B
 
 		// Fails in _most_ cases when memory _request_ is divisible by 1000 bytes
 		// (but see exceptional cases described below!)
-		testCase(stuck, firstFlavorAC, memory("5G", "159000"), defaultCPU),
-		testCase(stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCPU), // 2 000 B
+		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "159000"), defaultCPU),
+		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCPU), // 2 000 B
 
 		// Exception #1: the specific value of 1000 bytes
-		testCase(works, firstFlavorAC, memory("5G", "1000"), defaultCPU),
-		testCase(works, firstFlavorAC, memory("5G", "0.9765625Ki"), defaultCPU), // 1 000 B
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "1000"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0.9765625Ki"), defaultCPU), // 1 000 B
 
 		// Exception #2: multiplicities of 128 000 bytes seem to pass
-		testCase(works, firstFlavorAC, memory("5G", "128k"), defaultCPU),
-		testCase(works, firstFlavorAC, memory("5G", "20352k"), defaultCPU), // 159 * 128 000 B
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "128k"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "20352k"), defaultCPU), // 159 * 128 000 B
 
 		// ... including 0 bytes:
-		testCase(works, firstFlavorAC, memory("5G", "0"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0"), defaultCPU),
 
 		// However, 128 is special. Going down does not work:
-		testCase(stuck, firstFlavorAC, memory("5G", "64k"), defaultCPU),
+		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "64k"), defaultCPU),
 
 		// Neither works doing "one off" in full thousands:
-		testCase(stuck, firstFlavorAC, memory("5G", "20351k"), defaultCPU), // 159 * 128 000 B (succeeding) - 1 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "20353k"), defaultCPU), // 159 * 128 000 B (succeeding) + 1 000 B
+		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "20351k"), defaultCPU), // 159 * 128 000 B (succeeding) - 1 000 B
+		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "20353k"), defaultCPU), // 159 * 128 000 B (succeeding) + 1 000 B
 
 		// When AdmissionChecks are not attached to flavor-1, things seem to just work.
-		testCase(works, noAC, memory("5G", "220M"), defaultCPU),
+		ginkgo.Entry(nil, works, noAC, memory("5G", "220M"), defaultCPU),
 
 		// CPU settings seem irrelevant - things still behave same way as for "defaultCpu"
-		testCase(works, firstFlavorAC, noMemory, &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
-		testCase(works, firstFlavorAC, memory("1G", "200Mi"), cpu("3000", "2000")),
-		testCase(stuck, firstFlavorAC, memory("1G", "1G"), cpu("3000", "2000")),
+		ginkgo.Entry(nil, works, firstFlavorAC, noMemory, &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("1G", "200Mi"), cpu("3000", "2000")),
+		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("1G", "1G"), cpu("3000", "2000")),
 	)
 })
