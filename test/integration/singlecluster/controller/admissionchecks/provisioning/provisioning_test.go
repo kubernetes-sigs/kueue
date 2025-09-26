@@ -1564,7 +1564,7 @@ type cpuConfig struct {
 }
 
 var noMemory = memoryConfig{}
-var defaultCpu = &cpuConfig{
+var defaultCPU = &cpuConfig{
 	flavor1: "0.75",
 	flavor2: "0.5",
 	job1:    "500m",
@@ -1626,7 +1626,7 @@ func (m memoryConfig) String() string {
 }
 
 func (c *cpuConfig) String() string {
-	if c == defaultCpu {
+	if c == defaultCPU {
 		return "default CPU"
 	} else {
 		return fmt.Sprintf("CPU: (flavor1 %s, flavor2 %s, job1 %s, job2 %s)", c.flavor1, c.flavor2, c.job1, c.job2)
@@ -1997,119 +1997,119 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 		},
 		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/5477 ***
 
-		testCase(works, firstFlavorAC, noMemory, defaultCpu),
-		testCase(works, bothAC, noMemory, defaultCpu),
+		testCase(works, firstFlavorAC, noMemory, defaultCPU),
+		testCase(works, bothAC, noMemory, defaultCPU),
 
 		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/6966 ***
 
 		// Works if memory _limit_ is given in decimal style
-		testCase(works, firstFlavorAC, memory("5G", "220Mi"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "220Mi"), defaultCPU),
 
 		// Works if memory _request_ is NOT divisible by 1000 bytes, no matter how specified
-		testCase(works, firstFlavorAC, memory("1Gi", "1Gi"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5Gi", "220Mi"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5Gi", "220Ki"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5Gi", "1.5Gi"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "230686720"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "2"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "20"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "200"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "20002"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "200022"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "999"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "1001"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "1.001k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "1.01k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "1.1k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "1.0001M"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0.0001M"), defaultCpu),    // 100 B
-		testCase(works, firstFlavorAC, memory("5G", "0.0002M"), defaultCpu),    // 200 B
-		testCase(works, firstFlavorAC, memory("5G", "0.0000002G"), defaultCpu), // 200 B
-		testCase(works, firstFlavorAC, memory("5G", "500"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0.48828125Ki"), defaultCpu), // 500 B
+		testCase(works, firstFlavorAC, memory("1Gi", "1Gi"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5Gi", "220Mi"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5Gi", "220Ki"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5Gi", "1.5Gi"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "230686720"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "2"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "20"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "200"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "20002"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "200022"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "999"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "1001"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "1.001k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "1.01k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "1.1k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "1.0001M"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0.0001M"), defaultCPU),    // 100 B
+		testCase(works, firstFlavorAC, memory("5G", "0.0002M"), defaultCPU),    // 200 B
+		testCase(works, firstFlavorAC, memory("5G", "0.0000002G"), defaultCPU), // 200 B
+		testCase(works, firstFlavorAC, memory("5G", "500"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0.48828125Ki"), defaultCPU), // 500 B
 
 		// Fails in _most_ cases when memory _request_ is divisible by 1000 bytes
 		// (but see exceptional cases described below!)
-		testCase(stuck, firstFlavorAC, memory("1G", "1G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "220M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5Gi", "220M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5Gi", "220k"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5Gi", "1.5G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "220000000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "2000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "20000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "200000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "2000000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "20000000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "3000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "159000"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "1.001M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "1.01M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "1.1M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.1M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.01M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.1G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.01G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.001G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.0001G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.00001G"), defaultCpu), // 10 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "0.2M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.02M"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.002M"), defaultCpu), // 2 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "0.2G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.02G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.002G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.0002G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.00002G"), defaultCpu),
-		testCase(stuck, firstFlavorAC, memory("5G", "0.000002G"), defaultCpu), // 2 000 B
+		testCase(stuck, firstFlavorAC, memory("1G", "1G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "220M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5Gi", "220M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5Gi", "220k"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5Gi", "1.5G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "220000000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "2000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "20000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "200000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "2000000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "20000000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "3000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "159000"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "1.001M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "1.01M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "1.1M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.1M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.01M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.1G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.01G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.001G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.0001G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.00001G"), defaultCPU), // 10 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "0.2M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.02M"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.002M"), defaultCPU), // 2 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "0.2G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.02G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.002G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.0002G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.00002G"), defaultCPU),
+		testCase(stuck, firstFlavorAC, memory("5G", "0.000002G"), defaultCPU), // 2 000 B
 
 		// Exception #1: the specific value of 1000 bytes
-		testCase(works, firstFlavorAC, memory("5G", "1000"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0.001M"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0.000001G"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0.0000001G"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0.9765625Ki"), defaultCpu), // 1 000 B
+		testCase(works, firstFlavorAC, memory("5G", "1000"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0.001M"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0.000001G"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0.0000001G"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0.9765625Ki"), defaultCPU), // 1 000 B
 
 		// Exception #2: multiplicities of 128 000 bytes seem to pass
-		testCase(works, firstFlavorAC, memory("5G", "500Ki"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "512k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "250Ki"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "256k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "125Ki"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "128k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "375Ki"), defaultCpu),   // 3 * 128 000 B
-		testCase(works, firstFlavorAC, memory("5G", "384k"), defaultCpu),    // 3 * 128 000 B
-		testCase(works, firstFlavorAC, memory("5G", "675Ki"), defaultCpu),   // 5 * 128 000 B
-		testCase(works, firstFlavorAC, memory("5G", "640k"), defaultCpu),    // 5 * 128 000 B
-		testCase(works, firstFlavorAC, memory("5G", "19875Ki"), defaultCpu), // 159 * 128 000 B
-		testCase(works, firstFlavorAC, memory("5G", "20352k"), defaultCpu),  // 159 * 128 000 B
-		testCase(works, firstFlavorAC, memory("5G", "39750Ki"), defaultCpu), // 159 * 256 000 B
-		testCase(works, firstFlavorAC, memory("5G", "40704k"), defaultCpu),  // 159 * 256 000 B
+		testCase(works, firstFlavorAC, memory("5G", "500Ki"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "512k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "250Ki"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "256k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "125Ki"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "128k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "375Ki"), defaultCPU),   // 3 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "384k"), defaultCPU),    // 3 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "675Ki"), defaultCPU),   // 5 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "640k"), defaultCPU),    // 5 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "19875Ki"), defaultCPU), // 159 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "20352k"), defaultCPU),  // 159 * 128 000 B
+		testCase(works, firstFlavorAC, memory("5G", "39750Ki"), defaultCPU), // 159 * 256 000 B
+		testCase(works, firstFlavorAC, memory("5G", "40704k"), defaultCPU),  // 159 * 256 000 B
 
 		// ... including 0 bytes:
-		testCase(works, firstFlavorAC, memory("5G", "0"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0k"), defaultCpu),
-		testCase(works, firstFlavorAC, memory("5G", "0Ki"), defaultCpu),
+		testCase(works, firstFlavorAC, memory("5G", "0"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0k"), defaultCPU),
+		testCase(works, firstFlavorAC, memory("5G", "0Ki"), defaultCPU),
 
 		// However, 128 is special. Going down does not work:
-		testCase(stuck, firstFlavorAC, memory("5G", "62.5Ki"), defaultCpu),     // 64 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "31.25Ki"), defaultCpu),    // 32 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "15.625Ki"), defaultCpu),   // 16 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "7.8125Ki"), defaultCpu),   // 8 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "3.90625Ki"), defaultCpu),  // 4 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCpu), // 2 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "62.5Ki"), defaultCPU),     // 64 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "31.25Ki"), defaultCPU),    // 32 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "15.625Ki"), defaultCPU),   // 16 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "7.8125Ki"), defaultCPU),   // 8 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "3.90625Ki"), defaultCPU),  // 4 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCPU), // 2 000 B
 
 		// Neither works doing "one off" in full thousands:
-		testCase(stuck, firstFlavorAC, memory("5G", "20351k"), defaultCpu), // 159 * 128 000 B (succeeding) - 1 000 B
-		testCase(stuck, firstFlavorAC, memory("5G", "20353k"), defaultCpu), // 159 * 128 000 B (succeeding) + 1 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "20351k"), defaultCPU), // 159 * 128 000 B (succeeding) - 1 000 B
+		testCase(stuck, firstFlavorAC, memory("5G", "20353k"), defaultCPU), // 159 * 128 000 B (succeeding) + 1 000 B
 
 		// When AdmissionChecks are not attached to flavor-1, things seem to just work.
 		// (The cases below are derived from a small sample of the "testCase(stuck, withAC)" group)
-		testCase(works, noAC, memory("1G", "1G"), defaultCpu),
-		testCase(works, noAC, memory("5G", "220M"), defaultCpu),
-		testCase(works, noAC, memory("5G", "159000"), defaultCpu),
-		testCase(works, noAC, memory("5G", "62.5Ki"), defaultCpu),
-		testCase(works, noAC, memory("5G", "1.953125Ki"), defaultCpu),
+		testCase(works, noAC, memory("1G", "1G"), defaultCPU),
+		testCase(works, noAC, memory("5G", "220M"), defaultCPU),
+		testCase(works, noAC, memory("5G", "159000"), defaultCPU),
+		testCase(works, noAC, memory("5G", "62.5Ki"), defaultCPU),
+		testCase(works, noAC, memory("5G", "1.953125Ki"), defaultCPU),
 
 		// CPU settings seem irrelevant - things still behave same way as for "defaultCpu"
 		testCase(works, firstFlavorAC, noMemory, cpu("3000", "2000")),
