@@ -802,7 +802,7 @@ GroupVersionKind (GVK) for MultiKueue operations.</p>
 <td>
    <p>Name is the GVK of the resource that are
 managed by external controllers
-the expected format is <code>Kind.version.group.com</code>.</p>
+the expected format is <code>kind.version.group</code>.</p>
 </td>
 </tr>
 </tbody>

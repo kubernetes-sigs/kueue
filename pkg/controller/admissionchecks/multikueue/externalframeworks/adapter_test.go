@@ -14,13 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package generic
+package externalframeworks
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,14 +33,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
-func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
+func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 	tests := []struct {
 		name           string
 		object         *unstructured.Unstructured
 		featureEnabled bool
 		want           bool
 		wantReason     string
-		wantErr        bool
+		wantErr        error
 	}{
 		{
 			name: "feature gate disabled",
@@ -52,7 +54,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			featureEnabled: false,
 			want:           false,
 			wantReason:     "MultiKueueAdaptersForCustomJobs feature gate is disabled",
-			wantErr:        false,
+			wantErr:        nil,
 		},
 		{
 			name: "managed by kueue with default path",
@@ -66,7 +68,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			featureEnabled: true,
 			want:           true,
 			wantReason:     "",
-			wantErr:        false,
+			wantErr:        nil,
 		},
 		{
 			name: "not managed by kueue",
@@ -80,7 +82,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			featureEnabled: true,
 			want:           false,
 			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"other-controller\"",
-			wantErr:        false,
+			wantErr:        nil,
 		},
 		{
 			name: "managedBy field not found",
@@ -94,7 +96,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			featureEnabled: true,
 			want:           false,
 			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"\"",
-			wantErr:        false,
+			wantErr:        nil,
 		},
 		{
 			name: "managedBy value is not a string",
@@ -108,7 +110,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 			featureEnabled: true,
 			want:           false,
 			wantReason:     "Expecting .spec.managedBy to be \"kueue.x-k8s.io/multikueue\" not \"not-a-string\"",
-			wantErr:        false,
+			wantErr:        nil,
 		},
 	}
 
@@ -116,7 +118,7 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueueAdaptersForCustomJobs, tt.featureEnabled)
 
-			adapter := &genericAdapter{
+			adapter := &Adapter{
 				gvk: schema.GroupVersionKind{
 					Group:   "test.example.com",
 					Version: "v1",
@@ -134,22 +136,21 @@ func TestGenericAdapter_IsJobManagedByKueue(t *testing.T) {
 
 			got, gotReason, err := adapter.IsJobManagedByKueue(context.Background(), client, key)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("genericAdapter.IsJobManagedByKueue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Adapter.IsJobManagedByKueue() error (-want,+got):\n%s", diff)
 			}
 			if got != tt.want {
-				t.Errorf("genericAdapter.IsJobManagedByKueue() got = %v, want %v", got, tt.want)
+				t.Errorf("Adapter.IsJobManagedByKueue() got = %v, want %v", got, tt.want)
 			}
 			if gotReason != tt.wantReason {
-				t.Errorf("genericAdapter.IsJobManagedByKueue() gotReason = %v, want %v", gotReason, tt.wantReason)
+				t.Errorf("Adapter.IsJobManagedByKueue() gotReason = %v, want %v", gotReason, tt.wantReason)
 			}
 		})
 	}
 }
 
-func TestGenericAdapter_RemoveManagedByField(t *testing.T) {
-	adapter := &genericAdapter{
+func TestAdapter_RemoveManagedByField(t *testing.T) {
+	adapter := &Adapter{
 		gvk: schema.GroupVersionKind{
 			Group:   "test.example.com",
 			Version: "v1",
@@ -179,8 +180,8 @@ func TestGenericAdapter_RemoveManagedByField(t *testing.T) {
 	}
 }
 
-func TestGenericAdapter_CopyStatusFromRemote(t *testing.T) {
-	adapter := &genericAdapter{
+func TestAdapter_CopyStatusFromRemote(t *testing.T) {
+	adapter := &Adapter{
 		gvk: schema.GroupVersionKind{
 			Group:   "test.example.com",
 			Version: "v1",
@@ -227,7 +228,7 @@ func TestGenericAdapter_CopyStatusFromRemote(t *testing.T) {
 	}
 }
 
-func TestGenericAdapter_GetEmptyList(t *testing.T) {
+func TestAdapter_GetEmptyList(t *testing.T) {
 	tests := []struct {
 		name string
 		gvk  schema.GroupVersionKind
@@ -259,8 +260,8 @@ func TestGenericAdapter_GetEmptyList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			adapter := NewGenericAdapter(tt.gvk)
-			result := adapter.(*genericAdapter).GetEmptyList()
+			adapter := NewAdapter(tt.gvk)
+			result := adapter.(*Adapter).GetEmptyList()
 
 			// Verify the result is an UnstructuredList
 			unstructuredList, ok := result.(*unstructured.UnstructuredList)
@@ -283,14 +284,13 @@ func TestGenericAdapter_GetEmptyList(t *testing.T) {
 	}
 }
 
-func TestGenericAdapter_WorkloadKeyFor(t *testing.T) {
+func TestAdapter_WorkloadKeyFor(t *testing.T) {
 	tests := []struct {
-		name        string
-		gvk         schema.GroupVersionKind
-		object      *unstructured.Unstructured
-		want        types.NamespacedName
-		wantErr     bool
-		expectedErr string
+		name       string
+		gvk        schema.GroupVersionKind
+		object     *unstructured.Unstructured
+		want       types.NamespacedName
+		wantErrMsg string
 	}{
 		{
 			name: "valid object with prebuilt workload label",
@@ -314,7 +314,6 @@ func TestGenericAdapter_WorkloadKeyFor(t *testing.T) {
 				Name:      "test-workload",
 				Namespace: "test-ns",
 			},
-			wantErr: false,
 		},
 		{
 			name: "object without prebuilt workload label",
@@ -334,41 +333,34 @@ func TestGenericAdapter_WorkloadKeyFor(t *testing.T) {
 					},
 				},
 			},
-			want:        types.NamespacedName{},
-			wantErr:     true,
-			expectedErr: "no prebuilt workload found for TestJob: test-ns/test-job",
+			want:       types.NamespacedName{},
+			wantErrMsg: "no prebuilt workload found for TestJob: test-ns/test-job",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			adapter := NewGenericAdapter(tt.gvk)
+			adapter := NewAdapter(tt.gvk)
 			tt.object.SetGroupVersionKind(tt.gvk)
 			tt.object.SetName("test-job")
 			tt.object.SetNamespace("test-ns")
 
-			result, err := adapter.(*genericAdapter).WorkloadKeyFor(tt.object)
+			result, err := adapter.(*Adapter).WorkloadKeyFor(tt.object)
 
-			// Check error cases
-			if tt.wantErr {
+			if tt.wantErrMsg != "" {
 				if err == nil {
 					t.Errorf("Expected error but got none")
-					return
+				} else if !strings.Contains(err.Error(), tt.wantErrMsg) {
+					t.Errorf("Expected error to contain '%s', got '%s'", tt.wantErrMsg, err.Error())
 				}
-				if tt.expectedErr != "" && !strings.Contains(err.Error(), tt.expectedErr) {
-					t.Errorf("Expected error to contain '%s', got '%s'", tt.expectedErr, err.Error())
-				}
-				return
-			}
-
-			// Check success cases
-			if err != nil {
+			} else if err != nil {
 				t.Errorf("Expected no error but got: %v", err)
-				return
 			}
 
-			if result != tt.want {
-				t.Errorf("Expected result %v, got %v", tt.want, result)
+			if tt.wantErrMsg == "" {
+				if diff := cmp.Diff(tt.want, result); diff != "" {
+					t.Errorf("Adapter.WorkloadKeyFor() result (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}

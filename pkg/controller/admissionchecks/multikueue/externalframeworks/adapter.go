@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package generic
+package externalframeworks
 
 import (
 	"context"
@@ -37,25 +37,25 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
-// genericAdapter implements the MultiKueueAdapter interface for external frameworks
+// Adapter implements the MultiKueueAdapter interface for external frameworks
 // with hardcoded default behavior as specified in the KEP.
-type genericAdapter struct {
+type Adapter struct {
 	gvk schema.GroupVersionKind
 }
 
 var (
-	_ jobframework.MultiKueueAdapter = (*genericAdapter)(nil)
-	_ jobframework.MultiKueueWatcher = (*genericAdapter)(nil)
+	_ jobframework.MultiKueueAdapter = (*Adapter)(nil)
+	_ jobframework.MultiKueueWatcher = (*Adapter)(nil)
 )
 
-// NewGenericAdapter creates a new generic adapter for the given GVK.
-func NewGenericAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
-	return &genericAdapter{
+// NewAdapter creates a new adapter for the given GVK.
+func NewAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
+	return &Adapter{
 		gvk: gvk,
 	}
 }
 
-func (a *genericAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	// Get the local object
 	localObj := &unstructured.Unstructured{}
 	localObj.SetGroupVersionKind(a.gvk)
@@ -81,7 +81,7 @@ func (a *genericAdapter) SyncJob(ctx context.Context, localClient client.Client,
 	return a.syncStatus(ctx, localClient, remoteClient, localObj, remoteObj)
 }
 
-func (a *genericAdapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {
+func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Create a copy of the local object for the remote cluster
@@ -105,7 +105,7 @@ func (a *genericAdapter) createRemoteObject(ctx context.Context, remoteClient cl
 	return remoteClient.Create(ctx, remoteObj)
 }
 
-func (a *genericAdapter) syncStatus(ctx context.Context, localClient client.Client, remoteClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {
+func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, remoteClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Create a deep copy of the original object to calculate the patch against.
@@ -126,7 +126,7 @@ func (a *genericAdapter) syncStatus(ctx context.Context, localClient client.Clie
 }
 
 // removeManagedByField removes the .spec.managedBy field from the object
-func (a *genericAdapter) removeManagedByField(obj *unstructured.Unstructured) {
+func (a *Adapter) removeManagedByField(obj *unstructured.Unstructured) {
 	spec, exists, err := unstructured.NestedMap(obj.Object, "spec")
 	if !exists || err != nil {
 		return
@@ -137,7 +137,7 @@ func (a *genericAdapter) removeManagedByField(obj *unstructured.Unstructured) {
 }
 
 // copyStatusFromRemote copies the entire status from remote object to local object
-func (a *genericAdapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstructured) {
+func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstructured) {
 	remoteStatus, exists, err := unstructured.NestedMap(remoteObj.Object, "status")
 	if !exists || err != nil {
 		return
@@ -147,7 +147,7 @@ func (a *genericAdapter) copyStatusFromRemote(localObj, remoteObj *unstructured.
 	localObj.Object["status"] = remoteStatus
 }
 
-func (a *genericAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
 	err := remoteClient.Get(ctx, key, obj)
@@ -157,11 +157,11 @@ func (a *genericAdapter) DeleteRemoteObject(ctx context.Context, remoteClient cl
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
-func (a *genericAdapter) KeepAdmissionCheckPending() bool {
+func (a *Adapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (a *genericAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (a *Adapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	if !features.Enabled(features.MultiKueueAdaptersForCustomJobs) {
 		return false, "MultiKueueAdaptersForCustomJobs feature gate is disabled", nil
 	}
@@ -186,11 +186,11 @@ func (a *genericAdapter) IsJobManagedByKueue(ctx context.Context, c client.Clien
 	return true, "", nil
 }
 
-func (a *genericAdapter) GVK() schema.GroupVersionKind {
+func (a *Adapter) GVK() schema.GroupVersionKind {
 	return a.gvk
 }
 
-func (a *genericAdapter) GetEmptyList() client.ObjectList {
+func (a *Adapter) GetEmptyList() client.ObjectList {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   a.gvk.Group,
@@ -200,7 +200,7 @@ func (a *genericAdapter) GetEmptyList() client.ObjectList {
 	return list
 }
 
-func (a *genericAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
+func (a *Adapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	unstructuredObj, isUnstructured := o.(*unstructured.Unstructured)
 	if !isUnstructured {
 		return types.NamespacedName{}, fmt.Errorf("not an unstructured object, got type: %T", o)

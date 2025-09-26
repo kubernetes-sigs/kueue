@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package generic
+package externalframeworks
 
 import (
 	"errors"
@@ -26,21 +26,15 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
-// ConfigManager manages external framework configurations for generic adapters
-type ConfigManager struct {
-	configs map[schema.GroupVersionKind]configapi.MultiKueueExternalFramework
-}
+var (
+	// adapters holds the configured adapters.
+	adapters []*Adapter
+)
 
-// NewConfigManager creates a new configuration manager
-func NewConfigManager() *ConfigManager {
-	return &ConfigManager{
-		configs: make(map[schema.GroupVersionKind]configapi.MultiKueueExternalFramework),
-	}
-}
-
-// LoadConfigurations loads and validates external framework configurations
-func (cm *ConfigManager) LoadConfigurations(configs []configapi.MultiKueueExternalFramework) error {
-	cm.configs = make(map[schema.GroupVersionKind]configapi.MultiKueueExternalFramework)
+// Initialize loads and validates external framework configurations and creates adapters.
+func Initialize(configs []configapi.MultiKueueExternalFramework) error {
+	adapters = nil // Reset on re-initialization
+	configsMap := make(map[schema.GroupVersionKind]configapi.MultiKueueExternalFramework)
 	var errs []error
 
 	for _, config := range configs {
@@ -50,36 +44,26 @@ func (cm *ConfigManager) LoadConfigurations(configs []configapi.MultiKueueExtern
 			continue
 		}
 
-		if _, exists := cm.configs[*gvk]; exists {
+		if _, exists := configsMap[*gvk]; exists {
 			errs = append(errs, fmt.Errorf("duplicate configuration for GVK %s", gvk))
 			continue
 		}
 
-		cm.configs[*gvk] = config
+		configsMap[*gvk] = config
 	}
 
-	return k8serrors.NewAggregate(errs)
+	if len(errs) > 0 {
+		return k8serrors.NewAggregate(errs)
+	}
+
+	for gvk := range configsMap {
+		adapters = append(adapters, &Adapter{gvk: gvk})
+	}
+	return nil
 }
 
-// GetAdapter returns a generic adapter for the given GVK if configured
-func (cm *ConfigManager) GetAdapter(gvk schema.GroupVersionKind) *genericAdapter {
-	if _, exists := cm.configs[gvk]; !exists {
-		return nil
-	}
-
-	return &genericAdapter{
-		gvk: gvk,
-	}
-}
-
-// GetAllAdapters returns all configured generic adapters
-func (cm *ConfigManager) GetAllAdapters() []*genericAdapter {
-	adapters := make([]*genericAdapter, 0, len(cm.configs))
-	for gvk := range cm.configs {
-		adapters = append(adapters, &genericAdapter{
-			gvk: gvk,
-		})
-	}
+// GetAllAdapters returns all configured adapters.
+func GetAllAdapters() []*Adapter {
 	return adapters
 }
 
