@@ -55,6 +55,9 @@ func NewAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
 	}
 }
 
+// SyncJob synchronizes a job resource between the local and remote clusters.
+// It ensures that the remote cluster has a corresponding object for the local job,
+// creating it if necessary, and updates the status of the local object based on the remote object.
 func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	// Get the local object
 	localObj := &unstructured.Unstructured{}
@@ -78,7 +81,7 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 	}
 
 	// Update existing remote object status
-	return a.syncStatus(ctx, localClient, remoteClient, localObj, remoteObj)
+	return a.syncStatus(ctx, localClient, localObj, remoteObj)
 }
 
 func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {
@@ -105,7 +108,7 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	return remoteClient.Create(ctx, remoteObj)
 }
 
-func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, remoteClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {
+func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Create a deep copy of the original object to calculate the patch against.
@@ -147,6 +150,8 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 	localObj.Object["status"] = remoteStatus
 }
 
+// DeleteRemoteObject deletes the remote object identified by the given key from the remote cluster.
+// It first attempts to retrieve the object, and if found, deletes it with background propagation policy.
 func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
@@ -157,10 +162,18 @@ func (a *Adapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Cl
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
+// KeepAdmissionCheckPending returns false,
+// indicating that admission checks should not be kept pending by default.
+// This can be overridden by specific adapters if needed.
 func (a *Adapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
+// IsJobManagedByKueue checks if the job object identified by the given key is managed by Kueue.
+// It returns:
+// - a bool indicating if the job is managed by Kueue
+// - a reason indicating why the job is not managed by Kueue
+// - any API error encountered during the check
 func (a *Adapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	if !features.Enabled(features.MultiKueueAdaptersForCustomJobs) {
 		return false, "MultiKueueAdaptersForCustomJobs feature gate is disabled", nil
@@ -186,10 +199,14 @@ func (a *Adapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key 
 	return true, "", nil
 }
 
+// GVK returns the GroupVersionKind for this adapter.
 func (a *Adapter) GVK() schema.GroupVersionKind {
 	return a.gvk
 }
 
+// GetEmptyList returns an empty unstructured list object with the GroupVersionKind
+// set to the adapter's GVK with "List" appended to the Kind. This is useful for
+// performing list operations on the resource type managed by the adapter.
 func (a *Adapter) GetEmptyList() client.ObjectList {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(schema.GroupVersionKind{
@@ -200,6 +217,9 @@ func (a *Adapter) GetEmptyList() client.ObjectList {
 	return list
 }
 
+// WorkloadKeyFor returns the key of the workload of interest for the given object.
+// It checks the labels of the object for the prebuilt workload label and
+// returns the namespaced name of the workload.
 func (a *Adapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	unstructuredObj, isUnstructured := o.(*unstructured.Unstructured)
 	if !isUnstructured {

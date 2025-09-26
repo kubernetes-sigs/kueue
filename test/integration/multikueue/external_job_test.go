@@ -117,9 +117,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				}
 
 				// Get external adapters for MultiKueue synchronization
-				gomega.Expect(externalframeworks.Initialize(cfg.MultiKueue.ExternalFrameworks)).To(gomega.Succeed())
+				externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				adapters := make(map[string]jobframework.MultiKueueAdapter)
-				for _, adapter := range externalframeworks.GetAllAdapters() {
+				for _, adapter := range externalAdapters {
 					gvk := adapter.GVK()
 					adapters[gvk.String()] = adapter
 				}

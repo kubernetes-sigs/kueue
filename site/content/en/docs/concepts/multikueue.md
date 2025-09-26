@@ -117,6 +117,7 @@ MultiKueue supports a wide variety of workloads. You can learn how to:
 - [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).
 - [Dispatch a Kueue managed AppWrapper](docs/tasks/run/multikueue/appwrapper).
 - [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
+- [Dispatch a Kueue managed External Framework Job](docs/tasks/run/multikueue/external-frameworks.md)
 
 ## Submitting Jobs
 

@@ -26,14 +26,8 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
-var (
-	// adapters holds the configured adapters.
-	adapters []*Adapter
-)
-
-// Initialize loads and validates external framework configurations and creates adapters.
-func Initialize(configs []configapi.MultiKueueExternalFramework) error {
-	adapters = nil // Reset on re-initialization
+// NewAdapters creates and returns adapters from the given configurations.
+func NewAdapters(configs []configapi.MultiKueueExternalFramework) ([]*Adapter, error) {
 	configsMap := make(map[schema.GroupVersionKind]configapi.MultiKueueExternalFramework)
 	var errs []error
 
@@ -53,18 +47,14 @@ func Initialize(configs []configapi.MultiKueueExternalFramework) error {
 	}
 
 	if len(errs) > 0 {
-		return k8serrors.NewAggregate(errs)
+		return nil, k8serrors.NewAggregate(errs)
 	}
 
+	var adapters []*Adapter
 	for gvk := range configsMap {
 		adapters = append(adapters, &Adapter{gvk: gvk})
 	}
-	return nil
-}
-
-// GetAllAdapters returns all configured adapters.
-func GetAllAdapters() []*Adapter {
-	return adapters
+	return adapters, nil
 }
 
 // parseGVK parses a string to a GVK

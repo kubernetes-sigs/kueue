@@ -353,12 +353,13 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		}
 
 		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
-			if err := externalframeworks.Initialize(cfg.MultiKueue.ExternalFrameworks); err != nil {
-				return fmt.Errorf("could not initialize external frameworks: %w", err)
+			externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
+			if err != nil {
+				return fmt.Errorf("could not create external framework adapters: %w", err)
 			}
 
 			// Add external framework adapters to the adapters map
-			for _, adapter := range externalframeworks.GetAllAdapters() {
+			for _, adapter := range externalAdapters {
 				gvk := adapter.GVK().String()
 				setupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
 				adapters[gvk] = adapter
