@@ -2,9 +2,9 @@
 title: "Run A RayJob"
 linkTitle: "RayJobs"
 date: 2024-08-07
-weight: 6
+weight: 10
 description: >
-  Run a Kueue scheduled RayJob.
+  Run a RayJob with Kueue.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [KubeRay's](https://github.com/ray-project/kuberay)
@@ -91,6 +91,6 @@ kubectl create -f ray-job-sample.yaml
 ```
 
 {{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-job.sample.yaml) 
+The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-job.sample.yaml) 
 and only has the `queue-name` label added and requests updated.
 {{% /alert %}}
