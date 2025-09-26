@@ -114,7 +114,10 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(realClock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(
+		WithExcessPodExpectations(r.expectationsStore),
+		WithClock(realClock),
+	))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -565,6 +568,7 @@ func (p *Pod) Skip() bool {
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
 		return true
 	}
+
 	return false
 }
 

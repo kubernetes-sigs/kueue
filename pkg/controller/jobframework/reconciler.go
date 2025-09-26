@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -90,6 +91,8 @@ type JobReconciler struct {
 	labelKeysToCopy              []string
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
+	enabledFrameworks            sets.Set[string]
+	implicitlyEnabledFrameworks  sets.Set[string]
 }
 
 type Options struct {
@@ -100,6 +103,7 @@ type Options struct {
 	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
 	EnabledFrameworks            sets.Set[string]
 	EnabledExternalFrameworks    sets.Set[string]
+	ImplicitlyEnabledFrameworks  sets.Set[string]
 	ManagerName                  string
 	LabelKeysToCopy              []string
 	Queues                       *qcache.Manager
@@ -180,6 +184,13 @@ func WithEnabledExternalFrameworks(exFrameworks []string) Option {
 	}
 }
 
+// WithImplicitlyEnabledFrameworks sets which frameworks were implicitly enabled.
+func WithImplicitlyEnabledFrameworks(frameworks sets.Set[string]) Option {
+	return func(o *Options) {
+		o.ImplicitlyEnabledFrameworks = frameworks
+	}
+}
+
 // WithManagerName adds the kueue's manager name.
 func WithManagerName(n string) Option {
 	return func(o *Options) {
@@ -245,6 +256,8 @@ func NewReconciler(
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
+		enabledFrameworks:            options.EnabledFrameworks,
+		implicitlyEnabledFrameworks:  options.ImplicitlyEnabledFrameworks,
 	}
 }
 
@@ -263,6 +276,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	} else {
 		err = r.client.Get(ctx, req.NamespacedName, object)
 		dropFinalizers = apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero()
+	}
+
+	integrationName, found := GetIntegrationNameByGVK(object.GetObjectKind().GroupVersionKind())
+	if found && r.implicitlyEnabledFrameworks.Has(integrationName) {
+		// SuspendedByParentAnnotation is specifically designed for the Pod integration.
+		// TODO: Extend annotation support beyond the Pod integration to additional frameworks.
+		if object.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
+			log.V(3).Info("Integration was implicitly enabled but object lacks parent annotation, skipping", "integration", integrationName)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if jws, implements := job.(JobWithSkip); implements {
