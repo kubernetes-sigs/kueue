@@ -749,7 +749,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, e.Object)
+	r.queues.QueueSecondPassIfNeeded(ctx, e.Object, 0)
 	return true
 }
 
@@ -915,7 +915,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.Error(err, "Updating workload in cache")
 		}
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew)
+	r.queues.QueueSecondPassIfNeeded(ctx, e.ObjectNew, 0)
 	return true
 }
 

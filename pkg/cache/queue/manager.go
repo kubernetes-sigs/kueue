@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -812,27 +811,30 @@ func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
 	m.secondPassQueue.deleteByKey(workload.Key(w))
 }
 
-// QueueSecondPassIfNeeded queues for the second pass of scheduling with 1s
+// QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
 // delay.
-func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload) bool {
+func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	if workload.NeedsSecondPass(w) {
+		iteration++
+		delay := nextDelay(iteration)
 		log := ctrl.LoggerFrom(ctx)
-		log.V(3).Info("Workload pre-queued for second pass", "workload", workload.Key(w))
+		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", workload.Key(w), "delay", delay)
 		m.secondPassQueue.prequeue(w)
-		m.clock.AfterFunc(time.Second, func() {
-			m.queueSecondPass(ctx, w)
+		m.clock.AfterFunc(delay, func() {
+			m.queueSecondPass(ctx, w, iteration)
 		})
 		return true
 	}
 	return false
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
 	m.Lock()
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
 		m.Broadcast()
