@@ -2,7 +2,7 @@
 title: "Run A RayJob"
 linkTitle: "RayJobs"
 date: 2024-08-07
-weight: 6.5
+weight: 8
 description: >
   Run a RayJob with Kueue.
 ---
