@@ -315,10 +315,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
 			wl := e.Obj.DeepCopy()
-			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, false, s.clock, func() (*kueue.Workload, bool, error) {
+			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func() (*kueue.Workload, bool, error) {
 				workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
 				return wl, true, nil
-			}); err != nil {
+			}, workload.WithLoose()); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -661,9 +661,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 }
 
 func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wOrig, w *kueue.Workload) error {
-	return workload.PatchAdmissionStatus(ctx, s.client, wOrig, false, s.clock, func() (*kueue.Workload, bool, error) {
+	return workload.PatchAdmissionStatus(ctx, s.client, wOrig, s.clock, func() (*kueue.Workload, bool, error) {
 		return w, true, nil
-	})
+	}, workload.WithLoose())
 }
 
 type entryOrdering struct {
@@ -774,7 +774,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped {
 		wl := e.Obj.DeepCopy()
-		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, true, s.clock, func() (*kueue.Workload, bool, error) {
+		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func() (*kueue.Workload, bool, error) {
 			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
 			resourceRequestsIsChanged := workload.PropagateResourceRequests(wl, &e.Info)
 			return wl, reservationIsChanged || resourceRequestsIsChanged, nil

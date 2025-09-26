@@ -318,7 +318,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, true, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
 					workload.SetQuotaReservation(wl, a, clock.RealClock{})
 					return wl, true, nil
 				})

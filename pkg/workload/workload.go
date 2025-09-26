@@ -897,13 +897,68 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
+// PatchAdmissionStatusOption defines a functional option for customizing PatchAdmissionStatusOptions.
+// It follows the functional options pattern, allowing callers to configure
+// patch behavior at call sites without directly manipulating PatchAdmissionStatusOptions.
+type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
+
+// PatchAdmissionStatusOptions contains configuration parameters that control how patches
+// are generated and applied.
+//
+// Fields:
+//   - Strict: Controls whether ResourceVersion should always be cleared
+//     from the "original" object to ensure its inclusion in the generated
+//     patch. Defaults to true. Setting Strict=false preserves the current
+//     ResourceVersion.
+//
+// Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
+// modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
+type PatchAdmissionStatusOptions struct {
+	Strict bool
+}
+
+// DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
+// default settings.
+//
+// By default, Strict is set to true, meaning ResourceVersion is cleared
+// from the original object so it will always be included in the generated
+// patch. This ensures stricter version handling during patch application.
+func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
+	return &PatchAdmissionStatusOptions{
+		Strict: true, // default is strict
+	}
+}
+
+// WithLoose returns a PatchAdmissionStatusOption that sets the Strict field on PatchAdmissionStatusOptions.
+//
+// By default, Strict is true. In strict mode, generated patches enforce stricter
+// behavior by clearing the ResourceVersion field from the "original" object.
+// This ensures that the ResourceVersion is always included in the generated patch
+// and taken into account during patch application.
+//
+// Example:
+//
+//	patch := clientutil.Patch(ctx, c, w, clk, func() (bool, error) {
+//	    return updateFn(obj), nil
+//	}, WithLoose()) // disables strict mode
+func WithLoose() PatchAdmissionStatusOption {
+	return func(o *PatchAdmissionStatusOptions) {
+		o.Strict = false
+	}
+}
+
 // PatchAdmissionStatus updates the admission status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
-func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, clk clock.Clock, update func() (*kueue.Workload, bool, error)) error {
+func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, clk clock.Clock, update func() (*kueue.Workload, bool, error), options ...PatchAdmissionStatusOption) error {
+	opts := DefaultPatchAdmissionStatusOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		var patchOptions []clientutil.PatchOption
-		if !strict {
+		if !opts.Strict {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
 		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
@@ -915,7 +970,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		return err
 	}
 
-	return ApplyAdmissionStatus(ctx, c, wPatched, strict, clk)
+	return ApplyAdmissionStatus(ctx, c, wPatched, opts.Strict, clk)
 }
 
 type Ordering struct {
@@ -1196,7 +1251,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
-	if err := PatchAdmissionStatus(ctx, c, wlOrig, true, clock, func() (*kueue.Workload, bool, error) {
+	if err := PatchAdmissionStatus(ctx, c, wlOrig, clock, func() (*kueue.Workload, bool, error) {
 		return wl, true, nil
 	}); err != nil {
 		return err
