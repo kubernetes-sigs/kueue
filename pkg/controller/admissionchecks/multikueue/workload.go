@@ -394,7 +394,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, true, w.clock, func() (*kueue.Workload, bool, error) {
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
 				if group.jobAdapter.KeepAdmissionCheckPending() {
 					acs.State = kueue.CheckStatePending
 				} else {
@@ -447,7 +447,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, true, w.clock, func() (*kueue.Workload, bool, error) {
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
 				group.local.Status.NominatedClusterNames = nominatedWorkers
 				return group.local, true, nil
 			}); err != nil {

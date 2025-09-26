@@ -202,7 +202,7 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 
 func admitWorkload(ctx context.Context, c client.Client, wlOrig, wl *kueue.Workload) error {
 	var realClock = clock.RealClock{}
-	err := workload.PatchAdmissionStatus(ctx, c, wlOrig, true, realClock, func() (*kueue.Workload, bool, error) {
+	err := workload.PatchAdmissionStatus(ctx, c, wlOrig, realClock, func() (*kueue.Workload, bool, error) {
 		return wl, true, nil
 	})
 	retry, _, timeout := checkError(err)
@@ -214,7 +214,7 @@ func admitWorkload(ctx context.Context, c client.Client, wlOrig, wl *kueue.Workl
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.PatchAdmissionStatus(ctx, c, wlOrig, true, realClock, func() (*kueue.Workload, bool, error) {
+		err = workload.PatchAdmissionStatus(ctx, c, wlOrig, realClock, func() (*kueue.Workload, bool, error) {
 			return wl, true, nil
 		})
 		retry, _, timeout = checkError(err)

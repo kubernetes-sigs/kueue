@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(workload.IsActive(prodWl)).Should(gomega.BeFalse())
 				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
-				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, prodWl, true, realClock, func() (*kueue.Workload, bool, error) {
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, prodWl, realClock, func() (*kueue.Workload, bool, error) {
 					workload.SetRequeuedCondition(prodWl, kueue.WorkloadDeactivated, "by test", false)
 					return prodWl, true, nil
 				})).Should(gomega.Succeed())
