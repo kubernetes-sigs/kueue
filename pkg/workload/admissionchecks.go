@@ -45,6 +45,7 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		Reason:             "Admitted",
 		Message:            "The workload is admitted",
 		ObservedGeneration: w.Generation,
+		LastTransitionTime: metav1.NewTime(now),
 	}
 	switch {
 	case !hasReservation && !hasAllChecksReady:

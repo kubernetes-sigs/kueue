@@ -562,6 +562,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		LastTransitionTime: metav1.NewTime(now),
 		ObservedGeneration: wl.Generation,
 	}
 	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
@@ -686,6 +687,7 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 		Reason:             "QuotaReserved",
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
+		LastTransitionTime: metav1.NewTime(clock.Now()),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
