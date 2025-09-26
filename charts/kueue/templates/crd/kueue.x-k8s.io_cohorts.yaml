@@ -58,7 +58,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: CohortSpec defines the desired state of Cohort
+              description: spec is the specification of the Cohort.
               properties:
                 fairSharing:
                   description: |-
@@ -88,7 +88,7 @@ spec:
                   type: object
                 parentName:
                   description: |-
-                    ParentName references the name of the Cohort's parent, if
+                    parentName references the name of the Cohort's parent, if
                     any. It satisfies one of three cases:
                     1) Unset. This Cohort is the root of its Cohort tree.
                     2) References a non-existent Cohort. We use default Cohort (no borrowing/lending limits).
@@ -103,7 +103,7 @@ spec:
                   type: string
                 resourceGroups:
                   description: |-
-                    ResourceGroups describes groupings of Resources and
+                    resourceGroups describes groupings of Resources and
                     Flavors.  Each ResourceGroup defines a list of Resources
                     and a list of Flavors which provide quotas for these
                     Resources. Each Resource and each Flavor may only form part
@@ -253,7 +253,7 @@ spec:
                   x-kubernetes-list-type: atomic
               type: object
             status:
-              description: CohortStatus defines the observed state of Cohort.
+              description: status is the status of the Cohort.
               properties:
                 fairSharing:
                   description: |-
@@ -272,12 +272,12 @@ spec:
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
                           description: |-
-                            ConsumedResources represents the aggregated usage of resources over time,
+                            consumedResources represents the aggregated usage of resources over time,
                             with decaying function applied.
                             The value is populated if usage consumption functionality is enabled in Kueue config.
                           type: object
                         lastUpdate:
-                          description: LastUpdate is the time when share and consumed resources were updated.
+                          description: lastUpdate is the time when share and consumed resources were updated.
                           format: date-time
                           type: string
                       required:
@@ -286,7 +286,7 @@ spec:
                       type: object
                     weightedShare:
                       description: |-
-                        WeightedShare represents the maximum of the ratios of usage
+                        weightedShare represents the maximum of the ratios of usage
                         above nominal quota to the lendable resources in the
                         Cohort, among all the resources provided by the Node, and
                         divided by the weight.  If zero, it means that the usage of
