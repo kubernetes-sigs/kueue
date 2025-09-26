@@ -91,6 +91,11 @@ func TestEnabled(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			// Always false when feature is disabled (not enabled).
+			if got := Enabled(tt.args.object); got {
+				t.Error("Enabled() = true, want false when feature is not enabled")
+			}
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			if got := Enabled(tt.args.object); got != tt.want {
 				t.Errorf("Enabled() = %v, want %v", got, tt.want)
 			}

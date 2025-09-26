@@ -424,7 +424,12 @@ type WorkloadStatus struct {
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
-	// clusterName is the name of the cluster where the workload is actually assigned.
+	// clusterName is the name of the cluster where the workload is currently assigned.
+	//
+	// With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+	// was assigned, providing placement context for new scaled-up workloads. This supports
+	// affinity or propagation policies across workload slices.
+	//
 	// This field is reset after the Workload is evicted.
 	// +optional
 	ClusterName *string `json:"clusterName,omitempty"`

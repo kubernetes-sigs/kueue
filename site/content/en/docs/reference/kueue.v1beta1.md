@@ -3315,8 +3315,11 @@ This field is optional.</p>
 <code>string</code>
 </td>
 <td>
-   <p>clusterName is the name of the cluster where the workload is actually assigned.
-This field is reset after the Workload is evicted.</p>
+   <p>clusterName is the name of the cluster where the workload is currently assigned.</p>
+<p>With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+was assigned, providing placement context for new scaled-up workloads. This supports
+affinity or propagation policies across workload slices.</p>
+<p>This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
 <tr><td><code>unhealthyNodes</code><br/>
