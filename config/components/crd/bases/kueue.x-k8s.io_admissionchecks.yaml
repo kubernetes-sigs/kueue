@@ -37,7 +37,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: AdmissionCheckSpec defines the desired state of AdmissionCheck
+            description: spec is the specification of the AdmissionCheck.
             properties:
               controllerName:
                 description: |-
@@ -49,21 +49,21 @@ spec:
                   rule: self == oldSelf
               parameters:
                 description: |-
-                  Parameters identifies a configuration with additional parameters for the
+                  parameters identifies a configuration with additional parameters for the
                   check.
                 properties:
                   apiGroup:
-                    description: ApiGroup is the group for the resource being referenced.
+                    description: apiGroup is the group for the resource being referenced.
                     maxLength: 253
                     pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   kind:
-                    description: Kind is the type of the resource being referenced.
+                    description: kind is the type of the resource being referenced.
                     maxLength: 63
                     pattern: ^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$
                     type: string
                   name:
-                    description: Name is the name of the resource being referenced.
+                    description: name is the name of the resource being referenced.
                     maxLength: 63
                     pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
@@ -75,7 +75,7 @@ spec:
               retryDelayMinutes:
                 default: 15
                 description: |-
-                  RetryDelayMinutes specifies how long to keep the workload suspended after
+                  retryDelayMinutes specifies how long to keep the workload suspended after
                   a failed check (after it transitioned to False). When the delay period has passed, the check
                   state goes to "Unknown". The default is 15 min.
                   Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.
@@ -85,7 +85,7 @@ spec:
             - controllerName
             type: object
           status:
-            description: AdmissionCheckStatus defines the observed state of AdmissionCheck
+            description: status is the status of the AdmissionCheck.
             properties:
               conditions:
                 description: |-

@@ -241,10 +241,6 @@ lint-fix: ci-lint
 lint-api: golangci-lint-kal
 	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml $(GOLANGCI_LINT_EXTRA_ARGS)
 
-.PHONY: lint-api-fix
-lint-api-fix: golangci-lint-kai
-	GOLANGCI_LINT_EXTRA_ARGS=--fix $(MAKE) lint-api
-
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
