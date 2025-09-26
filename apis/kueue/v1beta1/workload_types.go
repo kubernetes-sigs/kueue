@@ -348,17 +348,6 @@ type PodSet struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
 type WorkloadStatus struct {
-	// admission holds the parameters of the admission of the workload by a
-	// ClusterQueue. admission can be set back to null, but its fields cannot be
-	// changed once set.
-	Admission *Admission `json:"admission,omitempty"`
-
-	// requeueState holds the re-queue state
-	// when a workload meets Eviction with PodsReadyTimeout reason.
-	//
-	// +optional
-	RequeueState *RequeueState `json:"requeueState,omitempty"`
-
 	// conditions hold the latest available observations of the Workload
 	// current state.
 	//
@@ -372,9 +361,18 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// admission holds the parameters of the admission of the workload by a
+	// ClusterQueue. admission can be set back to null, but its fields cannot be
+	// changed once set.
+	Admission *Admission `json:"admission,omitempty"`
+
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
+	// +optional
+	RequeueState *RequeueState `json:"requeueState,omitempty"`
 
 	// reclaimablePods keeps track of the number pods within a podset for which
 	// the resource reservation is no longer needed.
@@ -391,7 +389,7 @@ type WorkloadStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=name
 	// +kubebuilder:validation:MaxItems=8
-	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty"`
 
 	// resourceRequests provides a detailed view of the resources that were
 	// requested by a non-admitted workload when it was considered for admission.
@@ -574,6 +572,7 @@ type PodSetUpdate struct {
 
 type ReclaimablePod struct {
 	// name is the PodSet name.
+	// +required
 	Name PodSetReference `json:"name"`
 
 	// count is the number of pods for which the requested resources are no longer needed.
@@ -583,8 +582,8 @@ type ReclaimablePod struct {
 
 type PodSetRequest struct {
 	// name is the name of the podSet. It should match one of the names in .spec.podSets.
-	// +kubebuilder:default=main
 	// +kubebuilder:validation:Required
+	// +required
 	Name PodSetReference `json:"name"`
 
 	// resources is the total resources all the pods in the podset need to run.

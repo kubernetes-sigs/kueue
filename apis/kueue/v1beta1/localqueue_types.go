@@ -110,6 +110,13 @@ type TopologyInfo struct {
 
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
+	// conditions hold the latest available observations of the LocalQueue
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
 	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
@@ -123,15 +130,6 @@ type LocalQueueStatus struct {
 	// admitted to a ClusterQueue and that haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
-
-	// conditions hold the latest available observations of the LocalQueue
-	// current state.
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// flavorsReservation are the reserved quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.

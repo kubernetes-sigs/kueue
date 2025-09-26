@@ -1122,6 +1122,14 @@ if FairSharing is enabled in the Kueue configuration.</p>
 <tbody>
     
   
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the ClusterQueue
+current state.</p>
+</td>
+</tr>
 <tr><td><code>flavorsReservation</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FlavorUsage"><code>[]FlavorUsage</code></a>
 </td>
@@ -1160,14 +1168,6 @@ clusterQueue.</p>
 <td>
    <p>admittedWorkloads is the number of workloads currently admitted to this
 clusterQueue and haven't finished yet.</p>
-</td>
-</tr>
-<tr><td><code>conditions</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <p>conditions hold the latest available observations of the ClusterQueue
-current state.</p>
 </td>
 </tr>
 <tr><td><code>pendingWorkloadsStatus</code><br/>
@@ -1780,6 +1780,14 @@ if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 <tbody>
     
   
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the LocalQueue
+current state.</p>
+</td>
+</tr>
 <tr><td><code>pendingWorkloads</code><br/>
 <code>int32</code>
 </td>
@@ -1801,14 +1809,6 @@ reserving quota in a ClusterQueue and that haven't finished yet.</p>
 <td>
    <p>admittedWorkloads is the number of workloads in this LocalQueue
 admitted to a ClusterQueue and that haven't finished yet.</p>
-</td>
-</tr>
-<tr><td><code>conditions</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <p>conditions hold the latest available observations of the LocalQueue
-current state.</p>
 </td>
 </tr>
 <tr><td><code>flavorsReservation</code><br/>
@@ -3257,6 +3257,21 @@ the workload can be admitted before it's automatically deactivated.</p>
 <tbody>
     
   
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the Workload
+current state.</p>
+<p>The type of the condition could be:</p>
+<ul>
+<li>Admitted: the Workload was admitted through a ClusterQueue.</li>
+<li>Finished: the associated workload finished running (failed or succeeded).</li>
+<li>PodsReady: at least <code>.spec.podSets[*].count</code> Pods are ready or have
+succeeded.</li>
+</ul>
+</td>
+</tr>
 <tr><td><code>admission</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-Admission"><code>Admission</code></a>
 </td>
@@ -3272,21 +3287,6 @@ changed once set.</p>
 <td>
    <p>requeueState holds the re-queue state
 when a workload meets Eviction with PodsReadyTimeout reason.</p>
-</td>
-</tr>
-<tr><td><code>conditions</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <p>conditions hold the latest available observations of the Workload
-current state.</p>
-<p>The type of the condition could be:</p>
-<ul>
-<li>Admitted: the Workload was admitted through a ClusterQueue.</li>
-<li>Finished: the associated workload finished running (failed or succeeded).</li>
-<li>PodsReady: at least <code>.spec.podSets[*].count</code> Pods are ready or have
-succeeded.</li>
-</ul>
 </td>
 </tr>
 <tr><td><code>reclaimablePods</code><br/>

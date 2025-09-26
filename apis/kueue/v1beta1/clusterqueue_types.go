@@ -266,6 +266,12 @@ type ResourceFlavorReference string
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatus struct {
+	// conditions hold the latest available observations of the ClusterQueue
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
 	// +listType=map
@@ -296,15 +302,6 @@ type ClusterQueueStatus struct {
 	// clusterQueue and haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
-
-	// conditions hold the latest available observations of the ClusterQueue
-	// current state.
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// pendingWorkloadsStatus contains the information exposed about the current
 	// status of the pending workloads in the cluster queue.
