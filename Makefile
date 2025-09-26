@@ -238,11 +238,11 @@ lint-fix: ci-lint
 
 .PHONY: lint-api
 lint-api: golangci-lint-kal
-	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml
+	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
 
 .PHONY: lint-api-fix
-lint-api-fix: golangci-lint-kal
-	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml --fix
+lint-api-fix: GOLANGCI_LINT_FIX=--fix
+lint-api-fix: lint-api
 
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
