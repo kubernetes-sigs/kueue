@@ -20,10 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
-	goslices "slices"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -193,13 +190,8 @@ func TestSchedule(t *testing.T) {
 
 		// wantAssignments is a summary of all the admissions in the cache after this cycle.
 		wantAssignments map[workload.Reference]kueue.Admission
-		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
-		wantScheduled []workload.Reference
-		// workloadCmpOpts are the cmp options to compare workloads.
-		workloadCmpOpts cmp.Options
 		// wantWorkloads is the subset of workloads that got admitted in this cycle.
-		wantWorkloads             []kueue.Workload
-		wantWorkloadsWithStatuses []kueue.Workload
+		wantWorkloads []kueue.Workload
 		// wantLeft is the workload keys that are left in the queues after this cycle.
 		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
@@ -212,10 +204,6 @@ func TestSchedule(t *testing.T) {
 		eventCmpOpts cmp.Options
 
 		wantSkippedPreemptions map[string]int
-
-		// trackPatchWorkloads flag to collect workload patches and use patched workloads
-		// for "wantWorkloads" assertion.
-		trackPatchedWorkloads bool
 	}{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: Preempt": {
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -252,6 +240,40 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted", "eng-alpha").
+					Queue("other").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "50").
+							Obj()).
+						Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("other").
+					Request(corev1.ResourceCPU, "20").
+					SetOrReplaceCondition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue other-alpha",
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(utiltesting.MakeAdmission("other-alpha").
+						PodSets(
+							utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "spot", "20").
+								Obj()).
+						Obj()).
+					Obj(),
+			},
 			wantPreempted: sets.Set[workload.Reference]{},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/admitted": {
@@ -269,7 +291,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new"},
 		},
 		"workload fits in single clusterQueue, with check state ready": {
 			workloads: []kueue.Workload{
@@ -295,14 +316,6 @@ func TestSchedule(t *testing.T) {
 							Obj(),
 					},
 				},
-			},
-			wantScheduled: []workload.Reference{"sales/foo"},
-			workloadCmpOpts: cmp.Options{
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.IgnoreFields(
-					kueue.Workload{}, "TypeMeta", "ObjectMeta.Name", "ObjectMeta.ResourceVersion",
-				),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").
@@ -355,6 +368,15 @@ func TestSchedule(t *testing.T) {
 					Generation(1).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("missing-cq-workload", "sales").
+					Queue("non-existent-queue").
+					PodSets(*utiltesting.MakePodSet("set", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
 			// Expect no panics and workload skipped.
 			wantLeft:     nil,
 			wantEvents:   nil,
@@ -373,6 +395,32 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStatePending,
+					}).
+					Admission(
+						utiltesting.MakeAdmission("sales").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "10000m").
+								Count(10).
+								Obj()).
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadQuotaReserved,
+						Message: "Quota reserved in ClusterQueue sales",
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/foo": {
 					ClusterQueue: "sales",
@@ -384,14 +432,21 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"sales/foo"},
-			eventCmpOpts:  ignoreEventMessageCmpOpts,
+			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"error during admission": {
 			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 10).
@@ -419,6 +474,45 @@ func TestSchedule(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "40000m").Count(40).Obj()).Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("assigned", "sales").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue sales",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("sales").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "40").
+								Count(40).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 11).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("11"),
+						},
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/assigned": {
 					ClusterQueue: "sales",
@@ -443,6 +537,26 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("blocked").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload namespace doesn't match ClusterQueue selector",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-alpha": {"sales/new"},
 			},
@@ -460,6 +574,60 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 51 /* Will borrow */).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 51 /* Will borrow */).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "51").
+								Count(51).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue sales",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("sales").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "1").
+								Count(1).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -481,7 +649,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"sales/new", "eng-alpha/new"},
 		},
 		"admit in same cohort with no borrowing": {
 			workloads: []kueue.Workload{
@@ -496,6 +663,60 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "40").
+								Count(40).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-beta",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-beta").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "40").
+								Count(40).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -518,7 +739,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new", "eng-beta/new"},
 		},
 		"assign multiple resources and flavors": {
 			workloads: []kueue.Workload{
@@ -531,6 +751,47 @@ func TestSchedule(t *testing.T) {
 							Obj(),
 						*utiltesting.MakePodSet("two", 40).
 							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 10).
+							Request(corev1.ResourceCPU, "6").
+							Request("example.com/gpu", "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 40).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-beta",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-beta").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "60000m").
+									Assignment("example.com/gpu", "model-a", "10").
+									Count(10).
+									Obj(),
+								utiltesting.MakePodSetAssignment("two").
+									Assignment(corev1.ResourceCPU, "spot", "40000m").
+									Count(40).
+									Obj(),
+							).
 							Obj(),
 					).
 					Obj(),
@@ -551,7 +812,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"eng-beta/new"},
 		},
 		"cannot borrow if cohort was assigned and would result in overadmission": {
 			workloads: []kueue.Workload{
@@ -568,6 +828,54 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 45).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "45").
+									Count(45).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 56).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("56"),
+						},
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
@@ -579,7 +887,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-beta": {"eng-beta/new"},
 			},
@@ -597,6 +904,60 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 55).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 45).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "45").
+								Count(45).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 55).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-beta",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-beta").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "55").
+								Count(55).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -619,7 +980,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new", "eng-beta/new"},
 		},
 		"can borrow if needs reclaim from cohort in different flavor": {
 			workloads: []kueue.Workload{
@@ -630,6 +990,64 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeWorkload("needs-to-borrow", "eng-beta").
 					Queue("main").
 					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("user-on-demand", "eng-beta").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "50000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("user-spot", "eng-beta").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "1000m").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("can-reclaim", "eng-alpha").
+					Queue("main").
+					Request(corev1.ResourceCPU, "100").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 50 more needed, insufficient unused quota for cpu in flavor spot, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("100"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("needs-to-borrow", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-beta",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-beta").
+							PodSets(utiltesting.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "on-demand", "1").
+								Count(1).
+								Obj()).
+							Obj(),
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("user-on-demand", "eng-beta").
 					Request(corev1.ResourceCPU, "50").
@@ -668,9 +1086,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{
-				"eng-beta/needs-to-borrow",
-			},
 		},
 		"workload exceeds lending limit when borrow in cohort": {
 			workloads: []kueue.Workload{
@@ -685,6 +1100,32 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeWorkload("b", "lend").
 					Queue("lend-b-queue").
 					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "lend").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("lend-b").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b", "lend").
+					Queue("lend-b-queue").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -714,6 +1155,40 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "lend").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("lend-b").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b", "lend").
+					Queue("lend-b-queue").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue lend-b",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("lend-b").
+							PodSets(utiltesting.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "default", "3").
+								Count(1).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"lend/a": *utiltesting.MakeAdmission("lend-b").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -725,9 +1200,6 @@ func TestSchedule(t *testing.T) {
 						Assignment(corev1.ResourceCPU, "default", "3000m").
 						Obj()).
 					Obj(),
-			},
-			wantScheduled: []workload.Reference{
-				"lend/b",
 			},
 		},
 		"preempt workloads in ClusterQueue and cohort": {
@@ -769,6 +1241,58 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "60000m").
 							Obj()).
 						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("borrower", "eng-alpha").
+					Request(corev1.ResourceCPU, "60").
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "60000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("use-all-spot", "eng-alpha").
+					Request(corev1.ResourceCPU, "100").
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "100000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("low-1", "eng-beta").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "30").
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "30000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("low-2", "eng-beta").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "10000m").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "20").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 20 more needed, insufficient unused quota for cpu in flavor spot, 20 more needed. Pending the preemption of 2 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("20"),
+						},
+					}).
 					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -845,6 +1369,50 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("pending", "eng-alpha").
+					Priority(1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("use-all", "eng-alpha").
+					Request(corev1.ResourceCPU, "100").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "100").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(-1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				// Preemptor is not admitted in this cycle.
 				"other-beta": {"eng-beta/preemptor"},
@@ -869,6 +1437,24 @@ func TestSchedule(t *testing.T) {
 					Request("example.com/gpu", "1").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					Request("example.com/gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: resource example.com/gpu unavailable in ClusterQueue",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-alpha": {"eng-alpha/new"},
 			},
@@ -880,6 +1466,42 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 60).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("existing", "eng-beta").
+					PodSets(*utiltesting.MakePodSet("one", 45).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").Count(45).Obj()).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 60).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "spot", "60").
+									Count(60).
+									Obj(),
+							).
+							Obj(),
+					).
 					Obj(),
 				*utiltesting.MakeWorkload("existing", "eng-beta").
 					PodSets(*utiltesting.MakePodSet("one", 45).
@@ -908,7 +1530,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new"},
 		},
 		"workload should not fit in nonexistent clusterQueue": {
 			workloads: []kueue.Workload{
@@ -917,9 +1538,21 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("cq-nonexistent-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
 		},
 		"workload should not fit in clusterQueue with nonexistent flavor": {
 			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("flavor-nonexistent-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").
 					Queue("flavor-nonexistent-queue").
 					Request(corev1.ResourceCPU, "1").
@@ -975,6 +1608,103 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
+					Queue("main").
+					Creation(now.Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "1").
+								Count(1).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Creation(now.Add(-2 * time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-beta",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-beta").
+							PodSets(utiltesting.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "on-demand", "50").
+								Count(50).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("existing", "eng-gamma").
+					PodSets(
+						*utiltesting.MakePodSet("borrow-on-demand", 51).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("use-all-spot", 100).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuota(utiltesting.MakeAdmission("eng-gamma").
+						PodSets(
+							utiltesting.MakePodSetAssignment("borrow-on-demand").
+								Assignment(corev1.ResourceCPU, "on-demand", "51").
+								Count(51).
+								Obj(),
+							utiltesting.MakePodSetAssignment("use-all-spot").
+								Assignment(corev1.ResourceCPU, "spot", "100").
+								Count(100).
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
+					Queue("main").
+					Creation(now).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 41 more needed, insufficient unused quota for cpu in flavor spot, 50 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("50"),
+						},
+					}).
+					Obj(),
+			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("eng-gamma").
 					Cohort("eng").
@@ -1008,7 +1738,6 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "50").Count(50).Obj()).Obj(),
 				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-gamma": {"eng-gamma/new-gamma"},
 			},
@@ -1028,6 +1757,37 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						SetMinimumCount(20).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue sales",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("sales").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "50").
+									Count(25).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/new": {
 					ClusterQueue: "sales",
@@ -1039,7 +1799,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"sales/new"},
 		},
 		"partial admission single variable pod set, preempt first": {
 			workloads: []kueue.Workload{
@@ -1050,6 +1809,35 @@ func TestSchedule(t *testing.T) {
 						SetMinimumCount(10).
 						Request("example.com/gpu", "1").
 						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("old", "eng-beta").
+					Priority(-4).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Priority(4).
+					PodSets(*utiltesting.MakePodSet("one", 20).
+						SetMinimumCount(10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set one: insufficient unused quota for example.com/gpu in flavor model-a, 10 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("20"),
+						},
+					}).
 					Obj(),
 				*utiltesting.MakeWorkload("old", "eng-beta").
 					Priority(-4).
@@ -1084,6 +1872,35 @@ func TestSchedule(t *testing.T) {
 						SetMinimumCount(10).
 						Request("example.com/gpu", "1").
 						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("old", "eng-beta").
+					Priority(-4).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Priority(4).
+					PodSets(*utiltesting.MakePodSet("one", 30).
+						SetMinimumCount(10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set one: insufficient unused quota for example.com/gpu in flavor model-a, 10 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("30"),
+						},
+					}).
 					Obj(),
 				*utiltesting.MakeWorkload("old", "eng-beta").
 					Priority(-4).
@@ -1128,6 +1945,54 @@ func TestSchedule(t *testing.T) {
 					).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 20).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 30).
+							SetMinimumCount(10).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("three", 15).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue sales",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("sales").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "20").
+									Count(20).
+									Obj(),
+								utiltesting.MakePodSetAssignment("two").
+									Assignment(corev1.ResourceCPU, "default", "20").
+									Count(20).
+									Obj(),
+								utiltesting.MakePodSetAssignment("three").
+									Assignment(corev1.ResourceCPU, "default", "10").
+									Count(10).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/new": {
 					ClusterQueue: "sales",
@@ -1147,7 +2012,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled: []workload.Reference{"sales/new"},
 		},
 		"partial admission disabled, multiple variable pod sets": {
 			workloads: []kueue.Workload{
@@ -1165,6 +2029,50 @@ func TestSchedule(t *testing.T) {
 							SetMinimumCount(5).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
+					).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 20).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 30).
+							SetMinimumCount(10).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("three", 15).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set three: insufficient quota for cpu in flavor default, request > maximum capacity (65 > 50)",
+					}).
+					ResourceRequests(
+						kueue.PodSetRequest{
+							Name: "one",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("20"),
+							},
+						},
+						kueue.PodSetRequest{
+							Name: "two",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("30"),
+							},
+						},
+						kueue.PodSetRequest{
+							Name: "three",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("15"),
+							},
+						},
 					).
 					Obj(),
 			},
@@ -1198,7 +2106,60 @@ func TestSchedule(t *testing.T) {
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r2", "16").Obj(),
 				).Obj(),
 			},
-			wantScheduled: []workload.Reference{"sales/wl1", "sales/wl2"},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
+				).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq1",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq1").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("r1", "default", "16").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r2", "16").Obj(),
+				).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq2",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq2").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("r2", "default", "16").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/wl1": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -1237,7 +2198,60 @@ func TestSchedule(t *testing.T) {
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "14").Obj(),
 				).Obj(),
 			},
-			wantScheduled: []workload.Reference{"sales/wl1", "sales/wl2"},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
+				).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq1",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq1").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("r1", "default", "16").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "14").Obj(),
+				).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq2",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq2").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("r1", "default", "14").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/wl1": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -1276,7 +2290,50 @@ func TestSchedule(t *testing.T) {
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
 				).Obj(),
 			},
-			wantScheduled: []workload.Reference{"sales/wl1"},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
+				).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq1",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq1").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("r1", "default", "16").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request("r1", "16").Obj(),
+				).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"r1": resource.MustParse("16"),
+						},
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/wl1": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -1357,6 +2414,71 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "eng-alpha").
+					Queue("lq_a").
+					Creation(now.Add(time.Second)).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_a", "eng-alpha").
+					Queue("lq_a").
+					PodSets(
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "2").
+							Obj(),
+					).
+					ReserveQuota(utiltesting.MakeAdmission("cq_a").
+						PodSets(
+							utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "2").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b", "eng-beta").
+					Queue("lq_b").
+					Creation(now.Add(2 * time.Second)).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq_b",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq_b").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment(corev1.ResourceCPU, "default", "1").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/admitted_a": {
 					ClusterQueue: "cq_a",
@@ -1374,9 +2496,6 @@ func TestSchedule(t *testing.T) {
 							Obj(),
 					},
 				},
-			},
-			wantScheduled: []workload.Reference{
-				"eng-beta/b",
 			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq_a": {"eng-alpha/a"},
@@ -1424,12 +2543,76 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("all_nominal", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "50").Count(50).Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					Creation(now).
+					PodSets(*utiltesting.MakePodSet("one", 5).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue eng-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("eng-alpha").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "5").
+									Count(5).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("borrowing", "eng-beta").
+					Queue("main").
+					// Use half of shared quota.
+					PodSets(*utiltesting.MakePodSet("one", 55).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "55").Count(55).Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("older_new", "eng-beta").
+					Queue("main").
+					Creation(now.Add(-time.Minute)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/all_nominal": *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "50").Count(50).Obj()).Obj(),
 				"eng-beta/borrowing":    *utiltesting.MakeAdmission("eng-beta").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "55").Count(55).Obj()).Obj(),
 				"eng-alpha/new":         *utiltesting.MakeAdmission("eng-alpha").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(5).Obj()).Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-beta": {"eng-beta/older_new"},
 			},
@@ -1566,6 +2749,123 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("d0", "eng-alpha").
+					Queue("lq-d").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("d", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("d1", "eng-alpha").
+					Queue("lq-d").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "70").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue d",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("d").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "70").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("e0", "eng-alpha").
+					Queue("lq-e").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "20").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("e", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "20").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("e1", "eng-alpha").
+					Queue("lq-e").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "61").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("61"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("f1", "eng-alpha").
+					Queue("lq-f").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("g0", "eng-alpha").
+					Queue("lq-g").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "100").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("g", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "100").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("g1", "eng-alpha").
+					Queue("lq-g").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/d0": *utiltesting.MakeAdmission("d", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -1588,7 +2888,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/d1"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"e": {"eng-alpha/e1"},
 				"g": {"eng-alpha/g1"},
@@ -1652,6 +2951,65 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b0", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("b", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "50").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue b",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("b").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "50").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Queue("lq-c").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "75").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("75"),
+						},
+					}).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/b0": *utiltesting.MakeAdmission("b", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -1664,7 +3022,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/b1"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"c": {"eng-alpha/c1"},
 			},
@@ -1739,6 +3096,68 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b0", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("b", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "4").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					// high priority for tiebreak
+					Priority(9001).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Priority(0).
+					Queue("lq-c").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue c",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("c").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "4").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/b0": *utiltesting.MakeAdmission("b", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -1750,9 +3169,6 @@ func TestSchedule(t *testing.T) {
 						Assignment(corev1.ResourceCPU, "on-demand", "4").
 						Obj()).
 					Obj(),
-			},
-			wantScheduled: []workload.Reference{
-				"eng-alpha/c1",
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
@@ -1828,6 +3244,67 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b0", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("b", "one").
+						PodSets(utiltesting.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "on-demand", "4").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					Priority(9001).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Priority(0).
+					Queue("lq-c").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue c",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("c").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "4").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/b0": *utiltesting.MakeAdmission("b", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -1839,9 +3316,6 @@ func TestSchedule(t *testing.T) {
 						Assignment(corev1.ResourceCPU, "on-demand", "4").
 						Obj()).
 					Obj(),
-			},
-			wantScheduled: []workload.Reference{
-				"eng-alpha/c1",
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
@@ -1916,6 +3390,92 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Queue("lq-a").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue a",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("a").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "10").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue b",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("b").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "10").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Queue("lq-c").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue c",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("c").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "10").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1": *utiltesting.MakeAdmission("a", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -1933,8 +3493,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/a1", "eng-alpha/b1", "eng-alpha/c1"},
-			wantLeft:      nil,
+			wantLeft: nil,
 		},
 		"fair sharing schedule highest priority first": {
 			enableFairSharing: true,
@@ -1980,6 +3539,56 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Queue("lq-b").
+					Priority(99).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Queue("lq-c").
+					Priority(101).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue c",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("c").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "10").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/c1": *utiltesting.MakeAdmission("c", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -1987,7 +3596,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/c1"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
@@ -2038,6 +3646,58 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "eng-alpha").
+					Creation(now.Add(time.Second)).
+					Queue("lq-b").
+					Priority(101).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-alpha").
+					Creation(now).
+					Queue("lq-c").
+					Priority(101).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "10").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue c",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("c").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "on-demand", "10").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/c1": *utiltesting.MakeAdmission("c", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -2045,7 +3705,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/c1"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
@@ -2150,6 +3809,85 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(-2).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "eng-alpha").
+					Priority(-2).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "eng-alpha").
+					Priority(-1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("incoming", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 2 more needed. Pending the preemption of 2 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b2", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b3", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-alpha/a2"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/incoming"},
@@ -2239,6 +3977,45 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(-1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("incoming", "eng-alpha").
+					Priority(1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(-1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/incoming"},
 			},
@@ -2297,6 +4074,51 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeWorkload("preemptor", "eng-beta").
 					Queue("main").
 					Request(corev1.ResourceCPU, "30").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("all_spot", "eng-alpha").
+					Request(corev1.ResourceCPU, "100").
+					SimpleReserveQuota("eng-alpha", "spot", now).Obj(),
+				*utiltesting.MakeWorkload("alpha1", "eng-alpha").UID("alpha1").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("alpha2", "eng-alpha").UID("alpha2").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("alpha3", "eng-alpha").UID("alpha3").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("alpha4", "eng-alpha").UID("alpha4").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "30").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 30 more needed, insufficient unused quota for cpu in flavor spot, 30 more needed. Pending the preemption of 2 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("30"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("gamma1", "eng-gamma").UID("gamma1").
+					Request(corev1.ResourceCPU, "10").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma2", "eng-gamma").UID("gamma2").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma3", "eng-gamma").UID("gamma3").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma4", "eng-gamma").UID("gamma4").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
 			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/alpha1", "eng-gamma/gamma1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -2413,6 +4235,62 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-beta/b1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
@@ -2487,6 +4365,62 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("fit", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue other-alpha",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("other-alpha").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment(corev1.ResourceCPU, "default", "1").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("eng-beta/b1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-beta": {"eng-beta/preemptor"},
@@ -2503,7 +4437,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/fit"},
 			wantSkippedPreemptions: map[string]int{
 				"other-alpha": 0,
 				"other-beta":  0,
@@ -2587,6 +4520,62 @@ func TestSchedule(t *testing.T) {
 					Priority(99).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
 					Obj(),
 			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1"),
@@ -2702,6 +4691,84 @@ func TestSchedule(t *testing.T) {
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").
+							Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 3 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 3 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-gamma").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-gamma").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-gamma").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 3 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
 					Obj(),
 			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-beta/b1", "eng-gamma/c1"),
@@ -2824,6 +4891,72 @@ func TestSchedule(t *testing.T) {
 					Request("beta-resource", "1").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request("alpha-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment("alpha-resource", "default", "1").
+							Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Request("alpha-resource", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for alpha-resource in flavor default, 1 more needed, insufficient unused quota for cpu in flavor default, 3 more needed. Pending the preemption of 2 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"alpha-resource":   resource.MustParse("1"),
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request("beta-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment("beta-resource", "default", "1").Obj()).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Request("beta-resource", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload has overlapping preemption targets with another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"beta-resource":    resource.MustParse("1"),
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-gamma").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "9").
+					Request("gamma-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-gamma").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "9").Obj()).Obj()).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-gamma/c1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
@@ -2855,6 +4988,26 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "100").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, request > maximum capacity (100 > 50)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("100"),
+						},
+					}).
+					Obj(),
+			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"sales": {"sales/new"},
 			},
@@ -2866,6 +5019,26 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "500m").
 						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "500m").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "resources didn't satisfy LimitRange constraints: spec.podSets[0].template.spec.containers[0]: Invalid value: [\"cpu\"]: requests must not be above the limitRange max",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("500m"),
+						},
+					}).
 					Obj(),
 			},
 			objects: []client.Object{
@@ -2900,6 +5073,27 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "200m").
+						Limit(corev1.ResourceCPU, "100m").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "resources validation failed: spec.podSets[0].template.spec.containers[0]: Invalid value: [\"cpu\"]: requests must not exceed its limits",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("200m"),
+						},
+					}).
+					Obj(),
+			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"sales": {"sales/new"},
 			},
@@ -2923,6 +5117,26 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "100").
 						Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "100").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, request > maximum capacity (100 > 50)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("100"),
+						},
+					}).
 					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -2979,6 +5193,37 @@ func TestSchedule(t *testing.T) {
 					Priority(100).
 					Queue("other").
 					Request("gpu", "6").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "6").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed, insufficient unused quota for gpu in flavor spot, 1 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("6"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 			},
 			wantPreempted: sets.New[workload.Reference]("eng-beta/b1"),
@@ -3046,6 +5291,37 @@ func TestSchedule(t *testing.T) {
 					Priority(100).
 					Queue("other").
 					Request("gpu", "8").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "8").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 3 more needed, insufficient unused quota for gpu in flavor spot, 3 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("8"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 			},
 			wantPreempted: sets.New[workload.Reference]("eng-beta/b1"),
@@ -3116,6 +5392,43 @@ func TestSchedule(t *testing.T) {
 					Priority(100).
 					Queue("other").
 					Request("gpu", "6").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "6").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed, insufficient unused quota for gpu in flavor spot, 6 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("6"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1"),
@@ -3195,6 +5508,44 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "5").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "6").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "5").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed, insufficient unused quota for gpu in flavor spot, 5 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("5"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					// b1 is too high priority for preemptor.
+					Priority(9001).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
@@ -3224,13 +5575,13 @@ func TestSchedule(t *testing.T) {
 			// Cohort. It has a pending workload, WL2,
 			// that fits within nominal capacity, and a
 			// reclaim policy set to any.
-
+			//
 			// CQ1 is using half of its capacity, and is
 			// also lending out remaining capacity.
-
+			//
 			// CQ3 has no capacity of its own, and is
 			// borrowing 10 nominal capacity.
-
+			//
 			// With a pending workloads WL1 and WL2 queued
 			// in CQ1 and CQ2 respectively, we want to
 			// make sure that the WL2 is processed first,
@@ -3238,7 +5589,7 @@ func TestSchedule(t *testing.T) {
 			// invalidated by CQ1's WL1, which won't fit
 			// into its nominal capacity given the
 			// admitted Admitted-Workload-1.
-
+			//
 			// As WL1 has an earlier creation timestamp
 			// than WL2, there was a bug where it would
 			// process first, reserving capacity which
@@ -3292,6 +5643,59 @@ func TestSchedule(t *testing.T) {
 					Creation(now.Add(time.Second)).
 					Queue("lq").
 					Request("gpu", "10").
+					Obj(),
+				*utiltesting.MakeWorkload("Admitted-Workload-2", "eng-gamma").
+					Queue("lq").
+					Priority(0).
+					Request("gpu", "5").
+					SimpleReserveQuota("CQ3", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("Admitted-Workload-3", "eng-gamma").
+					Queue("lq").
+					Priority(1).
+					Request("gpu", "5").
+					SimpleReserveQuota("CQ3", "on-demand", now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("Admitted-Workload-1", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "5").
+					SimpleReserveQuota("CQ1", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("WL1", "eng-alpha").
+					Creation(now).
+					Queue("lq").
+					Request("gpu", "10").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 5 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("WL2", "eng-beta").
+					Creation(now.Add(time.Second)).
+					Queue("lq").
+					Request("gpu", "10").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 5 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("10"),
+						},
+					}).
 					Obj(),
 				*utiltesting.MakeWorkload("Admitted-Workload-2", "eng-gamma").
 					Queue("lq").
@@ -3372,12 +5776,59 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "1").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "1").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2-pending", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue ClusterQueueB",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("ClusterQueueB").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("gpu", "on-demand", "1").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantLeft: nil,
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"ClusterQueueA": {"eng-alpha/a2-pending"},
-			},
-			wantScheduled: []workload.Reference{
-				"eng-beta/b1-pending",
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1-admitted": *utiltesting.MakeAdmission("ClusterQueueA").
@@ -3433,6 +5884,46 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "1").
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "1").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2-pending", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"ClusterQueueB": {"eng-beta/b1-pending"},
 			},
@@ -3486,6 +5977,46 @@ func TestSchedule(t *testing.T) {
 					Creation(now).
 					Queue("lq").
 					Request("gpu", "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "1").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2-pending", "eng-alpha").
+					Queue("lq").
+					Request("gpu", "2").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("b1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					}).
 					Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
@@ -3555,6 +6086,56 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("best-effort", "eng-alpha").
+					Queue("lq-best-effort").
+					Priority(3).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Workload no longer fits after processing another workload",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("guaranteed", "eng-alpha").
+					Queue("lq-guaranteed").
+					Priority(0).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue guaranteed",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("guaranteed").
+							PodSets(
+								utiltesting.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "4").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/guaranteed": *utiltesting.MakeAdmission("guaranteed", "one").
 					PodSets(utiltesting.MakePodSetAssignment("one").
@@ -3562,7 +6143,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/guaranteed"},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"best-effort": {"eng-alpha/best-effort"},
 			},
@@ -3623,7 +6203,42 @@ func TestSchedule(t *testing.T) {
 					Priority(100).
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/new"},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted", "eng-alpha").
+					Queue("lq2").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq2", "on-demand", now.Add(-time.Second)).
+					Admitted(true).
+					Priority(0).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("lq1").
+					Request(corev1.ResourceCPU, "1").
+					Priority(100).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue cq1",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("cq1").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment(corev1.ResourceCPU, "spot", "1").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/new": *utiltesting.MakeAdmission("cq1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -3640,8 +6255,6 @@ func TestSchedule(t *testing.T) {
 		// Workload-slice scheduling test case.
 		"workload-slice fits in single clusterQueue": {
 			enableElasticJobsViaWorkloadSlice: true,
-			trackPatchedWorkloads:             true,
-
 			// workloads that will be returned by the fake.client.
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo-1", "sales").
@@ -3682,13 +6295,11 @@ func TestSchedule(t *testing.T) {
 				"sales/foo-1": *utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "10").Count(10).Obj()).Obj(),
 				"sales/foo-2": *utiltesting.MakeAdmission("sales").PodSets(utiltesting.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "15").Count(15).Obj()).Obj(),
 			},
-			// wantScheduled is a list of workloads admission status expected to be added to the cache after the scheduling cycle.
-			wantScheduled: []workload.Reference{"sales/foo-2"},
 			// wantWorkloads an authoritative list of workloads expected in K8s API after the scheduling cycle.
 			// This may not be the same as previous "want*" values due to the stabbed apply status invocations in the test.
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo-1", "sales").
-					ResourceVersion("1").
+					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request(corev1.ResourceCPU, "1").
@@ -3725,7 +6336,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("foo-2", "sales").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
-					ResourceVersion("1").
+					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 15).
 						Request(corev1.ResourceCPU, "1").
@@ -3754,11 +6365,6 @@ func TestSchedule(t *testing.T) {
 						ObservedGeneration: 1,
 					}).
 					Obj(),
-			},
-			workloadCmpOpts: cmp.Options{
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.SortSlices(func(a, b kueue.Workload) bool { return workload.Key(&a) < workload.Key(&b) }),
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
@@ -3822,7 +6428,46 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "1").
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"default/a3"},
+			wantWorkloads: []kueue.Workload{
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a1", "default").
+					Queue("queue1").
+					Request("gpu", "8").
+					SimpleReserveQuota("queue1", "on-demand", now).
+					Obj(),
+				// exhaust quota in spot in ClusterQueue
+				*utiltesting.MakeWorkload("a2", "default").
+					Queue("queue1").
+					Request("gpu", "3").
+					SimpleReserveQuota("queue1", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "default").
+					Queue("queue1").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue queue1",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("queue1").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("gpu", "spot", "1").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("queue1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -3896,7 +6541,46 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "1").
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"default/a3"},
+			wantWorkloads: []kueue.Workload{
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a1", "default").
+					Queue("queue1").
+					Request("gpu", "8").
+					SimpleReserveQuota("queue1", "on-demand", now).
+					Obj(),
+				// exhaust quota in spot in ClusterQueue
+				*utiltesting.MakeWorkload("a2", "default").
+					Queue("queue1").
+					Request("gpu", "3").
+					SimpleReserveQuota("queue1", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "default").
+					Queue("queue1").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "QuotaReserved",
+						Message: "Quota reserved in ClusterQueue queue1",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}).
+					Admission(
+						utiltesting.MakeAdmission("queue1").
+							PodSets(
+								utiltesting.MakePodSetAssignment("main").
+									Assignment("gpu", "spot", "1").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"default/a1": *utiltesting.MakeAdmission("queue1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -3967,7 +6651,32 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "1").
 					Obj(),
 			},
-			wantScheduled: nil,
+			wantWorkloads: []kueue.Workload{
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a1", "default").
+					Priority(-1).
+					Queue("queue1").
+					Request("gpu", "2").
+					SimpleReserveQuota("queue1", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "default").
+					Priority(99).
+					Queue("queue1").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("default/a1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"queue1": {"default/a2"},
@@ -4048,7 +6757,32 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "1").
 					Obj(),
 			},
-			wantScheduled: nil,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "default").
+					Priority(99).
+					Queue("queue1").
+					Request("gpu", "1").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a2", "default").
+					Priority(-1).
+					Queue("queue2").
+					Request("gpu", "2").
+					SimpleReserveQuota("queue2", "on-demand", now).
+					Obj(),
+			},
 			wantPreempted: sets.New[workload.Reference]("default/a2"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"queue1": {"default/a1"},
@@ -4090,33 +6824,17 @@ func TestSchedule(t *testing.T) {
 						utiltesting.MakeNamespaceWrapper("sales").Label("dep", "sales").Obj(),
 						utiltesting.MakeNamespaceWrapper("lend").Label("dep", "lend").Obj(),
 					}, tc.objects...,
-				)...)
-			for i := range tc.workloads {
-				clientBuilder.WithStatusSubresource(&tc.workloads[i])
-			}
-
-			// Patch workloads tracking by leveraging fake.Client sub-resource interceptor.
-			patchedWorkloads := sets.New[*kueue.Workload]()
-			if tc.trackPatchedWorkloads {
-				clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if subResourceName != "status" {
-							// There should be only "status" subresource patches in the workload scheduler context.
-							return fmt.Errorf("unexpected subresource in workload status patch: %s", subResourceName)
+				)...).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.admissionError != nil {
+							return tc.admissionError
 						}
-						// There should be only *kueue.Workloads status patches.
-						wl, ok := obj.(*kueue.Workload)
-						if !ok {
-							return fmt.Errorf("unexpected object in workload status patch: %T", obj)
-						}
-						// Bump up resource version.
-						rv, _ := strconv.Atoi(wl.GetResourceVersion())
-						wl.SetResourceVersion(strconv.Itoa(rv))
-						patchedWorkloads.Insert(wl)
-						return nil
+						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 					},
 				})
-			}
+
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := schdcache.New(cl)
@@ -4155,17 +6873,7 @@ func TestSchedule(t *testing.T) {
 				func() { wg.Done() },
 			))
 
-			gotScheduled := make(map[workload.Reference]kueue.Admission)
 			var mu sync.Mutex
-			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
-				if tc.admissionError != nil {
-					return tc.admissionError
-				}
-				mu.Lock()
-				gotScheduled[workload.Key(w)] = *w.Status.Admission
-				mu.Unlock()
-				return nil
-			}
 			gotPreempted := sets.New[workload.Reference]()
 			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
@@ -4181,28 +6889,18 @@ func TestSchedule(t *testing.T) {
 			scheduler.schedule(ctx)
 			wg.Wait()
 
-			wantScheduled := make(map[workload.Reference]kueue.Admission)
-			for _, key := range tc.wantScheduled {
-				wantScheduled[key] = tc.wantAssignments[key]
-			}
-			if diff := cmp.Diff(wantScheduled, gotScheduled); diff != "" {
-				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-			}
-
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
 				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 			}
 
 			// Verify assignments in cache.
 			gotAssignments := make(map[workload.Reference]kueue.Admission)
-			gotWorkloads := make(map[workload.Reference]kueue.Workload)
 			snapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			for cqName, c := range snapshot.ClusterQueues() {
 				for name, w := range c.Workloads {
-					gotWorkloads[name] = *w.Obj
 					switch {
 					case !workload.HasQuotaReservation(w.Obj):
 						t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
@@ -4213,17 +6911,22 @@ func TestSchedule(t *testing.T) {
 					}
 				}
 			}
-			// If we track patched workloads, replace workload defined in queue with the tracked patch instance,
-			// since workloads in the queue are "stale" in respect of status updates.
-			// Note: if we don't track workload status patching - patchWorkloads will be empty, e.g., "noop".
-			for wl := range patchedWorkloads {
-				gotWorkloads[workload.Key(wl)] = *wl
+
+			gotWorkloads := &kueue.WorkloadList{}
+			err = cl.List(ctx, gotWorkloads)
+			if err != nil {
+				t.Fatalf("Unexpected list workloads error: %v", err)
 			}
 
-			if tc.wantWorkloads != nil {
-				if diff := cmp.Diff(tc.wantWorkloads, goslices.Collect(maps.Values(gotWorkloads)), tc.workloadCmpOpts...); diff != "" {
-					t.Errorf("Unexpected workloads in cache (-want,+got):\n%s", diff)
-				}
+			defaultWorkloadCmpOpts := cmp.Options{
+				cmpopts.EquateEmpty(),
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+				cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
+			}
+
+			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+				t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
 			}
 
 			if len(gotAssignments) == 0 {
