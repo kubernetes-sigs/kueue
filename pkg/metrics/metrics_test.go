@@ -182,3 +182,11 @@ func TestGitVersionMetric(t *testing.T) {
 	expectFilteredMetricsCount(t, buildInfo, 1, "compiler", versionInfo.Compiler)
 	expectFilteredMetricsCount(t, buildInfo, 1, "platform", versionInfo.Platform)
 }
+
+func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
+	lq := LocalQueueReference{Name: "lq3", Namespace: "ns3"}
+	ReportLocalQueueAdmissionChecksWaitTime(lq, "p2", 0)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 1, "name", "lq3", "namespace", "ns3")
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 0, "name", "lq3", "namespace", "ns3")
+}

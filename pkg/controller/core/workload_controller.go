@@ -394,7 +394,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					wl.Spec.PriorityClassName,
 					queuedWaitTime,
 				)
-				metrics.LocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(&wl), quotaReservedWaitTime)
+				metrics.ReportLocalQueueAdmissionChecksWaitTime(
+					metrics.LQRefFromWorkload(&wl),
+					wl.Spec.PriorityClassName,
+					quotaReservedWaitTime,
+				)
 			}
 		}
 		return ctrl.Result{}, nil
