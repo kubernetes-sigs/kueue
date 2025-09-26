@@ -4,7 +4,7 @@ linkTitle: "RayClusters"
 date: 2024-08-07
 weight: 6
 description: >
-  Run a RayCluster on Kueue.
+  Run a RayCluster with Kueue.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayCluster](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html).

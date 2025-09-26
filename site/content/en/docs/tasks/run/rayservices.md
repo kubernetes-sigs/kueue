@@ -4,7 +4,7 @@ linkTitle: "RayServices"
 date: 2025-06-30
 weight: 6
 description: >
-  Run a RayService on Kueue.
+  Run a RayService with Kueue.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html).

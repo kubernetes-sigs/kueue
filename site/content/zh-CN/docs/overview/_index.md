@@ -35,8 +35,8 @@ Kueue 的一个核心设计原则是避免重复 Kubernetes 组件和成熟的�
   [队列组(Cohorts)](/docs/concepts/cohort)和[抢占(preemption)](/docs/concepts/cluster_queue/#preemption)，
   并为不同租户提供多种策略。
 - **集成：** 内置支持流行的作业，例如[BatchJob](/docs/tasks/run/jobs/)、
-  [Kubeflow 训练作业](/docs/tasks/run/kubeflow/)、[RayJob](/docs/tasks/run/kuberay/rayjobs/)、
-  [RayCluster](/docs/tasks/run/kuberay/rayclusters/)、[JobSet](/docs/tasks/run/jobsets/)、
+  [Kubeflow 训练作业](/docs/tasks/run/kubeflow/)、[RayJob](/docs/tasks/run/rayjobs/)、
+  [RayCluster](/docs/tasks/run/rayclusters/)、[JobSet](/docs/tasks/run/jobsets/)、
   [AppWrappers](/docs/tasks/run/appwrappers/)、[普通 Pod 和 Pod 组](/docs/tasks/run/plain_pods/)。
 - **系统洞察：** 内置 [Prometheus 指标](/docs/reference/metrics/)帮助监控系统状态，并提供按需可见性端点用于[监控待处理工作负载](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)。
 - **准入检查(AdmissionChecks)：** 一种供内部或外部组件影响工作负载是否可以被[接纳](/docs/concepts/admission_check/)的机制。

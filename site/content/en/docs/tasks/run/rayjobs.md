@@ -4,7 +4,7 @@ linkTitle: "RayJobs"
 date: 2024-08-07
 weight: 6
 description: >
-  Run a Kueue scheduled RayJob.
+  Run a RayJob with Kueue.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [KubeRay's](https://github.com/ray-project/kuberay)
