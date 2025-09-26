@@ -35,9 +35,9 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: TopologyAwareScheduling
-  - name: TASProfileLeastAllocated
   - name: TASProfileMixed
   - name: TASProfileLeastFreeCapacity
+  - name: TASProfileMostFreeCapacity # deleted in 0.13
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
