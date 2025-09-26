@@ -3,7 +3,7 @@ title: "运行 RayJob"
 linkTitle: "RayJobs"
 date: 2024-08-07
 weight: 6
-description: 在启用了 Kueue 的环境里运行 RayJob
+description: 在启用了 Kueue 的环境里运行 RayJobs
 ---
 
 本页面展示了如何利用 Kueue 的调度和服务管理能力来运行 [KubeRay](https://github.com/ray-project/kuberay)
