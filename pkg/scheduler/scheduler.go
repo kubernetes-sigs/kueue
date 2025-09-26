@@ -803,7 +803,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, waitTime)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), waitTime)
+		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), newWorkload.Spec.PriorityClassName, waitTime)
 	}
 }
 
