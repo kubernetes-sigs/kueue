@@ -175,13 +175,13 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 }
 
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
-    lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
-    ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "")
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "")
 
-    expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1", "reason", "Preempted")
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1", "reason", "Preempted")
 
-    ClearLocalQueueMetrics(lq)
-    expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
 }
 
 func TestGitVersionMetric(t *testing.T) {
