@@ -695,6 +695,15 @@ func expectHistogramMetric(metric *prometheus.HistogramVec, cqName, preemptionRe
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
+	metric := metrics.LocalQueueAdmissionWaitTime
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(lq.Name, lq.Namespace, priorityClass))
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).Should(gomega.Equal(count))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus) {
 	for i, s := range metrics.CQStatuses {
 		var wantV float64
