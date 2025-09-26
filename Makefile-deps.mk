@@ -73,7 +73,7 @@ golangci-lint: ## Download golangci-lint locally if necessary.
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd $(TOOLS_DIR); $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	cd hack/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
