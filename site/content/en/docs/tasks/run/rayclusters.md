@@ -2,7 +2,7 @@
 title: "Run A RayCluster"
 linkTitle: "RayClusters"
 date: 2024-08-07
-weight: 6
+weight: 6.5
 description: >
   Run a RayCluster with Kueue.
 ---
