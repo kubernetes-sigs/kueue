@@ -2,7 +2,7 @@
 title: "Run A RayService"
 linkTitle: "RayServices"
 date: 2025-06-30
-weight: 8
+weight: 10
 description: >
   Run a RayService with Kueue.
 ---
