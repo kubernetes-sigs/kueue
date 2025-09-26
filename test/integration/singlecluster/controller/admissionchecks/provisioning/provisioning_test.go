@@ -1526,7 +1526,7 @@ const (
 	//
 	// The real purpose of these test cases is to:
 	// - document cases of issue #6966 in an easily reproducible way;
-	// - also document what exactly goes wrong (see "if expectSuccess" blocks in the test scenario);
+	// - also document what exactly goes wrong (see "switch expectSuccess" blocks in the test scenario);
 	// - enhance further exploring "in which cases does this error happen?"
 	//   (which may in turn provide more hints about its root cause(s)).
 	stuck = successExpectation(false)
