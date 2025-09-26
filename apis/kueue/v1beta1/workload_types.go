@@ -41,6 +41,7 @@ type WorkloadSpec struct {
 	// queueName cannot be changed while .status.admission is not null.
 	QueueName LocalQueueName `json:"queueName,omitempty"`
 
+	// priorityClassName is the name of the PriorityClass the Workload is associated with.
 	// If specified, indicates the workload's priority.
 	// "system-node-critical" and "system-cluster-critical" are two special
 	// keywords which indicate the highest priorities with the former being
@@ -51,7 +52,7 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 
-	// Priority determines the order of access to the resources managed by the
+	// priority determines the order of access to the resources managed by the
 	// ClusterQueue where the workload is queued.
 	// The priority value is populated from PriorityClassName.
 	// The higher the value, the higher the priority.
@@ -65,7 +66,7 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
 	PriorityClassSource string `json:"priorityClassSource,omitempty"`
 
-	// Active determines if a workload can be admitted into a queue.
+	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
 	// Possible values are:
 	//
@@ -110,34 +111,34 @@ type PodSetTopologyRequest struct {
 	// +kubebuilder:validation:Type=boolean
 	Unconstrained *bool `json:"unconstrained,omitempty"`
 
-	// PodIndexLabel indicates the name of the label indexing the pods.
+	// podIndexLabel indicates the name of the label indexing the pods.
 	// For example, in the context of
 	// - kubernetes job this is: kubernetes.io/job-completion-index
 	// - JobSet: kubernetes.io/job-completion-index (inherited from Job)
 	// - Kubeflow: training.kubeflow.org/replica-index
 	PodIndexLabel *string `json:"podIndexLabel,omitempty"`
 
-	// SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+	// subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
 	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
 	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
-	// SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+	// subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
-	// PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+	// podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
 	// PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
 	//
 	// +optional
 	PodSetGroupName *string `json:"podSetGroupName,omitempty"`
 
-	// PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+	// podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
 	// indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
 	//
 	// +optional
 	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
 
-	// PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+	// podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
 	// Kueue finds a requested topology domain on a level defined
 	// in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
 	//
@@ -149,7 +150,7 @@ type Admission struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
 	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
 
-	// PodSetAssignments hold the admission results for each of the .spec.podSets entries.
+	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
@@ -166,11 +167,11 @@ func NewPodSetReference(name string) PodSetReference {
 }
 
 type PodSetAssignment struct {
-	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
+	// name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
 	Name PodSetReference `json:"name"`
 
-	// Flavors are the flavors assigned to the workload for each resource.
+	// flavors are the flavors assigned to the workload for each resource.
 	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
 
 	// resourceUsage keeps track of the total resources all the pods in the podset need to run.
@@ -347,17 +348,6 @@ type PodSet struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
 type WorkloadStatus struct {
-	// admission holds the parameters of the admission of the workload by a
-	// ClusterQueue. admission can be set back to null, but its fields cannot be
-	// changed once set.
-	Admission *Admission `json:"admission,omitempty"`
-
-	// requeueState holds the re-queue state
-	// when a workload meets Eviction with PodsReadyTimeout reason.
-	//
-	// +optional
-	RequeueState *RequeueState `json:"requeueState,omitempty"`
-
 	// conditions hold the latest available observations of the Workload
 	// current state.
 	//
@@ -374,6 +364,17 @@ type WorkloadStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// admission holds the parameters of the admission of the workload by a
+	// ClusterQueue. admission can be set back to null, but its fields cannot be
+	// changed once set.
+	Admission *Admission `json:"admission,omitempty"`
+
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
+	// +optional
+	RequeueState *RequeueState `json:"requeueState,omitempty"`
 
 	// reclaimablePods keeps track of the number pods within a podset for which
 	// the resource reservation is no longer needed.
@@ -536,6 +537,7 @@ type AdmissionCheckState struct {
 	// +kubebuilder:validation:MaxLength=32768
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
 
+	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8
@@ -547,20 +549,24 @@ type AdmissionCheckState struct {
 // or having the same key provided by multiple AdmissionChecks is not allowed and will
 // result in failure during workload admission.
 type PodSetUpdate struct {
-	// Name of the PodSet to modify. Should match to one of the Workload's PodSets.
+	// name of the PodSet to modify. Should match to one of the Workload's PodSets.
 	// +required
 	// +kubebuilder:validation:Required
 	Name PodSetReference `json:"name"`
 
+	// labels of the PodSet to modify.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 
+	// annotations of the PodSet to modify.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 
+	// nodeSelector of the PodSet to modify.
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
+	// tolerations of the PodSet to modify.
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
 	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.key) ? x.operator == 'Exists' : true)", message="operator must be Exists when 'key' is empty, which means 'match all values and all keys'"
@@ -573,6 +579,7 @@ type PodSetUpdate struct {
 
 type ReclaimablePod struct {
 	// name is the PodSet name.
+	// +required
 	Name PodSetReference `json:"name"`
 
 	// count is the number of pods for which the requested resources are no longer needed.
@@ -582,9 +589,8 @@ type ReclaimablePod struct {
 
 type PodSetRequest struct {
 	// name is the name of the podSet. It should match one of the names in .spec.podSets.
-	// +kubebuilder:default=main
-	// +required
 	// +kubebuilder:validation:Required
+	// +required
 	Name PodSetReference `json:"name"`
 
 	// resources is the total resources all the pods in the podset need to run.
@@ -763,10 +769,13 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="field is immutable"
 // +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while admitted"
 type Workload struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the Workload.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   WorkloadSpec   `json:"spec,omitempty"`
+	// spec is the specification of the Workload.
+	Spec WorkloadSpec `json:"spec,omitempty"`
+	// status is the status of the Workload.
 	Status WorkloadStatus `json:"status,omitempty"`
 }
 

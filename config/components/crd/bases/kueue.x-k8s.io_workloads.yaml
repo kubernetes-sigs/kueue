@@ -60,12 +60,12 @@ spec:
           metadata:
             type: object
           spec:
-            description: WorkloadSpec defines the desired state of Workload
+            description: spec is the specification of the Workload.
             properties:
               active:
                 default: true
                 description: |-
-                  Active determines if a workload can be admitted into a queue.
+                  active determines if a workload can be admitted into a queue.
                   Changing active from true to false will evict any running workloads.
                   Possible values are:
 
@@ -8674,7 +8674,7 @@ spec:
                       properties:
                         podIndexLabel:
                           description: |-
-                            PodIndexLabel indicates the name of the label indexing the pods.
+                            podIndexLabel indicates the name of the label indexing the pods.
                             For example, in the context of
                             - kubernetes job this is: kubernetes.io/job-completion-index
                             - JobSet: kubernetes.io/job-completion-index (inherited from Job)
@@ -8682,17 +8682,17 @@ spec:
                           type: string
                         podSetGroupName:
                           description: |-
-                            PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+                            podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
                             PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
                           type: string
                         podSetSliceRequiredTopology:
                           description: |-
-                            PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+                            podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
                             indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
                           type: string
                         podSetSliceSize:
                           description: |-
-                            PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+                            podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
                             Kueue finds a requested topology domain on a level defined
                             in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
                           format: int32
@@ -8711,13 +8711,13 @@ spec:
                           type: string
                         subGroupCount:
                           description: |-
-                            SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+                            subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
                             For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
                           format: int32
                           type: integer
                         subGroupIndexLabel:
                           description: |-
-                            SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+                            subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
                             within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
                           type: string
                         unconstrained:
@@ -8742,7 +8742,7 @@ spec:
                 x-kubernetes-list-type: map
               priority:
                 description: |-
-                  Priority determines the order of access to the resources managed by the
+                  priority determines the order of access to the resources managed by the
                   ClusterQueue where the workload is queued.
                   The priority value is populated from PriorityClassName.
                   The higher the value, the higher the priority.
@@ -8751,6 +8751,7 @@ spec:
                 type: integer
               priorityClassName:
                 description: |-
+                  priorityClassName is the name of the PriorityClass the Workload is associated with.
                   If specified, indicates the workload's priority.
                   "system-node-critical" and "system-cluster-critical" are two special
                   keywords which indicate the highest priorities with the former being
@@ -8785,7 +8786,7 @@ spec:
             - message: priority should not be nil when priorityClassName is set
               rule: 'has(self.priorityClassName) ? has(self.priority) : true'
           status:
-            description: WorkloadStatus defines the observed state of Workload
+            description: status is the status of the Workload.
             properties:
               accumulatedPastExexcutionTimeSeconds:
                 description: |-
@@ -8806,7 +8807,7 @@ spec:
                     pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   podSetAssignments:
-                    description: PodSetAssignments hold the admission results for
+                    description: podSetAssignments hold the admission results for
                       each of the .spec.podSets entries.
                     items:
                       properties:
@@ -8835,12 +8836,12 @@ spec:
                             maxLength: 253
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
-                          description: Flavors are the flavors assigned to the workload
+                          description: flavors are the flavors assigned to the workload
                             for each resource.
                           type: object
                         name:
                           default: main
-                          description: Name is the name of the podSet. It should match
+                          description: name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
                           maxLength: 63
                           pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -8984,6 +8985,8 @@ spec:
                       maxLength: 316
                       type: string
                     podSetUpdates:
+                      description: podSetUpdates contains a list of pod set modifications
+                        suggested by AdmissionChecks.
                       items:
                         description: |-
                           PodSetUpdate contains a list of pod set modifications suggested by AdmissionChecks.
@@ -8994,13 +8997,15 @@ spec:
                           annotations:
                             additionalProperties:
                               type: string
+                            description: annotations of the PodSet to modify.
                             type: object
                           labels:
                             additionalProperties:
                               type: string
+                            description: labels of the PodSet to modify.
                             type: object
                           name:
-                            description: Name of the PodSet to modify. Should match
+                            description: name of the PodSet to modify. Should match
                               to one of the Workload's PodSets.
                             maxLength: 63
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -9008,8 +9013,10 @@ spec:
                           nodeSelector:
                             additionalProperties:
                               type: string
+                            description: nodeSelector of the PodSet to modify.
                             type: object
                           tolerations:
+                            description: tolerations of the PodSet to modify.
                             items:
                               description: |-
                                 The pod this Toleration is attached to tolerates any taint that matches
@@ -9240,7 +9247,6 @@ spec:
                 items:
                   properties:
                     name:
-                      default: main
                       description: name is the name of the podSet. It should match
                         one of the names in .spec.podSets.
                       maxLength: 63

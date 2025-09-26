@@ -58,7 +58,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterQueueSpec defines the desired state of ClusterQueue
+            description: spec is the specification of the ClusterQueue.
             properties:
               admissionChecks:
                 description: |-
@@ -71,7 +71,7 @@ spec:
                 type: array
               admissionChecksStrategy:
                 description: |-
-                  admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+                  admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
                   This property cannot be used in conjunction with the 'admissionChecks' property.
                 properties:
                   admissionChecks:
@@ -106,7 +106,7 @@ spec:
                 properties:
                   admissionMode:
                     description: |-
-                      AdmissionMode indicates which mode for AdmissionFairSharing should be used
+                      admissionMode indicates which mode for AdmissionFairSharing should be used
                       in the AdmissionScope. Possible values are:
                       - UsageBasedAdmissionFairSharing
                       - NoAdmissionFairSharing
@@ -244,34 +244,14 @@ spec:
                 x-kubernetes-map-type: atomic
               preemption:
                 default: {}
-                description: |-
-                  ClusterQueuePreemption contains policies to preempt Workloads from this
-                  ClusterQueue or the ClusterQueue's cohort.
-
-                  Preemption may be configured to work in the following scenarios:
-
-                    - When a Workload fits within the nominal quota of the ClusterQueue, but
-                      the quota is currently borrowed by other ClusterQueues in the cohort.
-                      We preempt workloads in other ClusterQueues to allow this ClusterQueue to
-                      reclaim its nominal quota. Configured using reclaimWithinCohort.
-                    - When a Workload doesn't fit within the nominal quota of the ClusterQueue
-                      and there are admitted Workloads in the ClusterQueue with lower priority.
-                      Configured using withinClusterQueue.
-                    - When a Workload may fit while both borrowing and preempting
-                      low priority workloads in the Cohort. Configured using borrowWithinCohort.
-                    - When FairSharing is enabled, to maintain fair distribution of
-                      unused resources. See FairSharing documentation.
-
-                  The preemption algorithm tries to find a minimal set of Workloads to
-                  preempt to accomomdate the pending Workload, preempting Workloads with
-                  lower priority first.
+                description: preemption defines the preemption policies.
                 properties:
                   borrowWithinCohort:
                     default: {}
                     description: |-
-                      BorrowWithinCohort contains configuration which allows to preempt workloads
-                      within cohort while borrowing. It only works with Classical Preemption,
-                      __not__ with Fair Sharing.
+                      borrowWithinCohort determines whether a pending Workload can preempt
+                      Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
+                      May only be configured with Classical Preemption, and __not__ with Fair Sharing.
                     properties:
                       maxPriorityThreshold:
                         description: |-
@@ -346,7 +326,7 @@ spec:
               queueingStrategy:
                 default: BestEffortFIFO
                 description: |-
-                  QueueingStrategy indicates the queueing strategy of the workloads
+                  queueingStrategy indicates the queueing strategy of the workloads
                   across the queues in this ClusterQueue.
                   Current Supported Strategies:
 
@@ -516,7 +496,7 @@ spec:
               rule: '!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg,
                 rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
           status:
-            description: ClusterQueueStatus defines the observed state of ClusterQueue
+            description: status is the status of the ClusterQueue.
             properties:
               admittedWorkloads:
                 description: |-
@@ -604,12 +584,12 @@ spec:
                           pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                           x-kubernetes-int-or-string: true
                         description: |-
-                          ConsumedResources represents the aggregated usage of resources over time,
+                          consumedResources represents the aggregated usage of resources over time,
                           with decaying function applied.
                           The value is populated if usage consumption functionality is enabled in Kueue config.
                         type: object
                       lastUpdate:
-                        description: LastUpdate is the time when share and consumed
+                        description: lastUpdate is the time when share and consumed
                           resources were updated.
                         format: date-time
                         type: string
@@ -619,7 +599,7 @@ spec:
                     type: object
                   weightedShare:
                     description: |-
-                      WeightedShare represents the maximum of the ratios of usage
+                      weightedShare represents the maximum of the ratios of usage
                       above nominal quota to the lendable resources in the
                       Cohort, among all the resources provided by the Node, and
                       divided by the weight.  If zero, it means that the usage of
@@ -652,7 +632,7 @@ spec:
                             - type: integer
                             - type: string
                             description: |-
-                              Borrowed is quantity of quota that is borrowed from the cohort. In other
+                              borrowed is quantity of quota that is borrowed from the cohort. In other
                               words, it's the used quota that is over the nominalQuota.
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
@@ -706,7 +686,7 @@ spec:
                             - type: integer
                             - type: string
                             description: |-
-                              Borrowed is quantity of quota that is borrowed from the cohort. In other
+                              borrowed is quantity of quota that is borrowed from the cohort. In other
                               words, it's the used quota that is over the nominalQuota.
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
@@ -747,7 +727,7 @@ spec:
                 type: integer
               pendingWorkloadsStatus:
                 description: |-
-                  PendingWorkloadsStatus contains the information exposed about the current
+                  pendingWorkloadsStatus contains the information exposed about the current
                   status of the pending workloads in the cluster queue.
                   Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
                   You can migrate to VisibilityOnDemand
@@ -755,17 +735,18 @@ spec:
                   instead.
                 properties:
                   clusterQueuePendingWorkload:
-                    description: Head contains the list of top pending workloads.
+                    description: clusterQueuePendingWorkload contains the list of
+                      top pending workloads.
                     items:
                       description: |-
                         ClusterQueuePendingWorkload contains the information identifying a pending workload
                         in the cluster queue.
                       properties:
                         name:
-                          description: Name indicates the name of the pending workload.
+                          description: name indicates the name of the pending workload.
                           type: string
                         namespace:
-                          description: Namespace indicates the name of the pending
+                          description: namespace indicates the name of the pending
                             workload.
                           type: string
                       required:
@@ -775,7 +756,7 @@ spec:
                     type: array
                     x-kubernetes-list-type: atomic
                   lastChangeTime:
-                    description: LastChangeTime indicates the time of the last change
+                    description: lastChangeTime indicates the time of the last change
                       of the structure.
                     format: date-time
                     type: string

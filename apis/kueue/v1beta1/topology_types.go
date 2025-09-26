@@ -131,10 +131,11 @@ type TopologyLevel struct {
 
 // Topology is the Schema for the topology API
 type Topology struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the Topology.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// +kubebuilder:validation:Required
+	// spec is the specification of the Topology.
 	Spec TopologySpec `json:"spec,omitempty"`
 }
 

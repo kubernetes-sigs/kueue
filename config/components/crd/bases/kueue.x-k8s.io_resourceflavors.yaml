@@ -41,7 +41,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ResourceFlavorSpec defines the desired state of the ResourceFlavor
+            description: spec is the specification of the ResourceFlavor.
             properties:
               nodeLabels:
                 additionalProperties:

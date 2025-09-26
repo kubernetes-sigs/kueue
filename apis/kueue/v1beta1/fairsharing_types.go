@@ -46,7 +46,7 @@ type FairSharing struct {
 
 // FairSharingStatus contains the information about the current status of Fair Sharing.
 type FairSharingStatus struct {
-	// WeightedShare represents the maximum of the ratios of usage
+	// weightedShare represents the maximum of the ratios of usage
 	// above nominal quota to the lendable resources in the
 	// Cohort, among all the resources provided by the Node, and
 	// divided by the weight.  If zero, it means that the usage of
@@ -61,19 +61,19 @@ type FairSharingStatus struct {
 }
 
 type AdmissionFairSharingStatus struct {
-	// ConsumedResources represents the aggregated usage of resources over time,
+	// consumedResources represents the aggregated usage of resources over time,
 	// with decaying function applied.
 	// The value is populated if usage consumption functionality is enabled in Kueue config.
 	// +required
 	ConsumedResources corev1.ResourceList `json:"consumedResources"`
 
-	// LastUpdate is the time when share and consumed resources were updated.
+	// lastUpdate is the time when share and consumed resources were updated.
 	// +required
 	LastUpdate metav1.Time `json:"lastUpdate"`
 }
 
 type AdmissionScope struct {
-	// AdmissionMode indicates which mode for AdmissionFairSharing should be used
+	// admissionMode indicates which mode for AdmissionFairSharing should be used
 	// in the AdmissionScope. Possible values are:
 	// - UsageBasedAdmissionFairSharing
 	// - NoAdmissionFairSharing
