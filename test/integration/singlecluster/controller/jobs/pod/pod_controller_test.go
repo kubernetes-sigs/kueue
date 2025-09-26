@@ -799,8 +799,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, realClock, func() (*kueue.Workload, bool, error) {
-							workload.SetEvictedCondition(createdWorkload, "ByTest", "by test")
-							return createdWorkload, true, nil
+							return createdWorkload, workload.SetEvictedCondition(createdWorkload, "ByTest", "by test"), nil
 						})).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1393,8 +1392,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, realClock, func() (*kueue.Workload, bool, error) {
-							workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test")
-							return wl, true, nil
+							return wl, workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test"), nil
 						})).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})

@@ -84,7 +84,7 @@ type Scheduler struct {
 	schedulingCycle int64
 
 	// Stubs.
-	patchAdmission func(ctx context.Context, original *kueue.Workload, updated *kueue.Workload) error
+	patchAdmission func(ctx context.Context, original, updated *kueue.Workload) error
 }
 
 type options struct {
@@ -316,8 +316,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// PodsReady condition if the waitForPodsReady is enabled
 			wl := e.Obj.DeepCopy()
 			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func() (*kueue.Workload, bool, error) {
-				workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
-				return wl, true, nil
+				return wl, workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 			}, workload.WithLoose()); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
@@ -775,9 +774,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if e.status == notNominated || e.status == skipped {
 		wl := e.Obj.DeepCopy()
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func() (*kueue.Workload, bool, error) {
-			reservationIsChanged := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
-			resourceRequestsIsChanged := workload.PropagateResourceRequests(wl, &e.Info)
-			return wl, reservationIsChanged || resourceRequestsIsChanged, nil
+			updated := workload.UnsetQuotaReservationWithCondition(wl, "Pending", e.inadmissibleMsg, s.clock.Now())
+			if workload.PropagateResourceRequests(wl, &e.Info) {
+				updated = true
+			}
+			return wl, updated, nil
 		}); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}

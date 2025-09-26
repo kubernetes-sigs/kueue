@@ -629,7 +629,7 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true
-func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status bool) {
+func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status bool) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadRequeued,
 		Reason:             reason,
@@ -641,7 +641,7 @@ func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status boo
 	} else {
 		condition.Status = metav1.ConditionFalse
 	}
-	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+	return apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
 
 func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
@@ -710,12 +710,12 @@ func BaseSSAWorkload(w *kueue.Workload, strict bool) *kueue.Workload {
 //     api.TruncateConditionMessage.
 //   - Resets any active "evicted" and "preempted" conditions by invoking
 //     resetActiveCondition for kueue.WorkloadEvicted and kueue.WorkloadPreempted.
-func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock clock.Clock) {
+func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock clock.Clock) bool {
 	w.Status.Admission = admission
 
 	reason := "QuotaReserved"
 
-	apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+	changed := apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		Reason:             reason,
@@ -724,17 +724,24 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission, clock cl
 		LastTransitionTime: metav1.NewTime(clock.Now()),
 	})
 
-	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadEvicted, reason, clock)
-	resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreempted, reason, clock)
+	if resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadEvicted, reason, clock) {
+		changed = true
+	}
+
+	if resetActiveCondition(&w.Status.Conditions, w.Generation, kueue.WorkloadPreempted, reason, clock) {
+		changed = true
+	}
+
+	return changed
 }
 
-func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason string, clock clock.Clock) {
+func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason string, clock clock.Clock) bool {
 	prev := apimeta.FindStatusCondition(*conds, condType)
 	// Ignore not found or inactive condition.
 	if prev == nil || prev.Status != metav1.ConditionTrue {
-		return
+		return false
 	}
-	apimeta.SetStatusCondition(conds, metav1.Condition{
+	return apimeta.SetStatusCondition(conds, metav1.Condition{
 		Type:               condType,
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
@@ -789,7 +796,7 @@ func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-func SetDeactivationTarget(w *kueue.Workload, reason string, message string) {
+func SetDeactivationTarget(w *kueue.Workload, reason string, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadDeactivationTarget,
 		Status:             metav1.ConditionTrue,
@@ -797,10 +804,10 @@ func SetDeactivationTarget(w *kueue.Workload, reason string, message string) {
 		Message:            message,
 		ObservedGeneration: w.Generation,
 	}
-	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
+func SetEvictedCondition(w *kueue.Workload, reason string, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
@@ -808,7 +815,7 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
-	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to

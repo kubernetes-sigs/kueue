@@ -217,12 +217,12 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Ordered, ginkg
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(workload.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, realClock, func() (*kueue.Workload, bool, error) {
-					workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					acs := kueue.AdmissionCheckState{
 						Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
-					}, realClock)
-					return createdWorkload, true, nil
+					}
+					return createdWorkload, workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, acs, realClock), nil
 				})).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -464,12 +464,12 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Ordered, ginkgo.C
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(workload.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, realClock, func() (*kueue.Workload, bool, error) {
-					workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					acs := kueue.AdmissionCheckState{
 						Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
-					}, realClock)
-					return createdWorkload, true, nil
+					}
+					return createdWorkload, workload.SetAdmissionCheckState(&createdWorkload.Status.AdmissionChecks, acs, realClock), nil
 				})).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

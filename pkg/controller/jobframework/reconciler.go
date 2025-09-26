@@ -536,9 +536,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption
-					workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-					_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now())
-					return wl, true, nil
+					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
+					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
+						updated = true
+					}
+					return wl, updated, nil
 				})
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
