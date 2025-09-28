@@ -95,8 +95,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				rayjobReconciler := workloadrayjob.NewReconciler(
+				rayjobReconciler, _ := workloadrayjob.NewReconciler(
+					ctx,
 					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName))
 				err = rayjobReconciler.SetupWithManager(mgr)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())

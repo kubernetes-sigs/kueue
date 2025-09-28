@@ -640,6 +640,7 @@ func TestReconciler(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
+			indexer := utiltesting.AsIndexer(clientBuilder)
 
 			objs := make([]client.Object, 0, len(tc.workloads)+len(tc.workloadPriorityClasses)+1)
 			objs = append(objs, tc.leaderWorkerSet)
@@ -653,10 +654,13 @@ func TestReconciler(t *testing.T) {
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := &utiltesting.EventRecorder{}
 
-			reconciler := NewReconciler(kClient, recorder, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			lwsKey := client.ObjectKeyFromObject(tc.leaderWorkerSet)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: lwsKey})
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: lwsKey})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}

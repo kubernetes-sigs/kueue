@@ -3863,7 +3863,8 @@ func TestReconciler(t *testing.T) {
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-				if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				indexer := utiltesting.AsIndexer(clientBuilder)
+				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
 
@@ -3900,10 +3901,13 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				if err != nil {
+					t.Errorf("Error creating the reconciler: %v", err)
+				}
 
 				jobKey := client.ObjectKeyFromObject(&tc.job)
-				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				_, err = reconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: jobKey,
 				})
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {

@@ -5587,7 +5587,8 @@ func TestReconciler(t *testing.T) {
 
 				ctx, log := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-				if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				indexer := utiltesting.AsIndexer(clientBuilder)
+				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
 
@@ -5613,7 +5614,10 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				if err != nil {
+					t.Errorf("Error creating the reconciler: %v", err)
+				}
 				pReconciler := reconciler.(*Reconciler)
 				for _, e := range tc.excessPodsExpectations {
 					pReconciler.expectationsStore.ExpectUIDs(log, e.key, e.uids)
@@ -5625,7 +5629,7 @@ func TestReconciler(t *testing.T) {
 				} else {
 					reconcileRequest = reconcileRequestForPod(&tc.pods[0])
 				}
-				_, err := reconciler.Reconcile(ctx, reconcileRequest)
+				_, err = reconciler.Reconcile(ctx, reconcileRequest)
 
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
@@ -5733,10 +5737,13 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 
-	reconciler := NewReconciler(kClient, recorder)
+	reconciler, err := NewReconciler(ctx, kClient, nil, recorder)
+	if err != nil {
+		t.Errorf("Error creating the reconciler: %v", err)
+	}
 
 	podKey := client.ObjectKeyFromObject(&pod)
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: podKey,
 	})
 
@@ -5923,7 +5930,8 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		Obj()
 
 	clientBuilder := utiltesting.NewClientBuilder()
-	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := SetupIndexes(ctx, indexer); err != nil {
 		t.Fatalf("Could not setup indexes: %v", err)
 	}
 
@@ -5954,12 +5962,15 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	}
 
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-	reconciler := NewReconciler(kClient, recorder, jobframework.WithClock(t, fakeClock))
+	reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithClock(t, fakeClock))
+	if err != nil {
+		t.Errorf("Error creating the reconciler: %v", err)
+	}
 	reconcileRequest := reconcileRequestForPod(&pods[0])
 
 	// Reconcile for the first time. It'll try  to remove the finalizers but fail
 	triggerUpdateErr = true
-	_, err := reconciler.Reconcile(ctx, reconcileRequest)
+	_, err = reconciler.Reconcile(ctx, reconcileRequest)
 	if diff := cmp.Diff(connRefusedErrMock, err, cmpopts.EquateErrors()); diff != "" {
 		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
 	}

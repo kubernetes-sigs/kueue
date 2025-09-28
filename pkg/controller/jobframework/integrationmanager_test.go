@@ -49,8 +49,8 @@ func (t *testReconciler) SetupWithManager(mgr ctrlmgr.Manager) error {
 
 var _ JobReconcilerInterface = (*testReconciler)(nil)
 
-func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
-	return &testReconciler{}
+func testNewReconciler(context.Context, client.Client, client.FieldIndexer, record.EventRecorder, ...Option) (JobReconcilerInterface, error) {
+	return &testReconciler{}, nil
 }
 
 func testSetupWebhook(ctrl.Manager, ...Option) error {
@@ -357,7 +357,7 @@ func TestForEach(t *testing.T) {
 
 func TestGetJobTypeForOwner(t *testing.T) {
 	dontManage := IntegrationCallbacks{
-		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+		NewReconciler: func(context.Context, client.Client, client.FieldIndexer, record.EventRecorder, ...Option) (JobReconcilerInterface, error) {
 			panic("not implemented")
 		},
 		SetupWebhook: func(ctrl.Manager, ...Option) error { panic("not implemented") },
