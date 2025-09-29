@@ -157,3 +157,18 @@ func MakeClusterTrainingRuntime(name string, jobsetSpec jobsetapi.JobSetSpec) *k
 		},
 	}
 }
+
+// MakeTrainingRuntime creates a TrainingRuntime with the jobsetSpec provided
+func MakeTrainingRuntime(name, ns string, jobsetSpec jobsetapi.JobSetSpec) *kftrainerapi.TrainingRuntime {
+	return &kftrainerapi.TrainingRuntime{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Spec: kftrainerapi.TrainingRuntimeSpec{
+			Template: kftrainerapi.JobSetTemplateSpec{
+				Spec: jobsetSpec,
+			},
+		},
+	}
+}
