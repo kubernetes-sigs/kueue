@@ -78,7 +78,7 @@ type ClusterQueueSpec struct {
 	// object.
 	Cohort CohortReference `json:"cohort,omitempty"`
 
-	// QueueingStrategy indicates the queueing strategy of the workloads
+	// queueingStrategy indicates the queueing strategy of the workloads
 	// across the queues in this ClusterQueue.
 	// Current Supported Strategies:
 	//
@@ -105,6 +105,7 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default={}
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
+	// preemption defines the preemption policies.
 	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
@@ -113,7 +114,7 @@ type ClusterQueueSpec struct {
 	// +optional
 	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"`
 
-	// admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+	// admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
 	// This property cannot be used in conjunction with the 'admissionChecks' property.
 	// +optional
 	AdmissionChecksStrategy *AdmissionChecksStrategy `json:"admissionChecksStrategy,omitempty"`
@@ -265,6 +266,14 @@ type ResourceFlavorReference string
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatus struct {
+	// conditions hold the latest available observations of the ClusterQueue
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
 	// +listType=map
@@ -296,16 +305,7 @@ type ClusterQueueStatus struct {
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 
-	// conditions hold the latest available observations of the ClusterQueue
-	// current state.
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
-
-	// PendingWorkloadsStatus contains the information exposed about the current
+	// pendingWorkloadsStatus contains the information exposed about the current
 	// status of the pending workloads in the cluster queue.
 	// Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
 	// You can migrate to VisibilityOnDemand
@@ -322,22 +322,22 @@ type ClusterQueueStatus struct {
 }
 
 type ClusterQueuePendingWorkloadsStatus struct {
-	// Head contains the list of top pending workloads.
+	// clusterQueuePendingWorkload contains the list of top pending workloads.
 	// +listType=atomic
 	// +optional
 	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"`
 
-	// LastChangeTime indicates the time of the last change of the structure.
+	// lastChangeTime indicates the time of the last change of the structure.
 	LastChangeTime metav1.Time `json:"lastChangeTime"`
 }
 
 // ClusterQueuePendingWorkload contains the information identifying a pending workload
 // in the cluster queue.
 type ClusterQueuePendingWorkload struct {
-	// Name indicates the name of the pending workload.
+	// name indicates the name of the pending workload.
 	Name string `json:"name"`
 
-	// Namespace indicates the name of the pending workload.
+	// namespace indicates the name of the pending workload.
 	Namespace string `json:"namespace"`
 }
 
@@ -360,7 +360,7 @@ type ResourceUsage struct {
 	// from the cohort.
 	Total resource.Quantity `json:"total,omitempty"`
 
-	// Borrowed is quantity of quota that is borrowed from the cohort. In other
+	// borrowed is quantity of quota that is borrowed from the cohort. In other
 	// words, it's the used quota that is over the nominalQuota.
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
@@ -456,6 +456,9 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
 	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
+	// borrowWithinCohort determines whether a pending Workload can preempt
+	// Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
+	// May only be configured with Classical Preemption, and __not__ with Fair Sharing.
 	// +kubebuilder:default={}
 	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
@@ -521,10 +524,13 @@ type BorrowWithinCohort struct {
 
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueue struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the ClusterQueue.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ClusterQueueSpec   `json:"spec,omitempty"`
+	// spec is the specification of the ClusterQueue.
+	Spec ClusterQueueSpec `json:"spec,omitempty"`
+	// status is the status of the ClusterQueue.
 	Status ClusterQueueStatus `json:"status,omitempty"`
 }
 
