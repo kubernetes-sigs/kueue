@@ -81,7 +81,7 @@ func TestSnapshot(t *testing.T) {
 										ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
 							},
 							Preemption: defaultPreemption,
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 						"b": {
 							Name:                          "b",
@@ -95,7 +95,7 @@ func TestSnapshot(t *testing.T) {
 										ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
 							},
 							Preemption: defaultPreemption,
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 				),
@@ -271,7 +271,7 @@ func TestSnapshot(t *testing.T) {
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
 							},
@@ -334,7 +334,7 @@ func TestSnapshot(t *testing.T) {
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
 							},
@@ -358,7 +358,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								Preemption:        defaultPreemption,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
 							},
@@ -395,7 +395,7 @@ func TestSnapshot(t *testing.T) {
 								ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 								WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							},
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 				),
@@ -417,7 +417,7 @@ func TestSnapshot(t *testing.T) {
 							Workloads:                     map[workload.Reference]*workload.Info{},
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption:                    defaultPreemption,
-							FairWeight:                    resource.MustParse("3"),
+							FairWeight:                    3.0,
 						},
 					},
 				),
@@ -521,7 +521,7 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -580,7 +580,7 @@ func TestSnapshot(t *testing.T) {
 									Usage: resources.FlavorResourceQuantities{},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Preemption:        defaultPreemption,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
@@ -694,7 +694,7 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -752,7 +752,7 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Preemption:        defaultPreemption,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
@@ -808,7 +808,7 @@ func TestSnapshot(t *testing.T) {
 									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
 								},
 							},
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
@@ -832,7 +832,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
+							FairWeight:        defaultWeight,
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
@@ -888,7 +888,7 @@ func TestSnapshot(t *testing.T) {
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
 								},
 							},
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
@@ -910,7 +910,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
+							FairWeight:        defaultWeight,
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
@@ -932,7 +932,7 @@ func TestSnapshot(t *testing.T) {
 					map[kueue.CohortReference]*CohortSnapshot{
 						"cohort": {
 							Name:       "cohort",
-							FairWeight: resource.MustParse("0.5"),
+							FairWeight: 0.5,
 						},
 					},
 					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{},
@@ -1110,7 +1110,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
@@ -1129,7 +1129,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1173,7 +1173,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
@@ -1195,7 +1195,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1239,7 +1239,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  1_000,
@@ -1261,7 +1261,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:    cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
@@ -1418,7 +1418,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
@@ -1433,7 +1433,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
@@ -1471,7 +1471,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 7_000,
@@ -1486,7 +1486,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1525,7 +1525,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
@@ -1540,7 +1540,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1579,7 +1579,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
@@ -1594,7 +1594,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1634,7 +1634,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
@@ -1649,7 +1649,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1689,7 +1689,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
@@ -1704,7 +1704,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
@@ -1743,7 +1743,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 9_000,
@@ -1758,7 +1758,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{

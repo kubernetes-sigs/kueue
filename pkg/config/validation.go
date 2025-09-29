@@ -43,11 +43,6 @@ import (
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
-const (
-	queueVisibilityClusterQueuesMaxValue              = 4000
-	queueVisibilityClusterQueuesUpdateIntervalSeconds = 1
-)
-
 var (
 	integrationsPath                     = field.NewPath("integrations")
 	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
@@ -62,7 +57,6 @@ var (
 	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
 	afsPath                              = field.NewPath("admissionFairSharing")
 	internalCertManagementPath           = field.NewPath("internalCertManagement")
-	queueVisibilityPath                  = field.NewPath("queueVisibility")
 	resourceTransformationPath           = field.NewPath("resources", "transformations")
 	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
@@ -73,7 +67,6 @@ var (
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
-	allErrs = append(allErrs, validateQueueVisibility(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
@@ -120,6 +113,42 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("origin"), *c.MultiKueue.Origin, strings.Join(errs, ",")))
 			}
 		}
+
+		if len(c.MultiKueue.ExternalFrameworks) > 0 {
+			path := multiKueuePath.Child("externalFrameworks")
+			enabledIntegrations := sets.New[string]()
+			if c.Integrations != nil {
+				enabledIntegrations = sets.New(c.Integrations.Frameworks...)
+			}
+
+			builtInAdapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			if err != nil {
+				allErrs = append(allErrs, field.InternalError(path, err))
+			}
+			builtInGVKs := sets.New[string]()
+			for gvk := range builtInAdapters {
+				builtInGVKs.Insert(gvk)
+			}
+
+			seenGVKs := sets.New[string]()
+			for i, f := range c.MultiKueue.ExternalFrameworks {
+				fldPath := path.Index(i).Child("name")
+				parsedGVK, _ := schema.ParseKindArg(f.Name)
+				if parsedGVK == nil {
+					allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "must be in 'kind.version.group' format"))
+					continue
+				}
+				gvk := parsedGVK.String()
+				if seenGVKs.Has(gvk) {
+					allErrs = append(allErrs, field.Duplicate(fldPath, f.Name))
+				} else {
+					seenGVKs.Insert(gvk)
+				}
+				if builtInGVKs.Has(gvk) {
+					allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "conflicts with a built-in MultiKueue adapter"))
+				}
+			}
+		}
 	}
 	return allErrs
 }
@@ -157,25 +186,6 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 		if ptr.Deref(strategy.BackoffMaxSeconds, 0) < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffMaxSeconds"),
 				*strategy.BackoffMaxSeconds, apimachineryvalidation.IsNegativeErrorMsg))
-		}
-	}
-	return allErrs
-}
-
-func validateQueueVisibility(cfg *configapi.Configuration) field.ErrorList {
-	var allErrs field.ErrorList
-	if cfg.QueueVisibility != nil {
-		if cfg.QueueVisibility.ClusterQueues != nil {
-			maxCountPath := queueVisibilityPath.Child("clusterQueues").Child("maxCount")
-			if cfg.QueueVisibility.ClusterQueues.MaxCount < 0 {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, apimachineryvalidation.IsNegativeErrorMsg))
-			}
-			if cfg.QueueVisibility.ClusterQueues.MaxCount > queueVisibilityClusterQueuesMaxValue {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))
-			}
-		}
-		if cfg.QueueVisibility.UpdateIntervalSeconds < queueVisibilityClusterQueuesUpdateIntervalSeconds {
-			allErrs = append(allErrs, field.Invalid(queueVisibilityPath.Child("updateIntervalSeconds"), cfg.QueueVisibility.UpdateIntervalSeconds, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)))
 		}
 	}
 	return allErrs

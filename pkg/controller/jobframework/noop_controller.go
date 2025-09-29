@@ -44,7 +44,7 @@ func (r NoopReconciler) SetupWithManager(ctrl.Manager) error {
 }
 
 func NewNoopReconcilerFactory(gvk schema.GroupVersionKind) ReconcilerFactory {
-	return func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
-		return &NoopReconciler{gvk: gvk}
+	return func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
+		return &NoopReconciler{gvk: gvk}, nil
 	}
 }

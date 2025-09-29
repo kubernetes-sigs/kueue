@@ -279,6 +279,20 @@ type MultiKueue struct {
 	// - If not specified, the workload will be handled by the default ("kueue.x-k8s.io/multikueue-dispatcher-all-at-once") dispatcher.
 	// +optional
 	DispatcherName *string `json:"dispatcherName,omitempty"`
+
+	// ExternalFrameworks defines a list of external frameworks that should be supported
+	// by the generic MultiKueue adapter. Each entry defines how to handle a specific
+	// GroupVersionKind (GVK) for MultiKueue operations.
+	// +optional
+	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+}
+
+// MultiKueueExternalFramework defines a framework that is not built-in.
+type MultiKueueExternalFramework struct {
+	// Name is the GVK of the resource that are
+	// managed by external controllers
+	// the expected format is `kind.version.group`.
+	Name string `json:"name"`
 }
 
 const (
@@ -342,15 +356,16 @@ const (
 )
 
 type InternalCertManagement struct {
-	// Enable controls the use of internal cert management for the webhook
-	// and metrics endpoints.
+	// Enable controls the use of internal cert management for the webhook,
+	// metrics and visibility endpoints.
 	// When enabled Kueue is using libraries to generate and
 	// self-sign the certificates.
 	// When disabled, you need to provide the certificates for
-	// the webhooks and metrics through a third party certificate
+	// the webhooks, metrics and visibility through a third party certificate
 	// This secret is mounted to the kueue controller manager pod. The mount
-	// path for webhooks is /tmp/k8s-webhook-server/serving-certs, whereas for
-	// metrics endpoint the expected path is `/etc/kueue/metrics/certs`.
+	// path for webhooks is /tmp/k8s-webhook-server/serving-certs, for
+	// metrics endpoint the expected path is `/etc/kueue/metrics/certs` and for
+	// visibility endpoint the expected path is `/visibility`.
 	// The keys and certs are named tls.key and tls.crt.
 	Enable *bool `json:"enable,omitempty"`
 

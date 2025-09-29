@@ -39,6 +39,7 @@ type FairSharing struct {
 	// with the highest share.  A zero weight implies infinite
 	// share value, meaning that this Node will always be at
 	// disadvantage against other ClusterQueues and Cohorts.
+	// When not 0, Weight must be greater than 10^-9.
 	// +kubebuilder:default=1
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }

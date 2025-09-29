@@ -57,9 +57,17 @@ git fetch "${UPSTREAM_REMOTE}" --tags
 find_previous_version() {
   local release_version="$1"
   IFS='.' read -r major minor patch <<< "${release_version#v}"
+  # If patch is 0, treat it as a minor or major version bump
   if [ "$patch" -eq 0 ]; then
-    echo "${release_version}-devel"
-    return 0
+    if [ "$minor" -gt 0 ]; then
+      # Decrease minor version and set patch to 0
+      echo "v$major.$((minor-1)).0"
+      return 0
+    elif [ "$major" -gt 0 ]; then
+      # Decrease major version, set minor and patch to 0
+      echo "v$((major-1)).0.0"
+      return 0
+    fi
   fi
   for tag in $(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r); do
     IFS='.' read -r t_major t_minor t_patch <<< "${tag#v}"

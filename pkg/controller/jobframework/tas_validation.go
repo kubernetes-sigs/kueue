@@ -64,6 +64,12 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueuebeta.PodSetSliceRequiredTopologyAnnotation))...)
 	}
 
+	// validate PodSetGroupName annotation
+	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueuebeta.PodSetGroupName]
+	if podSetGroupNameFound {
+		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueuebeta.PodSetGroupName))...)
+	}
+
 	unconstrainedErrs := validateTASUnconstrained(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, unconstrainedErrs...)
 
@@ -117,6 +123,18 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 			field.Invalid(
 				annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), sliceSizeValue,
 				"must be greater than or equal to 1",
+			),
+		}
+	}
+
+	return nil
+}
+
+func validatePodSetGroupNameAnnotation(groupName string, annotationPath *field.Path) field.ErrorList {
+	if _, err := strconv.ParseUint(groupName, 10, 64); err == nil {
+		return field.ErrorList{
+			field.Invalid(
+				annotationPath, groupName, "must not be a number",
 			),
 		}
 	}

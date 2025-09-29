@@ -37,7 +37,7 @@ type PatchOption func(*PatchOptions)
 //     ResourceVersion.
 //
 // Typically, PatchOptions are constructed via DefaultPatchOptions and
-// modified using PatchOption functions (e.g., WithStrict).
+// modified using PatchOption functions (e.g., WithLoose).
 type PatchOptions struct {
 	Strict bool
 }
@@ -54,7 +54,7 @@ func DefaultPatchOptions() *PatchOptions {
 	}
 }
 
-// WithStrict returns a PatchOption that sets the Strict field on PatchOptions.
+// WithLoose returns a PatchOption that sets the Strict field on PatchOptions.
 //
 // By default, Strict is true. In strict mode, generated patches enforce stricter
 // behavior by clearing the ResourceVersion field from the "original" object.
@@ -65,10 +65,10 @@ func DefaultPatchOptions() *PatchOptions {
 //
 //	patch := clientutil.Patch(ctx, c, obj, true, func() (bool, error) {
 //	    return updateFn(obj), nil
-//	}, WithStrict(false)) // disables strict mode
-func WithStrict(strict bool) PatchOption {
+//	}, WithLoose()) // disables strict mode
+func WithLoose() PatchOption {
 	return func(o *PatchOptions) {
-		o.Strict = strict
+		o.Strict = false
 	}
 }
 
@@ -87,7 +87,7 @@ func patchCommon(obj client.Object, update func() (client.Object, bool, error), 
 // the changes. Finally, it applies the patch through the given client.Client.
 //
 // Behavior is influenced by PatchOptions, which can be customized using
-// PatchOption functional arguments (e.g., WithStrict).
+// PatchOption functional arguments (e.g., WithLoose).
 //
 // Returns:
 //   - error: If patch generation or application fails, an error is returned.
@@ -98,7 +98,7 @@ func patchCommon(obj client.Object, update func() (client.Object, bool, error), 
 //	    updated := obj.DeepCopyObject().(client.Object)
 //	    updated.SetLabels(map[string]string{"app": "demo"})
 //	    return updated, true, nil
-//	}, WithStrict(true))
+//	}, WithLoose())
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -122,7 +122,7 @@ func Patch(ctx context.Context, c client.Client, obj client.Object, update func(
 // (c.Status().Patch).
 //
 // Behavior is influenced by PatchOptions, which can be customized using
-// PatchOption functional arguments (e.g., WithStrict).
+// PatchOption functional arguments (e.g., WithLoose).
 //
 // Returns:
 //   - error: If patch generation or application fails, an error is returned.

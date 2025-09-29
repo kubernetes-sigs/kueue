@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	}
 
 	ginkgo.BeforeEach(func() {
-		_ = features.SetEnable(features.FlavorFungibility, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibility, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -322,6 +322,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			wl1 := testing.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(podsCountQueue.Name)).
 				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 3).
@@ -342,6 +343,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 1)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(podsCountClusterQ, "", 1)
+				util.ExpectLQQuotaReservedWorkloadsTotalMetric(podsCountQueue, "", 1)
+				util.ExpectLocalQueueReservedWaitTimeMetric(podsCountQueue, "", 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, "", 1)
 			})
 
@@ -370,6 +373,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 1)
 				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 2)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(podsCountClusterQ, "", 2)
+				util.ExpectLQQuotaReservedWorkloadsTotalMetric(podsCountQueue, "", 2)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, "", 2)
 			})
 
@@ -382,6 +386,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 2)
 				util.ExpectQuotaReservedWorkloadsTotalMetric(podsCountClusterQ, "", 3)
+				util.ExpectLQQuotaReservedWorkloadsTotalMetric(podsCountQueue, "", 3)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, "", 3)
 			})
 		})
@@ -2615,10 +2620,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 		ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
 			ginkgo.BeforeEach(func() {
-				_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-			})
-			ginkgo.AfterEach(func() {
-				_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityImplicitPreferenceDefault, true)
 			})
 			ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
 				fungibility := kueue.FlavorFungibility{

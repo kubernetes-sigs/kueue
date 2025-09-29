@@ -69,11 +69,14 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
-				reconciler := raycluster.NewReconciler(
+				reconciler, err := raycluster.NewReconciler(
+					ctx,
 					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName),
 					opts...)
-				err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = indexer.Setup(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -82,10 +85,13 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				err = raycluster.SetupRayClusterWebhook(mgr, opts...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				reconciler = workloadrayjob.NewReconciler(
+				reconciler, err = workloadrayjob.NewReconciler(
+					ctx,
 					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName),
 					opts...)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = reconciler.SetupWithManager(mgr)

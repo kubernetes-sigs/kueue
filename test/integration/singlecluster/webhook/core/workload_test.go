@@ -315,14 +315,18 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType gomega.OmegaMatcher) {
 			wl := w()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-			workload.SetQuotaReservation(wl, a, clock.RealClock{})
-			err := workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, clock.RealClock{})
-			if errorType != nil {
-				gomega.Expect(err).Should(errorType)
-			} else {
-				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-			}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+					return wl, workload.SetQuotaReservation(wl, a, clock.RealClock{}), nil
+				})
+				if errorType != nil {
+					g.Expect(err).Should(errorType)
+				} else {
+					g.Expect(err).ShouldNot(gomega.HaveOccurred())
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
 			ginkgo.Entry("invalid clusterQueue name",
 				func() *kueue.Workload {

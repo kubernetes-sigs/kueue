@@ -148,7 +148,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(client client.Client, _ record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -156,7 +156,7 @@ func NewReconciler(client client.Client, _ record.EventRecorder, opts ...jobfram
 		log:                          ctrl.Log.WithName("statefulset-reconciler"),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-	}
+	}, nil
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)

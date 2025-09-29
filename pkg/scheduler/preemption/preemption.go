@@ -93,7 +93,7 @@ func New(
 		fsStrategies:      parseStrategies(fs.PreemptionStrategies),
 		enabledAfs:        enabledAfs,
 	}
-	p.applyPreemption = p.applyPreemptionWithSSA
+	p.applyPreemption = p.patchPreemption
 	return p
 }
 
@@ -193,10 +193,12 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	return int(successfullyPreempted.Load()), errCh.ReceiveError()
 }
 
-func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
+func (p *Preemptor) patchPreemption(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
-	workload.SetPreemptedCondition(w, reason, message)
-	return workload.Evict(ctx, p.client, p.recorder, w, kueue.WorkloadEvictedByPreemption, "", message, p.clock)
+	return workload.Evict(ctx, p.client, p.recorder, w, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+		workload.SetPreemptedCondition(w, reason, message)
+		return w, nil
+	}))
 }
 
 type preemptionAttemptOpts struct {
@@ -362,7 +364,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
-		if fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, 0) {
+		if fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{}) {
 			// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 			candWl := candCQ.PopWorkload()
 			preemptionCtx.snapshot.RemoveWorkload(candWl)

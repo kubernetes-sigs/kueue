@@ -60,7 +60,6 @@ Kueue 的一个核心设计原则是避免重复 Kubernetes 组件和成熟的�
 | [工作负载优先级类别](/docs/concepts/workload_priority_class/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 | [Flavor 可替代性](/docs/concepts/cluster_queue/#flavorfungibility) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 | [ProvisioningACC](/docs/admission-check-controllers/provisioning/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
-| [队列可见性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_status/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 | [按需可见性](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 | [队列组内优先级排序](/docs/concepts/cluster_queue/#flavors-and-borrowing-semantics) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |
 | [借用限制](/docs/concepts/cluster_queue/#lendinglimit) | + | + | + | + | + | + | + | + | + | + | + | + | + | + | + |

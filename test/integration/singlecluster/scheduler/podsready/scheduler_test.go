@@ -174,6 +174,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("create a workload and await its admission")
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
+			// This resolve the issue that PodsReady status (while set manually) is overwritten by scheduler admission
+			// Recheck after scheduler refactor to use strict mode - when WorkloadRequestUseMergePatch goes beta
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 
 			ginkgo.By("update the workload with PodsReady=True")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -330,8 +333,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(workload.IsActive(prodWl)).Should(gomega.BeFalse())
 				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
-				workload.SetRequeuedCondition(prodWl, kueue.WorkloadDeactivated, "by test", false)
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, prodWl, true, realClock)).Should(gomega.Succeed())
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, prodWl, realClock, func() (*kueue.Workload, bool, error) {
+					return prodWl, workload.SetRequeuedCondition(prodWl, kueue.WorkloadDeactivated, "by test", false), nil
+				})).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			// should observe a metrics of WorkloadEvictedByDeactivation

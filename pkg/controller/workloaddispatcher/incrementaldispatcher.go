@@ -148,8 +148,10 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
-	wl.Status.NominatedClusterNames = nominatedWorkers
-	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock); err != nil {
+	if err = workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
+		wl.Status.NominatedClusterNames = nominatedWorkers
+		return wl, true, nil
+	}); err != nil {
 		log.V(2).Error(err, "Failed to patch nominated clusters")
 		return reconcile.Result{}, err
 	}

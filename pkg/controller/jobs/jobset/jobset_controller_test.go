@@ -566,16 +566,20 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(jobset.AddToScheme)
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 			objs := append(tc.priorityClasses, tc.job, testNamespace)
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			jobKey := client.ObjectKeyFromObject(tc.job)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: jobKey,
 			})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {

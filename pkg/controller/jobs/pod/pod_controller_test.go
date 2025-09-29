@@ -49,6 +49,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -5516,7 +5517,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:             workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message:            "The workload is deactivated",
 						LastTransitionTime: metav1.NewTime(testStartTime),
 					}).
@@ -5543,13 +5544,13 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  fmt.Sprintf("%sDueTo%s", kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
+						Reason:  workload.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadRequeuingLimitExceeded),
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -5579,85 +5580,98 @@ func TestReconciler(t *testing.T) {
 	}
 
 	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.ObjectRetentionPolicies, tc.enableObjectRetentionPolicies)
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
-			ctx, log := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
-				t.Fatalf("Could not setup indexes: %v", err)
-			}
-
-			kcBuilder := clientBuilder.WithObjects(tc.initObjects...)
-			for i := range tc.pods {
-				kcBuilder = kcBuilder.WithObjects(&tc.pods[i])
-			}
-
-			for i := range tc.workloads {
-				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
-			}
-
-			kClient := kcBuilder.Build()
-			for i := range tc.workloads {
-				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
-					t.Fatalf("Could not create workload: %v", err)
+				ctx, log := utiltesting.ContextWithLog(t)
+				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				indexer := utiltesting.AsIndexer(clientBuilder)
+				if err := SetupIndexes(ctx, indexer); err != nil {
+					t.Fatalf("Could not setup indexes: %v", err)
 				}
 
-				if tc.deleteWorkloads {
-					if err := kClient.Delete(ctx, &tc.workloads[i]); err != nil {
-						t.Fatalf("Could not delete workload: %v", err)
+				kcBuilder := clientBuilder.WithObjects(tc.initObjects...)
+				for i := range tc.pods {
+					kcBuilder = kcBuilder.WithObjects(&tc.pods[i])
+				}
+
+				for i := range tc.workloads {
+					kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
+				}
+
+				kClient := kcBuilder.Build()
+				for _, testWl := range tc.workloads {
+					if err := kClient.Create(ctx, &testWl); err != nil {
+						t.Fatalf("Could not create workload: %v", err)
+					}
+
+					if tc.deleteWorkloads {
+						if err := kClient.Delete(ctx, &testWl); err != nil {
+							t.Fatalf("Could not delete workload: %v", err)
+						}
 					}
 				}
-			}
-			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
-			pReconciler := reconciler.(*Reconciler)
-			for _, e := range tc.excessPodsExpectations {
-				pReconciler.expectationsStore.ExpectUIDs(log, e.key, e.uids)
-			}
-
-			var reconcileRequest reconcile.Request
-			if tc.reconcileKey != nil {
-				reconcileRequest.NamespacedName = *tc.reconcileKey
-			} else {
-				reconcileRequest = reconcileRequestForPod(&tc.pods[0])
-			}
-			_, err := reconciler.Reconcile(ctx, reconcileRequest)
-
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
-			}
-
-			var gotPods corev1.PodList
-			if err := kClient.List(ctx, &gotPods); err != nil {
-				if tc.wantPods != nil || !apierrors.IsNotFound(err) {
-					t.Fatalf("Could not get Pod after reconcile: %v", err)
+				recorder := &utiltesting.EventRecorder{}
+				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
+				if err != nil {
+					t.Errorf("Error creating the reconciler: %v", err)
 				}
-			}
-			if tc.wantPods != nil {
-				if diff := cmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" && tc.wantPods != nil {
-					t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+				pReconciler := reconciler.(*Reconciler)
+				for _, e := range tc.excessPodsExpectations {
+					pReconciler.expectationsStore.ExpectUIDs(log, e.key, e.uids)
 				}
-			}
 
-			var gotWorkloads kueue.WorkloadList
-			if err := kClient.List(ctx, &gotWorkloads); err != nil {
-				t.Fatalf("Could not get Workloads after reconcile: %v", err)
-			}
-
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
-				for i, p := range tc.pods {
-					// Make life easier when changing the hashing function.
-					hash, _ := getRoleHash(p)
-					t.Logf("note, the hash for pod[%v] = %s", i, hash)
+				var reconcileRequest reconcile.Request
+				if tc.reconcileKey != nil {
+					reconcileRequest.NamespacedName = *tc.reconcileKey
+				} else {
+					reconcileRequest = reconcileRequestForPod(&tc.pods[0])
 				}
-				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-			}
+				_, err = reconciler.Reconcile(ctx, reconcileRequest)
 
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+				}
+
+				var gotPods corev1.PodList
+				if err := kClient.List(ctx, &gotPods); err != nil {
+					if tc.wantPods != nil || !apierrors.IsNotFound(err) {
+						t.Fatalf("Could not get Pod after reconcile: %v", err)
+					}
+				}
+				if tc.wantPods != nil {
+					if diff := cmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" && tc.wantPods != nil {
+						t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+					}
+				}
+
+				var gotWorkloads kueue.WorkloadList
+				if err := kClient.List(ctx, &gotWorkloads); err != nil {
+					t.Fatalf("Could not get Workloads after reconcile: %v", err)
+				}
+
+				// Fake client with patch.Apply can't reset Admission field, patch.Merge can
+				// However other key Status fields indicate that change e.g. Conditions, thuse we choose to ignore the Admission field
+				if features.Enabled(features.WorkloadRequestUseMergePatch) {
+					tc.workloadCmpOpts = append(tc.workloadCmpOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"))
+				}
+
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
+					for i, p := range tc.pods {
+						// Make life easier when changing the hashing function.
+						hash, _ := getRoleHash(p)
+						t.Logf("note, the hash for pod[%v] = %s", i, hash)
+					}
+					t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+				}
+
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
@@ -5723,10 +5737,13 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 
-	reconciler := NewReconciler(kClient, recorder)
+	reconciler, err := NewReconciler(ctx, kClient, nil, recorder)
+	if err != nil {
+		t.Errorf("Error creating the reconciler: %v", err)
+	}
 
 	podKey := client.ObjectKeyFromObject(&pod)
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: podKey,
 	})
 
@@ -5913,7 +5930,8 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		Obj()
 
 	clientBuilder := utiltesting.NewClientBuilder()
-	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := SetupIndexes(ctx, indexer); err != nil {
 		t.Fatalf("Could not setup indexes: %v", err)
 	}
 
@@ -5944,12 +5962,15 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	}
 
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-	reconciler := NewReconciler(kClient, recorder, jobframework.WithClock(t, fakeClock))
+	reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithClock(t, fakeClock))
+	if err != nil {
+		t.Errorf("Error creating the reconciler: %v", err)
+	}
 	reconcileRequest := reconcileRequestForPod(&pods[0])
 
 	// Reconcile for the first time. It'll try  to remove the finalizers but fail
 	triggerUpdateErr = true
-	_, err := reconciler.Reconcile(ctx, reconcileRequest)
+	_, err = reconciler.Reconcile(ctx, reconcileRequest)
 	if diff := cmp.Diff(connRefusedErrMock, err, cmpopts.EquateErrors()); diff != "" {
 		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
 	}

@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -796,11 +795,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that the Pods get a deletion timestamp when the workload is evicted", func() {
-					gomega.Expect(func() error {
-						w := createdWorkload.DeepCopy()
-						workload.SetEvictedCondition(w, "ByTest", "by test")
-						return workload.ApplyAdmissionStatus(ctx, k8sClient, w, false, realClock)
-					}()).Should(gomega.Succeed())
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, realClock, func() (*kueue.Workload, bool, error) {
+							return createdWorkload, workload.SetEvictedCondition(createdWorkload, "ByTest", "by test"), nil
+						})).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
@@ -1388,10 +1389,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("setting evicted condition to true", func() {
-					workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test")
-					gomega.Expect(
-						workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock),
-					).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, realClock, func() (*kueue.Workload, bool, error) {
+							return wl, workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test"), nil
+						})).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				podKey := client.ObjectKeyFromObject(pod)
@@ -2128,7 +2131,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -2165,8 +2168,6 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		nodes = []corev1.Node{
@@ -2315,10 +2316,9 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
-		tasBlockLabel  = "cloud.com/topology-block"
 	)
 
 	var (
@@ -2341,7 +2341,6 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.BeforeAll(func() {
-		_ = features.SetEnable(features.TASFailedNodeReplacement, true)
 		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
@@ -2350,13 +2349,9 @@ var _ = ginkgo.Describe("Pod controller when TASReplaceNodeOnPodTermination is e
 
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
-		_ = features.SetEnable(features.TASFailedNodeReplacement, false)
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		nodes = []corev1.Node{

@@ -500,8 +500,9 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					workload.SetEvictedCondition(wl, "ByTest", "by test")
-					g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock)).To(gomega.Succeed())
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, realClock, func() (*kueue.Workload, bool, error) {
+						return wl, workload.SetEvictedCondition(wl, "ByTest", "by test"), nil
+					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 
@@ -561,8 +562,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					},
 				),
 			)
-
-			gomega.Expect(features.SetEnable(features.ObjectRetentionPolicies, true)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterAll(func() {
@@ -570,6 +569,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 		})
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -651,8 +651,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 					},
 				),
 			)
-
-			gomega.Expect(features.SetEnable(features.ObjectRetentionPolicies, true)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterAll(func() {
@@ -660,6 +658,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Or
 		})
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ObjectRetentionPolicies, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())

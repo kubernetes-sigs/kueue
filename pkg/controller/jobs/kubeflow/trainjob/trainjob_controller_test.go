@@ -56,7 +56,6 @@ var (
 )
 
 func TestRunWithPodsetsInfo(t *testing.T) {
-	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
 	toleration1 := corev1.Toleration{
 		Key:      "t1k",
 		Operator: corev1.TolerationOpEqual,
@@ -69,105 +68,76 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		Effect:   corev1.TaintEffectNoSchedule,
 	}
 
+	// Create and refererence a fake ClusterTrainingRuntime
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
+		APIGroup: ptr.To("trainer.kubeflow.org"),
+		Name:     "test",
+		Kind:     ptr.To("ClusterTrainingRuntime"),
+	})
+	testJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{
+			Name: "node",
+		}).Obj()
+	testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobset.Spec)
+
 	cases := map[string]struct {
-		trainJob            *kftrainerapi.TrainJob
-		childJobSet         *jobsetapi.JobSet
-		podsetsInfo         []podset.PodSetInfo
-		addTrainJobToClient bool
-		addJobSetToClient   bool
-		wantTrainJob        *kftrainerapi.TrainJob
-		wantErr             bool
+		trainJob     *kftrainerapi.TrainJob
+		podsetsInfo  []podset.PodSetInfo
+		wantTrainJob *kftrainerapi.TrainJob
+		wantErr      bool
 	}{
 		"should add to the TrainJob the config specified in the PodSet info": {
 			trainJob: testTrainJob.Clone().Obj(),
-			childJobSet: testingjobset.MakeJobSet(testTrainJob.Name, testTrainJob.Namespace).ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name: "replicated-job-1",
-				},
-				testingjobset.ReplicatedJobRequirements{
-					Name: "replicated-job-2",
-				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
-					Name:            "replicated-job-1",
+					Name:            "node",
 					NodeSelector:    map[string]string{"disktype": "ssd"},
 					Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
 				},
-				{
-					Name:            "replicated-job-2",
-					NodeSelector:    map[string]string{"gpu": "nvidia"},
-					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
-					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
-				},
 			},
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "0").
+				Annotation(firstOverrideIdx, "0").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
-							{Name: "replicated-job-1"},
+							{Name: "node"},
 						},
 						NodeSelector:    map[string]string{"disktype": "ssd"},
 						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
 						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
 					},
-					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
-							{Name: "replicated-job-2"},
-						},
-						NodeSelector:    map[string]string{"gpu": "nvidia"},
-						Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
-						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
-					},
 				}).
 				Suspend(false).
 				Obj(),
-			addTrainJobToClient: true,
-			addJobSetToClient:   true,
-			wantErr:             false,
+			wantErr: false,
 		},
 		"should respect user provided PodSpecOverrides when adding PodSet info config to the trainjob": {
 			trainJob: testTrainJob.Clone().
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
-							{Name: "replicated-job-1"},
-							{Name: "replicated-job-2"},
+							{Name: "node"},
 						},
 						NodeSelector:    map[string]string{"disktype": "sdd"},
 						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
 						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
 					},
 				}).Obj(),
-			childJobSet: testingjobset.MakeJobSet(testTrainJob.Name, testTrainJob.Namespace).ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name: "replicated-job-1",
-				},
-				testingjobset.ReplicatedJobRequirements{
-					Name: "replicated-job-2",
-				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
-					Name:            "replicated-job-1",
-					NodeSelector:    map[string]string{"disktype": "ssd"},
-					Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
-				},
-				{
-					Name:            "replicated-job-2",
+					Name:            "node",
 					NodeSelector:    map[string]string{"gpu": "nvidia"},
 					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
 				},
 			},
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "1").
+				Annotation(firstOverrideIdx, "1").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
-							{Name: "replicated-job-1"},
-							{Name: "replicated-job-2"},
+							{Name: "node"},
 						},
 						NodeSelector:    map[string]string{"disktype": "sdd"},
 						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
@@ -175,15 +145,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 					},
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
-							{Name: "replicated-job-1"},
-						},
-						NodeSelector:    map[string]string{"disktype": "ssd"},
-						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
-					},
-					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
-							{Name: "replicated-job-2"},
+							{Name: "node"},
 						},
 						NodeSelector:    map[string]string{"gpu": "nvidia"},
 						Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
@@ -192,64 +154,47 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				}).
 				Suspend(false).
 				Obj(),
-			addTrainJobToClient: true,
-			addJobSetToClient:   true,
-			wantErr:             false,
+			wantErr: false,
 		},
 		"should not modify the TrainJob if the wrong number of PodSet infos is provided": {
 			trainJob: testTrainJob.Clone().Obj(),
-			childJobSet: testingjobset.MakeJobSet(testTrainJob.Name, testTrainJob.Namespace).ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name: "replicated-job-1",
-				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
-					Name:            "replicated-job-1",
+					Name:            "node",
 					NodeSelector:    map[string]string{"disktype": "ssd"},
 					Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
 				},
 				{
-					Name:            "replicated-job-2",
+					Name:            "non-existent-job",
 					NodeSelector:    map[string]string{"gpu": "nvidia"},
 					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
 				},
 			},
-			wantTrainJob:        testTrainJob.Clone().Obj(),
-			addTrainJobToClient: true,
-			addJobSetToClient:   true,
-			wantErr:             true,
+			wantTrainJob: testTrainJob.Clone().Obj(),
+			wantErr:      true,
 		},
-		"should return an error if the child jobset is not available": {
-			trainJob:            testTrainJob.Clone().Obj(),
-			addTrainJobToClient: true,
-			addJobSetToClient:   false,
-			wantErr:             true,
-		},
-		"should return an error if the trainjob can't be updated": {
-			trainJob:            testTrainJob.Clone().Obj(),
-			addTrainJobToClient: true,
-			addJobSetToClient:   false,
-			wantErr:             true,
+		"should return an error if the trainjob references an unknown training runtime": {
+			trainJob: testTrainJob.Clone().Obj(),
+			wantErr:  true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
-			if tc.addTrainJobToClient {
-				clientBuilder.WithObjects(tc.trainJob)
-			}
-			if tc.addJobSetToClient {
-				clientBuilder.WithObjects(tc.childJobSet)
-			}
-			kClient := clientBuilder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr).Build()
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			_ = NewReconciler(kClient, recorder, jobframework.WithManageJobsWithoutQueueName(true))
+			_, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true))
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			kTrainJob := (*TrainJob)(tc.trainJob)
-			err := kTrainJob.RunWithPodSetsInfo(tc.podsetsInfo)
+			err = kTrainJob.RunWithPodSetsInfo(tc.podsetsInfo)
 			if err != nil {
 				if !tc.wantErr {
 					t.Errorf("unexpected RunWithPodSetsInfo() error: %v", err)
@@ -285,16 +230,16 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		},
 		"should not modify the trainjob if it fails parsing the annotation": {
 			trainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "+").
+				Annotation(firstOverrideIdx, "+").
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "+").
+				Annotation(firstOverrideIdx, "+").
 				Obj(),
 			wantReturn: false,
 		},
 		"should remove all the podSpecOverrides starting from the index specified in the annotation": {
 			trainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "2").
+				Annotation(firstOverrideIdx, "2").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
@@ -323,7 +268,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "2").
+				Annotation(firstOverrideIdx, "2").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
@@ -358,7 +303,19 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
-	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name)
+	// Create and refererence a fake ClusterTrainingRuntime
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
+		APIGroup: ptr.To("trainer.kubeflow.org"),
+		Name:     "test",
+		Kind:     ptr.To("ClusterTrainingRuntime"),
+	})
+	testJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "node",
+			Replicas:    1,
+			Parallelism: 1,
+		}).Obj()
+	testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobset.Spec)
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
@@ -372,34 +329,15 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 			},
-			trainJob: testTrainJob.Clone().Obj(),
-			childJobSet: testingjobset.MakeJobSet(testTrainJob.Name, testTrainJob.Namespace).ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-1",
-					Replicas:    1,
-					Completions: 1,
-					Parallelism: 1,
-				},
-				testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-2",
-					Replicas:    2,
-					Completions: 2,
-					Parallelism: 2,
-				}).
-				Obj(),
+			trainJob:     testTrainJob.Clone().Obj(),
 			wantTrainJob: testTrainJob.Clone().Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).
+						*utiltesting.MakePodSet("node", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
-							SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
+							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
-							Obj(),
-						*utiltesting.MakePodSet("replicated-job-2", 4).
-							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
-							SubGroupIndexLabel(ptr.To("jobset.sigs.k8s.io/job-index")).
-							SubGroupCount(ptr.To[int32](2)).
 							Obj(),
 					).
 					Obj(),
@@ -411,15 +349,19 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
-			kClient := clientBuilder.WithObjects(tc.trainJob, tc.childJobSet, testNamespace).Build()
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr, testNamespace).Build()
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			tJobKey := client.ObjectKeyFromObject(tc.trainJob)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: tJobKey,
 			})
 			if err != nil {

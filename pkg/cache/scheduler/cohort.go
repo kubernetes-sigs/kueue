@@ -19,8 +19,6 @@ package scheduler
 import (
 	"iter"
 
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 )
@@ -32,7 +30,7 @@ type cohort struct {
 
 	resourceNode resourceNode
 
-	FairWeight resource.Quantity
+	FairWeight float64
 }
 
 func newCohort(name kueue.CohortReference) *cohort {
@@ -82,8 +80,8 @@ func (c *cohort) CCParent() hierarchy.CycleCheckable {
 
 // Implements dominantResourceShareNode interface.
 
-func (c *cohort) fairWeight() *resource.Quantity {
-	return &c.FairWeight
+func (c *cohort) fairWeight() float64 {
+	return c.FairWeight
 }
 
 // Returns all ancestors starting with self and ending with root

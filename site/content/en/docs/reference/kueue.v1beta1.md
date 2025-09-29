@@ -975,7 +975,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 Each resource group defines the list of resources and a list of flavors
 that provide quotas for these resources.
 Each resource and each flavor can only form part of one resource group.
-resourceGroups can be up to 16.</p>
+resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
 </td>
 </tr>
 <tr><td><code>cohort</code> <B>[Required]</B><br/>
@@ -1303,6 +1303,20 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 
 
 
+## `EvictionUnderlyingCause`     {#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WorkloadSchedulingStatsEviction](#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction)
+
+
+<p>EvictionUnderlyingCause represents the underlying cause of a workload eviction.</p>
+
+
+
+
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
 
@@ -1340,7 +1354,8 @@ ClusterQueues and Cohorts with the lowest share and
 preempting workloads from the ClusterQueues and Cohorts
 with the highest share.  A zero weight implies infinite
 share value, meaning that this Node will always be at
-disadvantage against other ClusterQueues and Cohorts.</p>
+disadvantage against other ClusterQueues and Cohorts.
+When not 0, Weight must be greater than 10^-9.</p>
 </td>
 </tr>
 </tbody>
@@ -1595,7 +1610,7 @@ have.</p>
 </td>
 <td>
    <p>topology is the topology that associated with this ResourceFlavor.</p>
-<p>This is an alpha field and requires enabling the TopologyAwareScheduling
+<p>This is a beta field and requires enabling the TopologyAwareScheduling
 feature gate.</p>
 </td>
 </tr>
@@ -2700,7 +2715,8 @@ nodes matching to the Resource Flavor node labels.</p>
    <p>coveredResources is the list of resources covered by the flavors in this
 group.
 Examples: cpu, memory, vendor.com/gpu.
-The list cannot be empty and it can contain up to 16 resources.</p>
+The list cannot be empty and it can contain up to 64 resources. With a total
+of up to 256 covered resources across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 <tr><td><code>flavors</code> <B>[Required]</B><br/>
@@ -2713,7 +2729,8 @@ Typically, different flavors represent different hardware models
 cpus).
 Each flavor MUST list all the resources listed for this group in the same
 order as the .resources field.
-The list cannot be empty and it can contain up to 16 flavors.</p>
+The list cannot be empty and it can contain up to 64 flavors, with a max of
+256 total flavors across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -3087,7 +3104,7 @@ level.</p>
 </td>
 </tr>
 <tr><td><code>underlyingCause</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause"><code>EvictionUnderlyingCause</code></a>
 </td>
 <td>
    <p>underlyingCause specifies a finer-grained explanation that complements the eviction reason.
@@ -3298,8 +3315,11 @@ This field is optional.</p>
 <code>string</code>
 </td>
 <td>
-   <p>clusterName is the name of the cluster where the workload is actually assigned.
-This field is reset after the Workload is evicted.</p>
+   <p>clusterName is the name of the cluster where the workload is currently assigned.</p>
+<p>With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+was assigned, providing placement context for new scaled-up workloads. This supports
+affinity or propagation policies across workload slices.</p>
+<p>This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
 <tr><td><code>unhealthyNodes</code><br/>

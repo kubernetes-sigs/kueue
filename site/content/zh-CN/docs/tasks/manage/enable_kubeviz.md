@@ -41,8 +41,8 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --version={{< param "chart_version" >}} \
   --namespace kueue-system \
   --create-namespace \
-  --set enableKueueViz=true \ # 启用 KueueViz
-  --wait --timeout 300s
+  --wait --timeout 300s \
+  --set enableKueueViz=true # 启用 KueueViz
 ```
 
 有关安装 Kueue 的更多信息，请参阅[安装](/zh-CN/docs/installation)。
@@ -77,8 +77,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 在开发或测试期间快速访问（已在 Docker Desktop 上测试）：
 
 ```bash
-kubectl port-forward svc/kueue-kueue-viz-frontend -n kueue-system 8080
-kubectl port-forward svc/kueue-kueue-viz-backend  -n kueue-system 8081:8080
+kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080
+kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
 ```
 
 编辑 kueue-viz-frontend Deployment 以设置环境变量

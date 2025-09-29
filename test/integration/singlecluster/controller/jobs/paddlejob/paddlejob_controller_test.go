@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -283,7 +282,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 	})
 })
 
-var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -306,8 +305,6 @@ var _ = ginkgo.Describe("PaddleJob controller when TopologyAwareScheduling enabl
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-paddlejob-")
 
 		nodes = []corev1.Node{
