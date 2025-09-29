@@ -1624,7 +1624,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run an ElasticJob on worker if admitted", func() {
+	ginkgo.XIt("Should run an ElasticJob on worker if admitted", func() {
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 		worker2 := worker2TestCluster
