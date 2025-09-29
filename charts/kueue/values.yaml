@@ -246,6 +246,8 @@ kueueViz:
     env:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
         value: "https://frontend.kueueviz.local"
+      - name: GIN_MODE
+        value: "release"
     ingress:
       # -- Enable KueueViz dashboard backend ingress
       enabled: true
