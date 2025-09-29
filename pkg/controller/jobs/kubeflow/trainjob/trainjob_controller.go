@@ -78,12 +78,12 @@ type trainJobReconciler struct {
 var reconciler trainJobReconciler
 var _ jobframework.JobReconcilerInterface = (*trainJobReconciler)(nil)
 
-func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	reconciler = trainJobReconciler{
 		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
 		client: client,
 	}
-	return &reconciler
+	return &reconciler, nil
 }
 
 func (r *trainJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

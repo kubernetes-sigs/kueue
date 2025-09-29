@@ -95,10 +95,13 @@ func managerSetup(
 		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		podReconciler := pod.NewReconciler(
+		podReconciler, err := pod.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = podReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -106,8 +109,10 @@ func managerSetup(
 		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		jobReconciler := job.NewReconciler(
+		jobReconciler, _ := job.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
 		err = jobReconciler.SetupWithManager(mgr)

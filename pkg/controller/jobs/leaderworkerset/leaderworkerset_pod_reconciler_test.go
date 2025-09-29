@@ -126,10 +126,13 @@ func TestPodReconciler(t *testing.T) {
 
 			kClient := clientBuilder.WithObjects(tc.lws, tc.pod).Build()
 
-			reconciler := NewPodReconciler(kClient, nil)
+			reconciler, err := NewPodReconciler(ctx, kClient, nil, nil)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			podKey := client.ObjectKeyFromObject(tc.pod)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: podKey})
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: podKey})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}

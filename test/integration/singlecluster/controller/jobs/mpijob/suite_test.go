@@ -72,11 +72,14 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := mpijob.NewReconciler(
+		reconciler, err := mpijob.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -87,8 +90,10 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 		jobframework.EnableIntegration(mpijob.FrameworkName)
 
 		if setupJobManager {
-			jobReconciler := job.NewReconciler(
+			jobReconciler, _ := job.NewReconciler(
+				ctx,
 				mgr.GetClient(),
+				mgr.GetFieldIndexer(),
 				mgr.GetEventRecorderFor(constants.JobControllerName),
 				opts...)
 			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())

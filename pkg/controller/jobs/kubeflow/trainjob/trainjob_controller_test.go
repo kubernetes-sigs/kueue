@@ -237,7 +237,9 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
+			indexer := utiltesting.AsIndexer(clientBuilder)
 			if tc.addTrainJobToClient {
 				clientBuilder.WithObjects(tc.trainJob)
 			}
@@ -246,10 +248,13 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			}
 			kClient := clientBuilder.Build()
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			_ = NewReconciler(kClient, recorder, jobframework.WithManageJobsWithoutQueueName(true))
+			_, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true))
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			kTrainJob := (*TrainJob)(tc.trainJob)
-			err := kTrainJob.RunWithPodSetsInfo(tc.podsetsInfo)
+			err = kTrainJob.RunWithPodSetsInfo(tc.podsetsInfo)
 			if err != nil {
 				if !tc.wantErr {
 					t.Errorf("unexpected RunWithPodSetsInfo() error: %v", err)
@@ -412,14 +417,18 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
 			kClient := clientBuilder.WithObjects(tc.trainJob, tc.childJobSet, testNamespace).Build()
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			tJobKey := client.ObjectKeyFromObject(tc.trainJob)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: tJobKey,
 			})
 			if err != nil {
