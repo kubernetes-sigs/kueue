@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/clock"
@@ -3643,17 +3644,19 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 	)
 
 	var (
-		rf          *kueue.ResourceFlavor
-		lq          *kueue.LocalQueue
-		cq          *kueue.ClusterQueue
-		managedNs   *corev1.Namespace
-		unmanagedNs *corev1.Namespace
+		rf        *kueue.ResourceFlavor
+		lq        *kueue.LocalQueue
+		cq        *kueue.ClusterQueue
+		managedNs *corev1.Namespace
 	)
 
 	ginkgo.BeforeAll(func() {
+		var managedByQueueRequirement, err = labels.NewRequirement("managed-by-kueue", selection.In, []string{"true"})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		fwk.StartManager(ctx, cfg,
 			managerSetup(
-				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{"managed-by-kueue": "true"})),
+				jobframework.WithManagedJobsNamespaceSelector(labels.NewSelector().Add(*managedByQueueRequirement)),
 			),
 		)
 
@@ -3662,12 +3665,6 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			Label("managed-by-kueue", "true").
 			Obj()
 		util.MustCreate(ctx, k8sClient, managedNs)
-
-		unmanagedNs = testing.MakeNamespaceWrapper("").
-			GenerateName("unmanaged-ns-").
-			Label("managed-by-kueue", "false").
-			Obj()
-		util.MustCreate(ctx, k8sClient, unmanagedNs)
 
 		rf = testing.MakeResourceFlavor(rfName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
@@ -3687,7 +3684,6 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 
 	ginkgo.AfterAll(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, managedNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, lq, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.LongTimeout)
@@ -3695,16 +3691,16 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 	})
 
 	ginkgo.It("should not reconcile a job in an unmanaged namespace", func() {
-		job := testingjob.MakeJob("unmanaged-job", unmanagedNs.Name).
+		job := testingjob.MakeJob("unmanaged-job", "unmanaged-ns").
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image("", nil).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
 
 		wls := &kueue.WorkloadList{}
-		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
+		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace("unmanaged-ns"))).To(gomega.Succeed())
 		gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
 	})
 
