@@ -70,11 +70,11 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueuebeta.PodSetGroupName))...)
 
 		if sliceSizeFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetGroupName)))
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetSliceSizeAnnotation)))
 		}
 
 		if sliceRequiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceRequiredTopologyAnnotation), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetGroupName)))
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
 		}
 	}
 
