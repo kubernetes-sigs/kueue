@@ -750,11 +750,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes []corev1.Node
 			)
 			ginkgo.BeforeEach(func() {
-				//      b1             r2
-				//   /      \           |
-				//  r1       r2        b2
-				//  |      /    \       |
-				//  x3    x1    x4     x2
+				//     b1          b2
+				//   /    \      /    \
+				//  r1    r2    r1    r2
+				//  |      |    |      |
+				//  x3    x1    x4    x2
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x3").
 						Label("node-group", "tas").
