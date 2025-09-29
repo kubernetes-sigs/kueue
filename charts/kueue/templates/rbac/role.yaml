@@ -354,6 +354,15 @@ rules:
   - apiGroups:
       - trainer.kubeflow.org
     resources:
+      - clustertrainingruntimes
+      - trainingruntimes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - trainer.kubeflow.org
+    resources:
       - trainjobs
     verbs:
       - get
