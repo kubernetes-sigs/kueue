@@ -227,6 +227,8 @@ kueueViz:
     env:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
         value: "frontend.kueueviz.local"
+      - name: GIN_MODE
+        value: "debug"
     ingress:
       # -- KueueViz dashboard backend ingress annotations
       annotations:
