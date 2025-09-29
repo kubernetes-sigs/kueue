@@ -95,8 +95,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				rayjobReconciler := workloadrayjob.NewReconciler(
+				rayjobReconciler, _ := workloadrayjob.NewReconciler(
+					ctx,
 					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName))
 				err = rayjobReconciler.SetupWithManager(mgr)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -117,9 +119,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				}
 
 				// Get external adapters for MultiKueue synchronization
-				gomega.Expect(externalframeworks.Initialize(cfg.MultiKueue.ExternalFrameworks)).To(gomega.Succeed())
+				externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				adapters := make(map[string]jobframework.MultiKueueAdapter)
-				for _, adapter := range externalframeworks.GetAllAdapters() {
+				for _, adapter := range externalAdapters {
 					gvk := adapter.GVK()
 					adapters[gvk.String()] = adapter
 				}

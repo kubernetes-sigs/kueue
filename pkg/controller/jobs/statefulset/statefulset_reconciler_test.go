@@ -175,6 +175,7 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
+			indexer := utiltesting.AsIndexer(clientBuilder)
 
 			objs := make([]client.Object, 0, len(tc.pods)+1)
 			if tc.statefulSet != nil {
@@ -187,9 +188,12 @@ func TestReconciler(t *testing.T) {
 
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
-			reconciler := NewReconciler(kClient, nil)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, nil)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tc.stsKey})
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tc.stsKey})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}

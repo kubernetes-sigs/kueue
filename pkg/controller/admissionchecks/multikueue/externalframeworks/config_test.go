@@ -17,6 +17,7 @@ limitations under the License.
 package externalframeworks
 
 import (
+	"errors"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -24,11 +25,11 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
-func TestInitialize(t *testing.T) {
+func TestNewAdapters(t *testing.T) {
 	tests := []struct {
 		name    string
 		configs []configapi.MultiKueueExternalFramework
-		wantErr bool
+		wantErr error
 	}{
 		{
 			name: "valid configurations",
@@ -36,21 +37,21 @@ func TestInitialize(t *testing.T) {
 				{Name: "PipelineRun.v1.tekton.dev"},
 				{Name: "CustomJob.v1alpha1.custom.example.com"},
 			},
-			wantErr: false,
+			wantErr: nil,
 		},
 		{
 			name: "invalid GVK format",
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: "invalid-format"},
 			},
-			wantErr: true,
+			wantErr: errors.New("invalid external framework configuration for \"invalid-format\": invalid GVK format 'invalid-format'"),
 		},
 		{
 			name: "empty name",
 			configs: []configapi.MultiKueueExternalFramework{
 				{Name: ""},
 			},
-			wantErr: true,
+			wantErr: errors.New("invalid external framework configuration for \"\": name is required"),
 		},
 		{
 			name: "duplicate GVK",
@@ -58,7 +59,7 @@ func TestInitialize(t *testing.T) {
 				{Name: "PipelineRun.v1.tekton.dev"},
 				{Name: "PipelineRun.v1.tekton.dev"},
 			},
-			wantErr: true,
+			wantErr: errors.New("duplicate configuration for GVK tekton.dev/v1, Kind=PipelineRun"),
 		},
 		{
 			name: "mixed valid and invalid",
@@ -67,21 +68,26 @@ func TestInitialize(t *testing.T) {
 				{Name: "invalid-format"},
 				{Name: "Workflow.v1alpha1.argoproj.io"},
 			},
-			wantErr: true,
+			wantErr: errors.New("invalid external framework configuration for \"invalid-format\": invalid GVK format 'invalid-format'"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := Initialize(tt.configs)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
+			_, err := NewAdapters(tt.configs)
+			switch {
+			case tt.wantErr == nil && err != nil:
+				t.Fatalf("NewAdapters() unexpected error = %v", err)
+			case tt.wantErr != nil && err == nil:
+				t.Fatalf("NewAdapters() expected error %v, got nil", tt.wantErr)
+			case tt.wantErr != nil && err.Error() != tt.wantErr.Error():
+				t.Errorf("NewAdapters() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestGetAllAdapters(t *testing.T) {
+func TestNewAdaptersResult(t *testing.T) {
 	// Load multiple valid configurations
 	configs := []configapi.MultiKueueExternalFramework{
 		{Name: "PipelineRun.v1.tekton.dev"},
@@ -89,11 +95,11 @@ func TestGetAllAdapters(t *testing.T) {
 		{Name: "CustomJob.v1alpha1.custom.example.com"},
 	}
 
-	if err := Initialize(configs); err != nil {
-		t.Fatalf("Failed to load configurations: %v", err)
+	adapters, err := NewAdapters(configs)
+	if err != nil {
+		t.Fatalf("Failed to get adapters: %v", err)
 	}
 
-	adapters := GetAllAdapters()
 	if len(adapters) != 3 {
 		t.Errorf("Expected 3 adapters, got %d", len(adapters))
 	}

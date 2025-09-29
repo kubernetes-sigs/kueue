@@ -154,7 +154,7 @@ instance is contained within a "rack".
 
 #### Story 3
 
-Similar to [Story 3](#story-3), but I use multi-template Jobs (JobSet, MPIJob,
+Similar to [Story 1](#story-1), but I use multi-template Jobs (JobSet, MPIJob,
 TFJob) and Pods belonging to different templates also need to exchange sizable
 amount of data, impacting the execution time. I would like to be able to
 indicate that (1) all worker Pods are contained within a "rack", but also all

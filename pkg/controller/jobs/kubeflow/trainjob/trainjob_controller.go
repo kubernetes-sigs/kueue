@@ -50,7 +50,8 @@ var (
 )
 
 const (
-	FirstOverrideIdx = "kueue.x-k8s.io/override-idx"
+	// This is alpha level annotation
+	firstOverrideIdx = "kueue.x-k8s.io/trainjob-override-idx"
 )
 
 func init() {
@@ -77,12 +78,12 @@ type trainJobReconciler struct {
 var reconciler trainJobReconciler
 var _ jobframework.JobReconcilerInterface = (*trainJobReconciler)(nil)
 
-func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	reconciler = trainJobReconciler{
 		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
 		client: client,
 	}
-	return &reconciler
+	return &reconciler, nil
 }
 
 func (r *trainJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -180,7 +181,7 @@ func (t *TrainJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	if t.Annotations == nil {
 		t.Annotations = map[string]string{}
 	}
-	t.Annotations[FirstOverrideIdx] = strconv.Itoa(len(t.Spec.PodSpecOverrides))
+	t.Annotations[firstOverrideIdx] = strconv.Itoa(len(t.Spec.PodSpecOverrides))
 	for _, info := range podSetsInfo {
 		// The trainjob controller merges each podSpecOverride sequentially, so any existing user provided override will be processed first
 		t.Spec.PodSpecOverrides = append(t.Spec.PodSpecOverrides, kftrainerapi.PodSpecOverride{
@@ -223,7 +224,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		if !t.RestorePodSetsInfo(podSetsInfo) {
 			return t.Object(), false, errors.New("error restoring info to the trainjob")
 		}
-		delete(t.Annotations, FirstOverrideIdx)
+		delete(t.Annotations, firstOverrideIdx)
 		return t.Object(), true, nil
 	}); err != nil {
 		return false, err
@@ -232,7 +233,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
-	idx, ok := t.Annotations[FirstOverrideIdx]
+	idx, ok := t.Annotations[firstOverrideIdx]
 	if !ok {
 		// kueue didn't inject any config yet
 		return true

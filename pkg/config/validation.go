@@ -116,40 +116,36 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 
 		if len(c.MultiKueue.ExternalFrameworks) > 0 {
 			path := multiKueuePath.Child("externalFrameworks")
-			if !features.Enabled(features.MultiKueueAdaptersForCustomJobs) {
-				allErrs = append(allErrs, field.Forbidden(path, "can be set only when MultiKueueAdaptersForCustomJobs feature gate is enabled"))
-			} else {
-				enabledIntegrations := sets.New[string]()
-				if c.Integrations != nil {
-					enabledIntegrations = sets.New(c.Integrations.Frameworks...)
-				}
+			enabledIntegrations := sets.New[string]()
+			if c.Integrations != nil {
+				enabledIntegrations = sets.New(c.Integrations.Frameworks...)
+			}
 
-				builtInAdapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
-				if err != nil {
-					allErrs = append(allErrs, field.InternalError(path, err))
-				}
-				builtInGVKs := sets.New[string]()
-				for gvk := range builtInAdapters {
-					builtInGVKs.Insert(gvk)
-				}
+			builtInAdapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			if err != nil {
+				allErrs = append(allErrs, field.InternalError(path, err))
+			}
+			builtInGVKs := sets.New[string]()
+			for gvk := range builtInAdapters {
+				builtInGVKs.Insert(gvk)
+			}
 
-				seenGVKs := sets.New[string]()
-				for i, f := range c.MultiKueue.ExternalFrameworks {
-					fldPath := path.Index(i).Child("name")
-					parsedGVK, _ := schema.ParseKindArg(f.Name)
-					if parsedGVK == nil {
-						allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "must be in 'kind.version.group' format"))
-						continue
-					}
-					gvk := parsedGVK.String()
-					if seenGVKs.Has(gvk) {
-						allErrs = append(allErrs, field.Duplicate(fldPath, f.Name))
-					} else {
-						seenGVKs.Insert(gvk)
-					}
-					if builtInGVKs.Has(gvk) {
-						allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "conflicts with a built-in MultiKueue adapter"))
-					}
+			seenGVKs := sets.New[string]()
+			for i, f := range c.MultiKueue.ExternalFrameworks {
+				fldPath := path.Index(i).Child("name")
+				parsedGVK, _ := schema.ParseKindArg(f.Name)
+				if parsedGVK == nil {
+					allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "must be in 'kind.version.group' format"))
+					continue
+				}
+				gvk := parsedGVK.String()
+				if seenGVKs.Has(gvk) {
+					allErrs = append(allErrs, field.Duplicate(fldPath, f.Name))
+				} else {
+					seenGVKs.Insert(gvk)
+				}
+				if builtInGVKs.Has(gvk) {
+					allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "conflicts with a built-in MultiKueue adapter"))
 				}
 			}
 		}
