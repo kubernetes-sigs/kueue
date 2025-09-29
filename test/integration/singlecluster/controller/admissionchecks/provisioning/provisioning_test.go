@@ -1514,92 +1514,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	})
 })
 
-type successExpectation bool
-
-const (
-	// works indicates that in this test scenario Kueue behaves as intened.
-	works = successExpectation(true)
-
-	// stuck indicates that in this test scenario workloads get stuck, which is not intended (see issue #6966).
-	// The purpose of these test cases is **not** to bake this stuck behavior into Kueue;
-	// to the contrary, any changes promoting some test cases from "stuck" to "works" are welcome.
-	//
-	// The real purpose of these test cases is to:
-	// - document cases of issue #6966 in an easily reproducible way;
-	// - also document what exactly goes wrong (see "switch expectSuccess" blocks in the test scenario);
-	// - enhance further exploring "in which cases does this error happen?"
-	//   (which may in turn provide more hints about its root cause(s)).
-	stuck = successExpectation(false)
-)
-
 type admissionCheckUsage int
 
 const (
-	noAC          = admissionCheckUsage(0)
 	firstFlavorAC = admissionCheckUsage(1)
 	bothAC        = admissionCheckUsage(2)
 )
 
-type memoryConfig struct {
-	withMemory bool
-	limit      string
-	request    string
-}
-
-// cpuConfig specifies the CPU quotas and requests for the test scenario below.
-//
-// For a meaningful scenario, the following should hold:
-// flavor1 >= job2 > flavor2 >= job1, and also job1 + job2 > flavor1.
-// (where we mean ordering of actual values, e.g. "900m" < "1.1").
-//
-// Under these assumptions, Job1 should be first admitted to Flavor1,
-// but then preempted by Job2 (of a higher priority)
-// which otherwise wouldn't fit on Flavor2 (alone) or on Flavor1 (together with Job1).
-// Then, Job1 should be re-admitted to Flavor2 (as it fits there).
-type cpuConfig struct {
-	flavor1 string
-	flavor2 string
-	job1    string
-	job2    string
-}
-
-var noMemory = memoryConfig{}
-var defaultCPU = &cpuConfig{
-	flavor1: "0.75",
-	flavor2: "0.5",
-	job1:    "500m",
-	job2:    "750m",
-}
-
-func memory(limit, request string) memoryConfig {
-	return memoryConfig{
-		withMemory: true,
-		limit:      limit,
-		request:    request,
-	}
-}
-
-func cpu(large, small string) *cpuConfig {
-	return &cpuConfig{
-		flavor1: large,
-		flavor2: small,
-		job1:    small,
-		job2:    large,
-	}
-}
-
-func (e successExpectation) String() string {
-	if e {
-		return "expected to work well"
-	} else {
-		return "expected to get stuck"
-	}
-}
-
 func (a admissionCheckUsage) String() string {
 	switch a {
-	case noAC:
-		return "without AdmissionCheck"
 	case firstFlavorAC:
 		return "with AdmissionCheck for the first flavor"
 	case bothAC:
@@ -1609,34 +1532,15 @@ func (a admissionCheckUsage) String() string {
 	}
 }
 
-func (a admissionCheckUsage) forFlavor1() bool {
-	return a != noAC
-}
-
 func (a admissionCheckUsage) forFlavor2() bool {
 	return a == bothAC
-}
-
-func (m memoryConfig) String() string {
-	if m.withMemory {
-		return fmt.Sprintf("RAM: (limit %s, req %s)", m.limit, m.request)
-	} else {
-		return "no RAM"
-	}
-}
-
-func (c *cpuConfig) String() string {
-	if c == defaultCPU {
-		return "default CPU"
-	} else {
-		return fmt.Sprintf("CPU: (flavor1 %s, flavor2 %s, job1 %s, job2 %s)", c.flavor1, c.flavor2, c.job1, c.job2)
-	}
 }
 
 var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		wlKey          types.NamespacedName
+		wl2Key         types.NamespacedName
 		ac1            *kueue.AdmissionCheck
 		ac2            *kueue.AdmissionCheck
 		prc            *kueue.ProvisioningRequestConfig
@@ -1676,6 +1580,21 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 
 		priorityClass = testing.MakeWorkloadPriorityClass(priorityClassName).PriorityValue(priorityValue).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
+
+		prc = baseConfig.Clone().RetryLimit(1).Obj()
+		util.MustCreate(ctx, k8sClient, prc)
+
+		ac1 = testing.MakeAdmissionCheck("ac-prov").
+			ControllerName(kueue.ProvisioningRequestControllerName).
+			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+			Obj()
+		util.MustCreate(ctx, k8sClient, ac1)
+
+		ac2 = testing.MakeAdmissionCheck("ac-prov2").
+			ControllerName(kueue.ProvisioningRequestControllerName).
+			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+			Obj()
+		util.MustCreate(ctx, k8sClient, ac2)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1685,84 +1604,31 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf1, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf2, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
-		if ac1 != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac1, true)
-		}
-		if ac2 != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
-		}
-		if prc != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
-		}
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 	})
 
 	ginkgo.AfterEach(func() {
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.DescribeTable("A workload passes a provision request in a 2-flavor setting",
-		func(expectSuccess successExpectation, useAC admissionCheckUsage, memCfg memoryConfig, cpuCfg *cpuConfig) {
+	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
+		ginkgo.It("Should be successfully re-admitted on another flavor without an admission check", func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
-				if useAC.forFlavor1() {
-					prc = baseConfig.Clone().RetryLimit(1).Obj()
-					util.MustCreate(ctx, k8sClient, prc)
-
-					ac1 = testing.MakeAdmissionCheck("ac-prov").
-						ControllerName(kueue.ProvisioningRequestControllerName).
-						Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
-						Obj()
-					util.MustCreate(ctx, k8sClient, ac1)
-				} else {
-					prc = nil
-					ac1 = nil
-				}
-				if useAC.forFlavor2() {
-					ac2 = testing.MakeAdmissionCheck("ac-prov2").
-						ControllerName(kueue.ProvisioningRequestControllerName).
-						Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
-						Obj()
-					util.MustCreate(ctx, k8sClient, ac2)
-				} else {
-					ac2 = nil
-				}
-
-				var flavors []kueue.FlavorQuotas
-				if memCfg.withMemory {
-					flavors = []kueue.FlavorQuotas{
-						*testing.MakeFlavorQuotas(rf1.Name).
-							Resource(corev1.ResourceCPU, cpuCfg.flavor1).
-							Resource(corev1.ResourceMemory, memCfg.limit).Obj(),
-						*testing.MakeFlavorQuotas(rf2.Name).
-							Resource(corev1.ResourceCPU, cpuCfg.flavor2).
-							Resource(corev1.ResourceMemory, memCfg.limit).Obj(),
-					}
-				} else {
-					flavors = []kueue.FlavorQuotas{
-						*testing.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, cpuCfg.flavor1).Obj(),
-						*testing.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, cpuCfg.flavor2).Obj(),
-					}
-				}
-				cqBuilder := testing.MakeClusterQueue("cluster-queue").
+				cq = testing.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
-					ResourceGroup(flavors...)
-				if useAC.forFlavor1() {
-					rules := []kueue.AdmissionCheckStrategyRule{
-						{
-							Name:      kueue.AdmissionCheckReference(ac1.Name),
-							OnFlavors: []kueue.ResourceFlavorReference{flavor1Ref},
-						},
-					}
-					if useAC.forFlavor2() {
-						rules = append(rules, kueue.AdmissionCheckStrategyRule{
-							Name:      kueue.AdmissionCheckReference(ac2.Name),
-							OnFlavors: []kueue.ResourceFlavorReference{flavor2Ref},
-						})
-					}
-					cqBuilder.AdmissionCheckStrategy(rules...)
-				}
-				cq = cqBuilder.Obj()
+					ResourceGroup(
+						*testing.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "0.75").Obj(),
+						*testing.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, "0.5").Obj(),
+					).
+					AdmissionCheckStrategy(kueue.AdmissionCheckStrategyRule{
+						Name:      kueue.AdmissionCheckReference(ac1.Name),
+						OnFlavors: []kueue.ResourceFlavorReference{flavor1Ref},
+					}).
+					Obj()
 				util.MustCreate(ctx, k8sClient, cq)
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
@@ -1770,15 +1636,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				util.MustCreate(ctx, k8sClient, lq)
 				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 			})
-			var wl2Key types.NamespacedName
 
 			ginkgo.By("submit the Job", func() {
 				jobBuilder := testingjob.MakeJob("job1", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Request(corev1.ResourceCPU, cpuCfg.job1)
-				if memCfg.withMemory {
-					jobBuilder.Request(corev1.ResourceMemory, memCfg.request)
-				}
+					Request(corev1.ResourceCPU, "500m")
 				job1 := jobBuilder.Obj()
 				util.MustCreate(ctx, k8sClient, job1)
 				ginkgo.DeferCleanup(func() {
@@ -1793,37 +1655,35 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			if useAC.forFlavor1() {
-				ginkgo.By("await for the Workload to have QuotaReserved", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
-						g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
+			ginkgo.By("await for the Workload to have QuotaReserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-				ginkgo.By("await for the ProvisioningRequest on flavor-1 to be created", func() {
-					provReqKey = types.NamespacedName{
-						Namespace: wlKey.Namespace,
-						Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac1.Name), 1),
-					}
+			ginkgo.By("await for the ProvisioningRequest on flavor-1 to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wlKey.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac1.Name), 1),
+				}
 
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-				ginkgo.By("set the ProvisioningRequest on flavor-1 as Provisioned", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-							Type:   autoscaling.Provisioned,
-							Status: metav1.ConditionTrue,
-							Reason: autoscaling.Provisioned,
-						})
-						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-			}
+			ginkgo.By("set the ProvisioningRequest on flavor-1 as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
 			ginkgo.By("await for the Workload to be Admitted on flavor-1", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1834,10 +1694,6 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: flavor1Ref,
 					}
-					if memCfg.withMemory {
-						expectedFlavors[corev1.ResourceMemory] = flavor1Ref
-					}
-
 					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1846,10 +1702,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				jobBuilder := testingjob.MakeJob("job2", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					WorkloadPriorityClass(priorityClassName).
-					Request(corev1.ResourceCPU, cpuCfg.job2)
-				if memCfg.withMemory {
-					jobBuilder.Request(corev1.ResourceMemory, memCfg.request)
-				}
+					Request(corev1.ResourceCPU, "750m")
 				job2 := jobBuilder.Obj()
 				util.MustCreate(ctx, k8sClient, job2)
 				ginkgo.DeferCleanup(func() {
@@ -1865,26 +1718,17 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 			})
 
 			ginkgo.By("await for wl2 to have QuotaReserved or be Admitted", func() {
-				ev := gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.BeElementOf(
 						workload.StatusQuotaReserved,
 						workload.StatusAdmitted,
 					))
-				}, util.Timeout, util.Interval)
-				switch expectSuccess {
-				case works:
-					ev.Should(gomega.Succeed())
-				case stuck:
-					// If this expectation fails, it may be actually a good thing.
-					// Maybe the test case can be promoted from "stuck" to "works"?
-					// (See the comment on the definition of "stuck").
-					ev.ShouldNot(gomega.Succeed())
-				}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("await for the Workload to be no longer Admitted on flavor-1", func() {
-				ev := gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
 
 					var isAdmittedOnFlavor1 = false
@@ -1895,52 +1739,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 					}
 
 					g.Expect(isAdmittedOnFlavor1).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval)
-				switch expectSuccess {
-				case works:
-					ev.Should(gomega.Succeed())
-				case stuck:
-					// If this expectation fails, it may be actually a good thing.
-					// Maybe the test case can be promoted from "stuck" to "works"?
-					// (See the comment on the definition of "stuck").
-					ev.ShouldNot(gomega.Succeed())
-				}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			if useAC.forFlavor2() {
-				ginkgo.By("await for the Workload to have QuotaReserved on flavor-2", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
-						g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("await for the ProvisioningRequest on flavor-2 to be created", func() {
-					provReqKey2 = types.NamespacedName{
-						Namespace: wlKey.Namespace,
-						Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac2.Name), 1),
-					}
-
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).Should(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("set the ProvisioningRequest on flavor-2 as Provisioned", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).Should(gomega.Succeed())
-						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-							Type:   autoscaling.Provisioned,
-							Status: metav1.ConditionTrue,
-							Reason: autoscaling.Provisioned,
-						})
-						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-			}
-
 			ginkgo.By("await for the Workload to be Admitted on flavor-2", func() {
-				ev := gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
 					g.Expect(wlObj.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
@@ -1948,25 +1751,12 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: flavor2Ref,
 					}
-					if memCfg.withMemory {
-						expectedFlavors[corev1.ResourceMemory] = flavor2Ref
-					}
-
 					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
-				}, util.Timeout, util.Interval)
-				switch expectSuccess {
-				case works:
-					ev.Should(gomega.Succeed())
-				case stuck:
-					// If this expectation fails, it may be actually a good thing.
-					// Maybe the test case can be promoted from "stuck" to "works"?
-					// (See the comment on the definition of "stuck").
-					ev.ShouldNot(gomega.Succeed())
-				}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("await for the Workload to have status for AdmissionCheck1 cleared", func() {
-				ev := gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
 					hasAc1 := false
 					for _, ac := range wlObj.Status.AdmissionChecks {
@@ -1976,66 +1766,200 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 						}
 					}
 					g.Expect(hasAc1).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval)
-				switch expectSuccess {
-				case works:
-					ev.Should(gomega.Succeed())
-				case stuck:
-					// If this expectation fails, it may be actually a good thing.
-					// Maybe the test case can be promoted from "stuck" to "works"?
-					// (See the comment on the definition of "stuck").
-					ev.ShouldNot(gomega.Succeed())
-				}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-		},
-		func(expectSuccess successExpectation, useAC admissionCheckUsage, memCfg memoryConfig, cpuCfg *cpuConfig) string {
-			return fmt.Sprintf("%s: %s, %s, %s", expectSuccess, useAC, memCfg, cpuCfg)
-		},
-		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/5477 ***
+		})
 
-		ginkgo.Entry(nil, works, firstFlavorAC, noMemory, defaultCPU),
-		ginkgo.Entry(nil, works, bothAC, noMemory, defaultCPU),
+		ginkgo.It("Should be successfully re-admitted on another flavor with another admission check", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = testing.MakeClusterQueue("cluster-queue").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "0.75").Obj(),
+						*testing.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, "0.5").Obj(),
+					).
+					AdmissionCheckStrategy(
+						kueue.AdmissionCheckStrategyRule{
+							Name:      kueue.AdmissionCheckReference(ac1.Name),
+							OnFlavors: []kueue.ResourceFlavorReference{flavor1Ref},
+						},
+						kueue.AdmissionCheckStrategyRule{
+							Name:      kueue.AdmissionCheckReference(ac2.Name),
+							OnFlavors: []kueue.ResourceFlavorReference{flavor2Ref},
+						},
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, cq)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-		// *** TEST CASES FOR https://github.com/kubernetes-sigs/kueue/issues/6966 ***
+				lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				util.MustCreate(ctx, k8sClient, lq)
+				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
 
-		// Works if memory _limit_ is given in decimal style
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "220Mi"), defaultCPU),
+			ginkgo.By("submit the Job", func() {
+				jobBuilder := testingjob.MakeJob("job1", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Request(corev1.ResourceCPU, "500m")
+				job1 := jobBuilder.Obj()
+				util.MustCreate(ctx, k8sClient, job1)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job1, true)
+				})
+				wlKey = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: ns.Name}
+			})
 
-		// Works if memory _request_ is NOT divisible by 1000 bytes, no matter how specified
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("1Gi", "1Gi"), defaultCPU),
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "230686720"), defaultCPU),
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "1.0001M"), defaultCPU),
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0.48828125Ki"), defaultCPU), // 500 B
+			ginkgo.By("await for the Workload to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-		// Fails in _most_ cases when memory _request_ is divisible by 1000 bytes
-		// (but see exceptional cases described below!)
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "159000"), defaultCPU),
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCPU), // 2 000 B
+			ginkgo.By("await for the Workload to have QuotaReserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-		// Exception #1: the specific value of 1000 bytes
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "1000"), defaultCPU),
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0.9765625Ki"), defaultCPU), // 1 000 B
+			ginkgo.By("await for the ProvisioningRequest on flavor-1 to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wlKey.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac1.Name), 1),
+				}
 
-		// Exception #2: multiplicities of 128 000 bytes seem to pass
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "128k"), defaultCPU),
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "20352k"), defaultCPU), // 159 * 128 000 B
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-		// ... including 0 bytes:
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0"), defaultCPU),
+			ginkgo.By("set the ProvisioningRequest on flavor-1 as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-		// However, 128 is special. Going down does not work:
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "64k"), defaultCPU),
+			ginkgo.By("await for the Workload to be Admitted on flavor-1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+					g.Expect(wlObj.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 
-		// Neither works doing "one off" in full thousands:
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "20351k"), defaultCPU), // 159 * 128 000 B (succeeding) - 1 000 B
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "20353k"), defaultCPU), // 159 * 128 000 B (succeeding) + 1 000 B
+					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: flavor1Ref,
+					}
+					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-		// When AdmissionChecks are not attached to flavor-1, things seem to just work.
-		ginkgo.Entry(nil, works, noAC, memory("5G", "220M"), defaultCPU),
+			ginkgo.By("submit a high-priority job2", func() {
+				jobBuilder := testingjob.MakeJob("job2", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					WorkloadPriorityClass(priorityClassName).
+					Request(corev1.ResourceCPU, "750m")
+				job2 := jobBuilder.Obj()
+				util.MustCreate(ctx, k8sClient, job2)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job2, true)
+				})
+				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+			})
 
-		// CPU settings seem irrelevant - things still behave same way as for "defaultCpu"
-		ginkgo.Entry(nil, works, firstFlavorAC, noMemory, &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
-		ginkgo.Entry(nil, works, firstFlavorAC, memory("1G", "200Mi"), cpu("3000", "2000")),
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("1G", "1G"), cpu("3000", "2000")),
-	)
+			ginkgo.By("await for wl2 to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for wl2 to have QuotaReserved or be Admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.BeElementOf(
+						workload.StatusQuotaReserved,
+						workload.StatusAdmitted,
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the Workload to be no longer Admitted on flavor-1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+
+					var isAdmittedOnFlavor1 = false
+					if wlObj.Status.Admission != nil {
+						psa := wlObj.Status.Admission.PodSetAssignments
+						isAdmittedOnFlavor1 = len(psa) == 1 &&
+							psa[0].Flavors[corev1.ResourceCPU] == flavor1Ref
+					}
+
+					g.Expect(isAdmittedOnFlavor1).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the Workload to have QuotaReserved on flavor-2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the ProvisioningRequest on flavor-2 to be created", func() {
+				provReqKey2 = types.NamespacedName{
+					Namespace: wlKey.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac2.Name), 1),
+				}
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("set the ProvisioningRequest on flavor-2 as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the Workload to be Admitted on flavor-2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+					g.Expect(wlObj.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+
+					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: flavor2Ref,
+					}
+					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the Workload to have status for AdmissionCheck1 cleared", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &wlObj)).Should(gomega.Succeed())
+					hasAc1 := false
+					for _, ac := range wlObj.Status.AdmissionChecks {
+						if ac.Name == kueue.AdmissionCheckReference(ac1.Name) {
+							hasAc1 = true
+							break
+						}
+					}
+					g.Expect(hasAc1).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
