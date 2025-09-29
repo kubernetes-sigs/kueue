@@ -121,7 +121,7 @@ type PodSetTopologyRequest struct {
 	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
 	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
-	// SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+	// SubGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
