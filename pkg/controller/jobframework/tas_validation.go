@@ -34,7 +34,6 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	_, unconstrainedFound := replicaMetadata.Annotations[kueuebeta.PodSetUnconstrainedTopologyAnnotation]
 	sliceRequiredValue, sliceRequiredFound := replicaMetadata.Annotations[kueuebeta.PodSetSliceRequiredTopologyAnnotation]
 	_, sliceSizeFound := replicaMetadata.Annotations[kueuebeta.PodSetSliceSizeAnnotation]
-	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueuebeta.PodSetGroupName]
 
 	// validate no more than 1 annotation
 	asInt := func(b bool) int {
@@ -66,8 +65,17 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	}
 
 	// validate PodSetGroupName annotation
+	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueuebeta.PodSetGroupName]
 	if podSetGroupNameFound {
 		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueuebeta.PodSetGroupName))...)
+
+		if sliceSizeFound {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetGroupName)))
+		}
+
+		if sliceRequiredFound {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceRequiredTopologyAnnotation), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetGroupName)))
+		}
 	}
 
 	unconstrainedErrs := validateTASUnconstrained(annotationsPath, replicaMetadata)
@@ -82,15 +90,6 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	}
 	if !sliceRequiredFound && sliceSizeFound {
 		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is not present", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
-	}
-	if podSetGroupNameFound {
-		if sliceSizeFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetGroupName)))
-		}
-
-		if sliceRequiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceRequiredTopologyAnnotation), fmt.Sprintf("cannot be set when '%s' is present", kueuebeta.PodSetGroupName)))
-		}
 	}
 
 	return allErrs
