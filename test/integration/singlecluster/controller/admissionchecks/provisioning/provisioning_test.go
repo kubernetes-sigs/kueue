@@ -1514,28 +1514,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 	})
 })
 
-type admissionCheckUsage int
-
-const (
-	firstFlavorAC = admissionCheckUsage(1)
-	bothAC        = admissionCheckUsage(2)
-)
-
-func (a admissionCheckUsage) String() string {
-	switch a {
-	case firstFlavorAC:
-		return "with AdmissionCheck for the first flavor"
-	case bothAC:
-		return "with AdmissionCheck for both flavors"
-	default:
-		return "unknown AdmissionCheck usage setting"
-	}
-}
-
-func (a admissionCheckUsage) forFlavor2() bool {
-	return a == bothAC
-}
-
 var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
