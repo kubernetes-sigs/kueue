@@ -99,9 +99,9 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) {
+func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
 	if checks == nil {
-		return
+		return false
 	}
 	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
@@ -109,7 +109,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
 		}
 		*checks = append(*checks, newCheck)
-		return
+		return true
 	}
 
 	if existingCondition.State != newCheck.State {
@@ -122,6 +122,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	}
 	existingCondition.Message = newCheck.Message
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
+	return true
 }
 
 // RejectedChecks returns the list of Rejected admission checks

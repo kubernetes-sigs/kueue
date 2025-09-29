@@ -56,13 +56,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/debugger"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -220,6 +223,13 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
 		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
 	}
+	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
+			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
+			os.Exit(1)
+		}
+		setupLog.Info("DRA mapper initialized from configuration")
+	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(cfg.FairSharing.Enable))
 	}
@@ -263,7 +273,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
@@ -341,6 +351,21 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		if err != nil {
 			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
+
+		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
+			externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
+			if err != nil {
+				return fmt.Errorf("could not create external framework adapters: %w", err)
+			}
+
+			// Add external framework adapters to the adapters map
+			for _, adapter := range externalAdapters {
+				gvk := adapter.GVK().String()
+				setupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
+				adapters[gvk] = adapter
+			}
+		}
+
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
@@ -349,6 +374,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
+		}
+
+		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 

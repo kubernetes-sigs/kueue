@@ -21,7 +21,6 @@ import (
 	"maps"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -41,7 +40,7 @@ type ClusterQueueSnapshot struct {
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        resource.Quantity
+	FairWeight        float64
 	FlavorFungibility kueue.FlavorFungibility
 	AdmissionScope    kueue.AdmissionScope
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
@@ -186,8 +185,8 @@ func (c *ClusterQueueSnapshot) GetName() kueue.ClusterQueueReference {
 
 // Implements dominantResourceShareNode interface.
 
-func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
-	return &c.FairWeight
+func (c *ClusterQueueSnapshot) fairWeight() float64 {
+	return c.FairWeight
 }
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces
@@ -200,9 +199,8 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShare() int {
-	share, _ := dominantResourceShare(c, nil)
-	return share
+func (c *ClusterQueueSnapshot) DominantResourceShare() DRS {
+	return dominantResourceShare(c, nil)
 }
 
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests

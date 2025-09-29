@@ -59,6 +59,10 @@ func (c *FakeKueueV1beta1) ResourceFlavors() v1beta1.ResourceFlavorInterface {
 	return newFakeResourceFlavors(c)
 }
 
+func (c *FakeKueueV1beta1) Topologies() v1beta1.TopologyInterface {
+	return newFakeTopologies(c)
+}
+
 func (c *FakeKueueV1beta1) Workloads(namespace string) v1beta1.WorkloadInterface {
 	return newFakeWorkloads(c, namespace)
 }

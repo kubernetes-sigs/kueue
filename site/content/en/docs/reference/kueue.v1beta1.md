@@ -18,6 +18,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 - [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
 - [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
 - [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
   
@@ -264,6 +265,33 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
   
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
+## `Topology`     {#kueue-x-k8s-io-v1beta1-Topology}
+    
+
+**Appears in:**
+
+
+
+<p>Topology is the Schema for the topology API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Topology</code></td></tr>
+    
+  
+<tr><td><code>spec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologySpec"><code>TopologySpec</code></a>
 </td>
 <td>
    <span class="text-muted">No description provided.</span></td>
@@ -947,7 +975,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 Each resource group defines the list of resources and a list of flavors
 that provide quotas for these resources.
 Each resource and each flavor can only form part of one resource group.
-resourceGroups can be up to 16.</p>
+resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
 </td>
 </tr>
 <tr><td><code>cohort</code> <B>[Required]</B><br/>
@@ -1275,6 +1303,20 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 
 
 
+## `EvictionUnderlyingCause`     {#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WorkloadSchedulingStatsEviction](#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction)
+
+
+<p>EvictionUnderlyingCause represents the underlying cause of a workload eviction.</p>
+
+
+
+
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
 
@@ -1312,7 +1354,8 @@ ClusterQueues and Cohorts with the lowest share and
 preempting workloads from the ClusterQueues and Cohorts
 with the highest share.  A zero weight implies infinite
 share value, meaning that this Node will always be at
-disadvantage against other ClusterQueues and Cohorts.</p>
+disadvantage against other ClusterQueues and Cohorts.
+When not 0, Weight must be greater than 10^-9.</p>
 </td>
 </tr>
 </tbody>
@@ -1567,7 +1610,7 @@ have.</p>
 </td>
 <td>
    <p>topology is the topology that associated with this ResourceFlavor.</p>
-<p>This is an alpha field and requires enabling the TopologyAwareScheduling
+<p>This is a beta field and requires enabling the TopologyAwareScheduling
 feature gate.</p>
 </td>
 </tr>
@@ -2672,7 +2715,8 @@ nodes matching to the Resource Flavor node labels.</p>
    <p>coveredResources is the list of resources covered by the flavors in this
 group.
 Examples: cpu, memory, vendor.com/gpu.
-The list cannot be empty and it can contain up to 16 resources.</p>
+The list cannot be empty and it can contain up to 64 resources. With a total
+of up to 256 covered resources across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 <tr><td><code>flavors</code> <B>[Required]</B><br/>
@@ -2685,7 +2729,8 @@ Typically, different flavors represent different hardware models
 cpus).
 Each flavor MUST list all the resources listed for this group in the same
 order as the .resources field.
-The list cannot be empty and it can contain up to 16 flavors.</p>
+The list cannot be empty and it can contain up to 64 flavors, with a max of
+256 total flavors across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -2939,6 +2984,38 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
+## `TopologyLevel`     {#kueue-x-k8s-io-v1beta1-TopologyLevel}
+    
+
+**Appears in:**
+
+- [TopologySpec](#kueue-x-k8s-io-v1beta1-TopologySpec)
+
+
+<p>TopologyLevel defines the desired state of TopologyLevel</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>nodeLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>nodeLabel indicates the name of the node label for a specific topology
+level.</p>
+<p>Examples:</p>
+<ul>
+<li>cloud.provider.com/topology-block</li>
+<li>cloud.provider.com/topology-rack</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
     
 (Alias of `string`)
@@ -2954,6 +3031,56 @@ domain indicated by the values field.</p>
 
 
 
+
+## `TopologySpec`     {#kueue-x-k8s-io-v1beta1-TopologySpec}
+    
+
+**Appears in:**
+
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
+
+
+<p>TopologySpec defines the desired state of Topology</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyLevel"><code>[]TopologyLevel</code></a>
+</td>
+<td>
+   <p>levels define the levels of topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `UnhealthyNode`     {#kueue-x-k8s-io-v1beta1-UnhealthyNode}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the unhealthy node.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction}
     
@@ -2977,7 +3104,7 @@ domain indicated by the values field.</p>
 </td>
 </tr>
 <tr><td><code>underlyingCause</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause"><code>EvictionUnderlyingCause</code></a>
 </td>
 <td>
    <p>underlyingCause specifies a finer-grained explanation that complements the eviction reason.
@@ -3188,18 +3315,21 @@ This field is optional.</p>
 <code>string</code>
 </td>
 <td>
-   <p>clusterName is the name of the cluster where the workload is actually assigned.
-This field is reset after the Workload is evicted.</p>
+   <p>clusterName is the name of the cluster where the workload is currently assigned.</p>
+<p>With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+was assigned, providing placement context for new scaled-up workloads. This supports
+affinity or propagation policies across workload slices.</p>
+<p>This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>nodesToReplace</code><br/>
-<code>[]string</code>
+<tr><td><code>unhealthyNodes</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-UnhealthyNode"><code>[]UnhealthyNode</code></a>
 </td>
 <td>
-   <p>nodesToReplace holds the names of failed nodes running at least one pod of this workload
+   <p>unhealthyNodes holds the failed nodes running at least one pod of this workload
 when Topology-Aware Scheduling is used. This field should not be set by the users.
 It indicates Kueue's scheduler is searching for replacements of the failed nodes.
-Requires enabling the TASFaliedNodReplacement feature gate.</p>
+Requires enabling the TASFailedNodeReplacement feature gate.</p>
 </td>
 </tr>
 </tbody>

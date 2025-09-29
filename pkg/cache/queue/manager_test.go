@@ -1277,10 +1277,14 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			Obj())
 	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
 		ReserveQuota(
-			utiltesting.MakeAdmission("tas-main", "one").
-				Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-				DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-				AssignmentPodCount(1).Obj(),
+			utiltesting.MakeAdmission("tas-main").
+				PodSets(
+					utiltesting.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj(),
+				).
+				Obj(),
 		).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "prov-check",
@@ -1332,7 +1336,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
 
 			for _, wl := range tc.workloads {
-				manager.QueueSecondPassIfNeeded(ctx, wl)
+				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 			for _, wl := range tc.deleted.UnsortedList() {
 				manager.secondPassQueue.deleteByKey(wl)

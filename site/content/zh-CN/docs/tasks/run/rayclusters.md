@@ -77,6 +77,6 @@ RayCluster 如下所示：
 提交 Ray Job，或者登录 Ray Head 并按照此 [示例](https://ray-project.github.io/kuberay/deploy/helm-cluster/#end-to-end-example)在 kind 集群中执行作业。
 
 {{% alert title="注意" color="primary" %}}
-上述示例来自 [这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-cluster.complete.yaml)，
+上述示例来自 [这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-cluster.complete.yaml)，
 仅添加了 `queue-name` 标签并更新了请求。
 {{% /alert %}}

@@ -156,6 +156,12 @@ func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	return j
 }
 
+// ResourceVersion sets resource version on job object - helpful when using controller-runtime fake client.
+func (j *JobWrapper) ResourceVersion(resourceVersion string) *JobWrapper {
+	j.ObjectMeta.ResourceVersion = resourceVersion
+	return j
+}
+
 // Toleration adds a toleration to the job.
 func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
 	j.Spec.Template.Spec.Tolerations = append(j.Spec.Template.Spec.Tolerations, t)

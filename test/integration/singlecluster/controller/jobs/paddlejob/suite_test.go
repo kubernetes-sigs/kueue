@@ -70,11 +70,14 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := paddlejob.NewReconciler(
+		reconciler, err := paddlejob.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := paddlejob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = paddlejob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

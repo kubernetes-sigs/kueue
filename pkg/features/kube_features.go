@@ -181,6 +181,23 @@ const (
 	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy
 	// This feature gate is going to be replaced by an API before graduation or deprecation.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @alaypatel07
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devies in workloads
+	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
+
+	// owner: @khrm
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
+	//
+	// Enable MultiKueue support for external custom Jobs via configurable adapters.
+	MultiKueueAdaptersForCustomJobs featuregate.Feature = "MultiKueueAdaptersForCustomJobs"
+
+	// owner: @mszadkow
+	//
+	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
+	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
 )
 
 func init() {
@@ -226,10 +243,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConfigurableResourceTransformations: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
 	},
 	ExposeFlavorsInLocalQueue: {
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
@@ -265,21 +284,33 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	DynamicResourceAllocation: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueAdaptersForCustomJobs: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadRequestUseMergePatch: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -256,6 +256,53 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 3"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"valid PodSet group name request": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "leadername1",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "workername1",
+						},
+					},
+				}).
+				Obj(),
+			wantErr:                 nil,
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet group name request - value is a number": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "1234",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "4321",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "1234", "must not be a number"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "4321", "must not be a number"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},

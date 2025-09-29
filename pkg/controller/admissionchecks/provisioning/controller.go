@@ -359,7 +359,7 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 	}
 
 	// apply the admission node selectors to the Template
-	psi, err := podset.FromAssignment(ctx, c.client, psa, ptr.Deref(psa.Count, ps.Count))
+	psi, err := podset.FromAssignment(ctx, c.client, psa, ps)
 	if err != nil {
 		return nil, err
 	}

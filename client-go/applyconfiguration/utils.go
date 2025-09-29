@@ -20,12 +20,10 @@ package applyconfiguration
 import (
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
-	testing "k8s.io/client-go/testing"
-	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
-	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	applyconfigurationvisibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
 )
@@ -34,15 +32,7 @@ import (
 // apply configuration type exists for the given GroupVersionKind.
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
-	// Group=kueue.x-k8s.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithKind("Topology"):
-		return &kueuev1alpha1.TopologyApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("TopologyLevel"):
-		return &kueuev1alpha1.TopologyLevelApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("TopologySpec"):
-		return &kueuev1alpha1.TopologySpecApplyConfiguration{}
-
-		// Group=kueue.x-k8s.io, Version=v1beta1
+	// Group=kueue.x-k8s.io, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithKind("Admission"):
 		return &kueuev1beta1.AdmissionApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheck"):
@@ -153,12 +143,20 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ResourceUsageApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("SchedulingStats"):
 		return &kueuev1beta1.SchedulingStatsApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("Topology"):
+		return &kueuev1beta1.TopologyApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyAssignment"):
 		return &kueuev1beta1.TopologyAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
 		return &kueuev1beta1.TopologyDomainAssignmentApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("TopologyInfo"):
 		return &kueuev1beta1.TopologyInfoApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("TopologyLevel"):
+		return &kueuev1beta1.TopologyLevelApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("TopologySpec"):
+		return &kueuev1beta1.TopologySpecApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("UnhealthyNode"):
+		return &kueuev1beta1.UnhealthyNodeApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
@@ -184,6 +182,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	return nil
 }
 
-func NewTypeConverter(scheme *runtime.Scheme) *testing.TypeConverter {
-	return &testing.TypeConverter{Scheme: scheme, TypeResolver: internal.Parser()}
+func NewTypeConverter(scheme *runtime.Scheme) managedfields.TypeConverter {
+	return managedfields.NewSchemeTypeConverter(scheme, internal.Parser())
 }

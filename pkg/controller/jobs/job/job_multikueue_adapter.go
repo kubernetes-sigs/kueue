@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type multiKueueAdapter struct{}
@@ -50,6 +51,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
+		fmt.Println("PROD: LOCAL JOB ERROR", err, key)
 		return err
 	}
 
@@ -67,9 +69,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				log.V(2).Info("Skipping the sync since the local job is still suspended")
 				return nil
 			}
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 				localJob.Status = remoteJob.Status
-				return true, nil
+				return &localJob, true, nil
 			})
 		}
 		remoteFinished := false
@@ -80,11 +82,37 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			}
 		}
 		if remoteFinished {
-			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 				localJob.Status = remoteJob.Status
-				return true, nil
+				return &localJob, true, nil
 			})
 		}
+
+		if workloadslicing.Enabled(&localJob) {
+			// Update remote job's workload slice name and parallelism if needed.
+			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (client.Object, bool, error) {
+				// Update workload name label.
+				labelsChanged := false
+				if remoteJob.Labels == nil {
+					remoteJob.Labels = map[string]string{constants.PrebuiltWorkloadLabel: workloadName}
+					labelsChanged = true
+				} else {
+					if cur, ok := remoteJob.Labels[constants.PrebuiltWorkloadLabel]; !ok || cur != workloadName {
+						remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+						labelsChanged = true
+					}
+				}
+
+				// Update parallelism.
+				oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
+				newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
+				remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
+				return &remoteJob, oldParallelism != newParallelism || labelsChanged, nil
+			}); err != nil {
+				return fmt.Errorf("failed to patch remote job: %w", err)
+			}
+		}
+
 		return nil
 	}
 

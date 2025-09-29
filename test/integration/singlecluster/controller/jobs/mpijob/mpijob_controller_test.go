@@ -34,12 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -170,7 +168,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				},
 			).
 			Obj()
-		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -232,7 +230,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				},
 			).
 			Obj()
-		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
@@ -394,8 +392,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						},
 					).
 					Obj()
-				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -436,8 +433,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -632,7 +628,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					},
 				).
 				Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
@@ -666,12 +662,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			if podsReadyTestSpec.suspended {
 				ginkgo.By("Unset admission of the workload to suspend the job")
-				gomega.Eventually(func(g gomega.Gomega) {
-					// the update may need to be retried due to a conflict as the workload gets
-					// also updated due to setting of the job status.
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
@@ -885,10 +876,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				wl := &kueue.Workload{}
 				wlKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(job.Name, job.UID), Namespace: job.Namespace}
-				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
+				wl := testing.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
@@ -902,7 +892,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 })
 
-var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -910,7 +900,7 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -925,8 +915,6 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-mpijob-")
 
 		nodes = []corev1.Node{
@@ -976,8 +964,8 @@ var _ = ginkgo.Describe("MPIJob controller when TopologyAwareScheduling enabled"
 		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
 			Queue(localQueue.Name).
 			GenericLauncherAndWorker().
-			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()

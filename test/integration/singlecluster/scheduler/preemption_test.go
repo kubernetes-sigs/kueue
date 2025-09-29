@@ -33,6 +33,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -85,6 +87,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			ginkgo.By("Creating initial Workloads with different priorities")
 			lowWl1 := testing.MakeWorkload("low-wl-1", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
@@ -132,9 +135,10 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, highWl2)
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
-			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", 2)
+			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", "", 2)
+			util.ExpectLQEvictedWorkloadsTotalMetric(q, kueue.WorkloadEvictedByPreemption, "", "", 2)
 			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 2)
-			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", 2)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, "", "", 2)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
@@ -314,20 +318,22 @@ var _ = ginkgo.Describe("Preemption", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
 					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionFalse,
-						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionFalse,
+						ObservedGeneration: alphaLowWl.Generation,
+						Reason:             "QuotaReserved",
+						Message:            fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(betaMidWl), betaMidWl)).To(gomega.Succeed())
 					g.Expect(apimeta.FindStatusCondition(betaMidWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionFalse,
-						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionFalse,
+						ObservedGeneration: betaMidWl.Generation,
+						Reason:             "QuotaReserved",
+						Message:            fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s, JobUID: UNKNOWN) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -672,7 +678,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Await for the a-best-effort-low workload to be admitted")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
-				testing.MakeAdmission(aBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+				testing.MakeAdmission(aBestEffortCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).Obj(),
 			)
 
 			ginkgo.By("Create a low priority workload which is not borrowing")
@@ -685,7 +691,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Await for the b-best-effort-low workload to be admitted")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bBestEffortLowWl,
-				testing.MakeAdmission(bBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "1").Obj(),
+				testing.MakeAdmission(bBestEffortCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "1").Obj()).Obj(),
 			)
 
 			ginkgo.By("Create a high priority workload (above MaxPriorityThreshold) which requires borrowing")
@@ -698,7 +704,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Await for the b-standard-high workload to be admitted")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bStandardWl,
-				testing.MakeAdmission(bStandardCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+				testing.MakeAdmission(bStandardCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).Obj(),
 			)
 
 			ginkgo.By("Create the a-standard-very-high workload")
@@ -718,22 +724,22 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Verify the a-standard-very-high workload is admitted")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aStandardVeryHighWl,
-				testing.MakeAdmission(aStandardCQ.Name).Assignment(corev1.ResourceCPU, "one", "7").Obj(),
+				testing.MakeAdmission(aStandardCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "7").Obj()).Obj(),
 			)
 
 			ginkgo.By("Verify the a-best-effort-low workload is re-admitted, but using flavor 2")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
-				testing.MakeAdmission(aBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "fallback", "5").Obj(),
+				testing.MakeAdmission(aBestEffortCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "fallback", "5").Obj()).Obj(),
 			)
 
 			ginkgo.By("Verify the b-standard-high workload remains admitted")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bStandardWl,
-				testing.MakeAdmission(bStandardCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+				testing.MakeAdmission(bStandardCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "5").Obj()).Obj(),
 			)
 
 			ginkgo.By("Verify for the b-best-effort-low workload remains admitted")
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bBestEffortLowWl,
-				testing.MakeAdmission(bBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "1").Obj(),
+				testing.MakeAdmission(bBestEffortCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "one", "1").Obj()).Obj(),
 			)
 		})
 	})
@@ -791,7 +797,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3,
-				testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "alpha", "4").Obj())
+				testing.MakeAdmission(prodCQ.Name).PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "alpha", "4").Obj()).Obj())
 		})
 	})
 
@@ -803,7 +809,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(features.SetEnable(features.PrioritySortingWithinCohort, false)).To(gomega.Succeed())
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritySortingWithinCohort, false)
 			defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 			util.MustCreate(ctx, k8sClient, defaultFlavor)
 
@@ -865,7 +871,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(features.SetEnable(features.PrioritySortingWithinCohort, true)).To(gomega.Succeed())
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, aCQ, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, bCQ, true)
@@ -912,6 +917,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			})
 		})
 	})
+
 	ginkgo.Context("In a multi-level cohort", func() {
 		var rootCohort, guaranteedCohort *kueue.Cohort
 		var bestEffortCQ, guaranteedCQ *kueue.ClusterQueue
@@ -996,6 +1002,78 @@ var _ = ginkgo.Describe("Preemption", func() {
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, bestEffortWl)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, guaranteedWl)
 			})
+		})
+	})
+
+	ginkgo.Context("ElasticJobs In a single ClusterQueue", func() {
+		var (
+			cq *kueue.ClusterQueue
+			q  *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = testing.MakeClusterQueue("cq").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			q = testing.MakeLocalQueue("q", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, q)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should preempt on-scale-up Workloads with lower priority when there is not enough quota", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			ginkgo.By("Creating low priority workload")
+			lowWl := testing.MakeWorkload("low", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Creating a high priority workload")
+			highWl := testing.MakeWorkload("high", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Scaling up a high priority workload")
+			highWl.Spec.PodSets[0].Count = 2 // Scaled up.
+			highWlScaledUp := testing.MakeWorkload("high-2", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(highWl))).
+				PodSets(highWl.Spec.PodSets...).
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWlScaledUp)
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, lowWl)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(highWl))
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+
+			ginkgo.By("Scale down a high priority workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highWlScaledUp), wl)).To(gomega.Succeed())
+				wl.Spec.PodSets[0].Count = 1 // Scaled down.
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl, highWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl, highWl)
 		})
 	})
 })

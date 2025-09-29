@@ -27,7 +27,6 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -82,8 +81,8 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			topologyAwareScheduling: true,
 		},
@@ -101,10 +100,10 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -134,12 +133,12 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetSliceSizeAnnotation, "20").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetSliceSizeAnnotation, "20").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetSliceSizeAnnotation, "20").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetSliceSizeAnnotation, "20").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").

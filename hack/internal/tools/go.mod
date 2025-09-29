@@ -22,7 +22,7 @@ tool (
 
 require (
 	github.com/google/go-cmp v0.7.0
-	github.com/mikefarah/yq/v4 v4.47.1
+	github.com/mikefarah/yq/v4 v4.47.2
 	github.com/onsi/ginkgo/v2 v2.25.3
 	go.uber.org/zap v1.27.0
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
@@ -34,7 +34,7 @@ require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
 	4d63.com/gochecknoglobals v0.2.2 // indirect
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
-	cel.dev/expr v0.23.0 // indirect
+	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go v0.121.2 // indirect
 	cloud.google.com/go/auth v0.16.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
@@ -165,7 +165,7 @@ require (
 	github.com/dnephin/pflag v1.0.7 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elliotchance/orderedmap v1.8.0 // indirect
-	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
+	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
@@ -179,7 +179,7 @@ require (
 	github.com/firefart/nonamedreturns v1.0.6 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/getkin/kin-openapi v0.132.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
@@ -233,7 +233,7 @@ require (
 	github.com/golangci/unconvert v0.0.0-20250410112200-a129a6e6413e // indirect
 	github.com/gomarkdown/markdown v0.0.0-20240328165702-4d01890c35c0 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/gnostic-models v0.6.9 // indirect
+	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20250607225305-033d6d78b36a // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -315,7 +315,7 @@ require (
 	github.com/moby/spdystream v0.5.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
-	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/moricho/tparallel v0.3.2 // indirect
@@ -331,9 +331,9 @@ require (
 	github.com/nunnatsa/ginkgolinter v0.19.1 // indirect
 	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
-	github.com/olekukonko/errors v0.0.0-20250405072817-4e6d85265da6 // indirect
-	github.com/olekukonko/ll v0.0.8 // indirect
-	github.com/olekukonko/tablewriter v1.0.7 // indirect
+	github.com/olekukonko/errors v1.1.0 // indirect
+	github.com/olekukonko/ll v0.0.9 // indirect
+	github.com/olekukonko/tablewriter v1.0.9 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
@@ -377,9 +377,9 @@ require (
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/spf13/cast v1.9.2 // indirect
-	github.com/spf13/cobra v1.9.1 // indirect
+	github.com/spf13/cobra v1.10.1 // indirect
 	github.com/spf13/fsync v0.10.1 // indirect
-	github.com/spf13/pflag v1.0.7 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.20.1 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
@@ -462,43 +462,43 @@ require (
 	helm.sh/helm/v3 v3.18.5 // indirect
 	honnef.co/go/tools v0.6.1 // indirect
 	howett.net/plist v1.0.0 // indirect
-	k8s.io/api v0.33.4 // indirect
-	k8s.io/apiextensions-apiserver v0.33.3 // indirect
-	k8s.io/apimachinery v0.33.4 // indirect
-	k8s.io/apiserver v0.33.4 // indirect
-	k8s.io/cli-runtime v0.33.4 // indirect
-	k8s.io/client-go v0.33.4 // indirect
-	k8s.io/cloud-provider v0.28.0 // indirect
-	k8s.io/cluster-bootstrap v0.28.0 // indirect
-	k8s.io/code-generator v0.33.4 // indirect
-	k8s.io/component-base v0.33.4 // indirect
-	k8s.io/controller-manager v0.28.0 // indirect
+	k8s.io/api v0.34.1 // indirect
+	k8s.io/apiextensions-apiserver v0.34.1 // indirect
+	k8s.io/apimachinery v0.34.1 // indirect
+	k8s.io/apiserver v0.34.1 // indirect
+	k8s.io/cli-runtime v0.34.1 // indirect
+	k8s.io/client-go v0.34.1 // indirect
+	k8s.io/cloud-provider v0.34.1 // indirect
+	k8s.io/cluster-bootstrap v0.34.1 // indirect
+	k8s.io/code-generator v0.34.1 // indirect
+	k8s.io/component-base v0.34.1 // indirect
+	k8s.io/controller-manager v0.34.1 // indirect
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
-	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
+	k8s.io/gengo/v2 v2.0.0-20250604051438-85fd79dbfd9f // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/kube-controller-manager v0.28.0 // indirect
-	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
-	k8s.io/kube-proxy v0.28.0 // indirect
-	k8s.io/kube-scheduler v0.28.0 // indirect
-	k8s.io/kubectl v0.33.4 // indirect
-	k8s.io/kubelet v0.28.0 // indirect
-	k8s.io/metrics v0.33.4 // indirect
-	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
+	k8s.io/kube-controller-manager v0.34.1 // indirect
+	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
+	k8s.io/kube-proxy v0.34.1 // indirect
+	k8s.io/kube-scheduler v0.34.1 // indirect
+	k8s.io/kubectl v0.34.1 // indirect
+	k8s.io/kubelet v0.34.1 // indirect
+	k8s.io/metrics v0.34.1 // indirect
+	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 // indirect
 	mvdan.cc/gofumpt v0.8.0 // indirect
 	mvdan.cc/unparam v0.0.0-20250301125049-0df0534333a4 // indirect
 	oras.land/oras-go/v2 v2.6.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250407161039-6ad5c1dd4418 // indirect
 	sigs.k8s.io/controller-tools v0.18.0 // indirect
-	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
-	sigs.k8s.io/kind v0.29.0 // indirect
-	sigs.k8s.io/kustomize/api v0.19.0 // indirect
-	sigs.k8s.io/kustomize/cmd/config v0.19.0 // indirect
-	sigs.k8s.io/kustomize/kustomize/v5 v5.6.0 // indirect
-	sigs.k8s.io/kustomize/kyaml v0.19.0 // indirect
+	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
+	sigs.k8s.io/kind v0.30.0 // indirect
+	sigs.k8s.io/kustomize/api v0.20.1 // indirect
+	sigs.k8s.io/kustomize/cmd/config v0.20.1 // indirect
+	sigs.k8s.io/kustomize/kustomize/v5 v5.7.1 // indirect
+	sigs.k8s.io/kustomize/kyaml v0.20.1 // indirect
 	sigs.k8s.io/mdtoc v1.4.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/release-utils v0.8.3 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
+	sigs.k8s.io/release-utils v0.12.1 // indirect
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	software.sslmate.com/src/go-pkcs12 v0.2.0 // indirect
 )

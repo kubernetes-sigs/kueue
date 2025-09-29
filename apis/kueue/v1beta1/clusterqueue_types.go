@@ -59,7 +59,7 @@ type ClusterQueueSpec struct {
 	// Each resource group defines the list of resources and a list of flavors
 	// that provide quotas for these resources.
 	// Each resource and each flavor can only form part of one resource group.
-	// resourceGroups can be up to 16.
+	// resourceGroups can be up to 16, with a max of 256 total flavors across all groups.
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
@@ -179,9 +179,10 @@ type ResourceGroup struct {
 	// coveredResources is the list of resources covered by the flavors in this
 	// group.
 	// Examples: cpu, memory, vendor.com/gpu.
-	// The list cannot be empty and it can contain up to 16 resources.
+	// The list cannot be empty and it can contain up to 64 resources. With a total
+	// of up to 256 covered resources across all resource groups in the ClusterQueue.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	CoveredResources []corev1.ResourceName `json:"coveredResources"`
 
 	// flavors is the list of flavors that provide the resources of this group.
@@ -190,11 +191,12 @@ type ResourceGroup struct {
 	// cpus).
 	// Each flavor MUST list all the resources listed for this group in the same
 	// order as the .resources field.
-	// The list cannot be empty and it can contain up to 16 flavors.
+	// The list cannot be empty and it can contain up to 64 flavors, with a max of
+	// 256 total flavors across all resource groups in the ClusterQueue.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	Flavors []FlavorQuotas `json:"flavors"`
 }
 

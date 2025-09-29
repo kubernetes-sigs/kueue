@@ -81,7 +81,7 @@ func TestSnapshot(t *testing.T) {
 										ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
 							},
 							Preemption: defaultPreemption,
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 						"b": {
 							Name:                          "b",
@@ -95,7 +95,7 @@ func TestSnapshot(t *testing.T) {
 										ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
 							},
 							Preemption: defaultPreemption,
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 				),
@@ -175,7 +175,7 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeWorkload("alpha", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "demand", "10000m").AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "demand", "10000m").Count(5).Obj()).Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("beta", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -183,10 +183,12 @@ func TestSnapshot(t *testing.T) {
 						Request("example.com/gpu", "2").
 						Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("b", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "spot", "5000m").
-						Assignment("example.com/gpu", "default", "10").
-						AssignmentPodCount(5).
+					ReserveQuota(utiltesting.MakeAdmission("b").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "5000m").
+							Assignment("example.com/gpu", "default", "10").
+							Count(5).
+							Obj()).
 						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("gamma", "").
@@ -195,10 +197,12 @@ func TestSnapshot(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("b", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "spot", "5000m").
-						Assignment("example.com/gpu", "default", "5").
-						AssignmentPodCount(5).
+					ReserveQuota(utiltesting.MakeAdmission("b").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "5000m").
+							Assignment("example.com/gpu", "default", "5").
+							Count(5).
+							Obj()).
 						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("sigma", "").
@@ -258,14 +262,16 @@ func TestSnapshot(t *testing.T) {
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "demand", "10000m").
-											AssignmentPodCount(5).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "demand", "10000m").
+												Count(5).
+												Obj()).
 											Obj()).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
 							},
@@ -304,10 +310,12 @@ func TestSnapshot(t *testing.T) {
 											Request(corev1.ResourceCPU, "1").
 											Request("example.com/gpu", "2").
 											Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("b", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "spot", "5000m").
-											Assignment("example.com/gpu", "default", "10").
-											AssignmentPodCount(5).
+										ReserveQuota(utiltesting.MakeAdmission("b").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "spot", "5000m").
+												Assignment("example.com/gpu", "default", "10").
+												Count(5).
+												Obj()).
 											Obj()).
 										Obj()),
 									"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
@@ -316,15 +324,17 @@ func TestSnapshot(t *testing.T) {
 											Request("example.com/gpu", "1").
 											Obj(),
 										).
-										ReserveQuota(utiltesting.MakeAdmission("b", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "spot", "5000m").
-											Assignment("example.com/gpu", "default", "5").
-											AssignmentPodCount(5).
+										ReserveQuota(utiltesting.MakeAdmission("b").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "spot", "5000m").
+												Assignment("example.com/gpu", "default", "5").
+												Count(5).
+												Obj()).
 											Obj()).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
 							},
@@ -348,7 +358,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								Preemption:        defaultPreemption,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
 							},
@@ -385,7 +395,7 @@ func TestSnapshot(t *testing.T) {
 								ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 								WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							},
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 				),
@@ -407,7 +417,7 @@ func TestSnapshot(t *testing.T) {
 							Workloads:                     map[workload.Reference]*workload.Info{},
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption:                    defaultPreemption,
-							FairWeight:                    resource.MustParse("3"),
+							FairWeight:                    3.0,
 						},
 					},
 				),
@@ -439,23 +449,32 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeWorkload("alpha", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "arm", "10000m").
-						AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "arm", "10000m").
+							Count(5).
+							Obj()).
+						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("beta", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "arm", "5000m").
-						AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "arm", "5000m").
+							Count(5).
+							Obj()).
+						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("gamma", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "x86", "10000m").
-						AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "x86", "10000m").
+							Count(5).
+							Obj()).
+						Obj()).
 					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
@@ -502,28 +521,37 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "arm", "10000m").
-											AssignmentPodCount(5).Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "arm", "10000m").
+												Count(5).
+												Obj()).
+											Obj()).
 										Obj()),
 									"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "arm", "5000m").
-											AssignmentPodCount(5).Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "arm", "5000m").
+												Count(5).
+												Obj()).
+											Obj()).
 										Obj()),
 									"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "x86", "10000m").
-											AssignmentPodCount(5).Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "x86", "10000m").
+												Count(5).
+												Obj()).
+											Obj()).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
@@ -552,7 +580,7 @@ func TestSnapshot(t *testing.T) {
 									Usage: resources.FlavorResourceQuantities{},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Preemption:        defaultPreemption,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
@@ -593,23 +621,32 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeWorkload("alpha", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "arm", "10000m").
-						AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "arm", "10000m").
+							Count(5).
+							Obj()).
+						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("beta", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "arm", "5000m").
-						AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "arm", "5000m").
+							Count(5).
+							Obj()).
+						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("gamma", "").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "x86", "10000m").
-						AssignmentPodCount(5).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "x86", "10000m").
+							Count(5).
+							Obj()).
+						Obj()).
 					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
@@ -657,28 +694,37 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Workloads: map[workload.Reference]*workload.Info{
 									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "arm", "10000m").
-											AssignmentPodCount(5).Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "arm", "10000m").
+												Count(5).
+												Obj()).
+											Obj()).
 										Obj()),
 									"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "arm", "5000m").
-											AssignmentPodCount(5).Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "arm", "5000m").
+												Count(5).
+												Obj()).
+											Obj()).
 										Obj()),
 									"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
 										PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
-										ReserveQuota(utiltesting.MakeAdmission("a", kueue.DefaultPodSetName).
-											Assignment(corev1.ResourceCPU, "x86", "10000m").
-											AssignmentPodCount(5).Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a").
+											PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+												Assignment(corev1.ResourceCPU, "x86", "10000m").
+												Count(5).
+												Obj()).
+											Obj()).
 										Obj()),
 								},
 								Preemption:        defaultPreemption,
@@ -706,7 +752,7 @@ func TestSnapshot(t *testing.T) {
 									},
 								},
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								Preemption:        defaultPreemption,
 								NamespaceSelector: labels.Everything(),
 								Status:            active,
@@ -762,7 +808,7 @@ func TestSnapshot(t *testing.T) {
 									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
 								},
 							},
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
@@ -786,7 +832,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
+							FairWeight:        defaultWeight,
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
@@ -842,7 +888,7 @@ func TestSnapshot(t *testing.T) {
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
 								},
 							},
-							FairWeight: oneQuantity,
+							FairWeight: defaultWeight,
 						},
 					},
 					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
@@ -864,7 +910,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
+							FairWeight:        defaultWeight,
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
@@ -886,7 +932,7 @@ func TestSnapshot(t *testing.T) {
 					map[kueue.CohortReference]*CohortSnapshot{
 						"cohort": {
 							Name:       "cohort",
-							FairWeight: resource.MustParse("0.5"),
+							FairWeight: 0.5,
 						},
 					},
 					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{},
@@ -966,23 +1012,43 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	workloads := []kueue.Workload{
 		*utiltesting.MakeWorkload("c1-cpu", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("c1").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1000m").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("c1-memory-alpha", "").
 			Request(corev1.ResourceMemory, "1Gi").
-			ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceMemory, "alpha", "1Gi").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("c1").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceMemory, "alpha", "1Gi").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("c1-memory-beta", "").
 			Request(corev1.ResourceMemory, "1Gi").
-			ReserveQuota(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("c1").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceMemory, "beta", "1Gi").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("c2-cpu-1", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("c2").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1000m").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("c2-cpu-2", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("c2").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1000m").
+					Obj()).
+				Obj()).
 			Obj(),
 	}
 
@@ -1044,7 +1110,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
@@ -1063,7 +1129,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1107,7 +1173,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
@@ -1129,7 +1195,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1173,7 +1239,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  1_000,
@@ -1195,7 +1261,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								},
 								ResourceGroups:    cqCache.hm.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
@@ -1264,19 +1330,35 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	workloads := []kueue.Workload{
 		*utiltesting.MakeWorkload("lend-a-1", "").
 			Request(corev1.ResourceCPU, "1").
-			ReserveQuota(utiltesting.MakeAdmission("lend-a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("lend-a").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("lend-a-2", "").
 			Request(corev1.ResourceCPU, "9").
-			ReserveQuota(utiltesting.MakeAdmission("lend-a").Assignment(corev1.ResourceCPU, "default", "9").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("lend-a").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "9").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("lend-a-3", "").
 			Request(corev1.ResourceCPU, "6").
-			ReserveQuota(utiltesting.MakeAdmission("lend-a").Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("lend-a").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "6").
+					Obj()).
+				Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("lend-b-1", "").
 			Request(corev1.ResourceCPU, "4").
-			ReserveQuota(utiltesting.MakeAdmission("lend-b").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+			ReserveQuota(utiltesting.MakeAdmission("lend-b").
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "4").
+					Obj()).
+				Obj()).
 			Obj(),
 	}
 
@@ -1336,7 +1418,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
@@ -1351,7 +1433,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
@@ -1389,7 +1471,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 7_000,
@@ -1404,7 +1486,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1443,7 +1525,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
@@ -1458,7 +1540,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1497,7 +1579,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
@@ -1512,7 +1594,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1552,7 +1634,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
@@ -1567,7 +1649,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1607,7 +1689,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
@@ -1622,7 +1704,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
@@ -1661,7 +1743,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:         make(map[workload.Reference]*workload.Info),
 								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        oneQuantity,
+								FairWeight:        defaultWeight,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: 9_000,
@@ -1676,7 +1758,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								Workloads:                     make(map[workload.Reference]*workload.Info),
 								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    oneQuantity,
+								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: resourceNode{
 									Usage: resources.FlavorResourceQuantities{
