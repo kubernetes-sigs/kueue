@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -90,6 +91,89 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	}
 	if !sliceRequiredFound && sliceSizeFound {
 		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
+	}
+
+	return allErrs
+}
+
+type PodSetMetadata struct {
+	AnnotationsPath *field.Path
+	Meta            *metav1.ObjectMeta
+	Size            int32
+}
+
+var topologyFields = [...]string{kueuebeta.PodSetRequiredTopologyAnnotation, kueuebeta.PodSetPreferredTopologyAnnotation}
+
+func ValidatePodSetGroupingTopology(podSetTopologyConfigurations []PodSetMetadata) field.ErrorList {
+	configurationsByGroupName := make(map[string][]PodSetMetadata)
+	for _, config := range podSetTopologyConfigurations {
+		if config.Meta == nil {
+			continue
+		}
+		podSetGroupName, hasPodSetGroupName := config.Meta.Annotations[kueuebeta.PodSetGroupName]
+		if hasPodSetGroupName {
+			configurationsByGroupName[podSetGroupName] = append(configurationsByGroupName[podSetGroupName], config)
+		}
+	}
+
+	var allErrs field.ErrorList
+
+	// Sort group names to iterate over the groups in a deterministic fashion.
+	groupNames := make([]string, 0, len(configurationsByGroupName))
+	for groupName := range configurationsByGroupName {
+		groupNames = append(groupNames, groupName)
+	}
+	sort.Strings(groupNames)
+
+	for _, groupName := range groupNames {
+		configs := configurationsByGroupName[groupName]
+		if groupSize := len(configs); groupSize != 2 {
+			for _, config := range configs {
+				allErrs = append(
+					allErrs,
+					field.Invalid(
+						config.AnnotationsPath.Key(kueuebeta.PodSetGroupName),
+						groupName,
+						fmt.Sprintf("can only define groups of exactly 2 pod sets, got: %d pod set(s)", groupSize),
+					),
+				)
+			}
+			continue
+		}
+
+		config1, config2 := configs[0], configs[1]
+		if config1.Size != 1 && config2.Size != 1 {
+			sizeErrorMessage := fmt.Sprintf("can only define groups where at least one pod set has only 1 replica, got: %d replica(s) and %d replica(s) in the group", config1.Size, config2.Size)
+			allErrs = append(allErrs,
+				field.Invalid(
+					config1.AnnotationsPath.Key(kueuebeta.PodSetGroupName),
+					groupName,
+					sizeErrorMessage,
+				),
+				field.Invalid(
+					config2.AnnotationsPath.Key(kueuebeta.PodSetGroupName),
+					groupName,
+					sizeErrorMessage,
+				),
+			)
+		}
+		for _, fieldName := range topologyFields {
+			fieldValue1, fieldFound1 := config1.Meta.Annotations[fieldName]
+			fieldValue2, fieldFound2 := config2.Meta.Annotations[fieldName]
+			fieldPath1 := config1.AnnotationsPath.Key(fieldName)
+			fieldPath2 := config2.AnnotationsPath.Key(fieldName)
+
+			switch {
+			case fieldFound1 && !fieldFound2:
+				allErrs = append(allErrs, field.Required(fieldPath2, fmt.Sprintf("must be set if '%s' is specified", fieldPath1)))
+			case !fieldFound1 && fieldFound2:
+				allErrs = append(allErrs, field.Required(fieldPath1, fmt.Sprintf("must be set if '%s' is specified", fieldPath2)))
+			case fieldValue1 != fieldValue2:
+				allErrs = append(allErrs,
+					field.Invalid(fieldPath1, fieldValue1, fmt.Sprintf("must match '%s'", fieldPath2)),
+					field.Invalid(fieldPath2, fieldValue2, fmt.Sprintf("must match '%s'", fieldPath1)))
+			}
+		}
 	}
 
 	return allErrs

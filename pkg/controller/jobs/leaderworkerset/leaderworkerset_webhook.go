@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -220,6 +221,21 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	}
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+
+	podSetsMetadata := make([]jobframework.PodSetMetadata, 0, 2)
+	podSetsMetadata = append(podSetsMetadata, jobframework.PodSetMetadata{
+		AnnotationsPath: workerTemplateMetaPath.Child("annotations"),
+		Meta:            &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
+		Size:            ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1),
+	})
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		podSetsMetadata = append(podSetsMetadata, jobframework.PodSetMetadata{
+			AnnotationsPath: leaderTemplateMetaPath.Child("annotations"),
+			Meta:            &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta,
+			Size:            1,
+		})
+	}
+	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSetsMetadata)...)
 
 	if podSetsErr == nil {
 		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
