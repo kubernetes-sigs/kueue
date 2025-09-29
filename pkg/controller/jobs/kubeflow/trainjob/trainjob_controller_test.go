@@ -102,7 +102,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				},
 			},
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "0").
+				Annotation(firstOverrideIdx, "0").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
@@ -162,7 +162,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				},
 			},
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "1").
+				Annotation(firstOverrideIdx, "1").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
@@ -285,16 +285,16 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		},
 		"should not modify the trainjob if it fails parsing the annotation": {
 			trainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "+").
+				Annotation(firstOverrideIdx, "+").
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "+").
+				Annotation(firstOverrideIdx, "+").
 				Obj(),
 			wantReturn: false,
 		},
 		"should remove all the podSpecOverrides starting from the index specified in the annotation": {
 			trainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "2").
+				Annotation(firstOverrideIdx, "2").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
@@ -323,7 +323,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(FirstOverrideIdx, "2").
+				Annotation(firstOverrideIdx, "2").
 				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
 					{
 						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
