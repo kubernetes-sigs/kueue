@@ -312,16 +312,16 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 				Replicas: 1,
 			}).
 			Obj()
-		testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+		testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: ptr.To("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To("ClusterTrainingRuntime"),
+			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Suspend(false).
 			Obj()
 
-		util.MustCreate(ctx, k8sClient, testCtr)
+		util.MustCreate(ctx, k8sClient, testTr)
 		util.MustCreate(ctx, k8sClient, trainJob)
 		createdTrainJob := &kftrainerapi.TrainJob{}
 		gomega.Eventually(func(g gomega.Gomega) {
