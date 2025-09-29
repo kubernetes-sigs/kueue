@@ -2,16 +2,16 @@
 title: "Run A RayService"
 linkTitle: "RayServices"
 date: 2025-06-30
-weight: 6
+weight: 10
 description: >
-  Run a RayService on Kueue.
+  Run a RayService with Kueue.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html).
 
-Kueue manages the RayService through the RayCluster created for it. Therefore, RayService needs the label of kueue.x-k8s.io/queue-name: user-queue and this label is propagated to the relevant RayCluster to trigger Kueue's management.
+Kueue manages the RayService through the RayCluster created for it. Therefore, RayService needs the label of `kueue.x-k8s.io/queue-name: user-queue` and this label is propagated to the relevant RayCluster to trigger Kueue's management.
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+This guide is for [serving users](/docs/tasks#serving-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
 ## Before you begin
 
@@ -19,7 +19,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
-3. See [KubeRay Installation](https://raw.githubusercontent.com/ray-project/kuberay/v1.3.0/ray-operator/config/samples/ray-service.sample.yaml) for installation and configuration details of KubeRay.
+3. See [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/kuberay-operator-installation.html) for installation and configuration details of KubeRay.
 
 {{% alert title="Note" color="primary" %}}
 RayService is managed by Kueue through RayCluster, and in order to use RayCluster, prior to v0.8.1, you need to restart Kueue after the installation.
@@ -28,8 +28,7 @@ You can do it by running: `kubectl delete pods -l control-plane=controller-manag
 
 ## RayService definition
 
-When running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) on
-Kueue, take into consideration the following aspects:
+When running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) on Kueue, take into consideration the following aspects:
 
 ### a. Queue selection
 
@@ -75,6 +74,6 @@ The RayService looks like the following:
 {{< include "examples/jobs/ray-service-sample.yaml" "yaml" >}}
 
 {{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.3.0/ray-operator/config/samples/ray-service.sample.yaml)
+The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-service.sample.yaml)
 and only has the `queue-name` label added and requests updated.
 {{% /alert %}}
