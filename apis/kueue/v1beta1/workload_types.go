@@ -424,18 +424,23 @@ type WorkloadStatus struct {
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
-	// clusterName is the name of the cluster where the workload is actually assigned.
+	// clusterName is the name of the cluster where the workload is currently assigned.
+	//
+	// With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+	// was assigned, providing placement context for new scaled-up workloads. This supports
+	// affinity or propagation policies across workload slices.
+	//
 	// This field is reset after the Workload is evicted.
 	// +optional
 	ClusterName *string `json:"clusterName,omitempty"`
 
-	// nodesToReplace holds the names of failed nodes running at least one pod of this workload
+	// unhealthyNodes holds the failed nodes running at least one pod of this workload
 	// when Topology-Aware Scheduling is used. This field should not be set by the users.
 	// It indicates Kueue's scheduler is searching for replacements of the failed nodes.
-	// Requires enabling the TASFaliedNodReplacement feature gate.
+	// Requires enabling the TASFailedNodeReplacement feature gate.
 	//
 	// +optional
-	NodesToReplace []string `json:"nodesToReplace,omitempty"`
+	UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
 }
 
 type SchedulingStats struct {
@@ -451,6 +456,10 @@ type SchedulingStats struct {
 	Evictions []WorkloadSchedulingStatsEviction `json:"evictions,omitempty"`
 }
 
+// EvictionUnderlyingCause represents the underlying cause of a workload eviction.
+// +kubebuilder:validation:MaxLength=316
+type EvictionUnderlyingCause string
+
 type WorkloadSchedulingStatsEviction struct {
 	// reason specifies the programmatic identifier for the eviction cause.
 	//
@@ -464,8 +473,7 @@ type WorkloadSchedulingStatsEviction struct {
 	//
 	// +required
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=316
-	UnderlyingCause string `json:"underlyingCause"`
+	UnderlyingCause EvictionUnderlyingCause `json:"underlyingCause"`
 
 	// count tracks the number of evictions for this reason and detailed reason.
 	//
@@ -473,6 +481,14 @@ type WorkloadSchedulingStatsEviction struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	Count int32 `json:"count"`
+}
+
+type UnhealthyNode struct {
+	// name is the name of the unhealthy node.
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
 }
 
 type RequeueState struct {

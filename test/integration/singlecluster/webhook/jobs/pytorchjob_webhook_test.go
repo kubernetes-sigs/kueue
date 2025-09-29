@@ -22,9 +22,8 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util"
@@ -47,11 +46,7 @@ var _ = ginkgo.Describe("PyTorchJob Webhook", ginkgo.Ordered, func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.When("with TopologyAwareScheduling enabled", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-		})
-
+	ginkgo.When("with TopologyAwareScheduling", func() {
 		ginkgo.It("the creation doesn't succeed if job contain both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations", func() {
 			job := testingjobspytorchjob.MakePyTorchJob("job", ns.Name).
 				PyTorchReplicaSpecs(

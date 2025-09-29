@@ -41,6 +41,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+var realClock = clock.RealClock{}
+
 func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
@@ -86,41 +88,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		// make its admission and update its status
-		info := workload.NewInfo(wl)
-		cq := cache.ClusterQueues[string(lq.Spec.ClusterQueue)]
-		admission := kueue.Admission{
-			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
-			PodSetAssignments: []kueue.PodSetAssignment{
-				{
-					Name:          info.TotalRequests[0].Name,
-					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
-					Count:         ptr.To[int32](1),
-				},
-			},
-		}
-		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		for r := range info.TotalRequests[0].Requests {
-			admission.PodSetAssignments[0].Flavors[r] = flv
-		}
-
-		wl.Status.Admission = &admission
-		reservedCond := metav1.Condition{
-			Type:    kueue.WorkloadQuotaReserved,
-			Status:  metav1.ConditionTrue,
-			Reason:  "Imported",
-			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
-		}
-		apimeta.SetStatusCondition(&wl.Status.Conditions, reservedCond)
-		admittedCond := metav1.Condition{
-			Type:    kueue.WorkloadAdmitted,
-			Status:  metav1.ConditionTrue,
-			Reason:  "Imported",
-			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
-		}
-		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
-		if err := admitWorkload(ctx, c, wl); err != nil {
+		if err := admitWorkload(ctx, c, wl, cache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -199,9 +167,46 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	return err
 }
 
-func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	var realClock = clock.RealClock{}
-	err := workload.ApplyAdmissionStatus(ctx, c, wl, false, realClock)
+func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
+	update := func() (*kueue.Workload, bool, error) {
+		// make its admission and update its status
+		info := workload.NewInfo(wl)
+
+		admission := kueue.Admission{
+			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
+			PodSetAssignments: []kueue.PodSetAssignment{
+				{
+					Name:          info.TotalRequests[0].Name,
+					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
+					Count:         ptr.To[int32](1),
+				},
+			},
+		}
+		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
+		for r := range info.TotalRequests[0].Requests {
+			admission.PodSetAssignments[0].Flavors[r] = flv
+		}
+
+		wl.Status.Admission = &admission
+		reservedCond := metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Imported",
+			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
+		}
+		apimeta.SetStatusCondition(&wl.Status.Conditions, reservedCond)
+		admittedCond := metav1.Condition{
+			Type:    kueue.WorkloadAdmitted,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Imported",
+			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
+		}
+		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
+		return wl, true, nil
+	}
+
+	err := workload.PatchAdmissionStatus(ctx, c, wl, realClock, update)
 	retry, _, timeout := checkError(err)
 	for retry {
 		if timeout >= 0 {
@@ -211,7 +216,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) err
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.ApplyAdmissionStatus(ctx, c, wl, false, realClock)
+		err = workload.PatchAdmissionStatus(ctx, c, wl, realClock, update)
 		retry, _, timeout = checkError(err)
 	}
 	return err

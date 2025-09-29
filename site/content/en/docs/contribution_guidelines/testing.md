@@ -66,7 +66,7 @@ make test-multikueue-e2e
 
 You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
 ```shell
-E2E_K8S_FULL_VERSION=1.33.1 make test-e2e
+E2E_K8S_FULL_VERSION=1.34.1 make test-e2e
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
@@ -85,7 +85,7 @@ func TestValidateClusterQueue(t *testing.T) {
 You can click on the `debug test` to debug a specific test.
 
 For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.33 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Run `ENVTEST_K8S_VERSION=1.34 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
 - Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
 ```json
 "go.testEnvVars": {

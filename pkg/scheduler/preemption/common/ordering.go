@@ -17,6 +17,7 @@ limitations under the License.
 package preemptioncommon
 
 import (
+	"cmp"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -36,38 +38,48 @@ import (
 // 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
-func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) bool {
-	aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
-	bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
-	if aEvicted != bEvicted {
-		return aEvicted
-	}
-	aInCQ := a.ClusterQueue == cq
-	bInCQ := b.ClusterQueue == cq
-	if aInCQ != bInCQ {
-		return !aInCQ
-	}
-
-	if afsEnabled && resourceUsagePreemptionEnabled(a, b) {
-		if a.LocalQueueFSUsage != b.LocalQueueFSUsage {
-			log.V(3).Info("Comparing workloads by LocalQueue fair sharing usage",
-				"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
-				"workloadB", klog.KObj(b.Obj), "queueB", b.Obj.Spec.QueueName, "usageB", b.LocalQueueFSUsage)
-			return *a.LocalQueueFSUsage > *b.LocalQueueFSUsage
-		}
-	}
-	pa := priority.Priority(a.Obj)
-	pb := priority.Priority(b.Obj)
-	if pa != pb {
-		return pa < pb
-	}
-	timeA := quotaReservationTime(a.Obj, now)
-	timeB := quotaReservationTime(b.Obj, now)
-	if !timeA.Equal(timeB) {
-		return timeA.After(timeB)
-	}
-	// Arbitrary comparison for deterministic sorting.
-	return a.Obj.UID < b.Obj.UID
+func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
+	return cmputil.LazyOr(
+		func() int {
+			return cmputil.CompareBool(
+				meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted),
+				meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted),
+			)
+		},
+		func() int {
+			return cmputil.CompareBool(
+				b.ClusterQueue == cq,
+				a.ClusterQueue == cq,
+			)
+		},
+		func() int {
+			if afsEnabled &&
+				resourceUsagePreemptionEnabled(a, b) &&
+				a.LocalQueueFSUsage != b.LocalQueueFSUsage {
+				log.V(5).Info("Comparing workloads by LocalQueue fair sharing usage",
+					"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
+					"workloadB", klog.KObj(b.Obj), "queueB", b.Obj.Spec.QueueName, "usageB", b.LocalQueueFSUsage)
+				return cmp.Compare(*b.LocalQueueFSUsage, *a.LocalQueueFSUsage)
+			}
+			return 0
+		},
+		func() int {
+			return cmp.Compare(
+				priority.Priority(a.Obj),
+				priority.Priority(b.Obj),
+			)
+		},
+		func() int {
+			return quotaReservationTime(b.Obj, now).Compare(quotaReservationTime(a.Obj, now))
+		},
+		func() int {
+			// Arbitrary comparison for deterministic sorting.
+			return cmp.Compare(
+				a.Obj.UID,
+				b.Obj.UID,
+			)
+		},
+	)
 }
 
 func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {

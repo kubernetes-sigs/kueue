@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
 				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
 				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
 				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
 				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}

@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -36,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -61,23 +61,27 @@ func Enabled(object metav1.Object) bool {
 	if object == nil {
 		return false
 	}
-	return object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
+}
+
+// IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
+// and the given Workload is marked as elastic (e.g., via annotations or other criteria).
+func IsElasticWorkload(workload *kueue.Workload) bool {
+	if workload == nil {
+		return false
+	}
+	return Enabled(workload)
 }
 
 const (
-	// WorkloadSliceReplacementFor is the annotation key used to capture an "old" workload slice key
-	// that will be preempted by the "new", e.g., this workload slice with annotation.
+	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
+	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
 	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
-// key if this workload was annotated with such, otherwise, returns an empty string.
 func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
-	annotations := wl.GetAnnotations()
-	if len(annotations) == 0 {
-		return nil
-	}
-	key, found := annotations[WorkloadSliceReplacementFor]
+	key, found := wl.GetAnnotations()[WorkloadSliceReplacementFor]
 	if !found {
 		return nil
 	}
@@ -85,6 +89,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
+// Finish updates the status of a workload slice by applying the "Finished" condition
 // Finish updates the status of a workload slice by applying the "Finished" condition.
 // The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
 // If the "Finished" condition is not present, it applies the condition with the provided `reason` and `message`.
@@ -125,12 +130,18 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	// as a tiebreaker. This edge case is uncommon in production but can occur in
 	// integration or e2e tests where the original and scaled-up workloads are created
 	// in rapid succession.
-	sort.Slice(list.Items, func(i, j int) bool {
-		a, b := list.Items[i], list.Items[j]
-		if a.CreationTimestamp.Equal(&b.CreationTimestamp) {
-			return b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a))
-		}
-		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
+		return cmputil.LazyOr(
+			func() int {
+				return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
+			},
+			func() int {
+				if b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a)) {
+					return -1
+				}
+				return 1
+			},
+		)
 	})
 
 	// Filter out workloads with activated "Finished" condition.
@@ -145,6 +156,13 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 // than their corresponding new pod sets.
 func ScaledDown(oldCounts, newCounts workload.PodSetsCounts) bool {
 	return newCounts.HasFewerReplicasThan(oldCounts) && !oldCounts.HasFewerReplicasThan(newCounts)
+}
+
+// ScaledUp returns true if the given workload has the
+// WorkloadSliceReplacementFor annotation, indicating that
+// this workload is a scaled-up replacement for another.
+func ScaledUp(workload *kueue.Workload) bool {
+	return ReplacementForKey(workload) != nil
 }
 
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
@@ -263,7 +281,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
-		if err := clientutil.Patch(ctx, clnt, &list.Items[i], true, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (client.Object, bool, error) {
 			return &list.Items[i], pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
 			return fmt.Errorf("failed to patch pod: %w", err)
@@ -306,6 +324,14 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*pree
 	}
 
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// IsReplaced returns true if the workload status contains active WorkloadFinish condition
+// with WorkloadSliceReplaced reason.
+func IsReplaced(status kueue.WorkloadStatus) bool {
+	finishedCondition := apimeta.FindStatusCondition(status.Conditions, kueue.WorkloadFinished)
+	return finishedCondition != nil && finishedCondition.Status == metav1.ConditionTrue &&
+		finishedCondition.Reason == kueue.WorkloadSliceReplaced
 }
 
 // FindReplacedSliceTarget identifies and removes a preempted workload slice target from the given list of targets.

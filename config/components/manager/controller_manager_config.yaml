@@ -56,6 +56,7 @@ integrations:
   - "kubeflow.org/xgboostjob"
   - "kubeflow.org/jaxjob"
   - "workload.codeflare.dev/appwrapper"
+  - "trainer.kubeflow.org/trainjob"
 #  - "pod"
 #  - "deployment" # requires enabling pod integration
 #  - "statefulset" # requires enabling pod integration

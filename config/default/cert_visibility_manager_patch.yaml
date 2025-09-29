@@ -1,0 +1,18 @@
+# Add the visibility-server certs volume configuration
+- op: remove
+  path: /spec/template/spec/volumes/0
+
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: visibility
+    secret:
+      secretName: kueue-visibility-server-cert
+      optional: false
+      items:
+        - key: ca.crt
+          path: ca.crt
+        - key: tls.crt
+          path: tls.crt
+        - key: tls.key
+          path: tls.key

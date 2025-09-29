@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	ginkgo.BeforeEach(func() {
 		ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		util.MustCreate(ctx, k8sClient, ac)
-		gomega.Expect(features.SetEnable(features.LocalQueueMetrics, true)).To(gomega.Succeed())
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		// LQ metrics should all be 0 here
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
-		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 0)
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 0)
 		util.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 
 		util.ExpectLocalQueueResourceMetric(queue, flavorModelC, resourceGPU.String(), 0)
@@ -242,11 +242,14 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}
 		admissions := []*kueue.Admission{
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "2").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "3").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelD, "1").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 
 		ginkgo.By("Creating workloads")
@@ -296,11 +299,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads quota reservation")
 		for i, w := range workloads {
-			gomega.Eventually(func(g gomega.Gomega) {
-				var newWL kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 		}
 
 		fullUsage := []kueue.LocalQueueFlavorUsage{
@@ -407,7 +406,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelC, resourceGPU.String(), 5)
 		util.ExpectLocalQueueResourceReservationsMetric(queue, flavorModelD, resourceGPU.String(), 1)
 
-		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, 3)
+		util.ExpectLQAdmittedWorkloadsTotalMetric(queue, "", 3)
+		util.ExpectLQAdmissionWaitTimeMetric(queue, "", 3)
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 
 		ginkgo.By("Finishing workloads")
@@ -476,11 +476,14 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}
 		admissions := []*kueue.Admission{
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "2").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelC, "3").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
-				Assignment(resourceGPU, flavorModelD, "1").Obj(),
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 
 		ginkgo.By("Creating workloads", func() {
@@ -545,11 +548,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads quota reservation", func() {
 			for i, w := range workloads {
-				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {

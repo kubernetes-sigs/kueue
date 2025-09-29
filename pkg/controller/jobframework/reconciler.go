@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -364,7 +363,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
-				if err := clientutil.Patch(ctx, r.client, object, true, func() (client.Object, bool, error) {
+				if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 					job.Suspend()
 					return object, true, nil
 				}); err != nil {
@@ -510,13 +509,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if condition.Status == metav1.ConditionTrue {
 				cqName := wl.Status.Admission.ClusterQueue
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, queuedUntilReadyWaitTime)
+				metrics.ReadyWaitTime(cqName, wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.AdmittedUntilReadyWaitTime(cqName, admittedUntilReadyWaitTime)
+				metrics.ReportAdmittedUntilReadyWaitTime(cqName, wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), queuedUntilReadyWaitTime)
-					metrics.LocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), admittedUntilReadyWaitTime)
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
+					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
 				}
 			}
 			return ctrl.Result{}, nil
@@ -534,11 +533,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				// The requeued condition status set to true only on EvictedByPreemption
-				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption
-				workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now())
-				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true, r.clock)
+				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
+					// The requeued condition status set to true only on EvictedByPreemption
+					setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption
+					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
+					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
+						updated = true
+					}
+					return wl, updated, nil
+				})
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
 				}
@@ -782,26 +785,6 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// If workload slicing is enabled for this job, use the slice-based processing path.
-	if workloadSliceEnabled(job) {
-		podSets, err := job.PodSets()
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
-		}
-
-		// Workload slices allow modifications only to PodSet.Count.
-		// Any other changes will result in the slice being marked as incompatible,
-		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, object, job.GVK())
-		if err != nil {
-			return nil, err
-		}
-		if compatible {
-			return wl, nil
-		}
-		// Fallback.
-	}
-
 	if prebuiltWorkloadName, usePrebuiltWorkload := PrebuiltWorkloadFor(job); usePrebuiltWorkload {
 		wl := &kueue.Workload{}
 		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
@@ -827,10 +810,38 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 
+		// Skip the in-sync check for ElasticJob workloads if the workload is a
+		// newly scaled-up replacement. This prevents premature removal of remote
+		// objects for a Job that has not yet been synced after scale-up.
+		if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) {
+			log.V(3).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
+			return wl, nil
+		}
+
 		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
 			return nil, err
 		}
 		return wl, nil
+	}
+
+	// If workload slicing is enabled for this job, use the slice-based processing path.
+	if workloadSliceEnabled(job) {
+		podSets, err := job.PodSets()
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
+		}
+
+		// Workload slices allow modifications only to PodSet.Count.
+		// Any other changes will result in the slice being marked as incompatible,
+		// and the workload will fall back to being processed by the original ensureOneWorkload function.
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, podSets, object, job.GVK())
+		if err != nil {
+			return nil, err
+		}
+		if compatible {
+			return wl, nil
+		}
+		// Fallback.
 	}
 
 	// Find a matching workload first if there is one.
@@ -1085,7 +1096,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		if err := clientutil.Patch(ctx, r.client, object, true, func() (client.Object, bool, error) {
+		if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 			return object, true, job.RunWithPodSetsInfo(info)
 		}); err != nil {
 			return err
@@ -1129,7 +1140,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return nil
 	}
 
-	if err := clientutil.Patch(ctx, r.client, object, true, func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
 		job.Suspend()
 		if info != nil {
 			job.RestorePodSetsInfo(info)
@@ -1203,11 +1214,19 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	if err := ctrl.SetControllerReference(object, wl, c.Scheme()); err != nil {
 		return nil, err
 	}
+
 	return wl, nil
 }
 
 // prepareWorkloadSlice adds necessary workload slice annotations.
 func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+	// Annotate the workload to indicate that elastic-job support is enabled.
+	// This annotation makes it possible to distinguish workloads with elastic-job
+	// support directly at the workload level, without requiring access to the
+	// associated Job object. This is particularly useful in contexts such as the
+	// MultiKueue workload controller, where the Job may not be immediately available.
+	metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+
 	// Lookup existing slice for a given job.
 	workloadSlices, err := workloadslicing.FindNotFinishedWorkloads(ctx, clnt, job.Object(), job.GVK())
 	if err != nil {
@@ -1224,6 +1243,7 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 		oldSlice := workloadSlices[0]
 		// Annotate new workload slice with the preemptible (old) workload slice.
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
+
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
@@ -1288,12 +1308,12 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 	podSetsInfo := make([]podset.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, psAssignment := range w.Status.Admission.PodSetAssignments {
-		info, err := podset.FromAssignment(ctx, c, &psAssignment, w.Spec.PodSets[i].Count)
+		info, err := podset.FromAssignment(ctx, c, &psAssignment, &w.Spec.PodSets[i])
 		if err != nil {
 			return nil, err
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			info.Annotations[kueuealpha.WorkloadAnnotation] = w.Name
+			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 
 		info.Labels[controllerconsts.PodSetLabel] = string(psAssignment.Name)
@@ -1436,12 +1456,12 @@ type ReconcilerSetup func(*builder.Builder, client.Client) *builder.Builder
 // NewGenericReconcilerFactory creates a new reconciler factory for a concrete GenericJob type.
 // newJob should return a new empty job.
 func NewGenericReconcilerFactory(newJob func() GenericJob, setup ...ReconcilerSetup) ReconcilerFactory {
-	return func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
+	return func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
 		return &genericReconciler{
 			jr:     NewReconciler(client, record, opts...),
 			newJob: newJob,
 			setup:  setup,
-		}
+		}, nil
 	}
 }
 
@@ -1482,7 +1502,7 @@ func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
 //   - The job's underlying object is not nil.
 //   - The job's object has opted in for WorkloadSlice processing.
 func workloadSliceEnabled(job GenericJob) bool {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || job == nil {
+	if job == nil {
 		return false
 	}
 	jobObject := job.Object()

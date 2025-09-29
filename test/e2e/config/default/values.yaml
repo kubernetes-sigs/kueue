@@ -67,6 +67,4 @@ managerConfig:
         - "leaderworkerset.x-k8s.io/leaderworkerset"
     featureGates:
       MultiKueueBatchJobWithManagedBy: true
-      TopologyAwareScheduling: true
       LocalQueueMetrics: true
-      TASFailedNodeReplacement: true

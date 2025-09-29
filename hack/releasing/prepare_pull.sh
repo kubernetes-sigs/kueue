@@ -202,6 +202,11 @@ function prepare_local_branch() {
   } > "$tmpfile"
   mv "$tmpfile" "${CHANGELOG_FILE}"
 
+  # Update security insights only for main branch PRs.
+  if [ "$1" = "main" ]; then
+    make update-security-insights GIT_TAG="${RELEASE_VERSION}"
+  fi
+
   git add .
   git commit -m "$3"
 }

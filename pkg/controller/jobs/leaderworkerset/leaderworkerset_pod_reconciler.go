@@ -45,8 +45,8 @@ type PodReconciler struct {
 	client client.Client
 }
 
-func NewPodReconciler(client client.Client, _ record.EventRecorder, _ ...jobframework.Option) jobframework.JobReconcilerInterface {
-	return &PodReconciler{client: client}
+func NewPodReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, _ ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+	return &PodReconciler{client: client}, nil
 }
 
 var _ jobframework.JobReconcilerInterface = (*PodReconciler)(nil)
@@ -72,7 +72,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
 	if utilpod.IsTerminated(pod) {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (client.Object, bool, error) {
+		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (client.Object, bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {
 				log.V(3).Info(
@@ -85,7 +85,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 			return pod, removed, nil
 		}))
 	} else {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (client.Object, bool, error) {
+		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (client.Object, bool, error) {
 			updated, err := r.setDefault(ctx, pod)
 			if err != nil {
 				return nil, false, err

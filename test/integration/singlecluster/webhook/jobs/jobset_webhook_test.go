@@ -21,9 +21,8 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
@@ -59,11 +58,7 @@ var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 	})
 
-	ginkgo.When("with TopologyAwareScheduling enabled", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-		})
-
+	ginkgo.When("with TopologyAwareScheduling", func() {
 		ginkgo.It("shouldn't create JobSet if both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations are set", func() {
 			job := testingjob.MakeJobSet("jobset", ns.Name).
 				Queue("indexed_job").

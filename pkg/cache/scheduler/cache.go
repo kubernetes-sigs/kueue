@@ -17,10 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -34,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -122,7 +122,7 @@ func New(client client.Client, options ...Option) *Cache {
 		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
 		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		hm:               hierarchy.NewManager(newCohort),
 		tasCache:         NewTASCache(client),
 	}
 	for _, option := range options {
@@ -267,7 +267,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	return c.updateClusterQueues(log)
 }
 
-func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueuealpha.Topology) sets.Set[kueue.ClusterQueueReference] {
+func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueue.Topology) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	c.tasCache.AddTopology(topology)
@@ -712,10 +712,10 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cq, nil)
-		stats.WeightedShare = int64(weightedShare)
+		drs := dominantResourceShare(cq, nil)
+		weightedShare, _ := drs.roundedWeightedShare()
+		stats.WeightedShare = weightedShare
 	}
-
 	return stats, nil
 }
 
@@ -734,8 +734,9 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cohort, nil)
-		stats.WeightedShare = int64(weightedShare)
+		drs := dominantResourceShare(cohort, nil)
+		weightedShare, _ := drs.roundedWeightedShare()
+		stats.WeightedShare = weightedShare
 	}
 
 	return stats, nil
@@ -795,8 +796,8 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
-			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
-				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			slices.SortFunc(outFlvUsage.Resources, func(a, b kueue.ResourceUsage) int {
+				return cmp.Compare(a.Name, b.Name)
 			})
 			usage = append(usage, outFlvUsage)
 		}
@@ -890,8 +891,8 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
-			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
-				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			slices.SortFunc(outFlvUsage.Resources, func(a, b kueue.LocalQueueResourceUsage) int {
+				return cmp.Compare(a.Name, b.Name)
 			})
 			qFlvUsages = append(qFlvUsages, outFlvUsage)
 		}

@@ -29,6 +29,7 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
   - "kubeflow.org/jaxjob"
+  - "trainer.kubeflow.org/trainjob"
   - "workload.codeflare.dev/appwrapper"
   - "pod"
   - "deployment"
@@ -36,6 +37,4 @@ integrations:
   - "leaderworkerset.x-k8s.io/leaderworkerset"
 featureGates:
   MultiKueueBatchJobWithManagedBy: true
-  TopologyAwareScheduling: true
   LocalQueueMetrics: true
-  TASFailedNodeReplacement: true

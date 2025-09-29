@@ -96,6 +96,9 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true)
+		})
 
 		wls := &kueue.WorkloadList{}
 		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
@@ -126,6 +129,9 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, testPod, true)
+		})
 
 		wls := &kueue.WorkloadList{}
 		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())

@@ -34,7 +34,7 @@ type WorkloadStatusApplyConfiguration struct {
 	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
 	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
 	ClusterName                          *string                                 `json:"clusterName,omitempty"`
-	NodesToReplace                       []string                                `json:"nodesToReplace,omitempty"`
+	UnhealthyNodes                       []UnhealthyNodeApplyConfiguration       `json:"unhealthyNodes,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -145,12 +145,15 @@ func (b *WorkloadStatusApplyConfiguration) WithClusterName(value string) *Worklo
 	return b
 }
 
-// WithNodesToReplace adds the given value to the NodesToReplace field in the declarative configuration
+// WithUnhealthyNodes adds the given value to the UnhealthyNodes field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the NodesToReplace field.
-func (b *WorkloadStatusApplyConfiguration) WithNodesToReplace(values ...string) *WorkloadStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the UnhealthyNodes field.
+func (b *WorkloadStatusApplyConfiguration) WithUnhealthyNodes(values ...*UnhealthyNodeApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	for i := range values {
-		b.NodesToReplace = append(b.NodesToReplace, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithUnhealthyNodes")
+		}
+		b.UnhealthyNodes = append(b.UnhealthyNodes, *values[i])
 	}
 	return b
 }

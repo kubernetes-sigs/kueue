@@ -18,11 +18,18 @@ package queue
 
 import (
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+const (
+	backoffFactor = 2
+	backoffCap    = 30 * time.Second
 )
 
 type secondPassQueue struct {
@@ -77,4 +84,21 @@ func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 
 	delete(q.queued, key)
 	q.prequeued.Delete(key)
+}
+
+// nextDelay returns the next backoff duration for the given iteration.
+func nextDelay(iteration int) time.Duration {
+	backoff := &wait.Backoff{
+		Duration: time.Second,
+		Factor:   backoffFactor,
+		Steps:    iteration,
+		Cap:      backoffCap,
+	}
+
+	var waitDuration time.Duration
+	for backoff.Steps > 0 {
+		waitDuration = backoff.Step()
+	}
+
+	return waitDuration
 }

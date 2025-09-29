@@ -21,6 +21,7 @@ import (
 
 const (
 	JobSetNameKey         string = "jobset.sigs.k8s.io/jobset-name"
+	JobSetUIDKey          string = "jobset.sigs.k8s.io/jobset-uid"
 	ReplicatedJobReplicas string = "jobset.sigs.k8s.io/replicatedjob-replicas"
 	// GlobalReplicasKey is a label/annotation set to the total number of replicatedJob replicas.
 	// For each JobSet, this value will be equal to the sum of `replicas`, where `replicas`
@@ -60,6 +61,19 @@ const (
 	// defines the .spec.coordinator field, this annotation/label will be added to store a stable
 	// network endpoint where the coordinator pod can be reached.
 	CoordinatorKey = "jobset.sigs.k8s.io/coordinator"
+
+	// GroupNameKey is a label/annotation set to the group name of the ReplicatedJob.
+	// If a ReplicatedJob is part of a group, then its child jobs and pods have this
+	// label/annotation equal to the group name
+	GroupNameKey string = "jobset.sigs.k8s.io/group-name"
+	// GroupReplicasKey is a label/annotation set to the total number of replicas in the group.
+	// If a ReplicatedJob is part of a group, then its child jobs and pods have this
+	// label/annotation equal to the total number of replicas in the group
+	GroupReplicasKey string = "jobset.sigs.k8s.io/group-replicas"
+	// JobGroupIndexKey is a label/annotation set to the index of the Job replica within its parent group.
+	// If a ReplicatedJob is part of a group, then its child jobs and pods have this
+	// label/annotation ranging from 0 to annotations[GroupReplicasKey] - 1
+	JobGroupIndexKey string = "jobset.sigs.k8s.io/job-group-index"
 )
 
 type JobSetConditionType string
@@ -155,13 +169,14 @@ type JobSetStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// Restarts tracks the number of times the JobSet has restarted (i.e. recreated in case of RecreateAll policy).
-	Restarts int32 `json:"restarts,omitempty"`
+	// +optional
+	Restarts int32 `json:"restarts"`
 
 	// RestartsCountTowardsMax tracks the number of times the JobSet has restarted that counts towards the maximum allowed number of restarts.
 	RestartsCountTowardsMax int32 `json:"restartsCountTowardsMax,omitempty"`
 
 	// TerminalState the state of the JobSet when it finishes execution.
-	// It can be either Complete or Failed. Otherwise, it is empty by default.
+	// It can be either Completed or Failed. Otherwise, it is empty by default.
 	TerminalState string `json:"terminalState,omitempty"`
 
 	// ReplicatedJobsStatus track the number of JobsReady for each replicatedJob.
@@ -225,6 +240,11 @@ type ReplicatedJob struct {
 	// Name is the name of the entry and will be used as a suffix
 	// for the Job name.
 	Name string `json:"name"`
+
+	// GroupName defines the name of the group this ReplicatedJob belongs to. Defaults to "default"
+	// +kubebuilder:default=default
+	GroupName string `json:"groupName,omitempty"`
+
 	// Template defines the template of the Job that will be created.
 	Template batchv1.JobTemplateSpec `json:"template"`
 
@@ -243,7 +263,7 @@ type ReplicatedJob struct {
 	// resumed the Job sequence starts again.
 	// This API is mutually exclusive with the StartupPolicy API.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
-	// +kubebuilder:validation:MaxItems=1
+	// +kubebuilder:validation:MaxItems=5
 	// +optional
 	// +listType=map
 	// +listMapKey=name

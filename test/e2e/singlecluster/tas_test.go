@@ -26,7 +26,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -53,7 +52,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 
 	ginkgo.When("Creating a Job requesting TAS", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			onDemandRF   *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
@@ -97,7 +96,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Obj()
 			jobKey := client.ObjectKeyFromObject(sampleJob)
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
@@ -145,7 +144,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 
 	ginkgo.When("Creating a JobSet requesting TAS", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			onDemandRF   *kueue.ResourceFlavor
 			clusterQueue *kueue.ClusterQueue
 			localQueue   *kueue.LocalQueue
@@ -197,7 +196,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
+							kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
 					},
 					testingjobset.ReplicatedJobRequirements{
@@ -208,7 +207,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						Parallelism: 1,
 						Completions: 1,
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
+							kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname,
 						},
 					},
 				).
@@ -280,7 +279,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 
 	ginkgo.When("Creating a Pod requesting TAS", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			onDemandRF   *kueue.ResourceFlavor
 			clusterQueue *kueue.ClusterQueue
 			localQueue   *kueue.LocalQueue
@@ -324,7 +323,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Obj()
@@ -333,7 +332,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				util.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
-					corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 				))
 			})
 
@@ -382,7 +381,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				MakeGroup(2)
@@ -392,7 +391,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 					util.MustCreate(ctx, k8sClient, p)
 					gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
-						corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate},
+						corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 					))
 				}
 			})

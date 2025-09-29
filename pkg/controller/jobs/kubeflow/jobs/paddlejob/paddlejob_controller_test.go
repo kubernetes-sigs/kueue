@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -271,14 +270,14 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingpaddlejob.PaddleReplicaSpecRequirement{
 						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -287,13 +286,13 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
@@ -308,14 +307,14 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingpaddlejob.PaddleReplicaSpecRequirement{
 						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -324,11 +323,11 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						Obj(),
 					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
 				}
 			},
@@ -366,14 +365,14 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingpaddlejob.PaddleReplicaSpecRequirement{
 						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -387,16 +386,16 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingpaddlejob.PaddleReplicaSpecRequirement{
 						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				).
@@ -426,18 +425,18 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 						ReplicaCount: 5,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "10",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "10",
 						},
 					},
 					testingpaddlejob.PaddleReplicaSpecRequirement{
 						ReplicaType:  kftraining.PaddleJobReplicaTypeWorker,
 						ReplicaCount: 10,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "20",
 						},
 					},
 				).
@@ -518,8 +517,12 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("paddlejob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).Obj(),
-						*utiltesting.MakePodSet("worker", 2).Obj(),
+						*utiltesting.MakePodSet("master", 1).
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							Obj(),
+						*utiltesting.MakePodSet("worker", 2).
+							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -626,7 +629,8 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			kcBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(kcBuilder)); err != nil {
+			indexer := utiltesting.AsIndexer(kcBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
 			kcBuilder = kcBuilder.WithObjects(utiltesting.MakeResourceFlavor("default").Obj())
@@ -645,10 +649,13 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			jobKey := client.ObjectKeyFromObject(tc.job)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: jobKey,
 			})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {

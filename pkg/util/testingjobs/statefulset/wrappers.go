@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -199,7 +199,7 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation() *Statef
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(v1alpha1.PodGroupPodIndexLabelAnnotation, labelName)
+	return ss.PodTemplateSpecAnnotation(v1beta1.PodGroupPodIndexLabelAnnotation, labelName)
 }
 
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
