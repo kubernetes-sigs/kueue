@@ -131,7 +131,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.auth.tokenReviewConfig.cacheTTL | string | `"60s"` | TTL for successful authentication cache |
 | kueueViz.backend.auth.tokenReviewConfig.negativeCacheTTL | string | `"5s"` | TTL for failed authentication cache (prevents API server abuse) |
 | kueueViz.backend.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | KueueViz backend container securityContext |
-| kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"https://frontend.kueueviz.local"}]` | Environment variables for KueueViz backend deployment |
+| kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"https://frontend.kueueviz.local"},{"name":"GIN_MODE","value":"release"}]` | Environment variables for KueueViz backend deployment |
 | kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.backend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"` | KueueViz dashboard backend image repository |
 | kueueViz.backend.image.tag | string | `"main"` | KueueViz dashboard backend image tag |
