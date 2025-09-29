@@ -154,7 +154,7 @@ instance is contained within a "rack".
 
 #### Story 3
 
-Similar to [Story 3](#story-3), but I use multi-template Jobs (JobSet, MPIJob,
+Similar to [Story 1](#story-1), but I use multi-template Jobs (JobSet, MPIJob,
 TFJob) and Pods belonging to different templates also need to exchange sizable
 amount of data, impacting the execution time. I would like to be able to
 indicate that (1) all worker Pods are contained within a "rack", but also all
@@ -174,7 +174,7 @@ Extension: support for indicating the order of pods for external Jobs.
 
 #### Story 5
 
-Similar to [Story 2](#story-2), but I want all the Jobs in ReplicatedJob to run 
+Similar to [Story 2](#story-2), but I want all the Jobs in ReplicatedJob to run
 within a "block", but each Job should also run within a "host" within that "block".
 
 #### Story 6
@@ -332,7 +332,7 @@ spec:
               args: ["pause"]
 ```
 
-In this example there will be 8 (2 ReplicatedJob instances with 4 
+In this example there will be 8 (2 ReplicatedJob instances with 4
 "parallelism" each) worker pods and we say that we want to split
 PodSet into slices with 4 pods each (so 2 slices in total) and
 each slice requires "host" topology domain.
@@ -345,7 +345,7 @@ value for it in case of JobSet is `parallelism`.
 ###### JobSet with two-level scheduling
 
 According to [Story 5](#story-5) we noticed that some users would like to
-co-locate all Jobs resulting from ReplicatedJob in JobSet in some 
+co-locate all Jobs resulting from ReplicatedJob in JobSet in some
 higher-level domain (like "block"), but also  co-locate each Job within
 lower-level domain like "host".
 
@@ -400,7 +400,7 @@ In this example there will be 8 worker pods and we say that the PodSet
 corresponding to the worker requires the "block" topology domain for all
 those pods.
 
-However, we also specify that we want to split PodSet into slices with 4 
+However, we also specify that we want to split PodSet into slices with 4
 pods each (so 2 slices in total) and each slice requires "host" topology
 domain.
 
@@ -535,10 +535,10 @@ transition to the `PodsReady=false`, more details in the
 [KEP PR](https://github.com/kubernetes-sigs/kueue/pull/2737). This mechanism
 will also be helpful for regular workloads.
 
-We also propose to recompute the TopologyAdmission upon node removal and/or 
-failure, to find matching replacements for missing nodes. If no such 
+We also propose to recompute the TopologyAdmission upon node removal and/or
+failure, to find matching replacements for missing nodes. If no such
 replacement exists, the workload has to be evicted and rescheduled again.
-This mechanism requires kueue to keep track of any failed or missing nodes 
+This mechanism requires kueue to keep track of any failed or missing nodes
 affecting the scheduled TAS workloads. We propose to initially handle only
 a single node failure and extend it to multiple depending on the feedback
 from the users.
@@ -711,7 +711,7 @@ the rules is deactivated):
   are mutually exclusive.
 - the value of `kueue.x-k8s.io/podset-slice-required-topology` is one of the labels
   specified in the topology node labels
-- the value of `kueue.x-k8s.io/podset-slice-required-topology` has to represent 
+- the value of `kueue.x-k8s.io/podset-slice-required-topology` has to represent
   a topology "below" the topology defined by `kueue.x-k8s.io/podset-preferred-topology`
   or `kueue.x-k8s.io/podset-required-topology`
 - if `kueue.x-k8s.io/podset-slice-required-topology` is specified then
@@ -719,7 +719,7 @@ the rules is deactivated):
   specified its own default. See [Slice size validation](#slice-size-validation))
 - The value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
   than 1. It has to evenly divide the size of a PodSet.
-- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology` 
+- If `kueue.x-k8s.io/podset-group-name` is specified, the `kueue.x-k8s.io/podset-required-topology`
   or `kueue.x-k8s.io/podset-preferred-topology` has to also be specified in all other
   PodTemplates included in the PodSet Group and it has to have the same value.
 
@@ -791,7 +791,7 @@ type PodSetTopologyRequest struct {
   //
   // +optional
   PodSetGroupName *string `json:"podSetGroupName,omitempty"`
-  
+
   // PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
   // indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
@@ -926,9 +926,9 @@ const (
 
 #### Node failures
 
-Initially we plan to support node becoming not ready (as indicated in Node 
-`status.conditions.ready` field) and node being deleted. A new controller will 
-monitor nodes and will update each affected TAS workload with the information 
+Initially we plan to support node becoming not ready (as indicated in Node
+`status.conditions.ready` field) and node being deleted. A new controller will
+monitor nodes and will update each affected TAS workload with the information
 about the failed nodes. This information will then be consumed by a new mechanism
 in scheduler where we will try to find a new topology assignment and replace the
 failed node(s) (by changing the assignment only on the affected pods). Initially we plan
@@ -983,7 +983,7 @@ For that reason we introduce two heuristics for marking nodes to replace for a g
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
 available starting with Kueue v0.13)
 
-For the future releases we are going to consider API configuration for the approach, but first we 
+For the future releases we are going to consider API configuration for the approach, but first we
 would like to collect more user feedback using the feature gates while in Alpha.
 
 Kueue tries to find a replacement for a failed node until success (or until it gets
@@ -1040,7 +1040,7 @@ However, it optimizes the selection of the last domain at each level to minimize
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
 
 BestFit algorithm iterates over the nodes and select the first two nodes,
-each with 3 available pods, as they possess the most free capacity. With 1 pod remaining to schedule, 
+each with 3 available pods, as they possess the most free capacity. With 1 pod remaining to schedule,
 algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
 
 The `LeastFreeCapacity` algorithm iterates over the nodes in reverse order.
@@ -1061,24 +1061,24 @@ Based on the collected feedback we will introduce TAS configuration that would a
 Eventually we'll remove the feature as they will be no longer need when we implement API for TAS configuration.
 
 ### Two-level Topology Aware scheduling
-In consideration of a [Story 5](#story-5) a two-level scheduling is introduced. 
+In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
 We introduce a notion of PodSet Slice, which is a subset of PodSet. All slices
-have the same size and evenly divide the PodSet. To simplify implementation we 
-are allowing only for a "required" topology for slice. The requested topology 
+have the same size and evenly divide the PodSet. To simplify implementation we
+are allowing only for a "required" topology for slice. The requested topology
 level for slices has to be on the same or below level of the main topology.
 
-Requesting slice topology changes the way algorithm chooses domains. In all 
+Requesting slice topology changes the way algorithm chooses domains. In all
 modes in [Computing the assignment](#computing-the-assignment) algorithm greedily
 selects domains based on the free capacity (either most or least). However, with
-slices it considers the amount of slices that can fit into a domain as free 
-capacity, but if that number is equal then it prioritizes domains with fewer 
+slices it considers the amount of slices that can fit into a domain as free
+capacity, but if that number is equal then it prioritizes domains with fewer
 remaining resources.
 
 #### Example
-Consider a rack with nodes that can accommodate 6, 5, 4, 3, and 2 pods respectively. 
+Consider a rack with nodes that can accommodate 6, 5, 4, 3, and 2 pods respectively.
 The required topology for slice is "host" and the podset slice size is 2.
 
-As an example let's analyze the assignment based on the size of a podset and selected 
+As an example let's analyze the assignment based on the size of a podset and selected
 mode. See the table below where the numbers are pods assigned to a particular node.
 The header for columns dedicated to nodes correspond node's initial capacity.
 
@@ -1088,7 +1088,7 @@ The header for columns dedicated to nodes correspond node's initial capacity.
 | LeastFreeCapacity | 10         | .   | 2   | 4   | 2   | 2   |
 
 Explanation:
-- `BestFit` - We prioritized 3rd node over 2nd node because 3rd node was a tight fit among all domains that could fit 2 slices. The last domain has been "optimized" to find the tight fit. 
+- `BestFit` - We prioritized 3rd node over 2nd node because 3rd node was a tight fit among all domains that could fit 2 slices. The last domain has been "optimized" to find the tight fit.
 - `LeastFreeCapacity` - We prioritized 3rd node, because it is a tight fit among all domains that could fit 2 slices.
 
 It is worth noting that the tight fit mentioned above does not guarantee that no free capacity will be left within the assigned domains.
@@ -1096,7 +1096,7 @@ It is worth noting that the tight fit mentioned above does not guarantee that no
 ### Cross-PodSet Topology Aware scheduling
 
 In consideration of a [Story 6](#story-6) a cross-podset topology aware scheduling
-is required, due to the fact that leader and workers are separate PodSets. To be able 
+is required, due to the fact that leader and workers are separate PodSets. To be able
 to co-locate leaders with its workers in the same topology domain, we divide the
 problem into subproblems:
 
@@ -1105,18 +1105,18 @@ problem into subproblems:
 
 #### Ensure leader and workers end up on the same flavor
 
-To ensure leader and workers are assigned the same flavor a notion of `PodSet Group` is 
+To ensure leader and workers are assigned the same flavor a notion of `PodSet Group` is
 introduced, indicated by the PodSetTopologyRequest's PodSetGroupName field (see [Internal APIs](#internal-apis)):
 
 This field specifies the name of a group of PodSets that should be placed on the same flavor.
-This field is optional and if a PodSet does not define it, it will be placed on a flavor 
+This field is optional and if a PodSet does not define it, it will be placed on a flavor
 independently of any other PodSets.
 
 If two or more PodSets use the same value in `PodSetGroup`, they will be grouped together.
 Their resource requests will be summed together and the result will be used to find a flavor
 with proper resources and enough quota to fit the whole group.
 
-It is important to mention, that the introduction of `PodSet Group` changes the flavor 
+It is important to mention, that the introduction of `PodSet Group` changes the flavor
 assignment unit to `PodSet Group`.
 
 User can influence the value of `PodSetGroup` by setting `kueue.x-k8s.io/podset-group-name`
@@ -1473,9 +1473,9 @@ was independent of PodSet's annotations:
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively.
 A PodSet consists of 7 pods.
 
-Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes 
+Both the BestFit and MostFreeCapacity algorithms will initially iterate over the nodes
 and select the first two, each with 3 available pods, as they possess the most
-free capacity. With 1 pod remaining to schedule, the difference between the algorithms 
+free capacity. With 1 pod remaining to schedule, the difference between the algorithms
 becomes apparent:
 - The `BestFit` algorithm optimizes the choice of the last node (domain) and selects the node that can accommodate exactly 1 pod.
 - The `MostFreeCapacity` algorithm simply selects the node with the most remaining free capacity, which is 2 in this case.
