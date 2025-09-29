@@ -1512,7 +1512,7 @@ ClusterQueue will have an Active condition set to False.</p>
 </td>
 <td>
    <p>resources is the list of quotas for this flavor per resource.
-There could be up to 16 resources.</p>
+There could be up to 64 resources.</p>
 </td>
 </tr>
 </tbody>
