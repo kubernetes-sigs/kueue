@@ -1,3 +1,20 @@
+## v0.12.10
+
+Changes since `v0.12.9`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- FS: Validate FairSharing.Weight against small values which lose precision (0 < value <= 10^-9) (#7007, @gabesaba)
+- Fix the bug for the StatefulSet integration which would occasionally cause a StatefulSet
+  to be stuck without workload after renaming the "queue-name" label. (#7038, @IrvingMg)
+- Fix the bug that a workload going repeatedly via the preemption and re-admission cycle would accumulate the
+  "Previously" prefix in the condition message, eg: "Previously: Previously: Previously: Preempted to accommodate a workload ...". (#6875, @amy)
+- Fixed bug where internal cert manager assumed that the helm installation name was kueue. (#6916, @cmtly)
+- Helm: Fixed bug where webhook configurations assumed a helm install name as "kueue". (#6923, @cmtly)
+- Pod-integration now correctly handles pods stuck in the Terminating state within pod groups, preventing them from being counted as active and avoiding blocked quota release. (#6893, @ichekrygin)
+
 ## v0.12.9
 
 Changes since `v0.12.8`:
