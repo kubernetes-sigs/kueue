@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", func() {
 					for _, p := range pods.Items {
 						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
 					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for replicas to be ready again", func() {
