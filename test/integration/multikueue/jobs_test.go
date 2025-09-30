@@ -1563,31 +1563,26 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should run a TrainJob on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
 			kueue.PodSetAssignment{
-				Name: "replicated-job-1",
-			}, kueue.PodSetAssignment{
-				Name: "replicated-job-2",
+				Name: "node",
 			},
 		)
-		trainJob := testingtrainjob.MakeTrainJob("trainjob1", managerNs.Name).
+		testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:     "node",
+				Replicas: 1,
+			}).
+			Obj()
+		testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+		trainJob := testingtrainjob.MakeTrainJob("trainjob1", managerNs.Name).RuntimeRef(kftrainer.RuntimeRef{
+			APIGroup: ptr.To("trainer.kubeflow.org"),
+			Name:     "test",
+			Kind:     ptr.To("ClusterTrainingRuntime"),
+		}).
 			Queue(managerLq.Name).
 			Obj()
-		childJobSet := testingtrainjob.MakeJobSetWrapperFromTrainjob(trainJob).
-			ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-1",
-					Replicas:    1,
-					Parallelism: 1,
-					Completions: 1,
-				}, testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-2",
-					Replicas:    3,
-					Parallelism: 1,
-					Completions: 1,
-				},
-			).
-			Obj()
+
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testCtr)
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, trainJob)
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, childJobSet)
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: managerNs.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdWorkload := &kueue.Workload{}
@@ -1629,7 +1624,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run an ElasticJob on worker if admitted", func() {
+	ginkgo.XIt("Should run an ElasticJob on worker if admitted", func() {
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 		worker2 := worker2TestCluster

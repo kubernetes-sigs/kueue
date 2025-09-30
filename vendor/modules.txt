@@ -190,9 +190,24 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.6.0
 ## explicit; go 1.23
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/trainer/v2 v2.0.0
+# github.com/kubeflow/trainer/v2 v2.0.1
 ## explicit; go 1.24.0
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
+github.com/kubeflow/trainer/v2/pkg/apply
+github.com/kubeflow/trainer/v2/pkg/constants
+github.com/kubeflow/trainer/v2/pkg/runtime
+github.com/kubeflow/trainer/v2/pkg/runtime/core
+github.com/kubeflow/trainer/v2/pkg/runtime/framework
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/core
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/coscheduling
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset/constants
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/mpi
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/plainml
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/torch
+github.com/kubeflow/trainer/v2/pkg/runtime/indexer
+github.com/kubeflow/trainer/v2/pkg/util/trainjob
 # github.com/kubeflow/training-operator v1.9.3
 ## explicit; go 1.23
 github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1
@@ -463,13 +478,18 @@ go.yaml.in/yaml/v2
 go.yaml.in/yaml/v3
 # golang.org/x/crypto v0.41.0
 ## explicit; go 1.23.0
+golang.org/x/crypto/blowfish
+golang.org/x/crypto/chacha20
 golang.org/x/crypto/cryptobyte
 golang.org/x/crypto/cryptobyte/asn1
+golang.org/x/crypto/curve25519
 golang.org/x/crypto/hkdf
 golang.org/x/crypto/internal/alias
 golang.org/x/crypto/internal/poly1305
 golang.org/x/crypto/nacl/secretbox
 golang.org/x/crypto/salsa20/salsa
+golang.org/x/crypto/ssh
+golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 # golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
 ## explicit; go 1.23.0
 golang.org/x/exp/slices
@@ -1622,6 +1642,7 @@ sigs.k8s.io/gateway-api/apis/v1
 # sigs.k8s.io/jobset v0.9.0
 ## explicit; go 1.24.0
 sigs.k8s.io/jobset/api/jobset/v1alpha2
+sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2
 sigs.k8s.io/jobset/pkg/util/collections
 sigs.k8s.io/jobset/pkg/util/testing
 # sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8
@@ -1714,6 +1735,11 @@ sigs.k8s.io/lws/api/leaderworkerset/v1
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
+# sigs.k8s.io/scheduler-plugins v0.31.8
+## explicit; go 1.22.0
+sigs.k8s.io/scheduler-plugins/apis/scheduling
+sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1
+sigs.k8s.io/scheduler-plugins/pkg/generated/applyconfiguration/scheduling/v1alpha1
 # sigs.k8s.io/structured-merge-diff/v6 v6.3.0
 ## explicit; go 1.23
 sigs.k8s.io/structured-merge-diff/v6/fieldpath

@@ -109,10 +109,12 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	}
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+
 	// skip the manager setup if setup func is not provided
 	if setupFnc != nil {
 		c.fwk.StartManager(c.ctx, c.cfg, setupFnc)
 	}
+
 	return c
 }
 

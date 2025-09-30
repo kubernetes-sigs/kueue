@@ -70,7 +70,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: LocalQueueSpec defines the desired state of LocalQueue
+              description: spec is the specification of the LocalQueue.
               properties:
                 clusterQueue:
                   description: clusterQueue is a reference to a clusterQueue that backs this localQueue.
@@ -124,7 +124,7 @@ spec:
                   type: string
               type: object
             status:
-              description: LocalQueueStatus defines the observed state of LocalQueue
+              description: status is the status of the LocalQueue.
               properties:
                 admittedWorkloads:
                   description: |-
@@ -134,7 +134,7 @@ spec:
                   type: integer
                 conditions:
                   description: |-
-                    Conditions hold the latest available observations of the LocalQueue
+                    conditions hold the latest available observations of the LocalQueue
                     current state.
                   items:
                     description: Condition contains details for one aspect of the current state of this API Resource.
@@ -194,7 +194,7 @@ spec:
                     - type
                   x-kubernetes-list-type: map
                 fairSharing:
-                  description: FairSharing contains the information about the current status of fair sharing.
+                  description: fairSharing contains the information about the current status of fair sharing.
                   properties:
                     admissionFairSharingStatus:
                       description: admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
@@ -207,12 +207,12 @@ spec:
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
                           description: |-
-                            ConsumedResources represents the aggregated usage of resources over time,
+                            consumedResources represents the aggregated usage of resources over time,
                             with decaying function applied.
                             The value is populated if usage consumption functionality is enabled in Kueue config.
                           type: object
                         lastUpdate:
-                          description: LastUpdate is the time when share and consumed resources were updated.
+                          description: lastUpdate is the time when share and consumed resources were updated.
                           format: date-time
                           type: string
                       required:
@@ -221,7 +221,7 @@ spec:
                       type: object
                     weightedShare:
                       description: |-
-                        WeightedShare represents the maximum of the ratios of usage
+                        weightedShare represents the maximum of the ratios of usage
                         above nominal quota to the lendable resources in the
                         Cohort, among all the resources provided by the Node, and
                         divided by the weight.  If zero, it means that the usage of
@@ -235,7 +235,7 @@ spec:
                   type: object
                 flavorUsage:
                   description: |-
-                    flavorsUsage are the used quotas, by flavor currently in use by the
+                    flavorUsage are the used quotas, by flavor currently in use by the
                     workloads assigned to this LocalQueue.
                   items:
                     properties:
@@ -408,7 +408,7 @@ spec:
                     - name
                   x-kubernetes-list-type: map
                 pendingWorkloads:
-                  description: PendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
+                  description: pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
                   format: int32
                   type: integer
                 reservingWorkloads:

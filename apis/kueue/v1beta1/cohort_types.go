@@ -22,7 +22,7 @@ import (
 
 // CohortSpec defines the desired state of Cohort
 type CohortSpec struct {
-	// ParentName references the name of the Cohort's parent, if
+	// parentName references the name of the Cohort's parent, if
 	// any. It satisfies one of three cases:
 	// 1) Unset. This Cohort is the root of its Cohort tree.
 	// 2) References a non-existent Cohort. We use default Cohort (no borrowing/lending limits).
@@ -34,7 +34,7 @@ type CohortSpec struct {
 	// exists.
 	ParentName CohortReference `json:"parentName,omitempty"`
 
-	// ResourceGroups describes groupings of Resources and
+	// resourceGroups describes groupings of Resources and
 	// Flavors.  Each ResourceGroup defines a list of Resources
 	// and a list of Flavors which provide quotas for these
 	// Resources. Each Resource and each Flavor may only form part
@@ -90,10 +90,13 @@ type CohortStatus struct {
 // with Fair Sharing as of v0.11. Using these features together in
 // V0.9 and V0.10 is unsupported, and results in undefined behavior.
 type Cohort struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the Cohort.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   CohortSpec   `json:"spec,omitempty"`
+	// spec is the specification of the Cohort.
+	Spec CohortSpec `json:"spec,omitempty"`
+	// status is the status of the Cohort.
 	Status CohortStatus `json:"status,omitempty"`
 }
 

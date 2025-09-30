@@ -181,10 +181,11 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		disableLendingLimit               bool
-		disablePartialAdmission           bool
-		enableFairSharing                 bool
-		enableElasticJobsViaWorkloadSlice bool
+		disableLendingLimit                        bool
+		disablePartialAdmission                    bool
+		enableFairSharing                          bool
+		enableElasticJobsViaWorkloadSlice          bool
+		flavorFungibilityImplicitPreferenceDefault bool
 
 		workloads      []kueue.Workload
 		objects        []client.Object
@@ -3775,14 +3776,14 @@ func TestSchedule(t *testing.T) {
 		"prefer flavor with most local capacity": {
 			enableFairSharing: true,
 			cohorts: []kueue.Cohort{
-				*utiltesting.MakeCohort("root").
+				*utiltesting.MakeCohort("root-cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
 						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeCohort("cohort-a").
-					Parent("root").
+				*utiltesting.MakeCohort("child-cohort").
+					Parent("root-cohort").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "5").Obj(),
 						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "7").Obj(),
@@ -3790,8 +3791,8 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			additionalClusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("other-alpha").
-					Cohort("cohort-a").
+				*utiltesting.MakeClusterQueue("queue1").
+					Cohort("child-cohort").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -3807,41 +3808,261 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("queue1", "default").ClusterQueue("queue1").Obj(),
 			},
 			workloads: []kueue.Workload{
-				// exhaust quota in on-demand in CohortA
-				*utiltesting.MakeWorkload("a1", "eng-alpha").
-					Queue("other").
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a1", "default").
+					Queue("queue1").
 					Request("gpu", "8").
-					SimpleReserveQuota("other-alpha", "on-demand", now).
+					SimpleReserveQuota("queue1", "on-demand", now).
 					Obj(),
-				// exhaust quota in spot in OtherAlpha CQ
-				*utiltesting.MakeWorkload("a2", "eng-alpha").
-					Queue("other").
+				// exhaust quota in spot in ClusterQueue
+				*utiltesting.MakeWorkload("a2", "default").
+					Queue("queue1").
 					Request("gpu", "3").
-					SimpleReserveQuota("other-alpha", "spot", now).
+					SimpleReserveQuota("queue1", "spot", now).
 					Obj(),
-				*utiltesting.MakeWorkload("a3", "eng-alpha").
-					Queue("other").
+				*utiltesting.MakeWorkload("a3", "default").
+					Queue("queue1").
 					Request("gpu", "1").
 					Obj(),
 			},
-			wantScheduled: []workload.Reference{"eng-alpha/a3"},
+			wantScheduled: []workload.Reference{"default/a3"},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").
+				"default/a1": *utiltesting.MakeAdmission("queue1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("gpu", "on-demand", "8").
 						Obj()).
 					Obj(),
-				"eng-alpha/a2": *utiltesting.MakeAdmission("other-alpha").
+				"default/a2": *utiltesting.MakeAdmission("queue1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("gpu", "spot", "3").
 						Obj()).
 					Obj(),
-				"eng-alpha/a3": *utiltesting.MakeAdmission("other-alpha").
+				"default/a3": *utiltesting.MakeAdmission("queue1").
 					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("gpu", "spot", "1").
+						Obj()).
+					Obj(),
+			},
+		},
+		"prefer flavor with most local capacity (FS=false)": {
+			enableFairSharing: false,
+			cohorts: []kueue.Cohort{
+				*utiltesting.MakeCohort("root-cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeCohort("child-cohort").
+					Parent("root-cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "7").Obj(),
+					).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("queue1").
+					Cohort("child-cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+						WhenCanBorrow:  kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "3").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "3").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("queue1", "default").ClusterQueue("queue1").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a1", "default").
+					Queue("queue1").
+					Request("gpu", "8").
+					SimpleReserveQuota("queue1", "on-demand", now).
+					Obj(),
+				// exhaust quota in spot in ClusterQueue
+				*utiltesting.MakeWorkload("a2", "default").
+					Queue("queue1").
+					Request("gpu", "3").
+					SimpleReserveQuota("queue1", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "default").
+					Queue("queue1").
+					Request("gpu", "1").
+					Obj(),
+			},
+			wantScheduled: []workload.Reference{"default/a3"},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/a1": *utiltesting.MakeAdmission("queue1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "8").
+						Obj()).
+					Obj(),
+				"default/a2": *utiltesting.MakeAdmission("queue1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "spot", "3").
+						Obj()).
+					Obj(),
+				"default/a3": *utiltesting.MakeAdmission("queue1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "spot", "1").
+						Obj()).
+					Obj(),
+			},
+		},
+		"preempt within CQ in flavor with most local capacity": {
+			enableFairSharing:                          true,
+			flavorFungibilityImplicitPreferenceDefault: true,
+			cohorts: []kueue.Cohort{
+				*utiltesting.MakeCohort("root-cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "2").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeCohort("child-cohort").
+					Parent("root-cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("queue1").
+					Cohort("child-cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+						WhenCanBorrow:  kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("queue1", "default").ClusterQueue("queue1").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a1", "default").
+					Priority(-1).
+					Queue("queue1").
+					Request("gpu", "2").
+					SimpleReserveQuota("queue1", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "default").
+					Priority(99).
+					Queue("queue1").
+					Request("gpu", "1").
+					Obj(),
+			},
+			wantScheduled: nil,
+			wantPreempted: sets.New[workload.Reference]("default/a1"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"queue1": {"default/a2"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/a1": *utiltesting.MakeAdmission("queue1").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "2").
+						Obj()).
+					Obj(),
+			},
+		},
+		"preempt within Cohort in flavor with most local capacity": {
+			enableFairSharing:                          true,
+			flavorFungibilityImplicitPreferenceDefault: true,
+			cohorts: []kueue.Cohort{
+				*utiltesting.MakeCohort("root-cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "2").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeCohort("child-cohort").
+					Parent("root-cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "2").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("queue1").
+					Cohort("child-cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+						WhenCanBorrow:  kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("queue2").
+					Cohort("child-cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+						WhenCanBorrow:  kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("queue1", "default").ClusterQueue("queue1").Obj(),
+				*utiltesting.MakeLocalQueue("queue2", "default").ClusterQueue("queue2").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// exhaust quota in on-demand in ParentCohort
+				*utiltesting.MakeWorkload("a2", "default").
+					Priority(-1).
+					Queue("queue2").
+					Request("gpu", "2").
+					SimpleReserveQuota("queue2", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a1", "default").
+					Priority(99).
+					Queue("queue1").
+					Request("gpu", "1").
+					Obj(),
+			},
+			wantScheduled: nil,
+			wantPreempted: sets.New[workload.Reference]("default/a2"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"queue1": {"default/a1"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/a2": *utiltesting.MakeAdmission("queue2").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "2").
 						Obj()).
 					Obj(),
 			},
@@ -3857,6 +4078,7 @@ func TestSchedule(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 			}
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsViaWorkloadSlice)
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.flavorFungibilityImplicitPreferenceDefault)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -3867,6 +4089,7 @@ func TestSchedule(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 				WithObjects(append(
 					[]client.Object{
+						utiltesting.MakeNamespaceWrapper("default").Obj(),
 						utiltesting.MakeNamespaceWrapper("eng-alpha").Label("dep", "eng").Obj(),
 						utiltesting.MakeNamespaceWrapper("eng-beta").Label("dep", "eng").Obj(),
 						utiltesting.MakeNamespaceWrapper("eng-gamma").Label("dep", "eng").Obj(),
