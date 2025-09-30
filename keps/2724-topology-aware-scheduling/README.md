@@ -608,7 +608,7 @@ type TopologySpec struct {
 
 // TopologyLevel defines the desired state of TopologyLevel
 type TopologyLevel struct {
-  // NodeLabel indicates the name of the node label for a specific topology
+  // nodeLabel indicates the name of the node label for a specific topology
   // level. Examples:
   // - cloud.provider.com/topology-block
   // - cloud.provider.com/topology-rack
@@ -771,34 +771,34 @@ type PodSetTopologyRequest struct {
   // +kubebuilder:validation:Type=boolean
   Unconstrained *bool `json:"unconstrained,omitempty"`
 
-  // PodIndexLabel indicates the name of the label indexing the pods.
+  // podIndexLabel indicates the name of the label indexing the pods.
   // For example, in the context of
   // - kubernetes job this is: kubernetes.io/job-completion-index
   // - JobSet: kubernetes.io/job-completion-index (inherited from Job)
   // - Kubeflow: training.kubeflow.org/replica-index
   PodIndexLabel *string
 
-  // SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+  // subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
   // within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
   SubGroupIndexLabel *string
 
-  // SubGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
+  // subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
   // For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
   SubGroupCount *int32
 
-  // PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+  // podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
   // PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
   //
   // +optional
   PodSetGroupName *string `json:"podSetGroupName,omitempty"`
 
-  // PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+  // podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
   // indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
   // +optional
   PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
 
-  // PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+  // podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
   // Kueue finds a requested topology domain on a level defined
   // in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
   //
