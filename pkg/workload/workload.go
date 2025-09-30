@@ -30,7 +30,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
@@ -52,6 +51,7 @@ import (
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
 const (
@@ -617,16 +617,8 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 	// - "Rand" represents the random jitter.
 	// During this time, the workload is taken as an inadmissible and other
 	// workloads will have a chance to be admitted.
-	backoff := &wait.Backoff{
-		Duration: time.Duration(backoffBaseSeconds) * time.Second,
-		Factor:   2,
-		Jitter:   0.0001,
-		Steps:    int(requeuingCount),
-	}
-	var waitDuration time.Duration
-	for backoff.Steps > 0 {
-		waitDuration = min(backoff.Step(), time.Duration(backoffMaxSeconds)*time.Second)
-	}
+	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
+	waitDuration := backoff.WaitTime(int(requeuingCount))
 
 	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
 	wl.Status.RequeueState.Count = &requeuingCount
