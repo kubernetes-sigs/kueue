@@ -25,7 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
-	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/trainjob"
+	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util"
 )
