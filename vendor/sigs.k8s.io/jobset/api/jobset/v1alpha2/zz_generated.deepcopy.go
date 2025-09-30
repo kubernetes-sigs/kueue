@@ -82,6 +82,11 @@ func (in *FailurePolicyRule) DeepCopyInto(out *FailurePolicyRule) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.OnJobFailureMessagePatterns != nil {
+		in, out := &in.OnJobFailureMessagePatterns, &out.OnJobFailureMessagePatterns
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.TargetReplicatedJobs != nil {
 		in, out := &in.TargetReplicatedJobs, &out.TargetReplicatedJobs
 		*out = make([]string, len(*in))
