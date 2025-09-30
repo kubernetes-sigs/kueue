@@ -89,6 +89,29 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		}
 
 		if workloadslicing.Enabled(&localJob) {
+			oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
+			newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
+			newWorkloadName := jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(localJob.GetName(), localJob.GetUID(), gvk, localJob.GetGeneration())
+
+			// Detect and skip stale local Workload updates caused by a Job scale-up event.
+			//
+			// During scale-up, a race condition may occur between the GenericJobReconciler
+			// and this controller. The GenericJobReconciler is responsible for creating a
+			// new Workload slice that reflects the updated Job spec. Once admitted, that
+			// new slice finalizes (Finishes) the old slice.
+			//
+			// If the current reconciliation observes the old Workload slice while the Job’s
+			// parallelism has already increased, the slice is considered stale. In this case,
+			// we skip syncing to avoid propagating outdated state to the remote clusters.
+			if oldParallelism < newParallelism && workloadName != newWorkloadName {
+				log.V(2).Info("Skipping stale ElasticWorkload sync",
+					"old.parallelism", oldParallelism,
+					"new.parallelism", newParallelism,
+					"workloadName", workloadName,
+					"newWorkloadName", newWorkloadName)
+				return nil
+			}
+
 			// Update remote job's workload slice name and parallelism if needed.
 			if err := clientutil.Patch(ctx, remoteClient, &remoteJob, func() (client.Object, bool, error) {
 				// Update workload name label.
@@ -104,8 +127,6 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				}
 
 				// Update parallelism.
-				oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
-				newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
 				remoteJob.Spec.Parallelism = localJob.Spec.Parallelism
 				return &remoteJob, oldParallelism != newParallelism || labelsChanged, nil
 			}); err != nil {

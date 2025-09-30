@@ -42,6 +42,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -1624,7 +1625,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.XIt("Should run an ElasticJob on worker if admitted", func() {
+	ginkgo.It("Should run an ElasticJob on worker if admitted", func() {
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 		worker2 := worker2TestCluster
@@ -1727,6 +1728,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		/*
 			Scale-up Section
 		*/
+		ginkgo.By("DEBUG Before Scale")
+		debugAll(job.Namespace)
 
 		ginkgo.By("scale-up the job", func() {
 			getJob(manager.ctx, manager.client, job)
@@ -1736,11 +1739,17 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("DEBUG After Scale")
+		debugAll(job.Namespace)
+
 		ginkgo.By("observe: a new workload slice is created")
 		newWorkloadKey := getWorkloadKey(job)
 		gomega.Eventually(func(g gomega.Gomega) {
 			getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("DEBUG After new slice created")
+		debugAll(job.Namespace)
 
 		ginkgo.By("copy clusterName from the old workload to the new workload", func() {
 			oldWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
@@ -1755,15 +1764,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(newWorkload.Status.ClusterName).Should(gomega.BeEquivalentTo(oldWorkload.Status.ClusterName))
 		})
 
+		ginkgo.By("DEBUG After new slice copy cluster name")
+		debugAll(job.Namespace)
+
 		ginkgo.By("admit the new workload and finish the old workload in the manager cluster", func() {
-			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltesting.MakeAdmission(managerCq.Name).Obj())
 			gomega.Eventually(func(g gomega.Gomega) {
 				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 				g.Expect(workloadslicing.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice")).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltesting.MakeAdmission(managerCq.Name).Obj())
 		})
 
-		ginkgo.By("observe: the new workload is crated in the worker1 cluster")
+		ginkgo.By("DEBUG After new slice admission")
+		debugAll(job.Namespace)
+
+		ginkgo.By("observe: the new workload is created in the worker1 cluster")
 		gomega.Eventually(func(g gomega.Gomega) {
 			local := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			remote := getWorkload(g, worker1.ctx, worker1.client, newWorkloadKey)
@@ -1778,6 +1793,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(worker2.client.List(worker2.ctx, jobs, client.InNamespace(job.Namespace))).To(gomega.Succeed())
 			gomega.Expect(jobs.Items).To(gomega.BeEmpty())
 		})
+
+		ginkgo.By("DEBUG After new slice created on worker1")
+		debugAll(job.Namespace)
 
 		ginkgo.By("observe: the old workload is still admitted in the worker1 cluster", func() {
 			workload := getWorkload(gomega.Default, worker1.ctx, worker1.client, workloadKey)
@@ -1910,6 +1928,34 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 })
+
+func debugAll(ns string) {
+	debug(ns, "MANAGER", managerTestCluster)
+	debug(ns, "WORKER1", worker1TestCluster)
+	debug(ns, "WORKER2", worker2TestCluster)
+}
+
+func debug(ns, clusterName string, c cluster) {
+	log := ginkgo.GinkgoLogr.WithName(clusterName)
+
+	jobs := &batchv1.JobList{}
+	gomega.Expect(c.client.List(c.ctx, jobs, client.InNamespace(ns))).To(gomega.Succeed())
+	if len(jobs.Items) == 0 {
+		log.Info("no jobs")
+	}
+	for _, job := range jobs.Items {
+		log.Info("job", "name", job.Name, "uid", job.UID, "prebuild", job.Labels[constants.PrebuiltWorkloadLabel], "pods", job.Spec.Parallelism, "suspend", job.Spec.Suspend)
+	}
+
+	wls := &kueue.WorkloadList{}
+	gomega.Expect(c.client.List(c.ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
+	if len(wls.Items) == 0 {
+		log.Info("no workloads")
+	}
+	for _, wl := range wls.Items {
+		log.Info("wl", "name", wl.Name, "pods", wl.Spec.PodSets[0].Count, "labels", wl.Labels, "status", wl.Status)
+	}
+}
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltesting.AdmissionWrapper) {
 	ginkgo.By("setting workload reservation in the management cluster", func() {
