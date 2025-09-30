@@ -282,7 +282,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "cannot be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not present"),
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-slice-size"), "cannot be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not present"),
+					Key("kueue.x-k8s.io/podset-slice-size"), "cannot set when 'kueue.x-k8s.io/podset-slice-required-topology' is not present"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -338,13 +338,13 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "cannot be set when 'kueue.x-k8s.io/podset-slice-size' is present"),
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-size' is specified"),
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "cannot be set when 'kueue.x-k8s.io/podset-slice-required-topology' is present"),
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "cannot be set when 'kueue.x-k8s.io/podset-slice-size' is present"),
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-size' is specified"),
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "cannot be set when 'kueue.x-k8s.io/podset-slice-required-topology' is present"),
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
