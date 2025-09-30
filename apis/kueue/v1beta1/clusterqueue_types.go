@@ -208,11 +208,11 @@ type FlavorQuotas struct {
 	Name ResourceFlavorReference `json:"name"`
 
 	// resources is the list of quotas for this flavor per resource.
-	// There could be up to 16 resources.
+	// There could be up to 64 resources.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	Resources []ResourceQuota `json:"resources"`
 }
 
@@ -278,7 +278,7 @@ type ClusterQueueStatus struct {
 	// workloads assigned to this ClusterQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsReservation []FlavorUsage `json:"flavorsReservation"`
 
@@ -286,7 +286,7 @@ type ClusterQueueStatus struct {
 	// workloads admitted in this ClusterQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsUsage []FlavorUsage `json:"flavorsUsage"`
 
@@ -348,7 +348,7 @@ type FlavorUsage struct {
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	Resources []ResourceUsage `json:"resources"`
 }
 
