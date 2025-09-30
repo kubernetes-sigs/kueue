@@ -776,15 +776,15 @@ type PodSetTopologyRequest struct {
   // - kubernetes job this is: kubernetes.io/job-completion-index
   // - JobSet: kubernetes.io/job-completion-index (inherited from Job)
   // - Kubeflow: training.kubeflow.org/replica-index
-  PodIndexLabel *string
+  PodIndexLabel *string `json:"podIndexLabel,omitempty"`
 
   // subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
   // within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
-  SubGroupIndexLabel *string
+  SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
   // subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
   // For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
-  SubGroupCount *int32
+  SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
   // podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
   // PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
