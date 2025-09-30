@@ -52,12 +52,29 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq.RemoveUsage(wl.Usage())
 }
 
-// AddWorkload adds a workload from its corresponding ClusterQueue and
+// AddWorkload adds a workload to its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.Usage())
+}
+
+// SimulateWorkloadRemoval modifies the snapshot by removing the usage
+// corresponding to the list of workloads from workloads' respective
+// ClusterQueues. It returns a function which can be used to restore
+// this usage.
+func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	for _, w := range workloads {
+		cq := s.ClusterQueue(w.ClusterQueue)
+		cq.RemoveUsage(w.Usage())
+	}
+	return func() {
+		for _, w := range workloads {
+			cq := s.ClusterQueue(w.ClusterQueue)
+			cq.AddUsage(w.Usage())
+		}
+	}
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
