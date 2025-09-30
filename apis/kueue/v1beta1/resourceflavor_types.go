@@ -29,9 +29,11 @@ import (
 
 // ResourceFlavor is the Schema for the resourceflavors API.
 type ResourceFlavor struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the ResourceFlavor.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// spec is the specification of the ResourceFlavor.
 	Spec ResourceFlavorSpec `json:"spec,omitempty"`
 }
 

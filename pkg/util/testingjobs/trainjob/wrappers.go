@@ -22,9 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
 
 type TrainJobWrapper struct{ kftrainerapi.TrainJob }
@@ -59,6 +59,12 @@ func (t *TrainJobWrapper) PodSpecOverrides(overrides []kftrainerapi.PodSpecOverr
 	return t
 }
 
+// RuntimeRefName sets the TrainingRuntime reference
+func (t *TrainJobWrapper) RuntimeRef(runtimeRef kftrainerapi.RuntimeRef) *TrainJobWrapper {
+	t.Spec.RuntimeRef = runtimeRef
+	return t
+}
+
 // RuntimeRefName sets the TrainingRuntime reference name
 func (t *TrainJobWrapper) RuntimeRefName(name string) *TrainJobWrapper {
 	t.Spec.RuntimeRef.Name = name
@@ -73,6 +79,7 @@ func (t *TrainJobWrapper) TrainerImage(image string, cmd, args []string) *TrainJ
 	return t
 }
 
+// Label sets a Trainjob annotation key and value
 func (t *TrainJobWrapper) Annotation(key, value string) *TrainJobWrapper {
 	if t.Annotations == nil {
 		t.Annotations = make(map[string]string)
@@ -81,7 +88,7 @@ func (t *TrainJobWrapper) Annotation(key, value string) *TrainJobWrapper {
 	return t
 }
 
-// Label sets the Trainjob label key and value
+// Label sets a Trainjob label key and value
 func (t *TrainJobWrapper) Label(key, value string) *TrainJobWrapper {
 	if t.Labels == nil {
 		t.Labels = make(map[string]string)
@@ -137,7 +144,31 @@ func (t *TrainJobWrapper) JobsStatus(statuses ...kftrainerapi.JobStatus) *TrainJ
 	return t
 }
 
-// MakeJobSetWrapperFromTrainjob creates a JobSetWrapper from a TrainJob. The JobSetWrapper will have the same name and namespace as the TrainJob, and it will be set as the owner of the JobSet.
-func MakeJobSetWrapperFromTrainjob(t *kftrainerapi.TrainJob) *testingjobset.JobSetWrapper {
-	return testingjobset.MakeJobSet(t.Name, t.Namespace).OwnerReference(t.Name, kftrainerapi.GroupVersion.WithKind("TrainJob"))
+// MakeClusterTrainingRuntime creates a ClusterTrainingRuntime with the jobsetSpec provided
+func MakeClusterTrainingRuntime(name string, jobsetSpec jobsetapi.JobSetSpec) *kftrainerapi.ClusterTrainingRuntime {
+	return &kftrainerapi.ClusterTrainingRuntime{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: kftrainerapi.TrainingRuntimeSpec{
+			Template: kftrainerapi.JobSetTemplateSpec{
+				Spec: jobsetSpec,
+			},
+		},
+	}
+}
+
+// MakeTrainingRuntime creates a TrainingRuntime with the jobsetSpec provided
+func MakeTrainingRuntime(name, ns string, jobsetSpec jobsetapi.JobSetSpec) *kftrainerapi.TrainingRuntime {
+	return &kftrainerapi.TrainingRuntime{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Spec: kftrainerapi.TrainingRuntimeSpec{
+			Template: kftrainerapi.JobSetTemplateSpec{
+				Spec: jobsetSpec,
+			},
+		},
+	}
 }
