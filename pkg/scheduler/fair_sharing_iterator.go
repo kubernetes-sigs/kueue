@@ -25,7 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -37,14 +37,14 @@ import (
 type fairSharingIterator struct {
 	// cqToEntry tracks ClusterQueues which still have workloads
 	// to schedule, and the corresponding workload entry.
-	cqToEntry     map[*cache.ClusterQueueSnapshot]*entry
+	cqToEntry     map[*schdcache.ClusterQueueSnapshot]*entry
 	entryComparer entryComparer
 	log           logr.Logger
 }
 
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
 	f := fairSharingIterator{
-		cqToEntry: make(map[*cache.ClusterQueueSnapshot]*entry, len(entries)),
+		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot]*entry, len(entries)),
 		entryComparer: entryComparer{
 			workloadOrdering: workloadOrdering,
 		},
@@ -101,7 +101,7 @@ func (f *fairSharingIterator) pop() *entry {
 // scheduling order of workloads in different Cohort. Workload
 // consideration is nearly deterministic within Cohort (only when DRS,
 // Priority, and time are equal it is non-deterministic).
-func (f *fairSharingIterator) getCq() *cache.ClusterQueueSnapshot {
+func (f *fairSharingIterator) getCq() *schdcache.ClusterQueueSnapshot {
 	for cq := range f.cqToEntry {
 		return cq
 	}
@@ -118,7 +118,7 @@ func (f *fairSharingIterator) getCq() *cache.ClusterQueueSnapshot {
 // This process results in one workload (or zero if Cohort has no
 // remaining workloads to schedule this cycle) being bubbled up per
 // node, until exactly one workload remains at the root.
-func runTournament(cohort *cache.CohortSnapshot, ec entryComparer, cqToEntry map[*cache.ClusterQueueSnapshot]*entry) *entry {
+func runTournament(cohort *schdcache.CohortSnapshot, ec entryComparer, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) *entry {
 	candidates := make([]*entry, 0, cohort.ChildCount())
 
 	// Run algorithm recursively for each of the child Cohorts.
@@ -160,16 +160,17 @@ type drsKey struct {
 }
 
 type entryComparer struct {
-	drsValues        map[drsKey]int
+	drsValues        map[drsKey]schdcache.DRS
 	workloadOrdering workload.Ordering
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
+
 	// 1: DRF
-	if aDrs != bDrs {
-		return aDrs < bDrs
+	if cmp := schdcache.CompareDRS(aDrs, bDrs); cmp != 0 {
+		return cmp == -1
 	}
 
 	// 2: Priority
@@ -192,8 +193,8 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 // root-1.  During the tournament, these values are used to compare
 // all children the parentCohort, to select the child with the lowest
 // DRS after admission of its nominated workload.
-func (e *entryComparer) computeDRS(rootCohort *cache.CohortSnapshot, cqToEntry map[*cache.ClusterQueueSnapshot]*entry) {
-	e.drsValues = make(map[drsKey]int)
+func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) {
+	e.drsValues = make(map[drsKey]schdcache.DRS)
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
 		entry, ok := cqToEntry[cq]
 		if !ok {
@@ -221,7 +222,7 @@ func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 	if logV := log.V(5); logV.Enabled() {
 		serializableDrs := make([]string, 0, len(e.drsValues))
 		for k, v := range e.drsValues {
-			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %d}", k.parentCohort, k.workloadKey, v))
+			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %.3f}", k.parentCohort, k.workloadKey, v.PreciseWeightedShare()))
 		}
 		logV.Info("DominantResourceShare values used during tournament", "drsValues", serializableDrs)
 	}

@@ -41,6 +41,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
     [1.31](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-31),
     [1.32](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-32),
     [1.33](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-33),
+    [1.34](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-34),
     on Kind.
   - ✔️ E2E TAS Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-main)
   - ✔️ E2E Custom Configs Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-customconfigs-main)
@@ -88,18 +89,6 @@ Learn more about:
 - Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
-## Architecture
-
-<!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
-
-Learn more about the architecture of Kueue with the following design docs:
-
-- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) discusses the API proposal and a high
-  level description of how Kueue operates. Join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
-to get document access.
-- [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
-presents the detailed design of the controller.
-
 ## Roadmap
 
 High-level overview of the main priorities for 2025:
@@ -140,7 +129,8 @@ You can reach the maintainers of this project at:
 
 ### Graphic assets
 
-- [Logos](https://github.com/cncf/artwork/tree/main/projects/kueue)
+- [Kueue](https://github.com/cncf/artwork/tree/main/projects/kubernetes/sub-projects/kueue)
+- [KueueViz](https://github.com/cncf/artwork/tree/main/projects/kubernetes/sub-projects/kueueviz)
 
 ### Code of conduct
 

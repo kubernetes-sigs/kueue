@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -47,21 +48,24 @@ const (
 )
 
 var (
-	IgnoreConditionTimestamps                      = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-	IgnoreConditionTimestampsAndObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
-	IgnoreConditionMessage                         = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
-	IgnoreObjectMetaResourceVersion                = cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
-	IgnoreDeploymentConditionTimestampsAndMessage  = cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message")
+	IgnoreConditionTimestamps                                = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+	IgnoreConditionTimestampsAndObservedGeneration           = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
+	IgnoreConditionMessage                                   = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
+	IgnoreObjectMetaResourceVersion                          = cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
+	IgnoreDeploymentConditionTimestampsAndMessage            = cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "LastTransitionTime", "LastUpdateTime", "Message")
+	IgnorePodConditionTimestampsMessageAndObservedGeneration = cmpopts.IgnoreFields(corev1.PodCondition{}, "LastProbeTime", "LastTransitionTime", "Message", "ObservedGeneration")
 )
 
 var (
-	AutoscalerCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
-	JobsetCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
-	TrainingOperatorCrds = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
-	MpiOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
-	AppWrapperCrds       = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
-	RayOperatorCrds      = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
-	WebhookPath          = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
+	AutoscalerCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "cluster-autoscaler")
+	JobsetCrds               = filepath.Join(GetProjectBaseDir(), "dep-crds", "jobset-operator")
+	TrainingOperatorCrds     = filepath.Join(GetProjectBaseDir(), "dep-crds", "training-operator-crds")
+	KfTrainerCrds            = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-crds")
+	KfTrainerClusterRuntimes = filepath.Join(GetProjectBaseDir(), "dep-crds", "kf-trainer-runtimes")
+	MpiOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "mpi-operator")
+	AppWrapperCrds           = filepath.Join(GetProjectBaseDir(), "dep-crds", "appwrapper-crds")
+	RayOperatorCrds          = filepath.Join(GetProjectBaseDir(), "dep-crds", "ray-operator-crds")
+	WebhookPath              = filepath.Join(GetProjectBaseDir(), "config", "components", "webhook")
 )
 
 var (

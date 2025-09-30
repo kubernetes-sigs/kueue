@@ -36,12 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -190,7 +188,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 					},
 				},
 			).Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 			lookupKey := types.NamespacedName{Name: awName, Namespace: ns.Name}
@@ -260,7 +258,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 						},
 					},
 				).Obj()
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).To(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -452,8 +450,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 						},
 					).
 					Obj()
-				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -493,8 +490,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -641,7 +637,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 					},
 				},
 			).Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
@@ -674,12 +670,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 
 			if podsReadyTestSpec.suspended {
 				ginkgo.By("Unset admission of the workload to suspend the AppWrapper")
-				gomega.Eventually(func(g gomega.Gomega) {
-					// the update may need to be retried due to a conflict as the workload gets
-					// also updated due to setting of the job status.
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
@@ -843,7 +834,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	})
 })
 
-var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
@@ -852,7 +843,7 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -867,8 +858,6 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-aw-")
 
 		nodes = []corev1.Node{
@@ -917,7 +906,7 @@ var _ = ginkgo.Describe("AppWrapper controller when TopologyAwareScheduling enab
 		aw := testingaw.MakeAppWrapper(awName, ns.Name).
 			Component(testingaw.Component{
 				Template: utiltestingjob.MakeJob("job", ns.Name).
-					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 					Request(corev1.ResourceCPU, "1").
 					SetTypeMeta().
 					Obj(),

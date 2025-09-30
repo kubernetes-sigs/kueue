@@ -61,7 +61,7 @@ type Reconciler struct {
 	managedJobsNamespaceSelector labels.Selector
 }
 
-func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -71,7 +71,7 @@ func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opt
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-	}
+	}, nil
 }
 
 var _ jobframework.JobReconcilerInterface = (*Reconciler)(nil)

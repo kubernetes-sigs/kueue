@@ -54,7 +54,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: LocalQueueSpec defines the desired state of LocalQueue
+            description: spec is the specification of the LocalQueue.
             properties:
               clusterQueue:
                 description: clusterQueue is a reference to a clusterQueue that backs
@@ -87,6 +87,7 @@ spec:
                       with the highest share.  A zero weight implies infinite
                       share value, meaning that this Node will always be at
                       disadvantage against other ClusterQueues and Cohorts.
+                      When not 0, Weight must be greater than 10^-9.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                 type: object
@@ -108,7 +109,7 @@ spec:
                 type: string
             type: object
           status:
-            description: LocalQueueStatus defines the observed state of LocalQueue
+            description: status is the status of the LocalQueue.
             properties:
               admittedWorkloads:
                 description: |-
@@ -118,7 +119,7 @@ spec:
                 type: integer
               conditions:
                 description: |-
-                  Conditions hold the latest available observations of the LocalQueue
+                  conditions hold the latest available observations of the LocalQueue
                   current state.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -179,7 +180,7 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               fairSharing:
-                description: FairSharing contains the information about the current
+                description: fairSharing contains the information about the current
                   status of fair sharing.
                 properties:
                   admissionFairSharingStatus:
@@ -194,12 +195,12 @@ spec:
                           pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                           x-kubernetes-int-or-string: true
                         description: |-
-                          ConsumedResources represents the aggregated usage of resources over time,
+                          consumedResources represents the aggregated usage of resources over time,
                           with decaying function applied.
                           The value is populated if usage consumption functionality is enabled in Kueue config.
                         type: object
                       lastUpdate:
-                        description: LastUpdate is the time when share and consumed
+                        description: lastUpdate is the time when share and consumed
                           resources were updated.
                         format: date-time
                         type: string
@@ -209,7 +210,7 @@ spec:
                     type: object
                   weightedShare:
                     description: |-
-                      WeightedShare represents the maximum of the ratios of usage
+                      weightedShare represents the maximum of the ratios of usage
                       above nominal quota to the lendable resources in the
                       Cohort, among all the resources provided by the Node, and
                       divided by the weight.  If zero, it means that the usage of
@@ -223,7 +224,7 @@ spec:
                 type: object
               flavorUsage:
                 description: |-
-                  flavorsUsage are the used quotas, by flavor currently in use by the
+                  flavorUsage are the used quotas, by flavor currently in use by the
                   workloads assigned to this LocalQueue.
                 items:
                   properties:
@@ -303,9 +304,8 @@ spec:
                               a node.
                             type: string
                           timeAdded:
-                            description: |-
-                              TimeAdded represents the time at which the taint was added.
-                              It is only written for NoExecute taints.
+                            description: TimeAdded represents the time at which the
+                              taint was added.
                             format: date-time
                             type: string
                           value:
@@ -332,7 +332,7 @@ spec:
                       description: |-
                         topology is the topology that associated with this ResourceFlavor.
 
-                        This is an alpha field and requires enabling the TopologyAwareScheduling
+                        This is a beta field and requires enabling the TopologyAwareScheduling
                         feature gate.
                       properties:
                         levels:
@@ -404,7 +404,7 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               pendingWorkloads:
-                description: PendingWorkloads is the number of Workloads in the LocalQueue
+                description: pendingWorkloads is the number of Workloads in the LocalQueue
                   not yet admitted to a ClusterQueue
                 format: int32
                 type: integer

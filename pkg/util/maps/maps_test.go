@@ -21,7 +21,97 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
+
+func TestCopy(t *testing.T) {
+	cases := map[string]struct {
+		dst  *map[string]string
+		src  map[string]string
+		want *map[string]string
+	}{
+		"nil dst pointer": {
+			dst: nil,
+			src: map[string]string{
+				"key1": "value1",
+			},
+			want: nil,
+		},
+		"nil dst, nil src": {
+			dst:  new(map[string]string),
+			src:  nil,
+			want: new(map[string]string),
+		},
+		"nil dst, non-empty src": {
+			dst: new(map[string]string),
+			src: map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+		},
+		"empty dst, non-empty src": {
+			dst: &map[string]string{},
+			src: map[string]string{
+				"key1": "value1",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+			},
+		},
+		"non-empty dst, empty src": {
+			dst: &map[string]string{
+				"existing": "value",
+			},
+			src: map[string]string{},
+			want: &map[string]string{
+				"existing": "value",
+			},
+		},
+		"non-empty dst, non-empty src with new keys": {
+			dst: &map[string]string{
+				"existing": "value",
+			},
+			src: map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+			want: &map[string]string{
+				"existing": "value",
+				"key1":     "value1",
+				"key2":     "value2",
+			},
+		},
+		"non-empty dst, non-empty src with overlapping keys": {
+			dst: &map[string]string{
+				"existing": "old_value",
+				"key1":     "old_key1",
+			},
+			src: map[string]string{
+				"existing": "new_value",
+				"key2":     "value2",
+			},
+			want: &map[string]string{
+				"existing": "new_value",
+				"key1":     "old_key1",
+				"key2":     "value2",
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			Copy(tc.dst, tc.src)
+			if diff := cmp.Diff(tc.dst, tc.want,
+				cmpopts.SortMaps(func(x, y string) bool { return x < y }),
+			); len(diff) != 0 {
+				t.Errorf("Unexpected copy result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestToRefMap(t *testing.T) {
 	cases := map[string]struct {

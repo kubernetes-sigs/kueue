@@ -61,6 +61,12 @@ func (j *JobSetWrapper) Conditions(conditions []metav1.Condition) *JobSetWrapper
 	return j
 }
 
+// SetStatus sets the value of jobSet.status
+func (j *JobSetWrapper) SetStatus(status jobset.JobSetStatus) *JobSetWrapper {
+	j.Status = status
+	return j
+}
+
 // ManagedBy sets the value of jobSet.spec.managedBy
 func (j *JobSetWrapper) ManagedBy(managedBy string) *JobSetWrapper {
 	j.Spec.ManagedBy = ptr.To(managedBy)
@@ -112,37 +118,37 @@ func (j *JobSetWrapper) Obj() *jobset.JobSet {
 
 // ReplicatedJob adds a single ReplicatedJob to the JobSet.
 func (j *JobSetWrapper) ReplicatedJob(job jobset.ReplicatedJob) *JobSetWrapper {
-	j.JobSet.Spec.ReplicatedJobs = append(j.JobSet.Spec.ReplicatedJobs, job)
+	j.Spec.ReplicatedJobs = append(j.Spec.ReplicatedJobs, job)
 	return j
 }
 
 // Suspend adds a suspend flag to JobSet
 func (j *JobSetWrapper) Suspend(suspend bool) *JobSetWrapper {
-	j.JobSet.Spec.Suspend = ptr.To(suspend)
+	j.Spec.Suspend = ptr.To(suspend)
 	return j
 }
 
 // Coordinator sets the Coordinator field on the JobSet spec.
 func (j *JobSetWrapper) Coordinator(coordinator *jobset.Coordinator) *JobSetWrapper {
-	j.JobSet.Spec.Coordinator = coordinator
+	j.Spec.Coordinator = coordinator
 	return j
 }
 
 // NetworkSubdomain sets the value of JobSet.Network.Subdomain
 func (j *JobSetWrapper) NetworkSubdomain(val string) *JobSetWrapper {
-	j.JobSet.Spec.Network.Subdomain = val
+	j.Spec.Network.Subdomain = val
 	return j
 }
 
 // EnableDNSHostnames sets the value of JobSet.Network.EnableDNSHostnames.
 func (j *JobSetWrapper) EnableDNSHostnames(val bool) *JobSetWrapper {
-	j.JobSet.Spec.Network.EnableDNSHostnames = ptr.To(val)
+	j.Spec.Network.EnableDNSHostnames = ptr.To(val)
 	return j
 }
 
 // PublishNotReadyAddresses sets the value of JobSet.Network.PublishNotReadyAddresses.
 func (j *JobSetWrapper) PublishNotReadyAddresses(val bool) *JobSetWrapper {
-	j.JobSet.Spec.Network.PublishNotReadyAddresses = ptr.To(val)
+	j.Spec.Network.PublishNotReadyAddresses = ptr.To(val)
 	return j
 }
 
@@ -200,6 +206,12 @@ func MakeReplicatedJob(name string) *ReplicatedJobWrapper {
 // Job sets the Job spec for the ReplicatedJob template.
 func (r *ReplicatedJobWrapper) Job(jobSpec batchv1.JobTemplateSpec) *ReplicatedJobWrapper {
 	r.Template = jobSpec
+	return r
+}
+
+// GroupName sets the value of the ReplicatedJob.GroupName.
+func (r *ReplicatedJobWrapper) GroupName(val string) *ReplicatedJobWrapper {
+	r.ReplicatedJob.GroupName = val
 	return r
 }
 

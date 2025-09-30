@@ -24,16 +24,16 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/queue"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 )
 
 type Dumper struct {
-	cache  *cache.Cache
-	queues *queue.Manager
+	cache  *schdcache.Cache
+	queues *qcache.Manager
 }
 
-func NewDumper(c *cache.Cache, q *queue.Manager) *Dumper {
+func NewDumper(c *schdcache.Cache, q *qcache.Manager) *Dumper {
 	return &Dumper{cache: c, queues: q}
 }
 

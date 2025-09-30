@@ -103,16 +103,16 @@ func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, 
 
 func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
-	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, true, func() (bool, error) {
+	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (client.Object, bool, error) {
 		if ungateAndFinalize(sts, pod) {
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
 				"group", pod.Labels[podcontroller.GroupNameLabel],
 			)
-			return true, nil
+			return pod, true, nil
 		}
-		return false, nil
+		return pod, false, nil
 	}))
 }
 
@@ -148,7 +148,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(client client.Client, _ record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, _ record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -156,7 +156,7 @@ func NewReconciler(client client.Client, _ record.EventRecorder, opts ...jobfram
 		log:                          ctrl.Log.WithName("statefulset-reconciler"),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-	}
+	}, nil
 }
 
 var _ predicate.Predicate = (*Reconciler)(nil)

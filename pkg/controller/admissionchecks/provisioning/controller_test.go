@@ -616,19 +616,15 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 						},
@@ -1181,10 +1177,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 								NodeSelector: map[string]string{
 									"node-selector-key": "nodes-selector-xyz",
@@ -1193,10 +1187,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 								NodeSelector: map[string]string{
 									"node-selector-key": "nodes-selector-xyz",
@@ -1234,19 +1226,15 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
 								},
 							},
 						},
@@ -1597,7 +1585,8 @@ func TestReconcile(t *testing.T) {
 				interceptorFuncs.Create = tc.interceptorFuncsCreate
 			}
 
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 			builder = builder.WithInterceptorFuncs(interceptorFuncs)
 			builder = builder.WithObjects(tc.workload)
 			builder = builder.WithStatusSubresource(tc.workload)
@@ -1782,7 +1771,8 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				kueue.AdmissionCheckReference(baseCheck.Name): baseConfig.DeepCopy(),
 			}
 
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 
 			builder = builder.WithObjects(workload)
 			builder = builder.WithStatusSubresource(workload)

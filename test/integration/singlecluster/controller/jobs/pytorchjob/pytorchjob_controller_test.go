@@ -30,13 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
@@ -258,8 +256,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 						},
 					).
 					Obj()
-				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -295,8 +292,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
@@ -569,10 +565,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				wl := &kueue.Workload{}
 				wlKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID), Namespace: job.Namespace}
-				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
+				wl := testing.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
@@ -586,7 +581,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 })
 
-var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -594,7 +589,7 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -609,8 +604,6 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 	})
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pytorchjob-")
 
 		nodes = []corev1.Node{
@@ -663,14 +656,14 @@ var _ = ginkgo.Describe("PyTorchJob controller when TopologyAwareScheduling enab
 					ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
 					},
 				},
 				testingpytorchjob.PyTorchReplicaSpecRequirement{
 					ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 					},
 				},
 			).

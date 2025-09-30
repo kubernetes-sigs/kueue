@@ -21,6 +21,7 @@ import (
 
 const (
 	JobSetNameKey         string = "jobset.sigs.k8s.io/jobset-name"
+	JobSetUIDKey          string = "jobset.sigs.k8s.io/jobset-uid"
 	ReplicatedJobReplicas string = "jobset.sigs.k8s.io/replicatedjob-replicas"
 	// GlobalReplicasKey is a label/annotation set to the total number of replicatedJob replicas.
 	// For each JobSet, this value will be equal to the sum of `replicas`, where `replicas`
@@ -60,6 +61,19 @@ const (
 	// defines the .spec.coordinator field, this annotation/label will be added to store a stable
 	// network endpoint where the coordinator pod can be reached.
 	CoordinatorKey = "jobset.sigs.k8s.io/coordinator"
+
+	// GroupNameKey is a label/annotation set to the group name of the ReplicatedJob.
+	// If a ReplicatedJob is part of a group, then its child jobs and pods have this
+	// label/annotation equal to the group name
+	GroupNameKey string = "jobset.sigs.k8s.io/group-name"
+	// GroupReplicasKey is a label/annotation set to the total number of replicas in the group.
+	// If a ReplicatedJob is part of a group, then its child jobs and pods have this
+	// label/annotation equal to the total number of replicas in the group
+	GroupReplicasKey string = "jobset.sigs.k8s.io/group-replicas"
+	// JobGroupIndexKey is a label/annotation set to the index of the Job replica within its parent group.
+	// If a ReplicatedJob is part of a group, then its child jobs and pods have this
+	// label/annotation ranging from 0 to annotations[GroupReplicasKey] - 1
+	JobGroupIndexKey string = "jobset.sigs.k8s.io/job-group-index"
 )
 
 type JobSetConditionType string
@@ -155,13 +169,14 @@ type JobSetStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// Restarts tracks the number of times the JobSet has restarted (i.e. recreated in case of RecreateAll policy).
-	Restarts int32 `json:"restarts,omitempty"`
+	// +optional
+	Restarts int32 `json:"restarts"`
 
 	// RestartsCountTowardsMax tracks the number of times the JobSet has restarted that counts towards the maximum allowed number of restarts.
 	RestartsCountTowardsMax int32 `json:"restartsCountTowardsMax,omitempty"`
 
 	// TerminalState the state of the JobSet when it finishes execution.
-	// It can be either Complete or Failed. Otherwise, it is empty by default.
+	// It can be either Completed or Failed. Otherwise, it is empty by default.
 	TerminalState string `json:"terminalState,omitempty"`
 
 	// ReplicatedJobsStatus track the number of JobsReady for each replicatedJob.
@@ -225,6 +240,11 @@ type ReplicatedJob struct {
 	// Name is the name of the entry and will be used as a suffix
 	// for the Job name.
 	Name string `json:"name"`
+
+	// GroupName defines the name of the group this ReplicatedJob belongs to. Defaults to "default"
+	// +kubebuilder:default=default
+	GroupName string `json:"groupName,omitempty"`
+
 	// Template defines the template of the Job that will be created.
 	Template batchv1.JobTemplateSpec `json:"template"`
 
@@ -243,7 +263,7 @@ type ReplicatedJob struct {
 	// resumed the Job sequence starts again.
 	// This API is mutually exclusive with the StartupPolicy API.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
-	// +kubebuilder:validation:MaxItems=1
+	// +kubebuilder:validation:MaxItems=5
 	// +optional
 	// +listType=map
 	// +listMapKey=name
@@ -319,7 +339,10 @@ const (
 )
 
 // FailurePolicyRule defines a FailurePolicyAction to be executed if a child job
-// fails due to a reason listed in OnJobFailureReasons.
+// fails due to a reason listed in OnJobFailureReasons and a message pattern
+// listed in OnJobFailureMessagePatterns. The rule must match both the job
+// failure reason and the job failure message. The rules are evaluated in
+// order and the first matching rule is executed.
 type FailurePolicyRule struct {
 	// The name of the failure policy rule.
 	// The name is defaulted to 'failurePolicyRuleN' where N is the index of the failure policy rule.
@@ -328,13 +351,21 @@ type FailurePolicyRule struct {
 	// The action to take if the rule is matched.
 	// +kubebuilder:validation:Enum:=FailJobSet;RestartJobSet;RestartJobSetAndIgnoreMaxRestarts
 	Action FailurePolicyAction `json:"action"`
-	// The requirement on the job failure reasons. The requirement
-	// is satisfied if at least one reason matches the list.
-	// The rules are evaluated in order, and the first matching
-	// rule is executed.
-	// An empty list applies the rule to any job failure reason.
+	// The requirement on the job failure reasons. The requirement is satisfied
+	// if at least one reason matches the list. An empty list matches any job
+	// failure reason.
 	// +kubebuilder:validation:UniqueItems:true
 	OnJobFailureReasons []string `json:"onJobFailureReasons,omitempty"`
+	// The requirement on the job failure message. The requirement is satisfied
+	// if at least one pattern (regex) matches the job failure message. An
+	// empty list matches any job failure message.
+	// The syntax of the regular expressions accepted is the same general
+	// syntax used by Perl, Python, and other languages. More precisely, it is
+	// the syntax accepted by RE2 and described at https://golang.org/s/re2syntax,
+	// except for \C. For an overview of the syntax, see
+	// https://pkg.go.dev/regexp/syntax.
+	// +kubebuilder:validation:UniqueItems:true
+	OnJobFailureMessagePatterns []string `json:"onJobFailureMessagePatterns,omitempty"`
 	// TargetReplicatedJobs are the names of the replicated jobs the operator applies to.
 	// An empty list will apply to all replicatedJobs.
 	// +optional

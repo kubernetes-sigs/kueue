@@ -36,7 +36,7 @@ const (
 	serviceAccountName           = "kueue-controller-manager"
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
 	metricsServiceName           = "kueue-controller-manager-metrics-service"
-	certSecretName               = "metrics-server-cert"
+	certSecretName               = "kueue-metrics-server-cert"
 	certMountPath                = "/etc/kueue/metrics/certs"
 )
 
@@ -52,10 +52,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = utiltesting.MakeNamespaceWithGenerateName("e2e-metrics-")
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+
 		resourceFlavor = utiltesting.MakeResourceFlavor("test-flavor").Obj()
-		gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				Name:     metricsReaderClusterRoleName,
 			},
 		}
-		gomega.Expect(k8sClient.Create(ctx, metricsReaderClusterRoleBinding)).Should(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
@@ -99,9 +99,9 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				ReadOnly:  true,
 			},
 		}
-		gomega.Expect(k8sClient.Create(ctx, curlPod)).To(gomega.Succeed())
+		util.MustCreate(ctx, k8sClient, curlPod)
 
-		ginkgo.By("Waiting for metrics-server-cert secret", func() {
+		ginkgo.By("Waiting for kueue-metrics-server-cert secret", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				secret := &corev1.Secret{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{
@@ -111,14 +111,11 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for the curl-metrics pod to run", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdPod := &corev1.Pod{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(curlPod), createdPod)).To(gomega.Succeed())
-				g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-				curlContainerName = createdPod.Spec.Containers[0].Name
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+			util.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
+
+		curlContainerName = curlPod.Spec.Containers[0].Name
 	})
 
 	ginkgo.AfterEach(func() {

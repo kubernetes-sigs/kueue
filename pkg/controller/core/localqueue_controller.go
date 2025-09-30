@@ -42,12 +42,12 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -92,8 +92,8 @@ var defaultLQOptions = LocalQueueReconcilerOptions{
 type LocalQueueReconciler struct {
 	client            client.Client
 	log               logr.Logger
-	queues            *queue.Manager
-	cache             *cache.Cache
+	queues            *qcache.Manager
+	cache             *schdcache.Cache
 	wlUpdateCh        chan event.GenericEvent
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
@@ -104,8 +104,8 @@ var _ predicate.TypedPredicate[*kueue.LocalQueue] = (*LocalQueueReconciler)(nil)
 
 func NewLocalQueueReconciler(
 	client client.Client,
-	queues *queue.Manager,
-	cache *cache.Cache,
+	queues *qcache.Manager,
+	cache *schdcache.Cache,
 	opts ...LocalQueueReconcilerOption,
 ) *LocalQueueReconciler {
 	options := defaultLQOptions
@@ -172,8 +172,8 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if r.admissionFSConfig != nil && features.Enabled(features.AdmissionFairSharing) {
-		updated := r.initializeAdmissionFsStatus(ctx, &queueObj)
+	if afs.Enabled(r.admissionFSConfig) {
+		updated := r.initializeAdmissionFsStatus(&queueObj)
 		sinceLastUpdate := r.clock.Now().Sub(queueObj.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate.Time)
 		lqKey := utilqueue.Key(&queueObj)
 		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !updated && sinceLastUpdate < interval && !r.queues.HasPendingPenaltyFor(lqKey) {
@@ -182,7 +182,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		if err := r.queues.HeapifyClusterQueue(&cq, queueObj.Name); err != nil {
+		if err := r.queues.RebuildClusterQueue(&cq, queueObj.Name); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
@@ -259,7 +259,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) initializeAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue) bool {
+func (r *LocalQueueReconciler) initializeAdmissionFsStatus(lq *kueue.LocalQueue) bool {
 	if lq.Status.FairSharing == nil {
 		lq.Status.FairSharing = &kueue.FairSharingStatus{}
 	}
@@ -295,7 +295,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	sum := resource.MergeResourceListKeepSum(scaledOldUsage, scaledNewUsage)
 	// Add penalty to the final usage
 	lqKey := utilqueue.Key(lq)
-	err = r.queues.WithPenaltyLocked(lqKey, func(penalty corev1.ResourceList) error {
+	err = r.queues.UpdateWithPenalty(lqKey, func(penalty corev1.ResourceList) error {
 		sum = resource.MergeResourceListKeepSum(sum, penalty)
 
 		// update status
@@ -307,6 +307,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList) error {
 	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
 	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(r.clock.Now())
+	r.log.V(3).Info("Updated LocalQueue fair sharing status", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", consumedResources)
 	return r.client.Status().Update(ctx, lq)
 }
 

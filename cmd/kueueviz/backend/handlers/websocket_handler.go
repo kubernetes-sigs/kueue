@@ -17,6 +17,7 @@ limitations under the License.
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	log "log/slog"
 	"net/http"
@@ -34,7 +35,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with periodic data updates
-func GenericWebSocketHandler(dataFetcher func() (any, error)) gin.HandlerFunc {
+func GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		startTime := time.Now()
 		log.Debug("WebSocket handler started")
@@ -51,7 +52,7 @@ func GenericWebSocketHandler(dataFetcher func() (any, error)) gin.HandlerFunc {
 
 		// Fetch the initial data to send it immediately
 		fetchStart := time.Now()
-		data, err := dataFetcher()
+		data, err := dataFetcher(c.Request.Context())
 		if err != nil {
 			log.Error("Error fetching data %v", "error", err)
 			return
@@ -92,7 +93,7 @@ func GenericWebSocketHandler(dataFetcher func() (any, error)) gin.HandlerFunc {
 		for range ticker.C {
 			// Fetch the latest data
 			fetchStart := time.Now()
-			data, err := dataFetcher()
+			data, err := dataFetcher(c.Request.Context())
 			if err != nil {
 				log.Error("Error fetching data  %v", "error", err)
 				continue

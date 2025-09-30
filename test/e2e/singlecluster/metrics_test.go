@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
 				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
 				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
 				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
 				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
 				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(v1beta1.LocalQueueName(localQueue.Name)).
-				RequestAndLimit("cpu", "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
 
@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			ginkgo.By("setting the check as successful", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-					patch := workload.BaseSSAWorkload(createdWorkload)
+					patch := util.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, v1beta1.AdmissionCheckState{
 						Name:  v1beta1.AdmissionCheckReference(admissionCheck.Name),
 						State: v1beta1.CheckStateReady,
@@ -403,7 +403,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
-				RequestAndLimit("cpu", "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
 
@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
-				RequestAndLimit("cpu", "1").
+				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
 

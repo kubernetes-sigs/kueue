@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -42,9 +42,6 @@ type StatefulSetWrapper struct {
 
 // MakeStatefulSet creates a wrapper for a StatefulSet with a single container.
 func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
-	podLabels := map[string]string{
-		"app": fmt.Sprintf("%s-pod", name),
-	}
 	return &StatefulSetWrapper{appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -53,11 +50,15 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
+				MatchLabels: map[string]string{
+					"app": fmt.Sprintf("%s-pod", name),
+				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
+					Labels: map[string]string{
+						"app": fmt.Sprintf("%s-pod", name),
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -198,7 +199,7 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupServingAnnotation() *Statef
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupPodIndexLabelAnnotation(labelName string) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(v1alpha1.PodGroupPodIndexLabelAnnotation, labelName)
+	return ss.PodTemplateSpecAnnotation(v1beta1.PodGroupPodIndexLabelAnnotation, labelName)
 }
 
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {

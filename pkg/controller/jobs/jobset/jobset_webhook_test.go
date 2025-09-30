@@ -27,12 +27,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
@@ -73,12 +72,12 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
 			topologyAwareScheduling: true,
@@ -88,13 +87,13 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
@@ -107,9 +106,9 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 					Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-						kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						kueue.PodSetSliceSizeAnnotation:             "20",
 					},
 				}).
 				Obj(),
@@ -126,7 +125,8 @@ func TestValidateCreate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
 			jsw := &JobSetWebhook{}
-			_, gotErr := jsw.ValidateCreate(t.Context(), tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, gotErr := jsw.ValidateCreate(ctx, tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
@@ -153,7 +153,7 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
 			topologyAwareScheduling: true,
@@ -167,8 +167,8 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
 			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
@@ -428,8 +428,8 @@ func TestDefault(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("default"))
 			cl := clientBuilder.Build()
-			cqCache := cache.New(cl)
-			queueManager := queue.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			queueManager := qcache.NewManager(cl, cqCache)
 
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").

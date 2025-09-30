@@ -22,21 +22,20 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -62,23 +61,27 @@ func Enabled(object metav1.Object) bool {
 	if object == nil {
 		return false
 	}
-	return object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && object.GetAnnotations()[EnabledAnnotationKey] == EnabledAnnotationValue
+}
+
+// IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
+// and the given Workload is marked as elastic (e.g., via annotations or other criteria).
+func IsElasticWorkload(workload *kueue.Workload) bool {
+	if workload == nil {
+		return false
+	}
+	return Enabled(workload)
 }
 
 const (
-	// WorkloadSliceReplacementFor is the annotation key used to capture an "old" workload slice key
-	// that will be preempted by the "new", e.g., this workload slice with annotation.
+	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
+	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
 	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
-// key if this workload was annotated with such, otherwise, returns an empty string.
 func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
-	annotations := wl.GetAnnotations()
-	if len(annotations) == 0 {
-		return nil
-	}
-	key, found := annotations[WorkloadSliceReplacementFor]
+	key, found := wl.GetAnnotations()[WorkloadSliceReplacementFor]
 	if !found {
 		return nil
 	}
@@ -86,6 +89,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	return &ref
 }
 
+// Finish updates the status of a workload slice by applying the "Finished" condition
 // Finish updates the status of a workload slice by applying the "Finished" condition.
 // The function checks if the "Finished" condition is already applied, and if so, does nothing (NOOP).
 // If the "Finished" condition is not present, it applies the condition with the provided `reason` and `message`.
@@ -99,8 +103,8 @@ func Finish(ctx context.Context, clnt client.Client, workloadSlice *kueue.Worklo
 	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
 		return nil
 	}
-	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (bool, error) {
-		return apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, metav1.Condition{
+	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (client.Object, bool, error) {
+		return workloadSlice, apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, metav1.Condition{
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
 			Reason:  reason,
@@ -120,21 +124,45 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 		return nil, err
 	}
 
-	// Sort workloads by creation timestamp - oldest first.
-	sort.Slice(list.Items, func(i, j int) bool {
-		return list.Items[i].CreationTimestamp.Before(&list.Items[j].CreationTimestamp)
+	// Sort workloads by creation timestamp, oldest first.
+	// In the rare case that two workload slices have identical creationTimestamp values
+	// (due to RFC3339 second-level precision), use WorkloadSliceReplacementFor
+	// as a tiebreaker. This edge case is uncommon in production but can occur in
+	// integration or e2e tests where the original and scaled-up workloads are created
+	// in rapid succession.
+	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
+		return cmputil.LazyOr(
+			func() int {
+				return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
+			},
+			func() int {
+				if b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a)) {
+					return -1
+				}
+				return 1
+			},
+		)
 	})
 
-	replacedSlices := sets.New[workload.Reference]()
-	for _, w := range list.Items {
-		if replacedKey := ReplacementForKey(&w); replacedKey != nil {
-			replacedSlices.Insert(*replacedKey)
-		}
-	}
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
-		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) || replacedSlices.Has(workload.Key(&w))
+		return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
 	}), nil
+}
+
+// ScaledDown returns true if the new pod sets represent a scale-down operation.
+// This is determined by checking whether at least one new pod set has fewer replicas
+// than its corresponding old pod set, and none of the old pod sets have fewer replicas
+// than their corresponding new pod sets.
+func ScaledDown(oldCounts, newCounts workload.PodSetsCounts) bool {
+	return newCounts.HasFewerReplicasThan(oldCounts) && !oldCounts.HasFewerReplicasThan(newCounts)
+}
+
+// ScaledUp returns true if the given workload has the
+// WorkloadSliceReplacementFor annotation, indicating that
+// this workload is a scaled-up replacement for another.
+func ScaledUp(workload *kueue.Workload) bool {
+	return ReplacementForKey(workload) != nil
 }
 
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
@@ -174,10 +202,10 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// Allow updating the existing slice if:
 		// a. It hasn't been admitted (no quota reserved), or
 		// b. It's a scale-down event.
-		if !workload.HasQuotaReservation(wl) || jobPodSetsCounts.HasFewerReplicasThan(wlPodSetsCounts) {
+		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
 			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
 			if err := clnt.Update(ctx, wl); err != nil {
-				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
+				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
 			return wl, true, nil
 		}
@@ -191,12 +219,12 @@ func EnsureWorkloadSlices(ctx context.Context, clnt client.Client, jobPodSets []
 		// This transient state typically occurs when a new slice has been created,
 		// and the old slice is pending deactivation. The system should resolve this
 		// by deactivating the old slice, after which processing will continue under "case #1".
-
-		// There is also an edge-case when the old slice was preempted/evicted by the scheduler
-		// to make the room for other (than new slice) workload, which would result in two
-		// "pending" workloads. In such case - it is safe to deactivate the old slice.
 		oldWorkload := workloads[0]
-		if !workload.HasQuotaReservation(&oldWorkload) {
+
+		// Finish the old workload slice if it lost its quota reservation or if it was
+		// explicitly evicted.
+		if evictedCondition := apimeta.FindStatusCondition(oldWorkload.Status.Conditions, kueue.WorkloadEvicted); !workload.HasQuotaReservation(&oldWorkload) || evictedCondition != nil {
+			// Finish the old workload slice as out of sync.
 			if err := Finish(ctx, clnt, &oldWorkload, kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"); err != nil {
 				return nil, true, err
 			}
@@ -253,8 +281,8 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 		return fmt.Errorf("failed to list job pods: %w", err)
 	}
 	for i := range list.Items {
-		if err := clientutil.Patch(ctx, clnt, &list.Items[i], true, func() (bool, error) {
-			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
+		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (client.Object, bool, error) {
+			return &list.Items[i], pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
 			return fmt.Errorf("failed to patch pod: %w", err)
 		}
@@ -274,7 +302,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, object clie
 // - The input workload or snapshot is nil
 // - The workload has no replacement slice key
 // - The referenced replacement workload is not found in the ClusterQueue snapshot
-func ReplacedWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preemption.Target, *workload.Info) {
+func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*preemption.Target, *workload.Info) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || snap == nil {
 		return nil, nil
 	}
@@ -296,6 +324,14 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *cache.Snapshot) ([]*preempti
 	}
 
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
+}
+
+// IsReplaced returns true if the workload status contains active WorkloadFinish condition
+// with WorkloadSliceReplaced reason.
+func IsReplaced(status kueue.WorkloadStatus) bool {
+	finishedCondition := apimeta.FindStatusCondition(status.Conditions, kueue.WorkloadFinished)
+	return finishedCondition != nil && finishedCondition.Status == metav1.ConditionTrue &&
+		finishedCondition.Reason == kueue.WorkloadSliceReplaced
 }
 
 // FindReplacedSliceTarget identifies and removes a preempted workload slice target from the given list of targets.

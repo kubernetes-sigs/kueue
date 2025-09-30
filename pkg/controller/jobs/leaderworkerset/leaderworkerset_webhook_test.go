@@ -28,13 +28,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
@@ -118,8 +118,8 @@ func TestDefault(t *testing.T) {
 
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
-			cqCache := cache.New(cli)
-			queueManager := queue.NewManager(cli, cqCache)
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManager(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
@@ -256,6 +256,142 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 3"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - slice size provided without slice topology": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetSliceSizeAnnotation: "1",
+						},
+					},
+				}).
+				Size(4).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetSliceSizeAnnotation: "1",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "may not set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - slice topology requested without slice size": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Size(4).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
+				field.Required(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid slice topology request - grouping requested together with slicing": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName:                       "leadername1",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "1",
+						},
+					},
+				}).
+				Size(4).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName:                       "workername1",
+							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueuealpha.PodSetSliceSizeAnnotation:             "1",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-size' is specified"),
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-size' is specified"),
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"valid PodSet group name request": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "leadername1",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "workername1",
+						},
+					},
+				}).
+				Obj(),
+			wantErr:                 nil,
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet group name request - value is a number": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "1234",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "4321",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "1234", "must not be a number"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "4321", "must not be a number"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -727,11 +863,9 @@ func TestValidateUpdate(t *testing.T) {
 			for _, integration := range tc.integrations {
 				jobframework.EnableIntegrationsForTest(t, integration)
 			}
-
-			ctx := t.Context()
-
 			wh := &Webhook{}
 
+			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)

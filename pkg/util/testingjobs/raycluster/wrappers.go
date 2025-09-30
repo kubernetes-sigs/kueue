@@ -133,6 +133,11 @@ func (j *ClusterWrapper) Queue(queue string) *ClusterWrapper {
 	return j
 }
 
+func (j *ClusterWrapper) SetAnnotation(key, content string) *ClusterWrapper {
+	j.Annotations[key] = content
+	return j
+}
+
 // Clone returns deep copy of the Job.
 func (j *ClusterWrapper) Clone() *ClusterWrapper {
 	return &ClusterWrapper{RayCluster: *j.DeepCopy()}
@@ -140,6 +145,11 @@ func (j *ClusterWrapper) Clone() *ClusterWrapper {
 
 func (j *ClusterWrapper) WithEnableAutoscaling(value *bool) *ClusterWrapper {
 	j.Spec.EnableInTreeAutoscaling = value
+	return j
+}
+
+func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
+	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
 	return j
 }
 
@@ -203,6 +213,23 @@ func (j *ClusterWrapper) NodeLabel(rayType rayv1.RayNodeType, key, value string)
 			j.Spec.WorkerGroupSpecs[0].Template.Labels = make(map[string]string)
 		}
 		j.Spec.WorkerGroupSpecs[0].Template.Labels[key] = value
+	}
+	return j
+}
+
+// NodeAnnotation sets the annotation key and value for specific RayNodeType
+func (j *ClusterWrapper) NodeAnnotation(rayType rayv1.RayNodeType, key, value string) *ClusterWrapper {
+	switch rayType {
+	case rayv1.HeadNode:
+		if j.Spec.HeadGroupSpec.Template.Annotations == nil {
+			j.Spec.HeadGroupSpec.Template.Annotations = make(map[string]string)
+		}
+		j.Spec.HeadGroupSpec.Template.Annotations[key] = value
+	case rayv1.WorkerNode:
+		if j.Spec.WorkerGroupSpecs[0].Template.Annotations == nil {
+			j.Spec.WorkerGroupSpecs[0].Template.Annotations = make(map[string]string)
+		}
+		j.Spec.WorkerGroupSpecs[0].Template.Annotations[key] = value
 	}
 	return j
 }

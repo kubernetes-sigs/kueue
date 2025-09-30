@@ -298,6 +298,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-trainer-kubeflow-org-v1alpha1-trainjob
+  failurePolicy: Fail
+  name: mtrainjob.kb.io
+  rules:
+  - apiGroups:
+    - trainer.kubeflow.org
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    resources:
+    - trainjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
   failurePolicy: Fail
   name: mclusterqueue.kb.io
@@ -654,6 +673,26 @@ webhooks:
     - UPDATE
     resources:
     - statefulsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-trainer-kubeflow-org-v1alpha1-trainjob
+  failurePolicy: Fail
+  name: vtrainjob.kb.io
+  rules:
+  - apiGroups:
+    - trainer.kubeflow.org
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - trainjobs
   sideEffects: None
 - admissionReviewVersions:
   - v1

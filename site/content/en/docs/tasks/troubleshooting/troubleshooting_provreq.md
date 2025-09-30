@@ -17,7 +17,7 @@ Before you begin troubleshooting, make sure your cluster meets the following req
 Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster should be running version `1.28.3-gke.1098000` or newer.
 - You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
 - Kueue's version is `v0.5.3` or newer.
-- You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration). This feature gate is enabled by default for Kueue `v0.7.0` or newer.
+- ProvisioningRequest support is enabled. This feature has been enabled by default since Kueue `v0.7.0` and is Generally Available (GA) as of Kueue `v0.14.0`.
 
 ## Identifying the Provisioning Request for your job
 
@@ -125,25 +125,15 @@ The states transitions are as follow:
 
 If Kueue did not create a Provisioning Request for your job, try checking the following requirements:
 
-### a. Ensure the Kueue's controller manager enables the `ProvisioningACC` feature gate
+### a. Verify ProvisioningRequest support is available
 
-Run the following command to check whether your Kueue's controller manager has enabled the `ProvisioningACC` feature gate:
+Since Kueue v0.14.0, ProvisioningRequest support is Generally Available (GA) and always enabled. For older versions of Kueue (v0.7.0 to v0.13.x), the feature was enabled by default via the `ProvisioningACC` feature gate.
+
+If you're using an older version of Kueue, you can verify the feature gate is enabled by running:
 
 ```bash
 kubectl describe pod -n kueue-system kueue-controller-manager-
 ```
-
-The arguments for Kueue container should be similar to the following:
-
-```bash
-    ...
-    Args:
-      --config=/controller_manager_config.yaml
-      --zap-log-level=2
-      --feature-gates=ProvisioningACC=true
-```
-
-Note for Kueue `v0.7.0` or newer the feature is enabled by default, so you may see different output.
 
 ### b. Ensure your Workload has reserved quota
 

@@ -28,14 +28,14 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/queue"
 
 	_ "k8s.io/metrics/pkg/apis/metrics/install"
 )
 
 type pendingWorkloadsInCqREST struct {
-	queueMgr *queue.Manager
+	queueMgr *qcache.Manager
 	log      logr.Logger
 }
 
@@ -43,7 +43,7 @@ var _ rest.Storage = &pendingWorkloadsInCqREST{}
 var _ rest.GetterWithOptions = &pendingWorkloadsInCqREST{}
 var _ rest.Scoper = &pendingWorkloadsInCqREST{}
 
-func NewPendingWorkloadsInCqREST(kueueMgr *queue.Manager) *pendingWorkloadsInCqREST {
+func NewPendingWorkloadsInCqREST(kueueMgr *qcache.Manager) *pendingWorkloadsInCqREST {
 	return &pendingWorkloadsInCqREST{
 		queueMgr: kueueMgr,
 		log:      ctrl.Log.WithName("pending-workload-in-cq"),

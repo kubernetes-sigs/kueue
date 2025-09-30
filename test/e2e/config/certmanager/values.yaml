@@ -1,0 +1,56 @@
+enableCertManager: true
+controllerManager:
+  manager:
+    image:
+      pullPolicy: IfNotPresent
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+  replicas: 2
+  imagePullSecrets: []
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+kubernetesClusterDomain: cluster.local
+managerConfig:
+  controllerManagerConfigYaml: |-
+    apiVersion: config.kueue.x-k8s.io/v1beta1
+    kind: Configuration
+    metrics:
+      enableClusterQueueResources: true
+    leaderElection:
+      leaderElect: true
+    controller:
+      groupKindConcurrency:
+        Job.batch: 5
+        Pod: 5
+        Workload.kueue.x-k8s.io: 5
+        LocalQueue.kueue.x-k8s.io: 1
+        ClusterQueue.kueue.x-k8s.io: 1
+        ResourceFlavor.kueue.x-k8s.io: 1
+    fairSharing:
+      enable: true
+    internalCertManagement:
+      enable: false
+    clientConnection:
+      qps: 50
+      burst: 100
+    integrations:
+      frameworks:
+        - "batch/job"

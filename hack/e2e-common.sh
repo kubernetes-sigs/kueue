@@ -18,6 +18,7 @@ export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
+export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 
 export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
@@ -41,6 +42,15 @@ if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
     KUBEFLOW_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("training-operator")) | .newTag' "${KUBEFLOW_MANIFEST_ORIG}")
     export KUBEFLOW_IMAGE_VERSION
     export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
+fi
+
+if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+    export KUBEFLOW_TRAINER_MANIFEST=${ROOT_DIR}/dep-crds/kf-trainer/manifests
+    # Extract the Kubeflow Trainer controller manager image version tag (newTag) from the manifest.
+    # This is necessary because the image version tag does not follow the usual package versioning convention.
+    KF_TRAINER_IMAGE_VERSION=$($YQ '.images[] | select(.name | contains("trainer-controller-manager")) | .newTag' "${KUBEFLOW_TRAINER_MANIFEST}/overlays/manager/kustomization.yaml")
+    export KF_TRAINER_IMAGE_VERSION
+    export KF_TRAINER_IMAGE=ghcr.io/kubeflow/trainer/trainer-controller-manager:${KF_TRAINER_IMAGE_VERSION}
 fi
 
 if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
@@ -113,6 +123,11 @@ function prepare_docker_images {
     if [[ -n ${KUBEFLOW_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_IMAGE}"
     fi
+    
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+        docker pull "${KF_TRAINER_IMAGE}"
+    fi
+
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         docker pull "${KUBEFLOW_MPI_IMAGE}"
     fi
@@ -155,6 +170,11 @@ function kind_load {
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
         install_kubeflow "$1" "$2"
     fi
+
+    if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} ]]; then
+        install_kubeflow_trainer "$1" "$2"
+    fi
+
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
         install_mpi "$1" "$2"
     fi
@@ -193,7 +213,7 @@ function deploy_with_certmanager() {
     crd_backup="$(<"$crd_kust")"
     local default_backup
     default_backup="$(<"$default_kust")"
-    
+
     (
         cd "${ROOT_DIR}/config/components/crd" || exit
         $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
@@ -207,9 +227,12 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
+        $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
+        $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
+        $KUSTOMIZE edit add patch --path "apiservice_insecure_removal.yaml" --kind APIService
     )
+
+    build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
     printf "%s\n" "$crd_backup" > "$crd_kust"
     printf "%s\n" "$default_backup" > "$default_kust"
@@ -221,11 +244,29 @@ function cluster_kueue_deploy {
         kubectl -n cert-manager wait --for condition=ready pod \
             -l app.kubernetes.io/instance=cert-manager \
             --timeout=5m
-        
-        deploy_with_certmanager "$1"
+        if [ "$E2E_USE_HELM" == 'true' ]; then
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml"
+        else
+            deploy_with_certmanager "$1"
+        fi
+    elif [ "$E2E_USE_HELM" == 'true' ]; then
+        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/default"
     fi
+}
+
+# $1 kubeconfig
+# $2 values file
+function helm_install {
+    $HELM install \
+      -f "$2" \
+      --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
+      --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
+      --create-namespace \
+      --namespace kueue-system \
+      --kubeconfig "$1" \
+      kueue "${ROOT_DIR}/charts/kueue"
 }
 
 # $1 kubeconfig 
@@ -257,6 +298,26 @@ function install_jobset {
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_MANIFEST_PATCHED}"
+}
+
+# $1 cluster name
+# $2 kubeconfig option
+function install_kubeflow_trainer {
+    cluster_kind_load_image "${1}" "${KF_TRAINER_IMAGE}"
+    (
+        # Kustomize patches don't work on the Kustomization file itself, they work on the Kubernetes resources that the Kustomization generates.
+        # So in case the jobset controller was already installed, we need to remove the resource from the kustomization file to avoid controller duplications
+        # We do it always since is cheap and more readable than dealing with conditionals
+        manifests_temp_dir=$(mktemp -d) && trap 'rm -rf "$manifests_temp_dir"' EXIT
+        cp -r "${KUBEFLOW_TRAINER_MANIFEST}"/* "$manifests_temp_dir/" && chmod -R 777 "$manifests_temp_dir"
+        if [[ -n ${JOBSET_VERSION:-} ]]; then
+            $YQ eval 'del(.resources[] | select(. == "../../third-party/jobset"))' -i "$manifests_temp_dir/overlays/manager/kustomization.yaml"
+        fi
+        kubectl apply --kubeconfig="$2" --server-side -k "$manifests_temp_dir/overlays/manager"
+    )
+    # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
+    kubectl wait --kubeconfig="$2" deploy/kubeflow-trainer-controller-manager -n kubeflow-system --for=condition=available --timeout=5m
+    kubectl apply --kubeconfig="$2" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
 # $1 cluster name

@@ -36,13 +36,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -106,6 +106,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -120,6 +121,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -133,6 +135,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -151,6 +154,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -361,6 +365,7 @@ func TestDefault(t *testing.T) {
 				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
 				ManagedByKueueLabel().
 				KueueFinalizer().
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				Obj(),
@@ -383,6 +388,7 @@ func TestDefault(t *testing.T) {
 				Label("test-label", "test-value").
 				Label(kueuealpha.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				TopologySchedulingGate().
@@ -400,6 +406,7 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -427,6 +434,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -440,6 +448,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -464,6 +473,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("queue").
 				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -491,6 +501,7 @@ func TestDefault(t *testing.T) {
 				Label(corev1.LabelMetadataName, "test-pod").
 				Queue("queue").
 				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -518,8 +529,8 @@ func TestDefault(t *testing.T) {
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
 
-			cqCache := cache.New(cli)
-			queueManager := queue.NewManager(cli, cqCache)
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManager(cli, cqCache)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 

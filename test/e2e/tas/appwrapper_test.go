@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -36,7 +35,7 @@ import (
 var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 	var (
 		ns           *corev1.Namespace
-		topology     *kueuealpha.Topology
+		topology     *kueue.Topology
 		tasFlavor    *kueue.ResourceFlavor
 		clusterQueue *kueue.ClusterQueue
 		localQueue   *kueue.LocalQueue
@@ -91,7 +90,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 						RequestAndLimit(extraResource, "1").
 						Suspend(false).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-						PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 						SetTypeMeta().Obj(),
 				}).
 				Queue(localQueue.Name).
@@ -133,7 +132,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				Indexed(true).
 				Suspend(false).
 				RequestAndLimit(extraResource, "1").
-				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				SetTypeMeta().
 				Obj()

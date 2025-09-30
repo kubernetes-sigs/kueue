@@ -51,7 +51,7 @@ type JobReconcilerInterface interface {
 	SetupWithManager(mgr ctrl.Manager) error
 }
 
-type ReconcilerFactory func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface
+type ReconcilerFactory func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error)
 
 // IntegrationCallbacks groups a set of callbacks used to integrate a new framework.
 type IntegrationCallbacks struct {

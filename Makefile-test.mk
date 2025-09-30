@@ -19,7 +19,7 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.33
+ENVTEST_K8S_VERSION ?= 1.34
 
 TEST_LOG_LEVEL ?= -3
 
@@ -38,17 +38,21 @@ INTEGRATION_OUTPUT_OPTIONS ?= --output-interceptor-mode=none
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.31.9 1.32.5 1.33.1
-E2E_K8S_VERSION ?= 1.33
+E2E_K8S_VERSIONS ?= 1.31.12 1.32.8 1.33.4 1.34.0
+E2E_K8S_VERSION ?= 1.34
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
 E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_RUN_ONLY_ENV ?= false
+E2E_USE_HELM ?= false
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
+
+# For restricting to a specific directory
+GO_TEST_TARGET ?= .
 
 ##@ Tests
 
@@ -61,7 +65,7 @@ endif
 
 .PHONY: test
 test: gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
@@ -97,14 +101,30 @@ CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
 test-e2e: setup-e2e-env kueuectl kind-ray-project-mini-image-build run-test-e2e-singlecluster-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-e2e-helm
+test-e2e-helm: E2E_USE_HELM=true
+test-e2e-helm: test-e2e
+
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e-helm
+test-multikueue-e2e-helm: E2E_USE_HELM=true
+test-multikueue-e2e-helm: test-multikueue-e2e
 
 .PHONY: test-tas-e2e
 test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-tas-e2e-helm
+test-tas-e2e-helm: E2E_USE_HELM=true
+test-tas-e2e-helm: test-tas-e2e
+
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-customconfigs-helm
+test-e2e-customconfigs-helm: E2E_USE_HELM=true
+test-e2e-customconfigs-helm: test-e2e-customconfigs
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -117,11 +137,13 @@ run-test-e2e-singlecluster-%:
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		JOBSET_VERSION=$(JOBSET_VERSION) \
 		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/e2e-test.sh
 
 run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
@@ -133,8 +155,10 @@ run-test-multikueue-e2e-%:
 		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
 		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/multikueue-e2e-test.sh
 
 run-test-tas-e2e-%: K8S_VERSION = $(@:run-test-tas-e2e-%=%)
@@ -149,6 +173,7 @@ run-test-tas-e2e-%:
 		KIND_CLUSTER_FILE="tas-kind-cluster.yaml" E2E_TARGET_FOLDER="tas" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/e2e-test.sh
 
 run-test-e2e-customconfigs-%: K8S_VERSION = $(@:run-test-e2e-customconfigs-%=%)
@@ -161,6 +186,7 @@ run-test-e2e-customconfigs-%:
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/e2e-test.sh
 
 run-test-e2e-certmanager-%: K8S_VERSION = $(@:run-test-e2e-certmanager-%=%)
@@ -172,6 +198,7 @@ run-test-e2e-certmanager-%:
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/e2e-test.sh
 
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
@@ -241,7 +268,7 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-setup-e2e-env: kustomize yq gomod-download dep-crds kind ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
+setup-e2e-env: kustomize yq gomod-download dep-crds kind helm ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local

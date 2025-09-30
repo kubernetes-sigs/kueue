@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -189,8 +188,8 @@ func TestFromAssignment(t *testing.T) {
 			wantInfo: PodSetInfo{
 				Name:  "name",
 				Count: 4,
-				Labels: map[string]string{
-					kueuealpha.TASLabel: "true",
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "true",
 				},
 				NodeSelector: map[string]string{
 					"f1l1": "f1v1",
@@ -199,7 +198,7 @@ func TestFromAssignment(t *testing.T) {
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
 				SchedulingGates: []corev1.PodSchedulingGate{
 					{
-						Name: kueuealpha.TopologySchedulingGate,
+						Name: kueue.TopologySchedulingGate,
 					},
 				},
 			},
@@ -239,7 +238,10 @@ func TestFromAssignment(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: tc.flavors}).Build()
 
-			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, tc.defaultCount)
+			podSet := kueue.PodSet{
+				Count: tc.defaultCount,
+			}
+			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, &podSet)
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
@@ -434,21 +436,21 @@ func TestMergeRestore(t *testing.T) {
 		},
 		"podset with tas label; empty info": {
 			podSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
+				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 			wantPodSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
+				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 		},
 		"podset with tas label; info re-adds the same": {
 			podSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
+				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 			info: PodSetInfo{
-				Labels: map[string]string{kueuealpha.TASLabel: "true"},
+				Labels: map[string]string{kueue.TASLabel: "true"},
 			},
 			wantPodSet: utiltesting.MakePodSet("", 1).
-				Labels(map[string]string{kueuealpha.TASLabel: "true"}).
+				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 		},
 	}

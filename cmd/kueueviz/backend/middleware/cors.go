@@ -31,6 +31,12 @@ import (
 
 // validateOrigin validates and sanitizes a CORS origin URL
 func validateOrigin(origin string) (string, bool) {
+	// Special case for wildcard origin
+	if origin == "*" {
+		// Only allow wildcard origin in development mode
+		return origin, gin.Mode() != gin.ReleaseMode
+	}
+
 	u, err := url.Parse(origin)
 	if err != nil {
 		return "", false
@@ -44,6 +50,7 @@ func validateOrigin(origin string) (string, bool) {
 		return "", false
 	}
 
+	// Only include scheme and host (which includes port if specified)
 	cleanOrigin := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 	return cleanOrigin, true
 }
@@ -70,10 +77,7 @@ func ConfigureCORS() (cors.Config, error) {
 	} else {
 		// Default development origins (only in development mode)
 		if gin.Mode() != gin.ReleaseMode {
-			allowedOrigins = []string{
-				"http://localhost:3000",
-				"http://127.0.0.1:3000",
-			}
+			allowedOrigins = append(allowedOrigins, "*")
 			log.Println("KUEUEVIZ_ALLOWED_ORIGINS not set, using default development origins")
 		} else {
 			log.Println("Production mode: KUEUEVIZ_ALLOWED_ORIGINS must be explicitly set")

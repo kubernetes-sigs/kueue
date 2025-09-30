@@ -9,6 +9,5 @@ roleRef:
   name: extension-apiserver-authentication-reader
 subjects:
 - kind: ServiceAccount
-  name: kueue-controller-manager
-  namespace: kueue-system
-  
+  name: controller-manager
+  namespace: system

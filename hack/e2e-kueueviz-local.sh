@@ -55,6 +55,19 @@ cd -
 
 cd "${ROOT_DIR}/test/e2e/kueueviz/"
 npm install
+
+if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
+  read -rp "Do you want to cleanup? [Y/n] " reply
+  if [[ "$reply" =~ ^[nN]$ ]]; then
+    trap - EXIT
+    echo "Skipping cleanup for backend, frontend, and kind cluster."
+    echo -e "\nBackend cleanup:\n  kill $BACKEND_PID"
+    echo -e "\nFrontend cleanup:\n  kill $FRONTEND_PID"
+    echo -e "\nKind cluster cleanup:\n  kind delete cluster --name $KIND_CLUSTER_NAME"
+  fi
+  exit 0
+fi
+
 # Run Cypress tests for kueueviz frontend
 npm run cypress:run
 cd -

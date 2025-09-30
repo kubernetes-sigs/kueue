@@ -96,11 +96,11 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			for i := range 4 {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
 					Queue(v1beta1.LocalQueueName(lq1.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					Parallelism(3).
 					Completions(3).
-					RequestAndLimit("cpu", "1").
-					RequestAndLimit("memory", "200Mi").
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
 				util.MustCreate(ctx, k8sClient, job)
 			}
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 				g.Expect(cq1.Status.AdmittedWorkloads).Should(gomega.Equal(int32(4)))
 				g.Expect(cq1.Status.FairSharing).ShouldNot(gomega.BeNil())
-				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(111)))
+				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(112)))
 
 				g.Expect(cq2.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq2.Status.FairSharing).ShouldNot(gomega.BeNil())

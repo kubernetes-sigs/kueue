@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 // SyncAdmittedCondition sync the state of the Admitted condition based on the
@@ -81,21 +82,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
 }
 
-// FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
-func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
-	for i := range checks {
-		if checks[i].Name == checkName {
-			return &checks[i]
-		}
-	}
-
-	return nil
-}
-
-// ResetChecksOnEviction sets all AdmissionChecks to Pending
-func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
+// resetChecksOnEviction sets all AdmissionChecks to Pending
+func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	checks := w.Status.AdmissionChecks
-	updated := false
 	for i := range checks {
 		if checks[i].State == kueue.CheckStatePending {
 			continue
@@ -106,23 +95,21 @@ func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
 			LastTransitionTime: metav1.NewTime(now),
 			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
 		}
-		updated = true
 	}
-	return updated
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) {
+func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
 	if checks == nil {
-		return
+		return false
 	}
-	existingCondition := FindAdmissionCheck(*checks, newCheck.Name)
+	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
 		if newCheck.LastTransitionTime.IsZero() {
 			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
 		}
 		*checks = append(*checks, newCheck)
-		return
+		return true
 	}
 
 	if existingCondition.State != newCheck.State {
@@ -135,6 +122,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	}
 	existingCondition.Message = newCheck.Message
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
+	return true
 }
 
 // RejectedChecks returns the list of Rejected admission checks

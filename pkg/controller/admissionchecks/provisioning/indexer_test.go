@@ -131,7 +131,8 @@ func TestIndexProvisioningRequests(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 			k8sclient := builder.Build()
 			for _, req := range tc.requests {
 				if err := k8sclient.Create(ctx, req); err != nil {
@@ -241,7 +242,8 @@ func TestIndexWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 			k8sclient := builder.Build()
 			for _, wl := range tc.workloads {
 				if err := k8sclient.Create(ctx, wl); err != nil {
@@ -337,7 +339,8 @@ func TestIndexAdmissionChecks(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			builder, ctx := getClientBuilder(t.Context())
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
 			k8sclient := builder.Build()
 			for _, req := range tc.checks {
 				if err := k8sclient.Create(ctx, req); err != nil {

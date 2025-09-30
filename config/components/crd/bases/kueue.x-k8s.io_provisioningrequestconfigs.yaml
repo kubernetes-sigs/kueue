@@ -38,8 +38,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ProvisioningRequestConfigSpec defines the desired state of
-              ProvisioningRequestConfig
+            description: spec is the specification of the ProvisioningRequestConfig.
             properties:
               managedResources:
                 description: |-
@@ -64,7 +63,7 @@ spec:
                   description: Parameter is limited to 255 characters.
                   maxLength: 255
                   type: string
-                description: Parameters contains all other parameters classes may
+                description: parameters contains all other parameters classes may
                   require.
                 maxProperties: 100
                 type: object
@@ -109,7 +108,7 @@ spec:
                 type: object
               provisioningClassName:
                 description: |-
-                  ProvisioningClassName describes the different modes of provisioning the resources.
+                  provisioningClassName describes the different modes of provisioning the resources.
                   Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
@@ -132,7 +131,7 @@ spec:
                   backoffBaseSeconds:
                     default: 60
                     description: |-
-                      BackoffBaseSeconds defines the base for the exponential backoff for
+                      backoffBaseSeconds defines the base for the exponential backoff for
                       re-queuing an evicted workload.
 
                       Defaults to 60.
@@ -141,7 +140,7 @@ spec:
                   backoffLimitCount:
                     default: 3
                     description: |-
-                      BackoffLimitCount defines the maximum number of re-queuing retries.
+                      backoffLimitCount defines the maximum number of re-queuing retries.
                       Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 
                       Every backoff duration is about "b*2^(n-1)+Rand" where:
@@ -158,7 +157,7 @@ spec:
                   backoffMaxSeconds:
                     default: 1800
                     description: |-
-                      BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+                      backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 
                       Defaults to 1800.
                     format: int32

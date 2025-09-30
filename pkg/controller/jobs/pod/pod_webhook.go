@@ -33,14 +33,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -59,7 +59,7 @@ var (
 
 type PodWebhook struct {
 	client                       client.Client
-	queues                       *queue.Manager
+	queues                       *qcache.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	namespaceSelector            *metav1.LabelSelector
@@ -200,11 +200,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			}
 			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
 		}
-
-		if podGroupName(pod.pod) != "" {
-			if err := pod.addRoleHash(); err != nil {
-				return err
-			}
+		if err := pod.addRoleHash(); err != nil {
+			return err
 		}
 		// copy back changes to the object
 		pod.pod.DeepCopyInto(obj.(*corev1.Pod))

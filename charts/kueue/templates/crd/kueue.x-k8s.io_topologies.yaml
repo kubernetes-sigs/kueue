@@ -30,7 +30,7 @@ spec:
     singular: topology
   scope: Cluster
   versions:
-    - name: v1alpha1
+    - name: v1beta1
       schema:
         openAPIV3Schema:
           description: Topology is the Schema for the topology API
@@ -53,7 +53,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: TopologySpec defines the desired state of Topology
+              description: spec is the specification of the Topology.
               properties:
                 levels:
                   description: levels define the levels of topology.
@@ -89,8 +89,6 @@ spec:
               required:
                 - levels
               type: object
-          required:
-            - spec
           type: object
       served: true
       storage: true

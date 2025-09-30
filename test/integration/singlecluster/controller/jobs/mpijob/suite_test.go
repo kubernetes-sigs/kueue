@@ -27,7 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -36,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -72,11 +72,14 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := mpijob.NewReconciler(
+		reconciler, err := mpijob.NewReconciler(
+			ctx,
 			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -87,8 +90,10 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 		jobframework.EnableIntegration(mpijob.FrameworkName)
 
 		if setupJobManager {
-			jobReconciler := job.NewReconciler(
+			jobReconciler, _ := job.NewReconciler(
+				ctx,
 				mgr.GetClient(),
+				mgr.GetFieldIndexer(),
 				mgr.GetEventRecorderFor(constants.JobControllerName),
 				opts...)
 			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -105,8 +110,8 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 	return func(ctx context.Context, mgr manager.Manager) {
 		managerSetup(true, opts...)(ctx, mgr)
 
-		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache)
+		cCache := schdcache.New(mgr.GetClient())
+		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)

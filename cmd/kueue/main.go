@@ -51,20 +51,23 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/debugger"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -188,7 +191,11 @@ func main() {
 
 	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
 	// for each API type.
-	kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
+	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
+	// The following QPS negative value chack allows us to disable the client-side ratelimiting.
+	if *cfg.ClientConnection.QPS >= 0.0 {
+		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
+	}
 	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
@@ -206,25 +213,32 @@ func main() {
 	} else {
 		close(certsReady)
 	}
-	cacheOptions := []cache.Option{cache.WithPodsReadyTracking(blockForPodsReady(&cfg))}
-	queueOptions := []queue.Option{queue.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg))}
+	cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg))}
+	queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg))}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
-		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
-		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
+		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
+		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
 	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
-		cacheOptions = append(cacheOptions, cache.WithResourceTransformations(cfg.Resources.Transformations))
-		queueOptions = append(queueOptions, queue.WithResourceTransformations(cfg.Resources.Transformations))
+		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(cfg.Resources.Transformations))
+		queueOptions = append(queueOptions, qcache.WithResourceTransformations(cfg.Resources.Transformations))
+	}
+	if features.Enabled(features.DynamicResourceAllocation) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+		if err := dra.CreateMapperFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
+			setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
+			os.Exit(1)
+		}
+		setupLog.Info("DRA mapper initialized from configuration")
 	}
 	if cfg.FairSharing != nil {
-		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
+		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(cfg.FairSharing.Enable))
 	}
 	if cfg.AdmissionFairSharing != nil {
-		queueOptions = append(queueOptions, queue.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
-		cacheOptions = append(cacheOptions, cache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
-	cCache := cache.New(mgr.GetClient(), cacheOptions...)
-	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
+	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
@@ -259,7 +273,7 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
-			if err := visibility.CreateAndStartVisibilityServer(ctx, queues); err != nil {
+			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, *cfg.InternalCertManagement.Enable); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
 			}
@@ -285,12 +299,10 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	}
 
 	// setup provision admission check controller indexes
-	if features.Enabled(features.ProvisioningACC) {
-		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-			setupLog.Error(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
-		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
-			return fmt.Errorf("could not setup provisioning indexer: %w", err)
-		}
+	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
+		setupLog.Error(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
+	} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("could not setup provisioning indexer: %w", err)
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -311,7 +323,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) error {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
@@ -321,18 +333,16 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 
 	// setup provision admission check controller
-	if features.Enabled(features.ProvisioningACC) {
-		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-			setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
-		} else {
-			ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
-			if err != nil {
-				return fmt.Errorf("could not create the provisioning controller: %w", err)
-			}
+	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
+		setupLog.Info("Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
+	} else {
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+		if err != nil {
+			return fmt.Errorf("could not create the provisioning controller: %w", err)
+		}
 
-			if err := ctrl.SetupWithManager(mgr); err != nil {
-				return fmt.Errorf("could not setup provisioning controller: %w", err)
-			}
+		if err := ctrl.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("could not setup provisioning controller: %w", err)
 		}
 	}
 
@@ -341,6 +351,21 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		if err != nil {
 			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
+
+		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && cfg.MultiKueue != nil && len(cfg.MultiKueue.ExternalFrameworks) > 0 {
+			externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
+			if err != nil {
+				return fmt.Errorf("could not create external framework adapters: %w", err)
+			}
+
+			// Add external framework adapters to the adapters map
+			for _, adapter := range externalAdapters {
+				gvk := adapter.GVK().String()
+				setupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
+				adapters[gvk] = adapter
+			}
+		}
+
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
@@ -349,6 +374,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
+		}
+
+		if failedDispatcher, err := dispatcher.SetupControllers(mgr, cfg, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
 	}
 
@@ -419,7 +448,7 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	return nil
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) error {
+func setupScheduler(mgr ctrl.Manager, cCache *schdcache.Cache, queues *qcache.Manager, cfg *configapi.Configuration) error {
 	sched := scheduler.New(
 		queues,
 		cCache,

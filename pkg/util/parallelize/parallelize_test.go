@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 var errEven = errors.New("even")
@@ -53,7 +55,8 @@ func TestUntil(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			result = make([]int, 5)
-			err := Until(t.Context(), len(result), tc.op)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			err := Until(ctx, len(result), tc.op)
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("Got error %q, want %q", err, tc.wantErr)
 			}

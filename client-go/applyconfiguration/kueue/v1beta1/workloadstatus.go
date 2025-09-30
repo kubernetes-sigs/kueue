@@ -24,9 +24,9 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
+	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
 	Admission                            *AdmissionApplyConfiguration            `json:"admission,omitempty"`
 	RequeueState                         *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
-	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
 	ReclaimablePods                      []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
 	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
 	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
@@ -34,12 +34,26 @@ type WorkloadStatusApplyConfiguration struct {
 	SchedulingStats                      *SchedulingStatsApplyConfiguration      `json:"schedulingStats,omitempty"`
 	NominatedClusterNames                []string                                `json:"nominatedClusterNames,omitempty"`
 	ClusterName                          *string                                 `json:"clusterName,omitempty"`
+	UnhealthyNodes                       []UnhealthyNodeApplyConfiguration       `json:"unhealthyNodes,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
 // apply.
 func WorkloadStatus() *WorkloadStatusApplyConfiguration {
 	return &WorkloadStatusApplyConfiguration{}
+}
+
+// WithConditions adds the given value to the Conditions field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Conditions field.
+func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithConditions")
+		}
+		b.Conditions = append(b.Conditions, *values[i])
+	}
+	return b
 }
 
 // WithAdmission sets the Admission field in the declarative configuration to the given value
@@ -55,19 +69,6 @@ func (b *WorkloadStatusApplyConfiguration) WithAdmission(value *AdmissionApplyCo
 // If called multiple times, the RequeueState field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithRequeueState(value *RequeueStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.RequeueState = value
-	return b
-}
-
-// WithConditions adds the given value to the Conditions field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Conditions field.
-func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *WorkloadStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithConditions")
-		}
-		b.Conditions = append(b.Conditions, *values[i])
-	}
 	return b
 }
 
@@ -141,5 +142,18 @@ func (b *WorkloadStatusApplyConfiguration) WithNominatedClusterNames(values ...s
 // If called multiple times, the ClusterName field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithClusterName(value string) *WorkloadStatusApplyConfiguration {
 	b.ClusterName = &value
+	return b
+}
+
+// WithUnhealthyNodes adds the given value to the UnhealthyNodes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the UnhealthyNodes field.
+func (b *WorkloadStatusApplyConfiguration) WithUnhealthyNodes(values ...*UnhealthyNodeApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithUnhealthyNodes")
+		}
+		b.UnhealthyNodes = append(b.UnhealthyNodes, *values[i])
+	}
 	return b
 }

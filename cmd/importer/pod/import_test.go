@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -47,9 +48,12 @@ func TestImportNamespace(t *testing.T) {
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 			Image("img").
 			Request(corev1.ResourceCPU, "1").
+			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 			Obj()).
 		ReserveQuota(utiltesting.MakeAdmission("cq1").
-			Assignment(corev1.ResourceCPU, "f1", "1").
+			PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "f1", "1").
+				Obj()).
 			Obj()).
 		Condition(metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
@@ -177,7 +181,7 @@ func TestImportNamespace(t *testing.T) {
 				WithLists(&podsList, &cqList, &lqList)
 
 			client := builder.Build()
-			ctx := t.Context()
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
 			gotErr := Import(ctx, client, mpc, 8)

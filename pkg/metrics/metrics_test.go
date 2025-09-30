@@ -18,11 +18,11 @@ package metrics
 
 import (
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
 )
@@ -147,9 +147,8 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
-	duration := time.Second
-	ReportEvictedWorkloads("cluster_queue1", "Preempted", &duration)
-	ReportEvictedWorkloads("cluster_queue1", "Evicted", &duration)
+	ReportEvictedWorkloads("cluster_queue1", "Preempted", "", "")
+	ReportEvictedWorkloads("cluster_queue1", "Evicted", "", "")
 
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
@@ -160,15 +159,12 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
-	duration := time.Second
-
-	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", &duration)
-	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1", &duration)
+	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1")
+	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1")
 
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 4, "preempting_cluster_queue", "cluster_queue1")
-	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InClusterQueue")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortFairSharing")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclamation")
@@ -176,7 +172,16 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
-	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
+func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "")
+
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1", "reason", "Preempted")
+
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
 }
 
 func TestGitVersionMetric(t *testing.T) {
@@ -187,4 +192,30 @@ func TestGitVersionMetric(t *testing.T) {
 	expectFilteredMetricsCount(t, buildInfo, 1, "go_version", versionInfo.GoVersion)
 	expectFilteredMetricsCount(t, buildInfo, 1, "compiler", versionInfo.Compiler)
 	expectFilteredMetricsCount(t, buildInfo, 1, "platform", versionInfo.Platform)
+}
+
+func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
+	lq := LocalQueueReference{Name: "lq3", Namespace: "ns3"}
+	ReportLocalQueueAdmissionChecksWaitTime(lq, "p2", 0)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 1, "name", "lq3", "namespace", "ns3")
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 0, "name", "lq3", "namespace", "ns3")
+}
+
+func TestReportAndCleanupLocalQueueQuotaReservedNumber(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
+	LocalQueueQuotaReservedWorkload(lq, "", 0)
+
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1")
+
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
+}
+
+func TestLocalQueueQuotaReservedWaitTimeHasPriorityLabel(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq2"), Namespace: "ns2"}
+	LocalQueueQuotaReservedWorkload(lq, "p1", 0)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWaitTime, 1, "name", "lq2", "namespace", "ns2")
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueQuotaReservedWaitTime, 0, "name", "lq2", "namespace", "ns2")
 }

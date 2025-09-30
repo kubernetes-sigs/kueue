@@ -108,8 +108,6 @@ spec:
       - name: manager-config
         configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
-      - name: visibility
-        emptyDir: {}
       {{- if .Values.enableCertManager }}
       - name: metrics-certs
         secret:
@@ -122,4 +120,18 @@ spec:
             path: tls.crt
           - key: tls.key
             path: tls.key
+      - name: visibility
+        secret:
+          secretName: {{ include "kueue.fullname" . }}-visibility-server-cert
+          optional: false
+          items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+      {{- else }}
+      - name: visibility
+        emptyDir: {}
       {{- end }}

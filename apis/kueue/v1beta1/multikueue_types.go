@@ -45,13 +45,13 @@ const (
 )
 
 type KubeConfig struct {
-	// Location of the KubeConfig.
+	// location of the KubeConfig.
 	//
 	// If LocationType is Secret then Location is the name of the secret inside the namespace in
 	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
 	Location string `json:"location"`
 
-	// Type of the KubeConfig location.
+	// locationType of the KubeConfig.
 	//
 	// +kubebuilder:default=Secret
 	// +kubebuilder:validation:Enum=Secret;Path
@@ -59,11 +59,13 @@ type KubeConfig struct {
 }
 
 type MultiKueueClusterSpec struct {
-	// Information how to connect to the cluster.
+	// kubeConfig is information on how to connect to the cluster.
 	KubeConfig KubeConfig `json:"kubeConfig"`
 }
 
 type MultiKueueClusterStatus struct {
+	// conditions hold the latest available observations of the MultiKueueCluster
+	// current state.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -83,10 +85,14 @@ type MultiKueueClusterStatus struct {
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // MultiKueueCluster is the Schema for the multikueue API
 type MultiKueueCluster struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the MultiKueueCluster.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MultiKueueClusterSpec   `json:"spec,omitempty"`
+	// spec is the specification of the MultiKueueCluster.
+	Spec MultiKueueClusterSpec `json:"spec,omitempty"`
+
+	// status is the status of the MultiKueueCluster.
 	Status MultiKueueClusterStatus `json:"status,omitempty"`
 }
 
@@ -101,7 +107,7 @@ type MultiKueueClusterList struct {
 
 // MultiKueueConfigSpec defines the desired state of MultiKueueConfig
 type MultiKueueConfigSpec struct {
-	// List of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	//
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
@@ -117,9 +123,11 @@ type MultiKueueConfigSpec struct {
 
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the metadata of the MultiKueueConfig.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// spec is the specification of the MultiKueueConfig.
 	Spec MultiKueueConfigSpec `json:"spec,omitempty"`
 }
 

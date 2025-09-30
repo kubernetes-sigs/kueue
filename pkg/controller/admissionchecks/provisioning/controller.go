@@ -236,7 +236,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
-		ac := workload.FindAdmissionCheck(wlInfo.checkStates, checkName)
+		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
 		if ac != nil && ac.State == kueue.CheckStateReady {
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
 			continue
@@ -327,7 +327,7 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 	c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 
 	ac.Message = api.TruncateConditionMessage(msg)
-	wlPatch := workload.BaseSSAWorkload(wl)
+	wlPatch := workload.BaseSSAWorkload(wl, true)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *ac, c.clock)
 
 	patchErr := c.client.Status().Patch(
@@ -359,7 +359,7 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 	}
 
 	// apply the admission node selectors to the Template
-	psi, err := podset.FromAssignment(ctx, c.client, psa, ptr.Deref(psa.Count, ps.Count))
+	psi, err := podset.FromAssignment(ctx, c.client, psa, ps)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +498,8 @@ func (c *Controller) syncCheckStates(
 	log := ctrl.LoggerFrom(ctx)
 	wlInfo.update(wl, c.clock)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
-	wlPatch := workload.BaseSSAWorkload(wl)
+	wlPatch := workload.BaseSSAWorkload(wl, true)
+	wlPatch.Status.RequeueState = wl.Status.RequeueState.DeepCopy()
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
 	for check, prc := range checkConfig {
@@ -592,7 +593,7 @@ func (c *Controller) syncCheckStates(
 			}
 		}
 
-		existingCondition := workload.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
+		existingCondition := admissioncheck.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
 		if existingCondition != nil && existingCondition.State != checkState.State {
 			message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
 			if checkState.Message != "" {
@@ -623,10 +624,9 @@ func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.Provisio
 		podSetUpdate := kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
-				DeprecatedConsumesAnnotationKey:  pr.Name,
-				DeprecatedClassNameAnnotationKey: pr.Spec.ProvisioningClassName,
-				ConsumesAnnotationKey:            pr.Name,
-				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
+				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
+				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
+			},
 		}
 		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
 			podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))

@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -297,7 +296,7 @@ func TestReconciler(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -309,7 +308,7 @@ func TestReconciler(t *testing.T) {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -325,7 +324,7 @@ func TestReconciler(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -337,7 +336,7 @@ func TestReconciler(t *testing.T) {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -407,7 +406,7 @@ func TestReconciler(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -419,7 +418,7 @@ func TestReconciler(t *testing.T) {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -435,7 +434,7 @@ func TestReconciler(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -447,7 +446,7 @@ func TestReconciler(t *testing.T) {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					Spec: corev1.PodSpec{
@@ -641,6 +640,7 @@ func TestReconciler(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
+			indexer := utiltesting.AsIndexer(clientBuilder)
 
 			objs := make([]client.Object, 0, len(tc.workloads)+len(tc.workloadPriorityClasses)+1)
 			objs = append(objs, tc.leaderWorkerSet)
@@ -654,10 +654,13 @@ func TestReconciler(t *testing.T) {
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := &utiltesting.EventRecorder{}
 
-			reconciler := NewReconciler(kClient, recorder, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			lwsKey := client.ObjectKeyFromObject(tc.leaderWorkerSet)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: lwsKey})
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: lwsKey})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}

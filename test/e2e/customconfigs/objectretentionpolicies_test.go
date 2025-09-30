@@ -60,8 +60,8 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.LongTimeout)
 	})
 
 	ginkgo.It("should delete the Workload after enabling the ObjectRetentionPolicies feature gate", func() {
@@ -120,13 +120,13 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 			createdJob := &batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the Workload is deleted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 	ginkgo.When("workload has finished", func() {
 		ginkgo.It("should delete the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
@@ -193,6 +193,10 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Order
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Terminating pods to make Workload finished", func() {
+				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0)
 			})
 
 			ginkgo.By("Checking that the Workload is deleted after it is finished", func() {

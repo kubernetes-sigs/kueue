@@ -27,12 +27,11 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
@@ -82,8 +81,8 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			topologyAwareScheduling: true,
 		},
@@ -101,10 +100,10 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -134,12 +133,12 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetSliceSizeAnnotation, "20").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetSliceSizeAnnotation, "20").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetSliceSizeAnnotation, "20").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetSliceSizeAnnotation, "20").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
@@ -156,7 +155,8 @@ func TestValidateCreate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
 			jsw := &MpiJobWebhook{}
-			_, gotErr := jsw.ValidateCreate(t.Context(), tc.job)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, gotErr := jsw.ValidateCreate(ctx, tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
@@ -404,8 +404,8 @@ func TestDefault(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("default"))
 			cl := clientBuilder.Build()
-			cqCache := cache.New(cl)
-			queueManager := queue.NewManager(cl, cqCache)
+			cqCache := schdcache.New(cl)
+			queueManager := qcache.NewManager(cl, cqCache)
 
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
