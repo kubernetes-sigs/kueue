@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("Cohort Webhook", ginkgo.Ordered, func() {
 			ginkgo.Entry("Should reject too many resources in resource group",
 				func() *kueue.Cohort {
 					fq := testing.MakeFlavorQuotas("flavor")
-					for i := range 17 {
+					for i := range 65 {
 						fq = fq.Resource(corev1.ResourceName(fmt.Sprintf("cpu%d", i)))
 					}
 					return testing.MakeCohort("cohort").

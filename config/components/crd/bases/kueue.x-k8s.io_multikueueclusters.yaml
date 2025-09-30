@@ -46,20 +46,21 @@ spec:
           metadata:
             type: object
           spec:
+            description: spec is the specification of the MultiKueueCluster.
             properties:
               kubeConfig:
-                description: Information how to connect to the cluster.
+                description: kubeConfig is information on how to connect to the cluster.
                 properties:
                   location:
                     description: |-
-                      Location of the KubeConfig.
+                      location of the KubeConfig.
 
                       If LocationType is Secret then Location is the name of the secret inside the namespace in
                       which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
                     type: string
                   locationType:
                     default: Secret
-                    description: Type of the KubeConfig location.
+                    description: locationType of the KubeConfig.
                     enum:
                     - Secret
                     - Path
@@ -72,8 +73,12 @@ spec:
             - kubeConfig
             type: object
           status:
+            description: status is the status of the MultiKueueCluster.
             properties:
               conditions:
+                description: |-
+                  conditions hold the latest available observations of the MultiKueueCluster
+                  current state.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

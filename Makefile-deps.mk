@@ -41,6 +41,7 @@ LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.i
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
+GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
 CONTROLLER_GEN = $(BIN_DIR)/controller-gen
 KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
@@ -69,6 +70,10 @@ LEADERWORKERSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sig
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
 	@GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+.PHONY: golangci-lint-kal
+golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
+	cd hack/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
