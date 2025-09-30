@@ -199,13 +199,18 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
 
 The following table summarizes the behavior based on the combination of the feature gates. If `TASFailedNodeReplacement` is `false`, the other two gates have no effect.
 
-| `TASFailedNodeReplacement` | `TASReplaceNodeOnPodTermination` | `TASFailedNodeReplacementFailFast` | End Behavior                                                                                                                                                                                                                                                                                        |
-| :------------------------: | :------------------------------: | :--------------------------------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|          `false`           |              *any*               |               *any*                | **Hot swap is disabled.** Workloads will not have failed nodes replaced and may get stuck until they are evicted.                                                                                                                                                                                   |
-|           `true`           |             `false`              |              `false`               | **Default Hot Swap.** Kueue attempts replacement if a node is `NotReady` for over 30 seconds. It will **retry** until it succeeds or the wait for pods ready evicts it.                                                                                                                             |
-|           `true`           |              `true`              |              `false`               | **Hot Swap with Pod Termination Trigger.** Kueue attempts replacement if the node is `NotReady` and at least one of the workload's pods is terminating, the 30 seconds timeout is disregarded. It will **retry** until it succeeds or the wait for pods ready evicts it                             |
-|           `true`           |             `false`              |               `true`               | **Fast Hot Swap.** Kueue attempts replacement if a node is `NotReady` for over 30 seconds. It will try to find the replacement **only once.** and evict the workload if it fails to do so                                                                                                           |
-|           `true`           |              `true`              |               `true`               | **Fast Hot Swap with Pod Termination Trigger.** Kueue attempts replacement if the node is `NotReady` and at least one of the workload's pods is terminating, the 30 seconds timeout is disregarded.  It will try to find the replacement **only once.** and evict the workload if it fails to do so |
+**Feature Gate Legend:**
+- **FNR**: `TASFailedNodeReplacement`
+- **RNO**: `TASReplaceNodeOnPodTermination`
+- **FNFF**: `TASFailedNodeReplacementFailFast`
+
+| `FNR` | `RNO` | `FNFF` | End Behavior |
+| :---- | :---- | :---- | :----------- |
+| `false` | *any* | *any* | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
+| `true` | `false` | `false` | **Default Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | `true` | `false` | **Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady` for > 30s, OR a workload pod is terminating.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
+| `true` | `true` | `true` | **Fast Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady`, AND a workload pod is terminating.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
 
 **Recommended configuration**
 
