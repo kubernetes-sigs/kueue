@@ -19,6 +19,7 @@ package customconfigse2e
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,11 +41,10 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 	)
 
 	var (
-		rf               *kueue.ResourceFlavor
-		lq               *kueue.LocalQueue
-		cq               *kueue.ClusterQueue
-		ns               *corev1.Namespace
-		defaultNsObjects []client.Object
+		rf *kueue.ResourceFlavor
+		lq *kueue.LocalQueue
+		cq *kueue.ClusterQueue
+		ns *corev1.Namespace
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -83,65 +83,65 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 	})
 
-	ginkgo.BeforeEach(func() {
-		defaultNsObjects = []client.Object{}
-	})
-
-	ginkgo.AfterEach(func() {
-		for _, obj := range defaultNsObjects {
-			gomega.Expect(k8sClient.Delete(ctx, obj)).To(gomega.Succeed())
-		}
-	})
-
 	ginkgo.AfterAll(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.LongTimeout)
 	})
 
-	ginkgo.It("should not reconcile a job in the default (unmanaged) namespace", func() {
-		job := testingjob.MakeJob("unmanaged-job", metav1.NamespaceDefault).
-			Queue(kueue.LocalQueueName(lq.Name)).
-			Suspend(true).
-			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-			Obj()
+	ginkgo.When("Testing namespace selector behavior", func() {
+		var (
+			testJob *batchv1.Job
+			testPod *corev1.Pod
+		)
 
-		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
-		defaultNsObjects = append(defaultNsObjects, job)
-
-		wls := &kueue.WorkloadList{}
-		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
-		gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
-	})
-
-	ginkgo.It("should reconcile a job in managed namespace and create a workload", func() {
-		job := testingjob.MakeJob("managed-job", ns.Name).
-			Queue(kueue.LocalQueueName(lq.Name)).
-			Suspend(true).
-			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-			Obj()
-
-		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
-
-		ginkgo.By("check that only one workload is created", func() {
-			createdWorkloads := &kueue.WorkloadList{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, testJob, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, testPod, true)
 		})
-	})
 
-	ginkgo.It("Verify existing behavior - should not reconcile a pod in the default (unmanaged) namespace", func() {
-		testPod := testingpod.MakePod("test-pod", metav1.NamespaceDefault).
-			Queue(lq.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-			Obj()
-		gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())
-		defaultNsObjects = append(defaultNsObjects, testPod)
+		ginkgo.It("should not reconcile a job in the default (unmanaged) namespace", func() {
+			testJob = testingjob.MakeJob("unmanaged-job", metav1.NamespaceDefault).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Suspend(true).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
 
-		wls := &kueue.WorkloadList{}
-		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
-		gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload for pod in unmanaged namespace")
+			gomega.Expect(k8sClient.Create(ctx, testJob)).To(gomega.Succeed())
+
+			wls := &kueue.WorkloadList{}
+			gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
+			gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
+		})
+
+		ginkgo.It("should reconcile a job in managed namespace and create a workload", func() {
+			testJob = testingjob.MakeJob("managed-job", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Suspend(true).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, testJob)).To(gomega.Succeed())
+
+			ginkgo.By("check that only one workload is created", func() {
+				createdWorkloads := &kueue.WorkloadList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not reconcile a pod in the default (unmanaged) namespace", func() {
+			testPod = testingpod.MakePod("test-pod", metav1.NamespaceDefault).
+				Queue(lq.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())
+
+			wls := &kueue.WorkloadList{}
+			gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
+			gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload for pod in unmanaged namespace")
+		})
 	})
 })
