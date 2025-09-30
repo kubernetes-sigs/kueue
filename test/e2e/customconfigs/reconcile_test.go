@@ -40,10 +40,11 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 	)
 
 	var (
-		rf *kueue.ResourceFlavor
-		lq *kueue.LocalQueue
-		cq *kueue.ClusterQueue
-		ns *corev1.Namespace
+		rf               *kueue.ResourceFlavor
+		lq               *kueue.LocalQueue
+		cq               *kueue.ClusterQueue
+		ns               *corev1.Namespace
+		defaultNsObjects []client.Object
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -82,6 +83,16 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 	})
 
+	ginkgo.BeforeEach(func() {
+		defaultNsObjects = []client.Object{}
+	})
+
+	ginkgo.AfterEach(func() {
+		for _, obj := range defaultNsObjects {
+			gomega.Expect(k8sClient.Delete(ctx, obj)).To(gomega.Succeed())
+		}
+	})
+
 	ginkgo.AfterAll(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.LongTimeout)
@@ -96,9 +107,7 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
-		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true)
-		})
+		defaultNsObjects = append(defaultNsObjects, job)
 
 		wls := &kueue.WorkloadList{}
 		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
@@ -129,9 +138,7 @@ var _ = ginkgo.Describe("Job reconciliation with ManagedJobsNamespaceSelectorAlw
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())
-		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, testPod, true)
-		})
+		defaultNsObjects = append(defaultNsObjects, testPod)
 
 		wls := &kueue.WorkloadList{}
 		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(metav1.NamespaceDefault))).To(gomega.Succeed())
