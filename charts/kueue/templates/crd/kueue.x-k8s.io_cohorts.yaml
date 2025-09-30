@@ -164,7 +164,7 @@ spec:
                             resources:
                               description: |-
                                 resources is the list of quotas for this flavor per resource.
-                                There could be up to 16 resources.
+                                There could be up to 64 resources.
                               items:
                                 properties:
                                   borrowingLimit:
@@ -225,7 +225,7 @@ spec:
                                   - name
                                   - nominalQuota
                                 type: object
-                              maxItems: 16
+                              maxItems: 64
                               minItems: 1
                               type: array
                               x-kubernetes-list-map-keys:
