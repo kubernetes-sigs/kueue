@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.13.4](https://img.shields.io/badge/Version-0.13.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.13.4](https://img.shields.io/badge/AppVersion-v0.13.4-informational?style=flat-square)
+![Version: 0.14.0](https://img.shields.io/badge/Version-0.14.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.14.0](https://img.shields.io/badge/AppVersion-v0.14.0-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.4" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.14.0" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.4" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.14.0" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.4" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.13.4" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.14.0" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
@@ -103,7 +103,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | ControllerManager's container securityContext |
 | controllerManager.manager.image.pullPolicy | string | `"Always"` | ControllerManager's image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | controllerManager.manager.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue"` | ControllerManager's image repository |
-| controllerManager.manager.image.tag | string | `"main"` | ControllerManager's image tag |
+| controllerManager.manager.image.tag | string | `"release-0.14"` | ControllerManager's image tag |
 | controllerManager.manager.podAnnotations | object | `{}` |  |
 | controllerManager.manager.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | ControllerManager's pod securityContext |
 | controllerManager.manager.priorityClassName | string | `nil` | ControllerManager's pod priorityClassName |
@@ -128,7 +128,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.env | list | `[{"name":"KUEUEVIZ_ALLOWED_ORIGINS","value":"frontend.kueueviz.local"}]` | Environment variables for KueueViz backend deployment |
 | kueueViz.backend.image.pullPolicy | string | `"Always"` | KueueViz dashboard backend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.backend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-backend"` | KueueViz dashboard backend image repository |
-| kueueViz.backend.image.tag | string | `"main"` | KueueViz dashboard backend image tag |
+| kueueViz.backend.image.tag | string | `"release-0.14"` | KueueViz dashboard backend image tag |
 | kueueViz.backend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard backend deployments. This is useful when the images are in a private registry. |
 | kueueViz.backend.ingress.annotations | object | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` | KueueViz dashboard backend ingress annotations |
 | kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
@@ -140,7 +140,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.env | list | `[{"name":"REACT_APP_WEBSOCKET_URL","value":"wss://backend.kueueviz.local"}]` | Environment variables for KueueViz frontend deployment |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
-| kueueViz.frontend.image.tag | string | `"main"` | KueueViz dashboard frontend image tag |
+| kueueViz.frontend.image.tag | string | `"release-0.14"` | KueueViz dashboard frontend image tag |
 | kueueViz.frontend.imagePullSecrets | list | `[]` | Sets ImagePullSecrets for KueueViz dashboard frontend deployments. This is useful when the images are in a private registry. |
 | kueueViz.frontend.ingress.annotations | object | `{"nginx.ingress.kubernetes.io/rewrite-target":"/","nginx.ingress.kubernetes.io/ssl-redirect":"true"}` | KueueViz dashboard frontend ingress annotations |
 | kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
