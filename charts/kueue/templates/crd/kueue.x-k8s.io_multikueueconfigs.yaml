@@ -53,10 +53,10 @@ spec:
             metadata:
               type: object
             spec:
-              description: MultiKueueConfigSpec defines the desired state of MultiKueueConfig
+              description: spec is the specification of the MultiKueueConfig.
               properties:
                 clusters:
-                  description: List of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+                  description: clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
                   items:
                     type: string
                   maxItems: 10

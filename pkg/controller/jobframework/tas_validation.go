@@ -68,6 +68,14 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueuebeta.PodSetGroupName]
 	if podSetGroupNameFound {
 		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueuebeta.PodSetGroupName))...)
+
+		if sliceSizeFound {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueuebeta.PodSetSliceSizeAnnotation)))
+		}
+
+		if sliceRequiredFound {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
+		}
 	}
 
 	unconstrainedErrs := validateTASUnconstrained(annotationsPath, replicaMetadata)
@@ -77,14 +85,11 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	allErrs = append(allErrs, sliceSizeAnnotationErr...)
 
 	// validate slice annotations
-	if sliceRequiredFound {
-		if !sliceSizeFound {
-			allErrs = append(allErrs, field.Required(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), "slice size is required if slice topology is requested"))
-		}
+	if sliceRequiredFound && !sliceSizeFound {
+		allErrs = append(allErrs, field.Required(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("must be set when '%s' is specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
 	}
-
 	if !sliceRequiredFound && sliceSizeFound {
-		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("cannot be set when '%s' is not present", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
+		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
 	}
 
 	return allErrs

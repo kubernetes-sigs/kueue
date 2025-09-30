@@ -131,6 +131,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
+	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -167,6 +170,10 @@ func DeleteAllJobSetsInNamespace(ctx context.Context, c client.Client, ns *corev
 
 func DeleteAllTrainJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &kftrainerapi.TrainJob{})
+}
+
+func DeleteAllTrainingRuntimesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftrainerapi.TrainingRuntime{})
 }
 
 func DeleteAllLeaderWorkerSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {

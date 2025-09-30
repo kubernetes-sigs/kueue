@@ -280,7 +280,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 
 		usage := e.assignmentUsage()
-		if !fits(cq, &usage, preemptedWorkloads, e.preemptionTargets) {
+		if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
 			setSkipped(e, "Workload no longer fits after processing another workload")
 			if mode == flavorassigner.Preempt {
 				skippedPreemptions[cq.Name]++
@@ -451,12 +451,12 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func fits(cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
+func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)
 	}
-	revertUsage := cq.SimulateWorkloadRemoval(workloads)
+	revertUsage := snapshot.SimulateWorkloadRemoval(workloads)
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -506,7 +506,7 @@ type partialAssignment struct {
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	updateAssignmentForTAS(cq, wl, &assignment, targets)
+	updateAssignmentForTAS(snap, cq, wl, &assignment, targets)
 	return assignment, targets
 }
 
@@ -584,7 +584,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	return nil
 }
 
-func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
+func updateAssignmentForTAS(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
@@ -594,7 +594,7 @@ func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Inf
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := cq.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests)
 			revertUsage()
 		} else {

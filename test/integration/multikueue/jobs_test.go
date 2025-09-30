@@ -42,6 +42,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -1563,31 +1564,26 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should run a TrainJob on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
 			kueue.PodSetAssignment{
-				Name: "replicated-job-1",
-			}, kueue.PodSetAssignment{
-				Name: "replicated-job-2",
+				Name: "node",
 			},
 		)
-		trainJob := testingtrainjob.MakeTrainJob("trainjob1", managerNs.Name).
+		testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:     "node",
+				Replicas: 1,
+			}).
+			Obj()
+		testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+		trainJob := testingtrainjob.MakeTrainJob("trainjob1", managerNs.Name).RuntimeRef(kftrainer.RuntimeRef{
+			APIGroup: ptr.To("trainer.kubeflow.org"),
+			Name:     "test",
+			Kind:     ptr.To("ClusterTrainingRuntime"),
+		}).
 			Queue(managerLq.Name).
 			Obj()
-		childJobSet := testingtrainjob.MakeJobSetWrapperFromTrainjob(trainJob).
-			ReplicatedJobs(
-				testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-1",
-					Replicas:    1,
-					Parallelism: 1,
-					Completions: 1,
-				}, testingjobset.ReplicatedJobRequirements{
-					Name:        "replicated-job-2",
-					Replicas:    3,
-					Parallelism: 1,
-					Completions: 1,
-				},
-			).
-			Obj()
+
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testCtr)
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, trainJob)
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, childJobSet)
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: managerNs.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdWorkload := &kueue.Workload{}
@@ -1732,6 +1728,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		/*
 			Scale-up Section
 		*/
+		ginkgo.By("DEBUG Before Scale")
+		debugAll(job.Namespace)
 
 		ginkgo.By("scale-up the job", func() {
 			getJob(manager.ctx, manager.client, job)
@@ -1741,11 +1739,17 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("DEBUG After Scale")
+		debugAll(job.Namespace)
+
 		ginkgo.By("observe: a new workload slice is created")
 		newWorkloadKey := getWorkloadKey(job)
 		gomega.Eventually(func(g gomega.Gomega) {
 			getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("DEBUG After new slice created")
+		debugAll(job.Namespace)
 
 		ginkgo.By("copy clusterName from the old workload to the new workload", func() {
 			oldWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
@@ -1760,15 +1764,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(newWorkload.Status.ClusterName).Should(gomega.BeEquivalentTo(oldWorkload.Status.ClusterName))
 		})
 
+		ginkgo.By("DEBUG After new slice copy cluster name")
+		debugAll(job.Namespace)
+
 		ginkgo.By("admit the new workload and finish the old workload in the manager cluster", func() {
-			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltesting.MakeAdmission(managerCq.Name).Obj())
 			gomega.Eventually(func(g gomega.Gomega) {
 				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 				g.Expect(workloadslicing.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice")).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltesting.MakeAdmission(managerCq.Name).Obj())
 		})
 
-		ginkgo.By("observe: the new workload is crated in the worker1 cluster")
+		ginkgo.By("DEBUG After new slice admission")
+		debugAll(job.Namespace)
+
+		ginkgo.By("observe: the new workload is created in the worker1 cluster")
 		gomega.Eventually(func(g gomega.Gomega) {
 			local := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			remote := getWorkload(g, worker1.ctx, worker1.client, newWorkloadKey)
@@ -1783,6 +1793,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(worker2.client.List(worker2.ctx, jobs, client.InNamespace(job.Namespace))).To(gomega.Succeed())
 			gomega.Expect(jobs.Items).To(gomega.BeEmpty())
 		})
+
+		ginkgo.By("DEBUG After new slice created on worker1")
+		debugAll(job.Namespace)
 
 		ginkgo.By("observe: the old workload is still admitted in the worker1 cluster", func() {
 			workload := getWorkload(gomega.Default, worker1.ctx, worker1.client, workloadKey)
@@ -1915,6 +1928,34 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 })
+
+func debugAll(ns string) {
+	debug(ns, "MANAGER", managerTestCluster)
+	debug(ns, "WORKER1", worker1TestCluster)
+	debug(ns, "WORKER2", worker2TestCluster)
+}
+
+func debug(ns, clusterName string, c cluster) {
+	log := ginkgo.GinkgoLogr.WithName(clusterName)
+
+	jobs := &batchv1.JobList{}
+	gomega.Expect(c.client.List(c.ctx, jobs, client.InNamespace(ns))).To(gomega.Succeed())
+	if len(jobs.Items) == 0 {
+		log.Info("no jobs")
+	}
+	for _, job := range jobs.Items {
+		log.Info("job", "name", job.Name, "uid", job.UID, "prebuild", job.Labels[constants.PrebuiltWorkloadLabel], "pods", job.Spec.Parallelism, "suspend", job.Spec.Suspend)
+	}
+
+	wls := &kueue.WorkloadList{}
+	gomega.Expect(c.client.List(c.ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
+	if len(wls.Items) == 0 {
+		log.Info("no workloads")
+	}
+	for _, wl := range wls.Items {
+		log.Info("wl", "name", wl.Name, "pods", wl.Spec.PodSets[0].Count, "labels", wl.Labels, "status", wl.Status)
+	}
+}
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltesting.AdmissionWrapper) {
 	ginkgo.By("setting workload reservation in the management cluster", func() {

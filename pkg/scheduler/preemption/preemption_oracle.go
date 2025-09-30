@@ -57,7 +57,7 @@ func (p *PreemptionOracle) SimulatePreemption(log logr.Logger, cq *schdcache.Clu
 	for i, c := range candidates {
 		workloadsToPreempt[i] = c.WorkloadInfo
 	}
-	revertRemoval := cq.SimulateWorkloadRemoval(workloadsToPreempt)
+	revertRemoval := p.snapshot.SimulateWorkloadRemoval(workloadsToPreempt)
 	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	revertRemoval()
 
