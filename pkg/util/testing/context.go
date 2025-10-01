@@ -27,6 +27,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+const DefaultLogLevel = -3
+
 func LogLevelWithDefault(defaultLogLevel int) int {
 	level, err := strconv.Atoi(os.Getenv("TEST_LOG_LEVEL"))
 	if err != nil {
@@ -36,8 +38,15 @@ func LogLevelWithDefault(defaultLogLevel int) int {
 }
 
 func NewLogger(t *testing.T) logr.Logger {
+	// Map TEST_LOG_LEVEL to testr verbosity so that lower (more negative)
+	// values increase verbosity consistently with integration/e2e logging.
+	level := LogLevelWithDefault(DefaultLogLevel)
+	// testr expects higher Verbosity for more logs. Our convention is
+	// more negative TEST_LOG_LEVEL means more verbose. Translate by negating
+	// the level, so -3 => 3. Positive levels result in negative verbosity
+	// which effectively disables extra V logs.
 	return testr.NewWithOptions(t, testr.Options{
-		Verbosity: LogLevelWithDefault(2),
+		Verbosity: -level,
 	})
 }
 
