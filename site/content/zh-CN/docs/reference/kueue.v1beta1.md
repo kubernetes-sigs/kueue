@@ -1395,9 +1395,9 @@ before borrowing in current flavor. The possible values are:</p>
 <ul>
 <li><code>ReadyToUse</code> (default): stop looking for more flavors once Preempting flavor is
 found and it's possible to preempt some workloads.</li>
-<li><code>TryNextFlavor</code> (default): try next flavor even if there are enough.
-<li><code>Preempt</code> (deprated): old name for <code>ReadyToUse</code>.</li>
+<li><code>TryNextFlavor</code> (default): try next flavor even if there are enough
 candidates for preemption in the current flavor.</li>
+<li><code>Preempt</code> (deprated): old name for <code>ReadyToUse</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
