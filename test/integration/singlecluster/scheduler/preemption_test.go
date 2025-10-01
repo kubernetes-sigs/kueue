@@ -570,7 +570,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -592,7 +592,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -613,7 +613,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -819,7 +819,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0", "10").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -837,7 +837,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -859,7 +859,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.Preempt,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{

@@ -3590,7 +3590,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanPreempt: kueue.Preempt,
-						WhenCanBorrow:  kueue.Borrow,
+						WhenCanBorrow:  kueue.ReadyToUse,
 					}).
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -4564,7 +4564,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
 				WhenCanPreempt: kueue.Preempt,
-				WhenCanBorrow:  kueue.Borrow,
+				WhenCanBorrow:  kueue.ReadyToUse,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").
@@ -4581,7 +4581,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
 				WhenCanPreempt: kueue.Preempt,
-				WhenCanBorrow:  kueue.Borrow,
+				WhenCanBorrow:  kueue.ReadyToUse,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").

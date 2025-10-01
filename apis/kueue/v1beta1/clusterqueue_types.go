@@ -385,6 +385,7 @@ type FlavorFungibilityPolicy string
 const (
 	Borrow        FlavorFungibilityPolicy = "Borrow"
 	Preempt       FlavorFungibilityPolicy = "Preempt"
+	ReadyToUse    FlavorFungibilityPolicy = "ReadyToUse"
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
@@ -394,13 +395,14 @@ type FlavorFungibility struct {
 	// whenCanBorrow determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Borrow` (default): allocate in current flavor if borrowing
+	// - `ReadyToUse` (default): allocate in the current flavor if borrowing
 	//   is possible.
 	// - `TryNextFlavor`: try next flavor even if the current
 	//   flavor has enough resources to borrow.
+	// - `Borrow` (deprecated): old name for `ReadyToUse`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
-	// +kubebuilder:default="Borrow"
+	// +kubebuilder:validation:Enum={ReadyToUse,TryNextFlavor,Borrow}
+	// +kubebuilder:default="ReadyToUse"
 	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:

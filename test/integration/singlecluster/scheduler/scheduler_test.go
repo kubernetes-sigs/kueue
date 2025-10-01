@@ -2672,7 +2672,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 			ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
 				fungibility := kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
+					WhenCanBorrow:  kueue.ReadyToUse,
 					WhenCanPreempt: kueue.TryNextFlavor}
 				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 

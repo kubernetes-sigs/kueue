@@ -501,8 +501,9 @@ The fields above do the following:
 
 - `whenCanBorrow` defines what should happen if a workload can get enough resource by
 borrowing in current ResourceFlavor. The possible values are:
-  - `Borrow` (default): Kueue stops looking for a better assignment.
+  - `ReadyToUse` (default): Kueue stops looking for a better assignment.
   - `TryNextFlavor`: Kueue tries the next ResourceFlavor.
+  - `Borrow` (deprated): Old name for `ReadyToUse`.
 - `whenCanPreempt` defines what should happen if a workload can get enough resource by
 preempting in current ResourceFlavor. The possible values are:
   - `Preempt`: Kueue stops looking for a better assignment.

@@ -464,8 +464,9 @@ spec:
 上述字段如下：
 
 - `whenCanBorrow` 确定是否应该停止寻找更好的分配，如果工作负载可以通过借用当前 ResourceFlavor 获得足够的资源。可能的值是：
-  - `Borrow`（默认）：ClusterQueue 停止寻找更好的分配。
+  - `ReadyToUse`（默认）：ClusterQueue 停止寻找更好的分配。
   - `TryNextFlavor`：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否可以获得更好的分配。
+  - `Borrow`（已弃用）。
 - `whenCanPreempt` 确定是否应该尝试预留当前 ResourceFlavor 中的工作负载，然后再尝试下一个。可能的值是：
   - `Preempt`：ClusterQueue 停止尝试预留当前 ResourceFlavor 并从下一个开始，如果预留失败。
   - `TryNextFlavor`（默认）：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否适合 ResourceFlavor。
