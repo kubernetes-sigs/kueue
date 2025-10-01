@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/kubernetes/scheme"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -309,6 +310,7 @@ func TestFinish(t *testing.T) {
 		workload *kueue.Workload
 	}
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	tests := map[string]struct {
 		args args
 		want want
@@ -364,7 +366,7 @@ func TestFinish(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			if err := Finish(ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
+			if err := Finish(ctx, tt.args.clnt, fakeClock, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
 				t.Errorf("Finish() error = %v, wantErr %v", err, tt.want.err)
 			}
 			if tt.want.workload != nil {
@@ -394,6 +396,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		error      bool
 	}
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 	testPodSets := func(count int32) []kueue.PodSet {
 		return []kueue.PodSet{
@@ -984,7 +987,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if (gotError != nil) != tt.want.error {
 				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
 				return
