@@ -208,10 +208,14 @@ func (w *WorkloadWrapper) AdmittedAt(a bool, t time.Time) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
+	return w.FinishedAt(time.Now())
+}
+
+func (w *WorkloadWrapper) FinishedAt(t time.Time) *WorkloadWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.WorkloadFinished,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
+		LastTransitionTime: metav1.NewTime(t),
 		Reason:             "ByTest",
 		Message:            "Finished by test",
 	}

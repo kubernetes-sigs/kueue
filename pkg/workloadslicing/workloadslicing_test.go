@@ -337,13 +337,13 @@ func TestFinish(t *testing.T) {
 			args: args{
 				ctx: t.Context(),
 				clnt: testWorkloadClientBuilder().
-					WithObjects(testWorkload("test", "test-job", "job-uid", now).Finished().Obj()).Build(),
-				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
+					WithObjects(testWorkload("test", "test-job", "job-uid", now).FinishedAt(now).Obj()).Build(),
+				workloadSlice: testWorkload("test", "test-job", "job-uid", now).FinishedAt(now).Obj(),
 				reason:        "TestReason",
 				message:       "Test Message.",
 			},
 			want: want{
-				workload: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
+				workload: testWorkload("test", "test-job", "job-uid", now).FinishedAt(now).Obj(),
 			},
 		},
 		"NotFinished": {
@@ -360,10 +360,11 @@ func TestFinish(t *testing.T) {
 				workload: testWorkload("test", "test-job", "job-uid", now).
 					ResourceVersion("2").
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "TestReason",
-						Message: "Test Message.",
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             "TestReason",
+						Message:            "Test Message.",
+						LastTransitionTime: metav1.NewTime(now),
 					}).Obj(),
 			},
 		},
