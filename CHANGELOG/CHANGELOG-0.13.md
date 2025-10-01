@@ -1,3 +1,43 @@
+## v0.13.5
+
+Changes since `v0.13.4`:
+
+## Changes by Kind
+
+### Feature
+
+- KueueViz: Enhancing the following endpoint customizations and optimizations:
+    - The frontend and backend ingress no longer have hardcoded NGINX annotations. You can now set your own annotations in Helm’s values.yaml using kueueViz.backend.ingress.annotations and kueueViz.frontend.ingress.annotations
+    - The Ingress resources for KueueViz frontend and backend no longer require hardcoded TLS. You can now choose to use HTTP only by not providing kueueViz.backend.ingress.tlsSecretName and kueueViz.frontend.ingress.tlsSecretName
+    - You can set environment variables like KUEUEVIZ_ALLOWED_ORIGINS directly from values.yaml using kueueViz.backend.env (#6934, @Smuger)
+
+### Bug or Regression
+
+- ElasticJobs: workloads correctly trigger workload preemption in response to a scale-up event. (#6973, @ichekrygin)
+- FS: Fix the following FairSharing bugs:
+    - Incorrect DominantResourceShare caused by rounding (large quotas or high FairSharing weight)
+    - Preemption loop caused by zero FairSharing weight (#6994, @gabesaba)
+- FS: Validate FairSharing.Weight against small values which lose precision (0 < value <= 10^-9) (#7008, @gabesaba)
+- Fix bug in workload usage removal simulation that results in inaccurate flavor assignment (#7084, @gabesaba)
+- Fix the bug for the StatefulSet integration which would occasionally cause a StatefulSet
+  to be stuck without workload after renaming the "queue-name" label. (#7037, @IrvingMg)
+- Fix the bug that a workload going repeatedly via the preemption and re-admission cycle would accumulate the
+  "Previously" prefix in the condition message, eg: "Previously: Previously: Previously: Preempted to accommodate a workload ...". (#6874, @amy)
+- HC: When multiple borrowing flavors are available, prefer the flavor which
+  results in borrowing more locally (closer to the ClusterQueue, further from the root Cohort).
+
+  This fixes the scenario where a flavor would be selected which required borrowing
+  from the root Cohort in one flavor, while in a second flavor, quota was
+  available from the nearest parent Cohort. (#7042, @gabesaba)
+- Helm: Fix a bug where the internal cert manager assumed that the helm installation name is 'kueue'. (#6917, @cmtly)
+- Helm: Fixed bug where webhook configurations assumed a helm install name as "kueue". (#6924, @cmtly)
+- Pod-integration now correctly handles pods stuck in the Terminating state within pod groups, preventing them from being counted as active and avoiding blocked quota release. (#6892, @ichekrygin)
+- TAS: Fix the scenario when Node Hot Swap cannot find a replacement. In particular, if slices are used
+  they could result in generating invalid assignment, resulting in panic from TopologyUngater.
+  Now, such a workload is evicted. (#6927, @mbobrovskyi)
+- TAS: Node Hot Swap allows replacing a node for workloads using PodSet slices,
+  ie. when the `kueue.x-k8s.io/podset-slice-size` annotation is used. (#6989, @pajakd)
+
 ## v0.13.4
 
 Changes since `v0.13.3`:
