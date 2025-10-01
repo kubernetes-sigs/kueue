@@ -508,6 +508,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Re-evaluate currently disallowed per-job-instance combination of enabled PartialAdmission and ElasticJobs.
 * [ ] Re-evaluate the approach for removing PodSchedulingReadiness gate for admitted workload slices to use a dedicated controller rather than calling from Job reconciler (see 3. in [comment](https://github.com/kubernetes-sigs/kueue/pull/5510#issuecomment-3060737465)).
 * [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
+* [ ] Re-evaluate `ElasticJobsViaWorkloadSlices` by leveraging the MultiKueue JobAdapter’s `Sync` routine for ElasticJobs-specific functionality, particularly in detecting `JobUpdate` events as described in [issue #7065](https://github.com/kubernetes-sigs/kueue/issues/7065).
 
 #### GA (Stable)
 
