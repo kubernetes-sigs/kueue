@@ -571,7 +571,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -593,7 +593,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -614,7 +614,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -635,7 +635,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -820,7 +820,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -838,7 +838,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -860,7 +860,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.ReadyToUse,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,

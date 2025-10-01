@@ -223,14 +223,14 @@ func TestSchedule(t *testing.T) {
 		// for "wantWorkloads" assertion.
 		trackPatchedWorkloads bool
 	}{
-		"use second flavor when the first has no preemption candidates; WhenCanPreempt: Preempt": {
+		"use second flavor when the first has no preemption candidates; WhenCanPreempt: ReadyToUse": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
 					FlavorFungibility(kueue.FlavorFungibility{
-						WhenCanPreempt: kueue.Preempt,
+						WhenCanPreempt: kueue.ReadyToUse,
 					}).
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
@@ -3589,7 +3589,7 @@ func TestSchedule(t *testing.T) {
 						},
 					}).
 					FlavorFungibility(kueue.FlavorFungibility{
-						WhenCanPreempt: kueue.Preempt,
+						WhenCanPreempt: kueue.ReadyToUse,
 						WhenCanBorrow:  kueue.ReadyToUse,
 					}).
 					ResourceGroup(
@@ -4563,7 +4563,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.ReadyToUse,
 				WhenCanBorrow:  kueue.ReadyToUse,
 			}).
 			ResourceGroup(
@@ -4580,7 +4580,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.ReadyToUse,
 				WhenCanBorrow:  kueue.ReadyToUse,
 			}).
 			ResourceGroup(
@@ -4636,7 +4636,7 @@ func TestLastSchedulingContext(t *testing.T) {
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
 					FlavorFungibility(kueue.FlavorFungibility{
-						WhenCanPreempt: kueue.Preempt,
+						WhenCanPreempt: kueue.ReadyToUse,
 					}).
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").

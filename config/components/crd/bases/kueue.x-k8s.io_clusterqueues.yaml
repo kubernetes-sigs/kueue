@@ -185,12 +185,14 @@ spec:
                       whenCanPreempt determines whether a workload should try the next flavor
                       before borrowing in current flavor. The possible values are:
 
-                      - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
+                      - `ReadyToUse`: allocate in current flavor if it's possible to preempt some workloads.
                       - `TryNextFlavor` (default): try next flavor even if there are enough
                         candidates for preemption in the current flavor.
+	                    - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
                     enum:
-                    - Preempt
+                    - ReadyToUse
                     - TryNextFlavor
+                    - Preempt
                     type: string
                 type: object
               namespaceSelector:

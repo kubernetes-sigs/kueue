@@ -407,11 +407,13 @@ type FlavorFungibility struct {
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
+	// - `ReadyToUse`: stop looking for more flavors once Preempting flavor is
+	//   found and it's possible to preempt some workloads.
 	// - `TryNextFlavor` (default): try next flavor even if there are enough
 	//   candidates for preemption in the current flavor.
+	// - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
+	// +kubebuilder:validation:Enum={ReadyToUse,TryNextFlavor,Preempt}
 	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 }

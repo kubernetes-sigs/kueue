@@ -8,7 +8,7 @@ spec:
   cohort: pod-performance-cohort-{{ (Mod .Index .NumCohorts) }}
   flavorFungibility:
     whenCanBorrow: ReadyToUse
-    whenCanPreempt: Preempt
+    whenCanPreempt: ReadyToUse
   preemption:
     borrowWithinCohort:
       policy: Never

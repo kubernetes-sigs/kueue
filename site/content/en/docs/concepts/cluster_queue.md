@@ -494,7 +494,7 @@ metadata:
 spec:
   flavorFungibility:
     whenCanBorrow: TryNextFlavor
-    whenCanPreempt: Preempt
+    whenCanPreempt: ReadyToUse
 ```
 
 The fields above do the following:
@@ -506,8 +506,9 @@ borrowing in current ResourceFlavor. The possible values are:
   - `Borrow` (deprated): Old name for `ReadyToUse`.
 - `whenCanPreempt` defines what should happen if a workload can get enough resource by
 preempting in current ResourceFlavor. The possible values are:
-  - `Preempt`: Kueue stops looking for a better assignment.
+  - `ReadyToUse`: Kueue stops looking for a better assignment.
   - `TryNextFlavor` (default): Kueue tries the next ResourceFlavor.
+  - `Preempt` (deprated): Old name for `ReadyToUse`.
 
 If during the search, Kueue finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected,
