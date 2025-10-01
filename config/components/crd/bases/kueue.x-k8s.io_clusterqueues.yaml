@@ -173,7 +173,7 @@ spec:
                         is possible.
                       - `TryNextFlavor`: try next flavor even if the current
                         flavor has enough resources to borrow.
-	                    - `Borrow` (deprecated): old name for `ReadyToUse`; please use new name.
+                      - `Borrow` (deprecated): old name for `ReadyToUse`; please use new name.
                     enum:
                     - ReadyToUse
                     - TryNextFlavor
@@ -188,7 +188,7 @@ spec:
                       - `ReadyToUse`: allocate in current flavor if it's possible to preempt some workloads.
                       - `TryNextFlavor` (default): try next flavor even if there are enough
                         candidates for preemption in the current flavor.
-	                    - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
+                      - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
                     enum:
                     - ReadyToUse
                     - TryNextFlavor
