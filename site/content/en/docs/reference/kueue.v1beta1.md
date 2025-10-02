@@ -3272,7 +3272,7 @@ succeeded.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>admission</code> <B>[Required]</B><br/>
+<tr><td><code>admission</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-Admission"><code>Admission</code></a>
 </td>
 <td>
