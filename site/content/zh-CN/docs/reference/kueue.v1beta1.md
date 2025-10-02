@@ -1382,7 +1382,7 @@ before borrowing in current flavor. The possible values are:</p>
 is possible.</li>
 <li><code>TryNextFlavor</code>: try next flavor even if the current
 flavor has enough resources to borrow.</li>
-<li><code>Borrow</code> (deprated): old name for <code>ReadyToUse</code>.</li>
+<li><code>Borrow</code> (deprecated): old name for <code>ReadyToUse</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1397,7 +1397,7 @@ before borrowing in current flavor. The possible values are:</p>
 found and it's possible to preempt some workloads.</li>
 <li><code>TryNextFlavor</code> (default): try next flavor even if there are enough
 candidates for preemption in the current flavor.</li>
-<li><code>Preempt</code> (deprated): old name for <code>ReadyToUse</code>; please use new name.</li>
+<li><code>Preempt</code> (deprecated): old name for <code>ReadyToUse</code>; please use new name.</li>
 </ul>
 </td>
 </tr>

@@ -177,18 +177,20 @@ spec:
                     before borrowing or preempting in the flavor being evaluated.
                   properties:
                     whenCanBorrow:
-                      default: Borrow
+                      default: ReadyToUse
                       description: |-
                         whenCanBorrow determines whether a workload should try the next flavor
                         before borrowing in current flavor. The possible values are:
 
-                        - `Borrow` (default): allocate in current flavor if borrowing
+                        - `ReadyToUse` (default): allocate in the current flavor if borrowing
                           is possible.
                         - `TryNextFlavor`: try next flavor even if the current
                           flavor has enough resources to borrow.
+                        - `Borrow` (deprecated): old name for `ReadyToUse`; please use new name.
                       enum:
-                        - Borrow
+                        - ReadyToUse
                         - TryNextFlavor
+                        - Borrow
                       type: string
                     whenCanPreempt:
                       default: TryNextFlavor
@@ -196,12 +198,15 @@ spec:
                         whenCanPreempt determines whether a workload should try the next flavor
                         before borrowing in current flavor. The possible values are:
 
-                        - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
+                        - `ReadyToUse`: stop looking for more flavors once Preempting flavor is
+                          found and it's possible to preempt some workloads.
                         - `TryNextFlavor` (default): try next flavor even if there are enough
                           candidates for preemption in the current flavor.
+                        - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
                       enum:
-                        - Preempt
+                        - ReadyToUse
                         - TryNextFlavor
+                        - Preempt
                       type: string
                   type: object
                 namespaceSelector:

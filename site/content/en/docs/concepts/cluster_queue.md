@@ -503,12 +503,12 @@ The fields above do the following:
 borrowing in current ResourceFlavor. The possible values are:
   - `ReadyToUse` (default): Kueue stops looking for a better assignment.
   - `TryNextFlavor`: Kueue tries the next ResourceFlavor.
-  - `Borrow` (deprated): Old name for `ReadyToUse`.
+  - `Borrow` (deprecated): Old name for `ReadyToUse`.
 - `whenCanPreempt` defines what should happen if a workload can get enough resource by
 preempting in current ResourceFlavor. The possible values are:
   - `ReadyToUse`: Kueue stops looking for a better assignment.
   - `TryNextFlavor` (default): Kueue tries the next ResourceFlavor.
-  - `Preempt` (deprated): Old name for `ReadyToUse`.
+  - `Preempt` (deprecated): Old name for `ReadyToUse`.
 
 If during the search, Kueue finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected,
