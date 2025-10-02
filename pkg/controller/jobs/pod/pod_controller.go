@@ -321,7 +321,7 @@ func (p *Pod) IsTopLevel() bool {
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
+func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
 	return errors.New("RunWithPodSetsInfo is not implemented for the Pod object")
 }
@@ -334,11 +334,11 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
-func (p *Pod) Finished() (message string, success, finished bool) {
+func (p *Pod) Finished(ctx context.Context) (message string, success, finished bool) {
 	if p.isServing() {
 		return "", true, false
 	}
-
+	log := ctrl.LoggerFrom(ctx)
 	finished = true
 	success = true
 
@@ -354,7 +354,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
-		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
+		log.V(2).Error(err, "failed to check if pod group is finished")
 		message = "failed to check if pod group is finished"
 		return message, success, false
 	}
@@ -380,7 +380,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets() ([]kueue.PodSet, error) {
+func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
@@ -435,7 +435,7 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 }
 
 // PodsReady instructs whether job derived pods are all ready now.
-func (p *Pod) PodsReady() bool {
+func (p *Pod) PodsReady(ctx context.Context) bool {
 	if !p.isGroup {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
 	}
@@ -560,14 +560,16 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 	})
 }
 
-func (p *Pod) Skip() bool {
+func (p *Pod) Skip(ctx context.Context) bool {
+	log := ctrl.LoggerFrom(ctx)
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
+		log.V(3).Info("Skipping pod, not managed by Kueue", constants.ManagedByKueueLabelKey, v, "labelSet", ok)
 		return true
 	}
 	if jobframework.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
 		p.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
-		ctrl.Log.V(3).Info("Pod Integration was implicitly enabled but object lacks parent annotation, skipping")
+		log.V(3).Info("Pod Integration was implicitly enabled but object lacks parent annotation, skipping")
 		return true
 	}
 	return false
@@ -1061,7 +1063,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := p.PodSets()
+	podSets, err := p.PodSets(ctx)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
@@ -1271,7 +1273,7 @@ func (p *Pod) isReclaimable() bool {
 	return p.isGroup && !p.isServing()
 }
 
-func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+func (p *Pod) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
 	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}

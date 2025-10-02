@@ -164,7 +164,8 @@ func TestPodSets(t *testing.T) {
 			for _, gate := range tc.enableFeatureGates {
 				features.SetFeatureGateDuringTest(t, gate, true)
 			}
-			gotPodSets, err := fromObject(tc.job).PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -260,7 +261,8 @@ func TestValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
-			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate(ctx)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
 			}
@@ -268,7 +270,7 @@ func TestValidate(t *testing.T) {
 				t.Errorf("validate create validation errors list mismatch (-want +got):\n%s", diff)
 			}
 
-			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(nil)
+			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(ctx, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
 			}

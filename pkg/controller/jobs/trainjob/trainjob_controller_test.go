@@ -194,7 +194,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			}
 
 			kTrainJob := (*TrainJob)(tc.trainJob)
-			err = kTrainJob.RunWithPodSetsInfo(tc.podsetsInfo)
+			err = kTrainJob.RunWithPodSetsInfo(ctx, tc.podsetsInfo)
 			if err != nil {
 				if !tc.wantErr {
 					t.Errorf("unexpected RunWithPodSetsInfo() error: %v", err)
