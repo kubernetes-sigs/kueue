@@ -175,9 +175,9 @@ spec:
                         flavor has enough resources to borrow.
                       - `Borrow` (deprecated): old name for `ReadyToUse`; please use new name.
                     enum:
-                      - ReadyToUse
-                      - TryNextFlavor
-                      - Borrow
+                    - ReadyToUse
+                    - TryNextFlavor
+                    - Borrow
                     type: string
                   whenCanPreempt:
                     default: TryNextFlavor
@@ -191,9 +191,9 @@ spec:
                         candidates for preemption in the current flavor.
                       - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
                     enum:
-                      - ReadyToUse
-                      - TryNextFlavor
-                      - Preempt
+                    - ReadyToUse
+                    - TryNextFlavor
+                    - Preempt
                     type: string
                 type: object
               namespaceSelector:
