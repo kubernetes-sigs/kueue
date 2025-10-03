@@ -217,7 +217,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			})
 		})
 		ginkgo.It("Should evict the workload if replacement is not possible", func() {
-			replicas := 1
+			replicas := 2
 			parallelism := 4
 			numPods := replicas * parallelism
 			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
