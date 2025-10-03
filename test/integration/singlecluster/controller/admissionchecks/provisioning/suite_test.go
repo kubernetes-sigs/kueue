@@ -95,16 +95,6 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 
 		var jobReconciler jobframework.JobReconcilerInterface
 
-		if opts.runJobController {
-			var err error
-			jobReconciler, err = job.NewReconciler(
-				ctx,
-				mgr.GetClient(),
-				mgr.GetFieldIndexer(),
-				mgr.GetEventRecorderFor(constants.JobControllerName))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -120,6 +110,13 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 		if opts.runJobController {
+			var err error
+			jobReconciler, err = job.NewReconciler(
+				ctx,
+				mgr.GetClient(),
+				mgr.GetFieldIndexer(),
+				mgr.GetEventRecorderFor(constants.JobControllerName))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = jobReconciler.SetupWithManager(mgr)
