@@ -845,15 +845,11 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 		return true
 	}
 
-	if representativeMode.isPreemptMode() && policyPreempt == kueue.Preempt {
-		return false
+	if representativeMode.isPreemptMode() && policyPreempt == kueue.TryNextFlavor {
+		return true
 	}
 
-	if !representativeMode.isPreemptMode() {
-		return false
-	}
-
-	return true
+	return false
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
