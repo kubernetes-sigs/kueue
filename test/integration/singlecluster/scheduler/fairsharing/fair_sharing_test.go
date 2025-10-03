@@ -840,7 +840,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			for range 10 {
 				createWorkload("a", "100")
 			}
-			util.ExpectReservingActiveWorkloadsMetric(cqA, 10)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqA, "", 10)
 			ginkgo.By("Creating a newer workload in cqB that needs only nominal quota")
 			createWorkload("b", "500")
 			ginkgo.By("Evict the some workloads in cqA and reclaim the nominal quota in cqB")
