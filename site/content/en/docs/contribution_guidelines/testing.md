@@ -72,8 +72,18 @@ E2E_K8S_FULL_VERSION=1.34.1 make test-e2e
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
 ## Increase logging verbosity
-You can change log level (for example, set -5 to increase verbosity) using `TEST_LOG_LEVEL` variables.
-By default, `TEST_LOG_LEVEL=-3`.
+`TEST_LOG_LEVEL` controls test logging uniformly for all targets:
+
+- `go test`, `make test` (unit tests)
+- `make test-integration` (integration tests)
+- `make test-*-e2e` (e2e tests)
+
+Use more negative values for more verbose logs and higher (positive) values for quieter logs. For example:
+```shell
+TEST_LOG_LEVEL=-5 make test-integration   # more verbose
+TEST_LOG_LEVEL=-1 make test               # less verbose than default
+```
+Default is `TEST_LOG_LEVEL=-3`.
 
 ## Debug tests in VSCode
 It is possible to debug unit and integration tests in VSCode.
