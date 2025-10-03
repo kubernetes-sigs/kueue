@@ -823,6 +823,10 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
 
+	if representativeMode.preemptionMode == noFit || representativeMode.preemptionMode == noPreemptionCandidates {
+		return true
+	}
+
 	if !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.TryNextFlavor {
 		return true
 	}
