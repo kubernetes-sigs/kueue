@@ -1,0 +1,4 @@
+*.kubeconfig
+*.terraform*
+*.tfstate*
+*.tfvars
