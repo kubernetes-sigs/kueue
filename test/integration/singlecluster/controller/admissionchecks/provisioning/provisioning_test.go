@@ -2009,8 +2009,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 
 		// Fails in _most_ cases when memory _request_ is divisible by 1000 bytes
 		// (but see exceptional cases described below!)
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "159000"), defaultCPU),
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCPU), // 2 000 B
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "159000"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "1.953125Ki"), defaultCPU), // 2 000 B
 
 		// Exception #1: the specific value of 1000 bytes
 		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "1000"), defaultCPU),
@@ -2024,11 +2024,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "0"), defaultCPU),
 
 		// However, 128 is special. Going down does not work:
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "64k"), defaultCPU),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "64k"), defaultCPU),
 
 		// Neither works doing "one off" in full thousands:
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "20351k"), defaultCPU), // 159 * 128 000 B (succeeding) - 1 000 B
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("5G", "20353k"), defaultCPU), // 159 * 128 000 B (succeeding) + 1 000 B
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "20351k"), defaultCPU), // 159 * 128 000 B (succeeding) - 1 000 B
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("5G", "20353k"), defaultCPU), // 159 * 128 000 B (succeeding) + 1 000 B
 
 		// When AdmissionChecks are not attached to flavor-1, things seem to just work.
 		ginkgo.Entry(nil, works, noAC, memory("5G", "220M"), defaultCPU),
@@ -2036,6 +2036,6 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 		// CPU settings seem irrelevant - things still behave same way as for "defaultCpu"
 		ginkgo.Entry(nil, works, firstFlavorAC, noMemory, &cpuConfig{flavor1: "6", flavor2: "4", job1: "3", job2: "5"}),
 		ginkgo.Entry(nil, works, firstFlavorAC, memory("1G", "200Mi"), cpu("3000", "2000")),
-		ginkgo.Entry(nil, stuck, firstFlavorAC, memory("1G", "1G"), cpu("3000", "2000")),
+		ginkgo.Entry(nil, works, firstFlavorAC, memory("1G", "1G"), cpu("3000", "2000")),
 	)
 })

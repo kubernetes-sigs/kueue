@@ -96,9 +96,13 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		var jobReconciler jobframework.JobReconcilerInterface
 
 		if opts.runJobController {
-			jobReconciler = job.NewReconciler(
+			var err error
+			jobReconciler, err = job.NewReconciler(
+				ctx,
 				mgr.GetClient(),
+				mgr.GetFieldIndexer(),
 				mgr.GetEventRecorderFor(constants.JobControllerName))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())

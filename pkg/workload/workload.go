@@ -967,7 +967,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		opt(opts)
 	}
 
-	if features.Enabled(features.WorkloadRequestUseMergePatch) {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) || opts.Strict {
 		var patchOptions []clientutil.PatchOption
 		if !opts.Strict {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
