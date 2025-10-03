@@ -1,3 +1,6 @@
+//go:build tools
+// +build tools
+
 /*
 Copyright 2024 The Kubernetes Authors.
 
@@ -17,26 +20,19 @@ limitations under the License.
 package tools
 
 import (
-	// since verify will error when referencing a cmd package
-	// we need to reference individual dependencies used by it
 	_ "github.com/gohugoio/hugo/common"
-	_ "github.com/gohugoio/hugo/docshelper"
-	_ "github.com/golangci/golangci-lint/v2/pkg/exitcodes"
-	//nolint:typecheck
+	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
 	_ "github.com/kubernetes-sigs/reference-docs/genref"
-	_ "github.com/mikefarah/yq/v4/cmd"
-	_ "github.com/norwoodj/helm-docs/pkg/util"
-	_ "github.com/onsi/ginkgo/v2/ginkgo/command"
-	_ "github.com/onsi/ginkgo/v2/ginkgo/run"
-	_ "go.uber.org/mock/mockgen/model"
-	_ "gotest.tools/gotestsum/cmd"
-	_ "helm.sh/helm/v3/pkg/cli"
-	_ "helm.sh/helm/v3/pkg/lint"
+	_ "github.com/mikefarah/yq/v4"
+	_ "github.com/norwoodj/helm-docs/cmd/helm-docs"
+	_ "github.com/onsi/ginkgo/v2/ginkgo"
+	_ "go.uber.org/mock/mockgen"
+	_ "gotest.tools/gotestsum"
+	_ "helm.sh/helm/v3/cmd/helm"
 	_ "k8s.io/code-generator"
-	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest/env"
-	_ "sigs.k8s.io/controller-tools/pkg/crd"
-	_ "sigs.k8s.io/controller-tools/pkg/genall/help/pretty"
-	_ "sigs.k8s.io/kind/pkg/cmd"
-	_ "sigs.k8s.io/kustomize/kustomize/v5/commands/edit/listbuiltin"
-	_ "sigs.k8s.io/mdtoc/pkg/mdtoc"
+	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest"
+	_ "sigs.k8s.io/controller-tools/cmd/controller-gen"
+	_ "sigs.k8s.io/kind"
+	_ "sigs.k8s.io/kustomize/kustomize/v5"
+	_ "sigs.k8s.io/mdtoc"
 )
