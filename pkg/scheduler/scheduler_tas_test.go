@@ -2444,14 +2444,6 @@ func TestScheduleForTAS(t *testing.T) {
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
-			gotScheduled := make([]workload.Reference, 0)
-			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
-				mu.Lock()
-				gotScheduled = append(gotScheduled, workload.Key(w))
-				mu.Unlock()
-				return nil
-			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
@@ -2981,20 +2973,13 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
-			gotScheduled := make([]workload.Reference, 0)
-			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
-				mu.Lock()
-				gotScheduled = append(gotScheduled, workload.Key(w))
-				mu.Unlock()
-				return nil
-			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
 
+			var mu sync.Mutex
 			gotPreempted := sets.New[workload.Reference]()
 			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
@@ -3914,7 +3899,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(
 					utiltesting.MakeNamespace("default"),
-				)
+				).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
@@ -3953,20 +3940,13 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
-			gotScheduled := make([]workload.Reference, 0)
-			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
-				mu.Lock()
-				gotScheduled = append(gotScheduled, workload.Key(w))
-				mu.Unlock()
-				return nil
-			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
 
+			var mu sync.Mutex
 			gotPreempted := sets.New[workload.Reference]()
 			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
