@@ -18,11 +18,47 @@ package wait
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/clock"
 )
+
+const backoffFactor = 2
+
+type Backoff struct {
+	Min time.Duration
+	Max time.Duration
+}
+
+// WaitTime returns the backoff duration for the given iteration.
+func (b Backoff) WaitTime(iteration int) time.Duration {
+	if iteration <= 0 {
+		return 0
+	}
+
+	if b.Max == 0 {
+		b.Max = math.MaxInt64
+	}
+
+	limit := time.Duration(math.MaxInt64 / backoffFactor) // protects from overflow.
+	duration := b.Min
+
+	for i := 1; i < iteration; i++ {
+		if duration > limit {
+			return b.Max
+		}
+
+		duration *= backoffFactor
+
+		if duration >= b.Max {
+			return b.Max
+		}
+	}
+
+	return duration
+}
 
 // UntilWithBackoff runs f in a loop until context indicates finished. It
 // applies backoff depending on the SpeedSignal f returns.  Backoff increases
@@ -54,8 +90,8 @@ const (
 	// SlowDown signals to backoff.
 	SlowDown SpeedSignal = false
 
-	noBackoff      = time.Millisecond * 0
-	initialBackoff = time.Millisecond * 1
+	noBackoff      = 0
+	initialBackoff = time.Millisecond
 	maxBackoff     = time.Millisecond * 100
 )
 

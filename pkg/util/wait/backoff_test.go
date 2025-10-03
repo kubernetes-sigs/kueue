@@ -18,6 +18,7 @@ package wait
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -108,6 +109,77 @@ func TestUntilWithBackoff(t *testing.T) {
 
 			if diff := cmp.Diff(testCase.expected, *timer.history); diff != "" {
 				t.Errorf("Unexpected backoff time (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestBackoff_WaitTime(t *testing.T) {
+	testCases := []struct {
+		name      string
+		backoff   *Backoff
+		iteration int
+		want      time.Duration
+	}{
+		{
+			name: "iteration zero returns zero",
+			backoff: &Backoff{
+				Min: time.Millisecond,
+				Max: time.Second,
+			},
+			iteration: 0,
+			want:      0,
+		},
+		{
+			name: "negative iteration returns zero",
+			backoff: &Backoff{
+				Min: time.Millisecond,
+				Max: time.Second,
+			},
+			iteration: -3,
+			want:      0,
+		},
+		{
+			name: "simple exponential (factor=2)",
+			backoff: &Backoff{
+				Min: time.Millisecond,
+				Max: time.Second,
+			},
+			iteration: 4, // steps: 1ms, 2ms, 4ms, 8ms
+			want:      8 * time.Millisecond,
+		},
+		{
+			name: "caps at limit",
+			backoff: &Backoff{
+				Min: time.Second,
+				Max: 5 * time.Second,
+			},
+			iteration: 4, // steps: 1s, 2s, 4s, 8s, -> cap 5s
+			want:      5 * time.Second,
+		},
+		{
+			name: "very large iteration still returns cap",
+			backoff: &Backoff{
+				Min: time.Millisecond,
+				Max: time.Second,
+			},
+			iteration: 1000,
+			want:      time.Second,
+		},
+		{
+			name: "very large iteration, no cap",
+			backoff: &Backoff{
+				Min: time.Millisecond,
+			},
+			iteration: 1000,
+			want:      math.MaxInt64,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.want, tc.backoff.WaitTime(tc.iteration)); diff != "" {
+				t.Errorf("Unexpected wait time returned (-want,+got):\n%s", diff)
 			}
 		})
 	}
