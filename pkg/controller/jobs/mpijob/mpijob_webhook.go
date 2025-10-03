@@ -163,6 +163,16 @@ func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podSet)...)
 	}
 
+	replicasMetadata := make([]jobframework.PodSetMetadata, 0, len(mpiJob.Spec.MPIReplicaSpecs))
+	for replicaType, replica := range mpiJob.Spec.MPIReplicaSpecs {
+		replicasMetadata = append(replicasMetadata, jobframework.PodSetMetadata{
+			AnnotationsPath: mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata", "annotations"),
+			Meta:            &replica.Template.ObjectMeta,
+			Size:            podsCount(&mpiJob.Spec, replicaType),
+		})
+	}
+	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(replicasMetadata)...)
+
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
