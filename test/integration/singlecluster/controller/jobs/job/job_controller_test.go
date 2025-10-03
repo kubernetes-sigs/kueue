@@ -1341,7 +1341,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.Borrow,
+				WhenCanBorrow:  kueue.ReadyToUse,
 				WhenCanPreempt: kueue.TryNextFlavor,
 			}).
 			Preemption(kueue.ClusterQueuePreemption{
