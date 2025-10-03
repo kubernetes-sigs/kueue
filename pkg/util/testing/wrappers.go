@@ -287,6 +287,11 @@ func (w *WorkloadWrapper) AdmissionCheck(ac kueue.AdmissionCheckState) *Workload
 	return w
 }
 
+func (w *WorkloadWrapper) ResourceRequests(rr ...kueue.PodSetRequest) *WorkloadWrapper {
+	w.Status.ResourceRequests = rr
+	return w
+}
+
 func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *WorkloadWrapper {
 	existingCondition := apimeta.FindStatusCondition(w.Status.Conditions, condition.Type)
 	if existingCondition != nil {
