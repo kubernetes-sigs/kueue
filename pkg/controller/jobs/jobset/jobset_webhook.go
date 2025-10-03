@@ -156,6 +156,16 @@ func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) (field.ErrorList
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
 	}
 
+	jobsMetadata := make([]jobframework.PodSetMetadata, len(jobSet.Spec.ReplicatedJobs))
+	for i, job := range jobSet.Spec.ReplicatedJobs {
+		jobsMetadata[i] = jobframework.PodSetMetadata{
+			AnnotationsPath: replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations"),
+			Meta:            &job.Template.Spec.Template.ObjectMeta,
+			Size:            podsCount(&job),
+		}
+	}
+	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(jobsMetadata)...)
+
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
