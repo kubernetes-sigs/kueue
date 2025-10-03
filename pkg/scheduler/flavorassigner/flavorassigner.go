@@ -849,7 +849,7 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 		return false
 	}
 
-	if representativeMode.preemptionMode == fit {
+	if !representativeMode.isPreemptMode() {
 		return false
 	}
 
