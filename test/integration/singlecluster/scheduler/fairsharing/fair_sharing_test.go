@@ -649,6 +649,260 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		})
 	})
 
+	// kueue#7101
+	ginkgo.When("ClusterQueue head is ineligible for admission due to DominantResourceShare", func() {
+		var (
+			cqp1 *kueue.ClusterQueue
+			cqp2 *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			createCohort(testing.MakeCohort("cohort-a").
+				Parent("root-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "9").Obj(),
+				).
+				Obj())
+
+			fungibility := kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			}
+			preemption := kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}
+
+			cqp1 = createQueue(testing.MakeClusterQueue("cq-p1").
+				Cohort("cohort-a").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				Obj())
+
+			cqp2 = createQueue(testing.MakeClusterQueue("cq-p2").
+				Cohort("cohort-a").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				Obj())
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
+		})
+		ginkgo.AfterEach(func() {
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+		})
+
+		// The first workload preempted satisfies
+		// LessThanOrEqualToFinalShare: 5 <= 6
+		// while the second workload preempted satisfies
+		// LessThanInitialShare policy: 5 < 6
+		ginkgo.It("workload of size 5 preempts using LessThanInitialShare policy and admits", func() {
+			ginkgo.By("Create workloads in queue1")
+			for range 4 {
+				createWorkload("cq-p1", "2")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+
+			ginkgo.By("Create workload in queue2")
+			createWorkload("cq-p2", "5")
+
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+
+			ginkgo.By("Expect active workloads")
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
+		})
+
+		// The larger workload, size 6, satisfies
+		// LessThanOrEqualToInitialShare: 6 <= 6
+		// while not satisfying either policies for the 2nd workload:
+		// LessThanOrEqualToFinalShare: 6 <= 4 (FALSE)
+		// LessThanInitialShare: 6 < 6 (FALSE)
+		// Therefore, the workload of size 6 can't
+		// find enough preemption targets.
+		ginkgo.It("workload of size 5 admits with inadmissible higher priority workload at ClusterQueue head", func() {
+			ginkgo.By("Create workloads in queue1")
+			for range 4 {
+				createWorkload("cq-p1", "2")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+
+			ginkgo.By("Create workloads in queue2")
+			createWorkloadWithPriority("cq-p2", "6", 999)
+
+			ginkgo.By("Verify doesn't admit")
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 0)
+
+			ginkgo.By("Create admissible workload in queue2")
+			createWorkloadWithPriority("cq-p2", "5", 0)
+
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+
+			ginkgo.By("Expect active workloads")
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
+		})
+
+		ginkgo.It("workload of size 4 admits with inadmissible higher priority workload at ClusterQueue head", func() {
+			ginkgo.By("Create workloads in queue1")
+			for range 4 {
+				createWorkload("cq-p1", "2")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+
+			ginkgo.By("Create workload in queue2")
+			createWorkloadWithPriority("cq-p2", "6", 999)
+
+			ginkgo.By("Verify doesn't admit")
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 0)
+
+			ginkgo.By("Create admissible workload in queue2")
+			createWorkloadWithPriority("cq-p2", "4", 0)
+
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+
+			ginkgo.By("Expect active workloads")
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 445)
+		})
+
+		ginkgo.It("workload admits when several higher priority blocking workloads in front", func() {
+			ginkgo.By("Create workloads in queue1")
+			for range 4 {
+				createWorkload("cq-p1", "2")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+
+			ginkgo.By("Create workloads in queue2")
+			createWorkloadWithPriority("cq-p2", "7", 999)
+			createWorkloadWithPriority("cq-p2", "6", 999)
+
+			ginkgo.By("Verify don't admit")
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 0)
+
+			ginkgo.By("Create admissible workload in queue2")
+			createWorkloadWithPriority("cq-p2", "5", 0)
+
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+
+			ginkgo.By("Expect active workloads")
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
+		})
+
+		// kueue#6929
+		ginkgo.When("ClusterQueue head has inadmissible workload", func() {
+			var (
+				cq1 *kueue.ClusterQueue
+				cq2 *kueue.ClusterQueue
+			)
+			ginkgo.BeforeEach(func() {
+				fungibility := kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.TryNextFlavor,
+				}
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+
+				cq1 = createQueue(testing.MakeClusterQueue("cq1").
+					Cohort("root").
+					FairWeight(resource.MustParse("1")).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "3").Obj(),
+					).
+					FlavorFungibility(fungibility).
+					Preemption(preemption).
+					Obj())
+
+				cq2 = createQueue(testing.MakeClusterQueue("cq2").
+					Cohort("root").
+					FairWeight(resource.MustParse("1")).
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					FlavorFungibility(fungibility).
+					Preemption(preemption).
+					Obj())
+			})
+
+			ginkgo.It("workload which fits behind ClusterQueue head is able to admit", func() {
+				ginkgo.By("Creating borrowing workloads in queue2")
+				createWorkload("cq2", "1")
+				createWorkload("cq2", "1")
+				util.ExpectReservingActiveWorkloadsMetric(cq2, 2)
+
+				ginkgo.By("Create inadmissible workload in queue2")
+				createWorkloadWithPriority("cq1", "4", 999)
+
+				ginkgo.By("Verify doesn't admit")
+				util.ExpectReservingActiveWorkloadsMetric(cq1, 0)
+
+				ginkgo.By("Create admissible workload in queue2")
+				createWorkloadWithPriority("cq1", "3", 0)
+
+				ginkgo.By("Complete preemption")
+				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+
+				ginkgo.By("Expect active workloads")
+				util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+				util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
+				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+			})
+
+			ginkgo.It("sticky workload deleted, next workload can admit", func() {
+				ginkgo.By("Creating borrowing workloads in queue2")
+				createWorkload("cq2", "1")
+				createWorkload("cq2", "1")
+				util.ExpectReservingActiveWorkloadsMetric(cq2, 2)
+
+				ginkgo.By("Create inadmissible workload in queue2")
+				createWorkloadWithPriority("cq1", "4", 999)
+
+				ginkgo.By("Verify doesn't admit")
+				util.ExpectReservingActiveWorkloadsMetric(cq1, 0)
+
+				ginkgo.By("Create admissible workloads in queue2")
+				stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
+
+				ginkgo.By("Another admissible workload in queue2")
+				createWorkloadWithPriority("cq1", "3", 0)
+
+				ginkgo.By("Delete sticky workload")
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, stickyWorkload, true)
+
+				ginkgo.By("Complete preemption")
+				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+
+				ginkgo.By("Expect active workloads")
+				util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+				util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
+				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+			})
+		})
+	})
+
 	ginkgo.When("Using AdmissionFairSharing at ClusterQueue level", func() {
 		var (
 			cq1 *kueue.ClusterQueue
