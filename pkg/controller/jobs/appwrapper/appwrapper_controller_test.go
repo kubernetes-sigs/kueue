@@ -155,7 +155,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := fromObject(tc.job).PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
 				t.Fatalf("failed to get pod sets: %v", err)
 			}

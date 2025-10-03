@@ -393,7 +393,8 @@ func TestValidateCreate(t *testing.T) {
 
 			jw := &JobWebhook{}
 
-			gotValidationErrs, gotErr := jw.validateCreate((*Job)(tc.job))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := jw.validateCreate(ctx, (*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() error mismatch (-want +got):\n%s", diff)
@@ -688,8 +689,8 @@ func TestValidateUpdate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
-			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
