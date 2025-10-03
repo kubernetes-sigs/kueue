@@ -842,12 +842,14 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 		}
 	}
 
-	if representativeMode.preemptionMode == fit && !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.Borrow {
-		return false
-	}
+	if representativeMode.preemptionMode == fit {
+		if !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.Borrow {
+			return false
+		}
 
-	if representativeMode.preemptionMode == fit && representativeMode.borrowingLevel.optimal() {
-		return false
+		if representativeMode.borrowingLevel.optimal() {
+			return false
+		}
 	}
 
 	return true
