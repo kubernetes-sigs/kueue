@@ -836,6 +836,11 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueue.FlavorFungibility) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
+
+	if !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.TryNextFlavor {
+		return true
+	}
+
 	if representativeMode.isPreemptMode() && policyPreempt == kueue.Preempt {
 		if representativeMode.borrowingLevel.optimal() || policyBorrow == kueue.Borrow {
 			return false
@@ -843,10 +848,6 @@ func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueu
 	}
 
 	if representativeMode.preemptionMode == fit {
-		if !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.TryNextFlavor {
-			return true
-		}
-
 		return false
 	}
 
