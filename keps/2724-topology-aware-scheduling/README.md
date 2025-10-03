@@ -1033,7 +1033,7 @@ For a given PodSet Kueue:
 
 Kueue places pods on domains with different algorithms, depending on the annotation and chosen profile:
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
-- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
+- `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
 However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
 
 #### Example
@@ -1048,17 +1048,17 @@ Consequently, it selects the nodes with 1, 2, 3, and 3 available pods, reserving
 
 Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
 
-| featuregate/annotation                   | preferred         | required          | unconstrained     |
+| feature gate / annotation                | preferred         | required          | unconstrained     |
 | ---------------------------------------- | ----------------- | ----------------- | ----------------- |
-| None                                     | BestFit           | BestFit           | BestFit           |
-| TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileMixed (default)                | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileBestFit (deprecated)           | BestFit           | BestFit           | BestFit           |
 | TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
-Feature gates: `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
+These 3 feature gates are mutually exclusive. Enabling neither of them is equivalent to enabling TASProfileMixed.
 
-We recommend the BestFit algorithm for most of use cases, however we give more flexibility to users with those experimental feature gates.
+We recommend the default profile for most of use cases, however we give more flexibility to users with those experimental feature gates.
 Based on the collected feedback we will introduce TAS configuration that would allow user to select the desired algorithm.
-Eventually we'll remove the feature as they will be no longer need when we implement API for TAS configuration.
+Eventually we'll remove the feature gates as they will be no longer need when we implement API for TAS configuration.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.

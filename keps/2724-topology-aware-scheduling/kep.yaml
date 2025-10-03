@@ -36,6 +36,7 @@ milestone:
 feature-gates:
   - name: TopologyAwareScheduling
   - name: TASProfileMixed
+  - name: TASProfileBestFit
   - name: TASProfileLeastFreeCapacity
   - name: TASProfileMostFreeCapacity # deleted in 0.13
   - name: TASFailedNodeReplacement
