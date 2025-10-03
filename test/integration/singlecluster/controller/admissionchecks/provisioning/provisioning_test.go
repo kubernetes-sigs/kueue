@@ -1698,7 +1698,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("await for wl2 to have QuotaReserved", func() {
+			ginkgo.By("await for wl2 to have QuotaReserved on flavor-2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
@@ -1709,12 +1709,11 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
-					g.Expect(wlObj.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-
-					var expectedFlavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					psa := wlObj.Status.Admission.PodSetAssignments
+					g.Expect(psa).Should(gomega.HaveLen(1))
+					g.Expect(psa[0].Flavors).To(gomega.Equal(map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: flavor2Ref,
-					}
-					g.Expect(wlObj.Status.Admission.PodSetAssignments[0].Flavors).To(gomega.Equal(expectedFlavors))
+					}))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
