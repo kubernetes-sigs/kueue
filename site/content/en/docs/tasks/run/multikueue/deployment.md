@@ -11,10 +11,15 @@ description: >
 
 1. Check the [MultiKueue installation guide](/docs/tasks/manage/setup_multikueue) on how to properly setup MultiKueue clusters.
 
-2. Follow steps in [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin)
-to learn how to enable and configure the `pod` integration which is required for enabling the `deployment` integration.
+2. Deployments receive live status updates through the status from the remote Pods created on the worker cluster.
 
-Deployments receive live status updates through the status from the remote Pods created on the worker cluster.
+   {{% alert title="Pod integration requirements" color="primary" %}}
+   Since Kueue v0.15, you don't need to explicitly enable `"pod"` integration to use the `"deployment"` integration.
+
+   For Kueue v0.14 and earlier, `"pod"` integration must be explicitly enabled.
+
+   See [Run Plain Pods](/docs/tasks/run/plain_pods/#before-you-begin) for configuration details.
+   {{% /alert %}}
 
 {{< feature-state state="beta" for_version="v0.11.0" >}}
 
