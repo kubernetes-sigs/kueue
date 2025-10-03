@@ -2442,14 +2442,6 @@ func TestScheduleForTAS(t *testing.T) {
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
-			gotScheduled := make([]workload.Reference, 0)
-			var mu sync.Mutex
-			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
-				mu.Lock()
-				gotScheduled = append(gotScheduled, workload.Key(w))
-				mu.Unlock()
-				return nil
-			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
@@ -2978,20 +2970,13 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
-			gotScheduled := make([]workload.Reference, 0)
-			var mu sync.Mutex
-			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
-				mu.Lock()
-				gotScheduled = append(gotScheduled, workload.Key(w))
-				mu.Unlock()
-				return nil
-			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
 
+			var mu sync.Mutex
 			gotPreempted := sets.New[workload.Reference]()
 			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
@@ -3950,20 +3935,13 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
-			gotScheduled := make([]workload.Reference, 0)
-			var mu sync.Mutex
-			scheduler.patchAdmission = func(ctx context.Context, wOrig, w *kueue.Workload) error {
-				mu.Lock()
-				gotScheduled = append(gotScheduled, workload.Key(w))
-				mu.Unlock()
-				return nil
-			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
 
+			var mu sync.Mutex
 			gotPreempted := sets.New[workload.Reference]()
 			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
