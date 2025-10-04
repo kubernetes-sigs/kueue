@@ -24,6 +24,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 type ResourceGroup struct {
@@ -72,4 +73,8 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 		}
 	}
 	return quotas
+}
+
+func NumAllFlavors(rgs []ResourceGroup) int {
+	return utilslices.Reduce(rgs, func(acc int, rg ResourceGroup) int { return acc + len(rg.Flavors) }, 0)
 }
