@@ -580,6 +580,26 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
+// UpdateFinishedAndEvictionDuration is called when the status is updated to "Finished" condition
+// and sets the eviction duration metric
+func UpdateFinishedAndEvictionDuration(
+	ctx context.Context,
+	c client.Client,
+	wl *kueue.Workload,
+	conditionType string,
+	conditionStatus metav1.ConditionStatus,
+	reason, message string,
+	managerPrefix string,
+	clock clock.Clock) error {
+	if err := UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix, clock); err != nil {
+		return err
+	}
+
+	ReportEvictionCompleted(wl, wl.Spec.QueueName, "Finished", message, clock.Now())
+
+	return nil
+}
+
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.

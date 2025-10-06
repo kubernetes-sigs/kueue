@@ -440,7 +440,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName, r.clock)
+			err := workload.UpdateFinishedAndEvictionDuration(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -988,7 +988,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 			return false, err
 		}
 		// mark the workload as finished
-		err := workload.UpdateStatus(ctx, r.client, wl,
+		err := workload.UpdateFinishedAndEvictionDuration(ctx, r.client, wl,
 			kueue.WorkloadFinished,
 			metav1.ConditionTrue,
 			kueue.WorkloadFinishedReasonOutOfSync,
