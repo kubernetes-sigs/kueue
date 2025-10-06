@@ -836,13 +836,13 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueue.FlavorFungibility) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
-	if representativeMode.isPreemptMode() && policyPreempt == kueue.Preempt {
-		if representativeMode.borrowingLevel.optimal() || policyBorrow == kueue.Borrow {
+	if representativeMode.isPreemptMode() && (policyPreempt == kueue.ReadyToUse || policyPreempt == kueue.Preempt) {
+		if representativeMode.borrowingLevel.optimal() || (policyBorrow == kueue.ReadyToUse || policyBorrow == kueue.Borrow) {
 			return false
 		}
 	}
 
-	if representativeMode.preemptionMode == fit && !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.Borrow {
+	if representativeMode.preemptionMode == fit && !representativeMode.borrowingLevel.optimal() && (policyBorrow == kueue.ReadyToUse || policyBorrow == kueue.Borrow) {
 		return false
 	}
 

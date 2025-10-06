@@ -1449,10 +1449,11 @@ before borrowing or preempting in current flavor.</p>
    <p>whenCanBorrow determines whether a workload should try the next flavor
 before borrowing in current flavor. The possible values are:</p>
 <ul>
-<li><code>Borrow</code> (default): allocate in current flavor if borrowing
+<li><code>ReadyToUse</code> (default): allocate in the current flavor if borrowing
 is possible.</li>
 <li><code>TryNextFlavor</code>: try next flavor even if the current
 flavor has enough resources to borrow.</li>
+<li><code>Borrow</code> (deprecated): old name for <code>ReadyToUse</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1463,9 +1464,11 @@ flavor has enough resources to borrow.</li>
    <p>whenCanPreempt determines whether a workload should try the next flavor
 before borrowing in current flavor. The possible values are:</p>
 <ul>
-<li><code>Preempt</code>: allocate in current flavor if it's possible to preempt some workloads.</li>
+<li><code>ReadyToUse</code>: stop looking for more flavors once Preempting flavor is
+found and it's possible to preempt some workloads.</li>
 <li><code>TryNextFlavor</code> (default): try next flavor even if there are enough
 candidates for preemption in the current flavor.</li>
+<li><code>Preempt</code> (deprecated): old name for <code>ReadyToUse</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
