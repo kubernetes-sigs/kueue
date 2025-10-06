@@ -332,6 +332,234 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
+		"invalid PodSet grouping request - groups of size other than 2": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName: "1podset",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "3podsets",
+								},
+							},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg2",
+						Replicas:  ptr.To(int32(10)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "3podsets",
+								},
+							},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg3",
+						Replicas:  ptr.To(int32(10)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "3podsets",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "1podset", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[1].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[2].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet grouping request - no leader in group": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "groupname",
+								},
+							},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg2",
+						Replicas:  ptr.To(int32(10)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "groupname",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 5 replica(s) and 10 replica(s) in the group"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[1].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 5 replica(s) and 10 replica(s) in the group"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet grouping request - required topology does not match": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:                  "groupname",
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName:                  "groupname",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-required-topology"), "cloud.com/block", "must match 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-required-topology"), "cloud.com/rack", "must match 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet grouping request - required topology only set in one pod set": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:                  "groupname",
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "groupname",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet grouping request - preferred topology does not match": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:                   "groupname",
+								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName:                   "groupname",
+									kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-preferred-topology"), "cloud.com/block", "must match 'spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
+				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-preferred-topology"), "cloud.com/rack", "must match 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet grouping request - preferred topology only set in one pod set": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:                   "groupname",
+								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Replicas:  ptr.To(int32(5)),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName: "groupname",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-preferred-topology"), "must be set if 'spec.rayClusterSpec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
 	}
 
 	for name, tc := range testcases {
