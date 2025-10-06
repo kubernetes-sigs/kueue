@@ -1303,6 +1303,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	if reportWorkloadEvictedOnce {
 		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), wl.Spec.PriorityClassName)
 	}
+
 	return nil
 }
 
@@ -1356,6 +1357,8 @@ func ReportEvictionCompleted(wl *kueue.Workload, lqName kueue.LocalQueueName, re
 	}
 }
 
+// workloadCompletedEviction calculates the time between Evicted=True (if PodsReady=True) and
+// the time provided
 func workloadCompletedEviction(wl *kueue.Workload, now time.Time) *time.Duration {
 	evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
