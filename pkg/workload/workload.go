@@ -580,9 +580,46 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
+// UpdateFinishedAndEvictionDuration is called when the status is updated to "Finished" condition
+// and sets the eviction duration metric
+func UpdateFinishedAndEvictionDuration(
+	ctx context.Context,
+	c client.Client,
+	wl *kueue.Workload,
+	conditionType string,
+	conditionStatus metav1.ConditionStatus,
+	reason, message string,
+	managerPrefix string,
+	clock clock.Clock) error {
+
+	if err := UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix, clock); err != nil {
+		return err
+	}
+
+	// Update the workload object in-memory with the new condition so that
+	// workloadCompletedEviction can find it when calculating duration.
+	now := metav1.NewTime(clock.Now())
+	condition := metav1.Condition{
+		Type:               conditionType,
+		Status:             conditionStatus,
+		LastTransitionTime: now,
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
+	}
+	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+
+	if changed {
+		ReportEvictionCompleted(wl, kueue.WorkloadFinished, clock.Now())
+	}
+
+	return nil
+}
+
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
+
 func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string, now time.Time) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
@@ -593,6 +630,8 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		ObservedGeneration: wl.Generation,
 	}
 	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+
+	ReportEvictionCompleted(wl, "QuotaReservedFalse", now)
 	if wl.Status.Admission != nil {
 		wl.Status.Admission = nil
 		changed = true
@@ -602,6 +641,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	if SyncAdmittedCondition(wl, now) {
 		changed = true
 	}
+
 	return changed
 }
 
@@ -1320,6 +1360,52 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference) {
 	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName)
+}
+
+// ReportEvictionCompleted reports the how much time eviction takes. This is the between when eviction started for running pods (Evicted=True & PodsReady=True)
+// and when it completed (Evicted=True & (QuotaReserved=False || Finished=True || Deactivated=True))
+func ReportEvictionCompleted(wl *kueue.Workload, reason string, now time.Time) {
+	if wl.Status.Admission == nil || wl.Status.Admission.ClusterQueue == "" {
+		return
+	}
+
+	// diff between eviction start and eviction completion
+	evictionDuration := WorkloadCompletedEviction(wl, now)
+	if evictionDuration != nil {
+		metrics.ReportEvictionCompleted(wl.Status.Admission.ClusterQueue, reason, *evictionDuration)
+	}
+}
+
+// WorkloadCompletedEviction calculates the time between Evicted=True (if PodsReady=True) and
+// the time provided
+func WorkloadCompletedEviction(wl *kueue.Workload, now time.Time) *time.Duration {
+	evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+	//finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	//quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+
+	// Only measure duration if PodsReady=True AND (Evicted=True OR Finished=True OR QuotaReserved=False)
+	if podsReadyCond == nil || podsReadyCond.Status != metav1.ConditionTrue ||
+		evictedCond == nil || evictedCond.Status != metav1.ConditionTrue {
+		return nil
+	}
+
+	/*var endCond *metav1.Condition
+	switch {
+	case evictedCond != nil && evictedCond.Status == metav1.ConditionTrue && evictedCond.Reason == kueue.WorkloadDeactivated:
+		endCond = evictedCond
+	case finishedCond != nil && finishedCond.Status == metav1.ConditionTrue:
+		endCond = finishedCond
+	case quotaReserved != nil && quotaReserved.Status == metav1.ConditionFalse:
+		endCond = quotaReserved
+	}
+
+	if endCond == nil {
+		return nil
+	}*/
+
+	completed := now.Sub(evictedCond.LastTransitionTime.Time)
+	return &completed
 }
 
 func References(wls []*Info) []klog.ObjectRef {

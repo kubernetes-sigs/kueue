@@ -325,6 +325,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 					}
 				}
+				// Report eviction duration for deactivated condition after eviction is complete
+				workload.ReportEvictionCompleted(&wl, kueue.WorkloadDeactivated, r.clock.Now())
 			} else {
 				if err := workload.PatchAdmissionStatus(ctx, r.client, wlOrig, r.clock, func() (*kueue.Workload, bool, error) {
 					return &wl, true, nil
