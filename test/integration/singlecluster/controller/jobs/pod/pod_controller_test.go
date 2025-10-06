@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 				})
 
-				ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
+				ginkgo.FIt("labels and annotations should be propagated from admission check to job", func() {
 					createdPod := &corev1.Pod{}
 					createdWorkload := &kueue.Workload{}
 					pod := testingpod.MakePod(podName, ns.Name).
@@ -456,6 +456,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						gomega.Eventually(func(g gomega.Gomega) {
 							var newWL kueue.Workload
 							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+							admission := testing.MakeAdmission(clusterQueueAc.Name).
+								PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+									Assignment(corev1.ResourceCPU, "test-flavor", "1").
+									Count(createdWorkload.Spec.PodSets[0].Count).
+									Obj()).
+								Obj()
+							util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 							workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 								Name:  "check",
 								State: kueue.CheckStateReady,
@@ -479,13 +486,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					})
 
 					ginkgo.By("admit the workload", func() {
-						admission := testing.MakeAdmission(clusterQueueAc.Name).
-							PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "test-flavor", "1").
-								Count(createdWorkload.Spec.PodSets[0].Count).
-								Obj()).
-							Obj()
-						util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
 						util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 					})
 

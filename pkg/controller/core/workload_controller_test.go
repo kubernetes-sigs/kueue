@@ -2102,11 +2102,15 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
-			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj()).Obj(),
 			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2115,7 +2119,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2185,11 +2193,15 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
-			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj()).StopPolicy(kueue.Hold).Obj(),
 			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2198,7 +2210,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
