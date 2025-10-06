@@ -217,6 +217,21 @@ func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.E
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta, podSet)...)
 	}
 
+	podSetsMetadata := make([]jobframework.PodSetMetadata, len(rayJob.Spec.WorkerGroupSpecs)+1)
+	podSetsMetadata[0] = jobframework.PodSetMetadata{
+		AnnotationsPath: headGroupMetaPath.Child("annotations"),
+		Meta:            &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta,
+		Size:            1,
+	}
+	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
+		podSetsMetadata[i+1] = jobframework.PodSetMetadata{
+			AnnotationsPath: workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations"),
+			Meta:            &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta,
+			Size:            podsCount(&wgs),
+		}
+	}
+	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSetsMetadata)...)
+
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
