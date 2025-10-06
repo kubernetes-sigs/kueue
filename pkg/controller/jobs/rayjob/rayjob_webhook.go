@@ -198,6 +198,28 @@ func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) (field.Err
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
 	}
 
+	podSetsMetadata := make([]jobframework.PodSetMetadata, 0, len(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs)+2)
+	podSetsMetadata = append(podSetsMetadata, jobframework.PodSetMetadata{
+		AnnotationsPath: headGroupMetaPath.Child("annotations"),
+		Meta:            &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta,
+		Size:            1,
+	})
+	if rayJob.Spec.SubmissionMode == rayv1.K8sJobMode {
+		podSetsMetadata = append(podSetsMetadata, jobframework.PodSetMetadata{
+			AnnotationsPath: field.NewPath("spec", "submitterPodTemplate", "metadata", "annotations"),
+			Meta:            &getSubmitterTemplate((*RayJob)(rayJob)).ObjectMeta,
+			Size:            1,
+		})
+	}
+	for i, wgs := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
+		podSetsMetadata = append(podSetsMetadata, jobframework.PodSetMetadata{
+			AnnotationsPath: workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations"),
+			Meta:            &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta,
+			Size:            podsCount(&wgs),
+		})
+	}
+	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSetsMetadata)...)
+
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
