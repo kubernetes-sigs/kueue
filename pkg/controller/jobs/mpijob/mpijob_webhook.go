@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"sort"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -163,12 +164,20 @@ func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podSet)...)
 	}
 
-	replicasMetadata := make([]jobframework.PodSetMetadata, 0, len(mpiJob.Spec.MPIReplicaSpecs))
-	for replicaType, replica := range mpiJob.Spec.MPIReplicaSpecs {
+	// Sort replica types to iterate over the replica specs in a deterministic fashion.
+	replicaSpecs := mpiJob.Spec.MPIReplicaSpecs
+	replicaTypes := make([]string, 0, len(replicaSpecs))
+	for replicaType := range mpiJob.Spec.MPIReplicaSpecs {
+		replicaTypes = append(replicaTypes, string(replicaType))
+	}
+	sort.Strings(replicaTypes)
+	replicasMetadata := make([]jobframework.PodSetMetadata, 0, len(replicaSpecs))
+	for _, replicaType := range replicaTypes {
+		replica := mpiJob.Spec.MPIReplicaSpecs[(v2beta1.MPIReplicaType)(replicaType)]
 		replicasMetadata = append(replicasMetadata, jobframework.PodSetMetadata{
-			AnnotationsPath: mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata", "annotations"),
+			AnnotationsPath: mpiReplicaSpecsPath.Key(replicaType).Child("template", "metadata", "annotations"),
 			Meta:            &replica.Template.ObjectMeta,
-			Size:            podsCount(&mpiJob.Spec, replicaType),
+			Size:            podsCount(&mpiJob.Spec, (v2beta1.MPIReplicaType)(replicaType)),
 		})
 	}
 	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(replicasMetadata)...)
