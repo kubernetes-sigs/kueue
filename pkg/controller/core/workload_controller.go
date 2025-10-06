@@ -326,6 +326,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 					}
 				}
+				// Report eviction duration for deactivated condition after eviction is complete
+				workload.ReportEvictionCompleted(&wl, kueue.WorkloadDeactivated, r.clock.Now())
 			} else {
 				if err := workload.PatchAdmissionStatus(ctx, r.client, wlOrig, r.clock, func() (*kueue.Workload, bool, error) {
 					return &wl, true, nil
@@ -810,6 +812,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	if workload.HasQuotaReservation(e.ObjectOld) && (!workload.HasQuotaReservation(e.ObjectNew) || e.ObjectNew.Status.Admission.ClusterQueue != e.ObjectOld.Status.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", e.ObjectOld.Status.Admission.ClusterQueue)
 	}
+	// Check for first transition to Finished=True and emit eviction duration metric
+	r.checkAndEmitFinishedMetric(e.ObjectOld, e.ObjectNew)
+
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
@@ -954,6 +959,22 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&kueue.ClusterQueue{}, wqh).
 		Watches(&kueue.LocalQueue{}, wqh).
 		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
+}
+
+// checkAndEmitFinishedMetric checks if this is the first transition to Finished=True
+// and emits the eviction duration metric if so.
+func (r *WorkloadReconciler) checkAndEmitFinishedMetric(oldWl, newWl *kueue.Workload) {
+	oldFinishedCond := apimeta.FindStatusCondition(oldWl.Status.Conditions, kueue.WorkloadFinished)
+	newFinishedCond := apimeta.FindStatusCondition(newWl.Status.Conditions, kueue.WorkloadFinished)
+
+	// Emit metric only if this is the first transition to Finished=True
+	isFirstTimeFinished := newFinishedCond != nil &&
+		newFinishedCond.Status == metav1.ConditionTrue &&
+		(oldFinishedCond == nil || oldFinishedCond.Status != metav1.ConditionTrue)
+
+	if isFirstTimeFinished {
+		workload.ReportEvictionCompleted(newWl, kueue.WorkloadFinished, r.clock.Now())
+	}
 }
 
 // admittedNotReadyWorkload checks if a workload counts toward the PodsReady timeout
