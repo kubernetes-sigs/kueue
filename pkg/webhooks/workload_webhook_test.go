@@ -220,6 +220,10 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			},
 		},
+		"dummy test": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			wantErr:  nil,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
