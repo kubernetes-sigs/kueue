@@ -369,6 +369,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if features.Enabled(features.WorkloadRequestUseMergePatch) {
 			return reconcile.Result{}, clientutil.PatchStatus(ctx, w.client, group.local, func() (client.Object, bool, error) {
 				apimeta.SetStatusCondition(&group.local.Status.Conditions, finishCond)
+				workload.ReportEvictionCompleted(group.local, group.local.Spec.QueueName, kueue.WorkloadFinished, remoteFinishedCond.Message, w.clock.Now())
 				return group.local, true, nil
 			})
 		}
