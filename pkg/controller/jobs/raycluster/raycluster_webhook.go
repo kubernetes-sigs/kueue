@@ -40,7 +40,7 @@ import (
 
 var (
 	headGroupSpecsPath   = field.NewPath("spec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "workerGroupSpecs")
 )
 
