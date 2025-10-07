@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 				})
 
-				ginkgo.FIt("labels and annotations should be propagated from admission check to job", func() {
+				ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
 					createdPod := &corev1.Pod{}
 					createdWorkload := &kueue.Workload{}
 					pod := testingpod.MakePod(podName, ns.Name).
