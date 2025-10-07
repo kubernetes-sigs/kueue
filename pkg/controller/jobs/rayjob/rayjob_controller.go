@@ -111,7 +111,7 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
+func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -178,7 +178,7 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		expectedLen++
@@ -249,14 +249,14 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *RayJob) Finished() (message string, success, finished bool) {
+func (j *RayJob) Finished(ctx context.Context) (message string, success, finished bool) {
 	message = j.Status.Message
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
 	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
 	return message, success, finished
 }
 
-func (j *RayJob) PodsReady() bool {
+func (j *RayJob) PodsReady(ctx context.Context) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 

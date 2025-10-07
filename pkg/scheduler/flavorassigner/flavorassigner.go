@@ -836,21 +836,20 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueue.FlavorFungibility) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
-	if representativeMode.isPreemptMode() && policyPreempt == kueue.Preempt {
-		if representativeMode.borrowingLevel.optimal() || policyBorrow == kueue.Borrow {
-			return false
-		}
+
+	if representativeMode.preemptionMode == noFit || representativeMode.preemptionMode == noPreemptionCandidates {
+		return true
 	}
 
-	if representativeMode.preemptionMode == fit && !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.Borrow {
-		return false
+	if representativeMode.isPreemptMode() && policyPreempt == kueue.TryNextFlavor {
+		return true
 	}
 
-	if representativeMode.preemptionMode == fit && representativeMode.borrowingLevel.optimal() {
-		return false
+	if !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.TryNextFlavor {
+		return true
 	}
 
-	return true
+	return false
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {

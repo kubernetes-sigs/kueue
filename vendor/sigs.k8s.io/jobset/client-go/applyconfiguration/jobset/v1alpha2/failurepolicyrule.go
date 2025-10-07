@@ -21,10 +21,11 @@ import (
 // FailurePolicyRuleApplyConfiguration represents a declarative configuration of the FailurePolicyRule type for use
 // with apply.
 type FailurePolicyRuleApplyConfiguration struct {
-	Name                 *string                             `json:"name,omitempty"`
-	Action               *jobsetv1alpha2.FailurePolicyAction `json:"action,omitempty"`
-	OnJobFailureReasons  []string                            `json:"onJobFailureReasons,omitempty"`
-	TargetReplicatedJobs []string                            `json:"targetReplicatedJobs,omitempty"`
+	Name                        *string                             `json:"name,omitempty"`
+	Action                      *jobsetv1alpha2.FailurePolicyAction `json:"action,omitempty"`
+	OnJobFailureReasons         []string                            `json:"onJobFailureReasons,omitempty"`
+	OnJobFailureMessagePatterns []string                            `json:"onJobFailureMessagePatterns,omitempty"`
+	TargetReplicatedJobs        []string                            `json:"targetReplicatedJobs,omitempty"`
 }
 
 // FailurePolicyRuleApplyConfiguration constructs a declarative configuration of the FailurePolicyRule type for use with
@@ -55,6 +56,16 @@ func (b *FailurePolicyRuleApplyConfiguration) WithAction(value jobsetv1alpha2.Fa
 func (b *FailurePolicyRuleApplyConfiguration) WithOnJobFailureReasons(values ...string) *FailurePolicyRuleApplyConfiguration {
 	for i := range values {
 		b.OnJobFailureReasons = append(b.OnJobFailureReasons, values[i])
+	}
+	return b
+}
+
+// WithOnJobFailureMessagePatterns adds the given value to the OnJobFailureMessagePatterns field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the OnJobFailureMessagePatterns field.
+func (b *FailurePolicyRuleApplyConfiguration) WithOnJobFailureMessagePatterns(values ...string) *FailurePolicyRuleApplyConfiguration {
+	for i := range values {
+		b.OnJobFailureMessagePatterns = append(b.OnJobFailureMessagePatterns, values[i])
 	}
 	return b
 }

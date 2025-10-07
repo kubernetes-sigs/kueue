@@ -82,9 +82,6 @@ type Scheduler struct {
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
-
-	// Stubs.
-	patchAdmission func(ctx context.Context, original, updated *kueue.Workload) error
 }
 
 type options struct {
@@ -150,7 +147,6 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
 	}
-	s.patchAdmission = s.patchAdmissionStatus
 	return s
 }
 
@@ -280,7 +276,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 
 		usage := e.assignmentUsage()
-		if !fits(cq, &usage, preemptedWorkloads, e.preemptionTargets) {
+		if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
 			setSkipped(e, "Workload no longer fits after processing another workload")
 			if mode == flavorassigner.Preempt {
 				skippedPreemptions[cq.Name]++
@@ -451,12 +447,12 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func fits(cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
+func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)
 	}
-	revertUsage := cq.SimulateWorkloadRemoval(workloads)
+	revertUsage := snapshot.SimulateWorkloadRemoval(workloads)
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -506,7 +502,7 @@ type partialAssignment struct {
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	updateAssignmentForTAS(cq, wl, &assignment, targets)
+	updateAssignmentForTAS(snap, cq, wl, &assignment, targets)
 	return assignment, targets
 }
 
@@ -584,7 +580,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	return nil
 }
 
-func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
+func updateAssignmentForTAS(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, assignment *flavorassigner.Assignment, targets []*preemption.Target) {
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(wl, cq)
@@ -594,7 +590,7 @@ func updateAssignmentForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Inf
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := cq.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests)
 			revertUsage()
 		} else {
@@ -646,7 +642,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchAdmission(ctx, origWorkload, newWorkload)
+		err := workload.PatchAdmissionStatus(ctx, s.client, origWorkload, s.clock, func() (*kueue.Workload, bool, error) {
+			return newWorkload, true, nil
+		}, workload.WithLoose())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
@@ -670,12 +668,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	})
 
 	return nil
-}
-
-func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wOrig, w *kueue.Workload) error {
-	return workload.PatchAdmissionStatus(ctx, s.client, wOrig, s.clock, func() (*kueue.Workload, bool, error) {
-		return w, true, nil
-	}, workload.WithLoose())
 }
 
 type entryOrdering struct {
@@ -865,7 +857,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	}
 	reason := kueue.WorkloadSliceReplaced
 	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
-	if err := workloadslicing.Finish(ctx, s.client, oldSlice, reason, message); err != nil {
+	if err := workloadslicing.Finish(ctx, s.client, s.clock, oldSlice, reason, message); err != nil {
 		return fmt.Errorf("failed to replace workload slice: %w", err)
 	}
 

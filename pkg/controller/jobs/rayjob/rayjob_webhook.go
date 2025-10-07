@@ -40,7 +40,7 @@ import (
 
 var (
 	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
 )
 
@@ -96,14 +96,14 @@ func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	job := obj.(*rayv1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(job)
+	validationErrs, err := w.validateCreate(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
@@ -144,7 +144,7 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, erro
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(job)
+		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
 			return nil, err
 		}
@@ -154,13 +154,13 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) (field.ErrorList, erro
 	return allErrors, nil
 }
 
-func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *rayv1.RayJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	if rayJob.Spec.RayClusterSpec == nil {
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := (*RayJob)(rayJob).PodSets()
+	podSets, podSetsErr := (*RayJob)(rayJob).PodSets(ctx)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
@@ -196,7 +196,7 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayJob)(newJob)) != "" {
 		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayJob)(oldJob), (*RayJob)(newJob), w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(newJob)
+		validationErrs, err := w.validateCreate(ctx, newJob)
 		if err != nil {
 			return nil, err
 		}

@@ -33,7 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/trainjob"
+	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
@@ -312,16 +312,16 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 				Replicas: 1,
 			}).
 			Obj()
-		testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+		testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: ptr.To("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To("ClusterTrainingRuntime"),
+			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Suspend(false).
 			Obj()
 
-		util.MustCreate(ctx, k8sClient, testCtr)
+		util.MustCreate(ctx, k8sClient, testTr)
 		util.MustCreate(ctx, k8sClient, trainJob)
 		createdTrainJob := &kftrainerapi.TrainJob{}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -410,16 +410,16 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Request("node-1", corev1.ResourceCPU, "1").
 			Request("node-2", corev1.ResourceCPU, "1").
 			Obj()
-		testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+		testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: ptr.To("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To("ClusterTrainingRuntime"),
+			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue("local-queue").
 			Obj()
 
-		util.MustCreate(ctx, k8sClient, testCtr)
+		util.MustCreate(ctx, k8sClient, testTr)
 		util.MustCreate(ctx, k8sClient, trainJob)
 		createdTrainJob := &kftrainerapi.TrainJob{}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -458,17 +458,17 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Request("node-1", corev1.ResourceCPU, "250m").
 			Request("node-2", corev1.ResourceCPU, "250m").
 			Obj()
-		testCtr1 := testingtrainjob.MakeClusterTrainingRuntime("ctr-1", testJobset1.Spec)
+		testTr1 := testingtrainjob.MakeTrainingRuntime("tr-1", ns.Name, testJobset1.Spec)
 		trainJob1 := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: ptr.To("trainer.kubeflow.org"),
-			Name:     "ctr-1",
-			Kind:     ptr.To("ClusterTrainingRuntime"),
+			Name:     "tr-1",
+			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue("local-queue").
 			Suspend(true).
 			Obj()
 
-		util.MustCreate(ctx, k8sClient, testCtr1)
+		util.MustCreate(ctx, k8sClient, testTr1)
 		util.MustCreate(ctx, k8sClient, trainJob1)
 		ginkgo.By("checking the first trainjob starts", func() {
 			createdTrainJob1 := &kftrainerapi.TrainJob{}
@@ -497,17 +497,17 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			Request("node-2", corev1.ResourceCPU, "1").
 			Obj()
 
-		testCtr2 := testingtrainjob.MakeClusterTrainingRuntime("ctr-2", testJobset2.Spec)
+		testTr2 := testingtrainjob.MakeTrainingRuntime("tr-2", ns.Name, testJobset2.Spec)
 		trainJob2 := testingtrainjob.MakeTrainJob("trainjob-test-2", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: ptr.To("trainer.kubeflow.org"),
-			Name:     "ctr-2",
-			Kind:     ptr.To("ClusterTrainingRuntime"),
+			Name:     "tr-2",
+			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue("local-queue").
 			Suspend(true).
 			Obj()
 
-		util.MustCreate(ctx, k8sClient, testCtr2)
+		util.MustCreate(ctx, k8sClient, testTr2)
 		util.MustCreate(ctx, k8sClient, trainJob2)
 		ginkgo.By("checking a second no-fit trainjob does not start", func() {
 			createdTrainJob2 := &kftrainerapi.TrainJob{}

@@ -181,8 +181,8 @@ func TestValidateUpdate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
-			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate((*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}

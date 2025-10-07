@@ -87,7 +87,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.13.4
+RELEASE_VERSION=v0.14.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -236,6 +236,14 @@ ci-lint: golangci-lint
 lint-fix: GOLANGCI_LINT_FIX=--fix
 lint-fix: ci-lint
 
+.PHONY: lint-api
+lint-api: golangci-lint-kal
+	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
+
+.PHONY: lint-api-fix
+lint-api-fix: GOLANGCI_LINT_FIX=--fix
+lint-api-fix: lint-api
+
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
@@ -246,7 +254,7 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 

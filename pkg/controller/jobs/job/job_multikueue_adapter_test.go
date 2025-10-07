@@ -36,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -339,7 +340,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		features map[featuregate.Feature]bool
 	}
 	type args struct {
-		ctx          context.Context
 		localClient  client.Client
 		remoteClient client.Client
 		key          types.NamespacedName
@@ -371,7 +371,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	}{
 		"FailureToRetrieveLocalJob": {
 			args: args{
-				ctx:         t.Context(),
 				localClient: fake.NewClientBuilder().Build(),
 			},
 			want: want{
@@ -380,7 +379,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"FailureToRetrieveRemoteJob": {
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					ManagedBy("parent").Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
@@ -397,7 +395,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobNotFound": {
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					ManagedBy("parent").Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).Build(),
@@ -416,7 +413,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					ManagedBy("parent").Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).Build(),
@@ -434,7 +430,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
-				ctx:         t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					Condition(runningJobCondition).
@@ -453,7 +448,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: true},
 			},
 			args: args{
-				ctx:         t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					Condition(runningJobCondition).
@@ -473,7 +467,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobInProgress_LocalIsNotManaged": {
 			args: args{
-				ctx:         t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					Condition(runningJobCondition).
@@ -489,7 +482,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobFinished_Completed": {
 			args: args{
-				ctx:         t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					Condition(batchv1.JobCondition{
@@ -512,7 +504,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 		},
 		"RemoteJobFinished_Failed": {
 			args: args{
-				ctx:         t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
 				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					Condition(batchv1.JobCondition{
@@ -538,7 +529,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Condition(runningJobCondition).
@@ -554,6 +544,37 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			want: want{
 				localJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Condition(runningJobCondition).
+					Obj(),
+				remoteJob: newJob().
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					Condition(runningJobCondition).
+					Obj(),
+			},
+		},
+		"ElasticJob_LocalIsStale": {
+			fields: fields{
+				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			},
+			args: args{
+				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Parallelism(2).
+					Condition(runningJobCondition).
+					Obj()).Build(),
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					Condition(runningJobCondition).
+					Obj()).Build(),
+				key:          client.ObjectKeyFromObject(newJob().Obj()),
+				workloadName: "test-workload",
+			},
+			want: want{
+				localJob: newJob().
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Parallelism(2).
 					Condition(runningJobCondition).
 					Obj(),
 				remoteJob: newJob().
@@ -568,7 +589,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Condition(runningJobCondition).
@@ -589,40 +609,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Label(constants.PrebuiltWorkloadLabel, "test-workload-new").
-					Condition(runningJobCondition).
-					Obj(),
-			},
-		},
-		"ElasticJob_ParallelismOnlyChange_EdgeCase": {
-			fields: fields{
-				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
-			},
-			args: args{
-				ctx: t.Context(),
-				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
-					Condition(runningJobCondition).
-					Obj()).Build(),
-				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: "test-workload",
-			},
-			want: want{
-				localJob: newJob().
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Parallelism(22).
-					Condition(runningJobCondition).
-					Obj(),
-				remoteJob: newJob().
-					ResourceVersion("2").
-					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload").
-					Parallelism(22).
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -632,7 +618,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Parallelism(22).
@@ -644,7 +629,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: "test-workload-new",
+				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
 			},
 			want: want{
 				localJob: newJob().
@@ -655,7 +640,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload-new").
+					Label(constants.PrebuiltWorkloadLabel, jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0)).
 					Parallelism(22).
 					Condition(runningJobCondition).
 					Obj(),
@@ -666,7 +651,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				features: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			},
 			args: args{
-				ctx: t.Context(),
 				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Parallelism(22).
@@ -683,7 +667,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 						},
 					}).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: "test-workload-new",
+				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
 			},
 			want: want{
 				err: true,
@@ -708,15 +692,17 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			}
 
 			adapter := &multiKueueAdapter{}
+			ctx, _ := utiltesting.ContextWithLog(t)
+
 			// Function call under test with result (error) assertion.
-			if err := adapter.SyncJob(tt.args.ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin); (err != nil) != tt.want.err {
+			if err := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin); (err != nil) != tt.want.err {
 				t.Errorf("SyncJob() error = %v, wantErr %v", err, tt.want.err)
 			}
 
 			// Side effect assertion: changes to the local job. Must have (not nil) both the client and the job.
 			if tt.args.localClient != nil && tt.want.localJob != nil {
 				got := &batchv1.Job{}
-				if err := tt.args.localClient.Get(tt.args.ctx, client.ObjectKeyFromObject(tt.want.localJob), got); err != nil {
+				if err := tt.args.localClient.Get(ctx, client.ObjectKeyFromObject(tt.want.localJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving local job: %v", err)
 				}
 				if diff := cmp.Diff(tt.want.localJob, got, cmpopts.EquateEmpty()); diff != "" {
@@ -726,7 +712,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			// Side effect assertion: changes on the remote job. Must have (not nil) both the client and the job.
 			if tt.args.remoteClient != nil && tt.want.remoteJob != nil {
 				got := &batchv1.Job{}
-				if err := tt.args.remoteClient.Get(tt.args.ctx, client.ObjectKeyFromObject(tt.want.remoteJob), got); err != nil {
+				if err := tt.args.remoteClient.Get(ctx, client.ObjectKeyFromObject(tt.want.remoteJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving remote job: %v", err)
 				}
 				if diff := cmp.Diff(tt.want.remoteJob, got, cmpopts.EquateEmpty()); diff != "" {

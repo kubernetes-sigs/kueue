@@ -9,7 +9,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: multikueueconfigs.kueue.x-k8s.io
 spec:
   conversion:
@@ -53,10 +53,10 @@ spec:
             metadata:
               type: object
             spec:
-              description: MultiKueueConfigSpec defines the desired state of MultiKueueConfig
+              description: spec is the specification of the MultiKueueConfig.
               properties:
                 clusters:
-                  description: List of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+                  description: clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
                   items:
                     type: string
                   maxItems: 10

@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	resourcesMaxItems = 16
+	resourcesMaxItems = 64
 	flavorsMaxItems   = 64
 )
 

@@ -248,7 +248,7 @@ func TestValidateOnCreate(t *testing.T) {
 				MockJobWithCustomValidation: mocks.NewMockJobWithCustomValidation(mockctrl),
 			}
 			job.MockGenericJob.EXPECT().Object().Return(tc.job).AnyTimes()
-			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate().Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
+			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook{
 				FromObject: func(object runtime.Object) jobframework.GenericJob {
@@ -334,7 +334,7 @@ func TestValidateOnUpdate(t *testing.T) {
 				}
 				mj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
 				mj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
-				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any()).Return(customValidationFailure, customValidationError).AnyTimes()
+				mj.MockJobWithCustomValidation.EXPECT().ValidateOnUpdate(gomock.Any(), gomock.Any()).Return(customValidationFailure, customValidationError).AnyTimes()
 				return mj
 			}
 

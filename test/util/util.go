@@ -72,17 +72,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-const (
-	defaultLogLevel = -3
-)
-
 var SetupLogger = sync.OnceFunc(func() {
-	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter, testing.LogLevelWithDefault(defaultLogLevel)))
+	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
 })
 
 type objAsPtr[T any] interface {
@@ -116,7 +112,7 @@ func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Con
 	}
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		newObj := PtrT(new(T))
-		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(testing.BeNotFoundError())
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError())
 	}, timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -129,6 +125,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 		return err
 	}
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
@@ -167,6 +166,10 @@ func DeleteAllJobSetsInNamespace(ctx context.Context, c client.Client, ns *corev
 
 func DeleteAllTrainJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &kftrainerapi.TrainJob{})
+}
+
+func DeleteAllTrainingRuntimesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftrainerapi.TrainingRuntime{})
 }
 
 func DeleteAllLeaderWorkerSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
@@ -368,7 +371,7 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
-		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
+		g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
@@ -376,7 +379,7 @@ func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKe
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
-		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
+		g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
@@ -999,11 +1002,12 @@ func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reas
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func NewTestingLogger(writer io.Writer, level int) logr.Logger {
+func NewTestingLogger(writer io.Writer) logr.Logger {
 	opts := func(o *zap.Options) {
 		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
 		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
 	}
+	level := utiltesting.LogLevelWithDefault(utiltesting.DefaultLogLevel)
 	return zap.New(
 		zap.WriteTo(writer),
 		zap.UseDevMode(true),
@@ -1023,7 +1027,7 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 		readCq := &kueue.ClusterQueue{}
 		for _, cq := range cqs {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
-			g.Expect(readCq.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.ClusterQueueActive))
+			g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.ClusterQueueActive))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
@@ -1033,7 +1037,7 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 		readLq := &kueue.LocalQueue{}
 		for _, lq := range lqs {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
-			g.Expect(readLq.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
+			g.Expect(readLq.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.LocalQueueActive))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

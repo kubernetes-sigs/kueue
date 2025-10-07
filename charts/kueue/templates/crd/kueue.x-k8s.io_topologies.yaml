@@ -9,7 +9,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: topologies.kueue.x-k8s.io
 spec:
   conversion:
@@ -53,7 +53,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: TopologySpec defines the desired state of Topology
+              description: spec is the specification of the Topology.
               properties:
                 levels:
                   description: levels define the levels of topology.
@@ -89,8 +89,6 @@ spec:
               required:
                 - levels
               type: object
-          required:
-            - spec
           type: object
       served: true
       storage: true

@@ -152,7 +152,7 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref common.ReferenceCal
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "FailurePolicyRule defines a FailurePolicyAction to be executed if a child job fails due to a reason listed in OnJobFailureReasons.",
+				Description: "FailurePolicyRule defines a FailurePolicyAction to be executed if a child job fails due to a reason listed in OnJobFailureReasons and a message pattern listed in OnJobFailureMessagePatterns. The rule must match both the job failure reason and the job failure message. The rules are evaluated in order and the first matching rule is executed.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"name": {
@@ -173,7 +173,22 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref common.ReferenceCal
 					},
 					"onJobFailureReasons": {
 						SchemaProps: spec.SchemaProps{
-							Description: "The requirement on the job failure reasons. The requirement is satisfied if at least one reason matches the list. The rules are evaluated in order, and the first matching rule is executed. An empty list applies the rule to any job failure reason.",
+							Description: "The requirement on the job failure reasons. The requirement is satisfied if at least one reason matches the list. An empty list matches any job failure reason.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"onJobFailureMessagePatterns": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The requirement on the job failure message. The requirement is satisfied if at least one pattern (regex) matches the job failure message. An empty list matches any job failure message. The syntax of the regular expressions accepted is the same general syntax used by Perl, Python, and other languages. More precisely, it is the syntax accepted by RE2 and described at https://golang.org/s/re2syntax, except for \\C. For an overview of the syntax, see https://pkg.go.dev/regexp/syntax.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{

@@ -95,7 +95,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(jobSet)
+	validationErrs, err := w.validateCreate(ctx, jobSet)
 	if err != nil {
 		return nil, err
 	}
@@ -108,17 +108,17 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating update")
-	validationErrs, err := w.validateUpdate(oldJobSet, newJobSet)
+	validationErrs, err := w.validateUpdate(ctx, oldJobSet, newJobSet)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *JobSetWebhook) validateUpdate(oldJob, newJob *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
-	validationErrs, err := w.validateCreate(newJob)
+	validationErrs, err := w.validateCreate(ctx, newJob)
 	if err != nil {
 		return nil, err
 	}
@@ -126,11 +126,11 @@ func (w *JobSetWebhook) validateUpdate(oldJob, newJob *JobSet) (field.ErrorList,
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateCreate(jobSet *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(jobSet)
+		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
 		if err != nil {
 			return nil, err
 		}
@@ -139,10 +139,10 @@ func (w *JobSetWebhook) validateCreate(jobSet *JobSet) (field.ErrorList, error) 
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobSet.PodSets()
+	podSets, podSetsErr := jobSet.PodSets(ctx)
 
 	for i, rj := range jobSet.Spec.ReplicatedJobs {
 		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
