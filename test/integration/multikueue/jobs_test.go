@@ -93,6 +93,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		workerCluster2           *kueue.MultiKueueCluster
 		managerMultiKueueConfig  *kueue.MultiKueueConfig
 		multiKueueAC             *kueue.AdmissionCheck
+		flavor                   *kueue.ResourceFlavor
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
 
@@ -170,8 +171,14 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		flavor = utiltesting.MakeResourceFlavor("flavor1").Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, flavor)
+
 		managerCq = utiltesting.MakeClusterQueue("q1").
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas(flavor.Name).
+				Resource("example.com/gpu", "5", "5").Obj()).
+			Cohort("cohort").
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 		util.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
@@ -202,6 +209,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, flavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -220,7 +228,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -236,7 +247,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -317,7 +331,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -333,7 +350,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -443,13 +463,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobSet)
 		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
 
-		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "replicated-job-1",
-			}, kueue.PodSetAssignment{
-				Name: "replicated-job-2",
-			},
-		)
+		admission := utiltesting.MakeAdmission(managerCq.Name).
+			PodSets(utiltesting.MakePodSetAssignment("replicated-job-1").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("replicated-job-2").
+				Assignment("cpu", "flavor1", "1").
+				Obj())
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
@@ -513,13 +532,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, tfJob)
 		wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(tfJob.Name, tfJob.UID), Namespace: managerNs.Name}
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "chief",
-			}, kueue.PodSetAssignment{
-				Name: "ps",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("chief").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("ps").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
@@ -602,11 +621,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		wlLookupKey := types.NamespacedName{Name: workloadpaddlejob.GetWorkloadNameForPaddleJob(paddleJob.Name, paddleJob.UID), Namespace: managerNs.Name}
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "master",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("master").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
@@ -681,11 +700,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "master",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("master").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
@@ -741,11 +760,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should not run a PyTorchJob on worker if set to be managed by wrong external controller", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "master",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("master").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		pyTorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob-not-managed", managerNs.Name).
 			Queue(managerLq.Name).
@@ -797,11 +816,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		wlLookupKey := types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(xgBoostJob.Name, xgBoostJob.UID), Namespace: managerNs.Name}
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "master",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("master").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
@@ -868,9 +887,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		wlLookupKey := types.NamespacedName{Name: workloadappwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
 
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "aw-0",
-			},
+			utiltesting.MakePodSetAssignment("aw-0").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
@@ -904,11 +923,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should not run a MPIJob on worker if set to be managed by external controller", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "launcher",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("launcher").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		mpijobNoManagedBy := testingmpijob.MakeMPIJob("mpijob2", managerNs.Name).
 			Queue(managerLq.Name).
@@ -937,11 +956,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should run a MPIJob on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "launcher",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("launcher").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
 			Queue(managerLq.Name).
@@ -1025,7 +1044,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -1129,13 +1151,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		// any pod should give the same workload Key
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: groupName, Namespace: managerNs.Name}
+
 		admission := utiltesting.MakeAdmission(managerCq.Name).
-			PodSets(
-				kueue.PodSetAssignment{
-					Name:  "bf90803c",
-					Count: ptr.To[int32](3),
-				},
-			).Obj()
+			PodSets(utiltesting.MakePodSetAssignment("bf90803c").Count(3).
+				Assignment("cpu", "flavor1", "1374423348480").
+				Obj()).Obj()
 		ginkgo.By("setting workload reservation in the management cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1235,7 +1255,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -1402,11 +1425,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
 
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "replicated-job-1",
-			}, kueue.PodSetAssignment{
-				Name: "replicated-job-2",
-			},
+			utiltesting.MakePodSetAssignment("replicated-job-1").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("replicated-job-2").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
@@ -1481,11 +1504,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should run a RayJob on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "head",
-			}, kueue.PodSetAssignment{
-				Name: "workers-group-0",
-			},
+			utiltesting.MakePodSetAssignment("head").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("workers-group-0").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
 			WithSubmissionMode(rayv1.InteractiveMode).
@@ -1527,11 +1550,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should run a RayCluster on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "head",
-			}, kueue.PodSetAssignment{
-				Name: "workers-group-0",
-			},
+			utiltesting.MakePodSetAssignment("head").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("workers-group-0").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 			Queue(managerLq.Name).
@@ -1562,9 +1585,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should run a TrainJob on worker if admitted", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "node",
-			},
+			utiltesting.MakePodSetAssignment("node").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
 			testingjobset.ReplicatedJobRequirements{
@@ -1669,7 +1692,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("admit workload on the manager cluster")
-		util.SetQuotaReservation(manager.ctx, manager.client, workloadKey, utiltesting.MakeAdmission(managerCq.Name).Obj())
+		admission := utiltesting.MakeAdmission(managerCq.Name).
+			PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment("cpu", "flavor1", "1").
+				Obj()).Obj()
+		util.SetQuotaReservation(manager.ctx, manager.client, workloadKey, admission)
 
 		ginkgo.By("observe: workload is created on all worker clusters", func() {
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
@@ -1756,7 +1783,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("admit the new workload and finish the old workload in the manager cluster", func() {
-			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltesting.MakeAdmission(managerCq.Name).Obj())
+			admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment("cpu", "flavor1", "1").
+				Obj()).Obj()
+			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, admission)
 			gomega.Eventually(func(g gomega.Gomega) {
 				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 				g.Expect(workloadslicing.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice")).To(gomega.Succeed())
