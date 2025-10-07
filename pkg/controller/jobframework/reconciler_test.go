@@ -465,8 +465,8 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
-							APIVersion: "workload.codeflare.dev/appwrapper",
-							Kind:       "AppWrapper",
+							APIVersion: awv1beta2.GroupVersion.String(),
+							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
 							Controller: ptr.To(true),
 						}},
@@ -488,8 +488,8 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
-							APIVersion: "workload.codeflare.dev/v1beta2",
-							Kind:       "AppWrapper",
+							APIVersion: awv1beta2.GroupVersion.String(),
+							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
 							Controller: ptr.To(true),
 						}},
@@ -511,7 +511,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "deploy",
-							APIVersion: "apps/v1",
+							APIVersion: appsv1.SchemeGroupVersion.String(),
 							Kind:       "Deployment",
 							UID:        "deploy",
 							Controller: ptr.To(true),
