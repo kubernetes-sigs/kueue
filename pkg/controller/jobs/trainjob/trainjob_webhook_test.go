@@ -67,7 +67,8 @@ func TestValidateCreate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			webhook := &TrainJobWebhook{}
-			_, gotErr := webhook.ValidateCreate(t.Context(), tc.trainJob)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)

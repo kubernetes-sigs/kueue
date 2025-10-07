@@ -692,7 +692,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			}
 
 			adapter := &multiKueueAdapter{}
-			ctx := t.Context()
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			// Function call under test with result (error) assertion.
 			if err := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin); (err != nil) != tt.want.err {

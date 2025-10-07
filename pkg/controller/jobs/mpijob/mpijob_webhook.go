@@ -100,7 +100,7 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCommon(mpiJob)
+	validationErrs, err := w.validateCommon(ctx, mpiJob)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update")
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist)
-	validationErrs, err := w.validateCommon(newMpiJob)
+	validationErrs, err := w.validateCommon(ctx, newMpiJob)
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +133,11 @@ func (w *MpiJobWebhook) ValidateDelete(context.Context, runtime.Object) (admissi
 	return nil, nil
 }
 
-func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) {
+func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = jobframework.ValidateJobOnCreate(mpiJob)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(mpiJob)
+		validationErrs, err := w.validateTopologyRequest(ctx, mpiJob)
 		if err != nil {
 			return nil, err
 		}
@@ -146,10 +146,10 @@ func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) 
 	return allErrs, nil
 }
 
-func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList, error) {
+func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := mpiJob.PodSets()
+	podSets, podSetsErr := mpiJob.PodSets(ctx)
 
 	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
 		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")

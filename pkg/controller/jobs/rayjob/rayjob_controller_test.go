@@ -520,7 +520,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := tc.rayJob.PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := tc.rayJob.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -656,8 +657,9 @@ func TestNodeSelectors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			genJob := (*RayJob)(tc.job)
-			gotRunError := genJob.RunWithPodSetsInfo(tc.runInfo)
+			gotRunError := genJob.RunWithPodSetsInfo(ctx, tc.runInfo)
 
 			if diff := cmp.Diff(tc.wantRunError, gotRunError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected run error (-want/+got): %s", diff)
@@ -733,10 +735,11 @@ func Test_RayJobFinished(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			rayJob := testingrayutil.MakeJob("job", "ns").Obj()
 			rayJob.Status = testcase.status
 
-			_, success, finished := ((*RayJob)(rayJob)).Finished()
+			_, success, finished := ((*RayJob)(rayJob)).Finished(ctx)
 			if success != testcase.expectedSuccess {
 				t.Logf("actual success: %v", success)
 				t.Logf("expected success: %v", testcase.expectedSuccess)

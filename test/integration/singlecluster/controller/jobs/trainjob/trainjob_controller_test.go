@@ -33,7 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/trainjob"
+	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"

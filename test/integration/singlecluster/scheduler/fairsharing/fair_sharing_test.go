@@ -493,6 +493,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 	ginkgo.When("using hierarchical cohorts with several flavors", func() {
 		var (
 			cqp1 *kueue.ClusterQueue
+			cqp5 *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
 			createCohort(testing.MakeCohort("root-cohort").Obj())
@@ -566,7 +567,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				Preemption(preemption).
 				Obj())
 
-			createQueue(testing.MakeClusterQueue("cq-p5").
+			cqp5 = createQueue(testing.MakeClusterQueue("cq-p5").
 				Cohort("cohort-b").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
@@ -613,6 +614,38 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Weighted Shares")
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600)
 			expectCohortWeightedShare("cohort-a", 0)
+		})
+
+		// scenario from Kueue#7015
+		// WeightedShare(CohortA) = 0/20 * 1000 = 0
+		// WeightedShare(cq-p1)  = 12/20 * 1000 = 600
+		// WeightedShare(CohortB) = 0/20 * 1000 = 0
+		// WeightedShare(cq-p5)   = 2/20 * 1000 = 100
+		ginkgo.It("CohortB preempts and schedules in flavor which has guarantees", func() {
+			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
+			ginkgo.By("Create workload which saturate all cohort resources")
+			for range 20 {
+				createWorkload("cq-p1", "1")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 20)
+			expectCohortWeightedShare("cohort-a", 100)
+
+			ginkgo.By("Create workloads in CohortB which will preempt CohortA")
+			createWorkload("cq-p5", "1")
+			createWorkload("cq-p5", "1")
+
+			ginkgo.By("Finish Preemption of Workloads")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+
+			ginkgo.By("Check expected workloads active")
+			util.ExpectReservingActiveWorkloadsMetric(cqp1, 18)
+			util.ExpectReservingActiveWorkloadsMetric(cqp5, 2)
+
+			ginkgo.By("Expected Weighted Shares")
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600)
+			util.ExpectClusterQueueWeightedShareMetric(cqp5, 100)
+			expectCohortWeightedShare("cohort-a", 0)
+			expectCohortWeightedShare("cohort-b", 0)
 		})
 	})
 
@@ -806,7 +839,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			for range 10 {
 				createWorkload("a", "100")
 			}
-			util.ExpectReservingActiveWorkloadsMetric(cqA, 10)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqA, "", 10)
 			ginkgo.By("Creating a newer workload in cqB that needs only nominal quota")
 			createWorkload("b", "500")
 			ginkgo.By("Evict the some workloads in cqA and reclaim the nominal quota in cqB")

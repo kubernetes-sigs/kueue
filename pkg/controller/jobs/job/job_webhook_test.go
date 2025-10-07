@@ -311,7 +311,7 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "slice size is required if slice topology is requested"),
+				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -358,7 +358,7 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "cannot be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not present"),
+				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -393,7 +393,8 @@ func TestValidateCreate(t *testing.T) {
 
 			jw := &JobWebhook{}
 
-			gotValidationErrs, gotErr := jw.validateCreate((*Job)(tc.job))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := jw.validateCreate(ctx, (*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() error mismatch (-want +got):\n%s", diff)
@@ -679,7 +680,7 @@ func TestValidateUpdate(t *testing.T) {
 				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "slice size is required if slice topology is requested"),
+				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			},
 			topologyAwareScheduling: true,
 		},
@@ -688,8 +689,8 @@ func TestValidateUpdate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
-			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}

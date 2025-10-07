@@ -100,8 +100,10 @@ The MultiKueue Workload Controller synchronizes the Workload with the nominated 
 
 Known Limitation:
 {{% alert title="Warning" color="primary" %}}
-For the external controller to patch the `.status.nominatedClusterNames` field, it must use the kueue-admission field manager.
-This is required because the kueue-admission field manager is responsible for managing updates to the `.status.nominatedClusterNames` field.
+For the external controller to patch the `.status.nominatedClusterNames` field there are 2 options:
+* Use the `kueue-admission` field manager, because the kueue-admission field manager is responsible for managing updates to the `.status.nominatedClusterNames` field.
+* [Enable `WorkloadRequestUseMergePatch` feature gate](docs/concepts/workload#workload-updates-by-kueue) that drops the `kueue-admission` field manager from the `.status.nominatedClusterNames`.
+
 Without this, the Kueue is not able to admit the MultiKueue workloads.
 {{% /alert %}}
 
