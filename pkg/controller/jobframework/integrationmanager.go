@@ -26,6 +26,7 @@ import (
 	"sync"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -223,7 +224,7 @@ func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool 
 	// ReplicaSet is an interim owner from Pod to Deployment. We call it known
 	// so that the users don't need to list	it explicitly in their configs.
 	// Note that Kueue provides RBAC permissions allowing for traversal over it.
-	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == "apps/v1"
+	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == appsv1.SchemeGroupVersion.String()
 }
 
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
