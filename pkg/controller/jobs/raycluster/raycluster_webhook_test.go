@@ -235,7 +235,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
-					field.NewPath("spec.headGroupSpec.template, metadata.annotations"),
+					field.NewPath("spec.headGroupSpec.template.metadata.annotations"),
 					field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
@@ -290,7 +290,7 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.headGroupSpec.template, metadata.annotations").
+				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
 				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "10", "must not be greater than pod set count 5"),
