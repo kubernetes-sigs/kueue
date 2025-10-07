@@ -707,7 +707,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			for range 4 {
 				createWorkload("cq-p1", "2")
 			}
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 
 			ginkgo.By("Create workload in queue2")
 			createWorkload("cq-p2", "5")
@@ -715,9 +715,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Complete preemption")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
-			ginkgo.By("Expect active workloads")
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
 			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
 		})
@@ -734,13 +734,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			for range 4 {
 				createWorkload("cq-p1", "2")
 			}
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 
 			ginkgo.By("Create workloads in queue2")
 			createWorkloadWithPriority("cq-p2", "6", 999)
 
 			ginkgo.By("Verify doesn't admit")
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 0)
 
 			ginkgo.By("Create admissible workload in queue2")
 			createWorkloadWithPriority("cq-p2", "5", 0)
@@ -748,9 +748,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Complete preemption")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
-			ginkgo.By("Expect active workloads")
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
 			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
 		})
@@ -760,13 +760,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			for range 4 {
 				createWorkload("cq-p1", "2")
 			}
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 
 			ginkgo.By("Create workload in queue2")
 			createWorkloadWithPriority("cq-p2", "6", 999)
 
 			ginkgo.By("Verify doesn't admit")
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 0)
 
 			ginkgo.By("Create admissible workload in queue2")
 			createWorkloadWithPriority("cq-p2", "4", 0)
@@ -774,9 +774,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Complete preemption")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
-			ginkgo.By("Expect active workloads")
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
 			util.ExpectClusterQueueWeightedShareMetric(cqp2, 445)
 		})
@@ -786,14 +786,14 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			for range 4 {
 				createWorkload("cq-p1", "2")
 			}
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 
 			ginkgo.By("Create workloads in queue2")
 			createWorkloadWithPriority("cq-p2", "7", 999)
 			createWorkloadWithPriority("cq-p2", "6", 999)
 
 			ginkgo.By("Verify don't admit")
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 0)
 
 			ginkgo.By("Create admissible workload in queue2")
 			createWorkloadWithPriority("cq-p2", "5", 0)
@@ -801,9 +801,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Complete preemption")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
-			ginkgo.By("Expect active workloads")
-			util.ExpectReservingActiveWorkloadsMetric(cqp1, 2)
-			util.ExpectReservingActiveWorkloadsMetric(cqp2, 1)
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
 			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
 		})
@@ -849,13 +849,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				ginkgo.By("Creating borrowing workloads in queue2")
 				createWorkload("cq2", "1")
 				createWorkload("cq2", "1")
-				util.ExpectReservingActiveWorkloadsMetric(cq2, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 
 				ginkgo.By("Create inadmissible workload in queue2")
 				createWorkloadWithPriority("cq1", "4", 999)
 
 				ginkgo.By("Verify doesn't admit")
-				util.ExpectReservingActiveWorkloadsMetric(cq1, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
 
 				ginkgo.By("Create admissible workload in queue2")
 				createWorkloadWithPriority("cq1", "3", 0)
@@ -863,9 +863,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				ginkgo.By("Complete preemption")
 				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
-				ginkgo.By("Expect active workloads")
-				util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
-				util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+				ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
 				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
 			})
@@ -874,13 +874,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				ginkgo.By("Creating borrowing workloads in queue2")
 				createWorkload("cq2", "1")
 				createWorkload("cq2", "1")
-				util.ExpectReservingActiveWorkloadsMetric(cq2, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 
 				ginkgo.By("Create inadmissible workload in queue2")
 				createWorkloadWithPriority("cq1", "4", 999)
 
 				ginkgo.By("Verify doesn't admit")
-				util.ExpectReservingActiveWorkloadsMetric(cq1, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
 
 				ginkgo.By("Create admissible workloads in queue2")
 				stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
@@ -894,9 +894,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				ginkgo.By("Complete preemption")
 				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
-				ginkgo.By("Expect active workloads")
-				util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
-				util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
+				ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
 				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
 			})
