@@ -96,7 +96,7 @@ func TestValidateCreate(t *testing.T) {
 					kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
 			topologyAwareScheduling: true,
@@ -113,7 +113,7 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "replicatedJobs[0]", "template", "metadata", "annotations").
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 2"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
@@ -171,7 +171,7 @@ func TestValidateUpdate(t *testing.T) {
 					kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
+			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 			topologyAwareScheduling: true,
