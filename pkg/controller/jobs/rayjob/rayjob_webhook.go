@@ -40,7 +40,7 @@ import (
 
 var (
 	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
 )
 
