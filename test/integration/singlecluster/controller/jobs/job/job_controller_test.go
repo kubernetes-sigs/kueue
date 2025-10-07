@@ -3690,6 +3690,7 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, lq, true, util.LongTimeout)
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.LongTimeout)
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("ManagedJobsNamespaceSelectorAlwaysRespected enabled", func() {
