@@ -55,6 +55,28 @@ var (
 	realClock = clock.RealClock{}
 )
 
+// stickyWorkload is the workload at the ClusterQueue head which is
+// currently preempting workloads. It is only enabled for
+// BestEffortFIFO policy, and prevents skipped over ineligible
+// workloads from going back to the head of the queue.  A workload is
+// considered sticky until it is admitted, unschedulable, or deleted.
+// See Kueue#6929 and Kueue#7101 for motivation.
+type stickyWorkload struct {
+	workloadName workload.Reference
+}
+
+func (s *stickyWorkload) matches(workload workload.Reference) bool {
+	return s.workloadName == workload
+}
+
+func (s *stickyWorkload) clear() {
+	s.workloadName = ""
+}
+
+func (s *stickyWorkload) set(workload workload.Reference) {
+	s.workloadName = workload
+}
+
 type ClusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
 	name              kueue.ClusterQueueReference
@@ -86,6 +108,8 @@ type ClusterQueue struct {
 	clock clock.Clock
 
 	AdmissionScope *kueue.AdmissionScope
+
+	sw *stickyWorkload
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -107,7 +131,8 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 }
 
 func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) *ClusterQueue {
-	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties)
+	sw := stickyWorkload{}
+	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties, &sw)
 	return &ClusterQueue{
 		heap:                   *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[workload.Reference]*workload.Info),
@@ -115,6 +140,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		lessFunc:               lessFunc,
 		rwm:                    sync.RWMutex{},
 		clock:                  clock,
+		sw:                     &sw,
 	}
 }
 
@@ -217,6 +243,9 @@ func (c *ClusterQueue) delete(w *kueue.Workload) {
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
+	if c.sw.matches(key) {
+		c.sw.clear()
+	}
 }
 
 // DeleteFromLocalQueue removes all workloads belonging to this queue from
@@ -418,6 +447,13 @@ func (c *ClusterQueue) Active() bool {
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+	// when preemptions are in-progress, we keep attempting to
+	// schedule the same workload for BestEffortFIFO queues. See
+	// documentation of stickyWorkload for more details
+	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
+		c.sw.set(workload.Key(wInfo.Obj))
+	}
+
 	if c.queueingStrategy == kueue.StrictFIFO {
 		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
@@ -428,7 +464,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 // to sort workloads. The function sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
-func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) func(a, b *workload.Info) bool {
+func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], sw *stickyWorkload) func(a, b *workload.Info) bool {
 	log := ctrl.LoggerFrom(ctx)
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
@@ -447,6 +483,14 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 				}
 			}
 		}
+
+		if sw.matches(workload.Key(a.Obj)) {
+			return true
+		}
+		if sw.matches(workload.Key(b.Obj)) {
+			return false
+		}
+
 		p1 := utilpriority.Priority(a.Obj)
 		p2 := utilpriority.Priority(b.Obj)
 
