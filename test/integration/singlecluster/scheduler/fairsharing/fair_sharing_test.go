@@ -807,99 +807,146 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
 			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
 		})
+	})
 
-		// kueue#6929
-		ginkgo.When("ClusterQueue head has inadmissible workload", func() {
-			var (
-				cq1 *kueue.ClusterQueue
-				cq2 *kueue.ClusterQueue
-			)
-			ginkgo.BeforeEach(func() {
-				fungibility := kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.TryNextFlavor,
+	// kueue#6929
+	ginkgo.When("ClusterQueue head has inadmissible workload", func() {
+		var (
+			cq1     *kueue.ClusterQueue
+			cq2     *kueue.ClusterQueue
+			cohortA *kueue.Cohort
+		)
+		ginkgo.BeforeEach(func() {
+			fungibility := kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			}
+			preemption := kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}
+
+			cohortA = createCohort(testing.MakeCohort("cohort-a").
+				Parent("root").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "3").Obj(),
+				).Obj())
+
+			cq1 = createQueue(testing.MakeClusterQueue("cq1").
+				Cohort("cohort-a").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				Obj())
+
+			cq2 = createQueue(testing.MakeClusterQueue("cq2").
+				Cohort("root").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				FlavorFungibility(fungibility).
+				Preemption(preemption).
+				Obj())
+		})
+
+		ginkgo.It("workload which fits behind ClusterQueue head is able to admit", func() {
+			ginkgo.By("Creating borrowing workloads in queue2")
+			createWorkload("cq2", "1")
+			createWorkload("cq2", "1")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+
+			ginkgo.By("Create inadmissible workload in queue2")
+			createWorkloadWithPriority("cq1", "4", 999)
+
+			ginkgo.By("Verify doesn't admit")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+
+			ginkgo.By("Create admissible workload in queue2")
+			createWorkloadWithPriority("cq1", "3", 0)
+
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+		})
+
+		ginkgo.It("sticky workload becomes inadmissible. next workload admits", func() {
+			ginkgo.By("Creating borrowing workloads in queue2")
+			createWorkload("cq2", "1")
+			createWorkload("cq2", "1")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+
+			ginkgo.By("Create admissible workload in queue1")
+			createWorkloadWithPriority("cq1", "3", 99)
+
+			ginkgo.By("Create another admissible workload in queue1")
+			createWorkloadWithPriority("cq1", "2", 9)
+
+			ginkgo.By("Validate pending workloads")
+			util.ExpectPendingWorkloadsMetric(cq1, 2, 0)
+
+			ginkgo.By("Decreasing cluster capacity, making 99 priority workload inadmissible")
+			updatedCohort := &kueue.Cohort{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), updatedCohort)).Should(gomega.Succeed())
+				updatedCohort.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
+					Name:         corev1.ResourceCPU,
+					NominalQuota: resource.MustParse("2"),
 				}
-				preemption := kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-				}
+				g.Expect(k8sClient.Update(ctx, updatedCohort)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				cq1 = createQueue(testing.MakeClusterQueue("cq1").
-					Cohort("root").
-					FairWeight(resource.MustParse("1")).
-					ResourceGroup(
-						*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "3").Obj(),
-					).
-					FlavorFungibility(fungibility).
-					Preemption(preemption).
-					Obj())
+			ginkgo.By("Validate pending workloads")
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
 
-				cq2 = createQueue(testing.MakeClusterQueue("cq2").
-					Cohort("root").
-					FairWeight(resource.MustParse("1")).
-					ResourceGroup(
-						*testing.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
-					).
-					FlavorFungibility(fungibility).
-					Preemption(preemption).
-					Obj())
-			})
-
-			ginkgo.It("workload which fits behind ClusterQueue head is able to admit", func() {
-				ginkgo.By("Creating borrowing workloads in queue2")
-				createWorkload("cq2", "1")
-				createWorkload("cq2", "1")
-				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
-
-				ginkgo.By("Create inadmissible workload in queue2")
-				createWorkloadWithPriority("cq1", "4", 999)
-
-				ginkgo.By("Verify doesn't admit")
-				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
-
-				ginkgo.By("Create admissible workload in queue2")
-				createWorkloadWithPriority("cq1", "3", 0)
-
-				ginkgo.By("Complete preemption")
-				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
-
-				ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			gomega.Eventually(func(g gomega.Gomega) {
+				util.FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq2)
 				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
 				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
-			})
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 
-			ginkgo.It("sticky workload deleted, next workload can admit", func() {
-				ginkgo.By("Creating borrowing workloads in queue2")
-				createWorkload("cq2", "1")
-				createWorkload("cq2", "1")
-				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+		ginkgo.It("sticky workload deleted, next workload can admit", func() {
+			ginkgo.By("Creating borrowing workloads in queue2")
+			createWorkload("cq2", "1")
+			createWorkload("cq2", "1")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 
-				ginkgo.By("Create inadmissible workload in queue2")
-				createWorkloadWithPriority("cq1", "4", 999)
+			ginkgo.By("Create inadmissible workload in queue1")
+			createWorkloadWithPriority("cq1", "4", 999)
 
-				ginkgo.By("Verify doesn't admit")
-				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+			ginkgo.By("Verify doesn't admit")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
 
-				ginkgo.By("Create admissible workloads in queue2")
-				stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
+			ginkgo.By("Create admissible workloads in queue1")
+			stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
 
-				ginkgo.By("Another admissible workload in queue2")
-				createWorkloadWithPriority("cq1", "3", 0)
+			ginkgo.By("Another admissible workload in queue1")
+			createWorkloadWithPriority("cq1", "3", 0)
 
-				ginkgo.By("Delete sticky workload")
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, stickyWorkload, true)
+			ginkgo.By("Delete sticky workload")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, stickyWorkload, true)
 
-				ginkgo.By("Complete preemption")
-				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+			ginkgo.By("Validate pending workloads")
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
 
-				ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			gomega.Eventually(func(g gomega.Gomega) {
+				util.FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq2)
 				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
 				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
-			})
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

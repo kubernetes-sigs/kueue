@@ -371,7 +371,6 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	}
 
 	c.popCycle++
-	c.sw.clear()
 	if c.heap.Len() == 0 {
 		c.inflight = nil
 		return nil
