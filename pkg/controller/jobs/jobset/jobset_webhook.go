@@ -145,15 +145,15 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 	podSets, podSetsErr := jobSet.PodSets(ctx)
 
 	for i, rj := range jobSet.Spec.ReplicatedJobs {
-		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
-		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
+		replicaJobTemplateMetaPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
 
 		if podSetsErr != nil {
 			continue
 		}
 
 		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(rj.Name))
-		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
 	}
 
 	if len(allErrs) > 0 {
