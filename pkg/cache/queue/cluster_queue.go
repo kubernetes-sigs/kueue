@@ -481,11 +481,15 @@ func (c *ClusterQueue) Active() bool {
 // compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
-func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
 	// when preemptions are in-progress, we keep attempting to
 	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details
 	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
+		log := ctrl.LoggerFrom(ctx)
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
+		}
 		c.sw.set(workload.Key(wInfo.Obj))
 	}
 
@@ -520,9 +524,15 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 		}
 
 		if sw.matches(workload.Key(a.Obj)) {
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Prioritizing sticky workload", "workload", workload.Key(a.Obj))
+			}
 			return true
 		}
 		if sw.matches(workload.Key(b.Obj)) {
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Prioritizing sticky workload", "workload", workload.Key(b.Obj))
+			}
 			return false
 		}
 
