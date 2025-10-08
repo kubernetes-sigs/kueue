@@ -57,3 +57,5 @@ resources:
 - paddlejob_viewer_role.yaml
 - jaxjob_editor_role.yaml
 - jaxjob_viewer_role.yaml
+- trainjob_editor_role.yaml
+- trainjob_viewer_role.yaml
