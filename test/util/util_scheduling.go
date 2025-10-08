@@ -45,25 +45,30 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 	gomega.ExpectWithOffset(1, finished).To(gomega.Equal(n), "Not enough workloads finished")
 }
 
-func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
+func FinishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) int {
 	var realClock = clock.RealClock{}
 	finished := sets.New[types.UID]()
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		var wList kueue.WorkloadList
-		g.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
-		for i := 0; i < len(wList.Items) && finished.Len() < n; i++ {
-			wl := wList.Items[i]
-			if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
-				continue
-			}
-			evicted := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
-			quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if evicted && quotaReserved {
-				workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now())
-				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true, realClock)).To(gomega.Succeed())
-				finished.Insert(wl.UID)
-			}
+	var wList kueue.WorkloadList
+	gomega.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
+	for _, wl := range wList.Items {
+		if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
+			continue
 		}
-		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
+		evicted := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
+		quotaReserved := meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		if evicted && quotaReserved {
+			workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Eviction finished by test", time.Now())
+			gomega.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true, realClock)).To(gomega.Succeed())
+			finished.Insert(wl.UID)
+		}
+	}
+	return finished.Len()
+}
+
+func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
+	finished := 0
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		finished += FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq)
+		g.Expect(finished).Should(gomega.Equal(n), "Not enough workloads evicted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
