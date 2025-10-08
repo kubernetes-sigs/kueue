@@ -1,3 +1,19 @@
+## v0.14.1
+
+Changes since `v0.14.0`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Add rbac for train job for kueue-batch-admin and kueue-batch-user (#7198, @kannon92)
+- Fix invalid annotations path being reported in `JobSet` topology validations. (#7191, @kshalot)
+- Fix malformed annotations paths being reported for `RayJob` and `RayCluster` head group specs. (#7185, @kshalot)
+- With BestEffortFIFO enabled, we will keep attempting to schedule a workload as long as
+  it is waiting for preemption targets to complete. This fixes a bugs where an inadmissible
+  workload went back to head of queue, in front of the preempting workload, allowing
+  preempted workloads to reschedule (#7197, @gabesaba)
+
 ## v0.14.0
 
 Changes since `v0.13.0`:
