@@ -492,7 +492,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(info, reason)
+	added := cq.RequeueIfNotPresent(ctx, info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
