@@ -1,3 +1,18 @@
+## v0.13.6
+
+Changes since `v0.13.5`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix invalid annotations path being reported in `JobSet` topology validations. (#7190, @kshalot)
+- Fix malformed annotations paths being reported for `RayJob` and `RayCluster` head group specs. (#7184, @kshalot)
+- With BestEffortFIFO enabled, we will keep attempting to schedule a workload as long as
+  it is waiting for preemption targets to complete. This fixes a bugs where an inadmissible
+  workload went back to head of queue, in front of the preempting workload, allowing
+  preempted workloads to reschedule (#7202, @gabesaba)
+
 ## v0.13.5
 
 Changes since `v0.13.4`:
