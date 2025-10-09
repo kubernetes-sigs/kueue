@@ -61,5 +61,20 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeForbiddenError())
 		})
+
+		ginkgo.It("should allow RayJob with clusterSelector and queue label", func() {
+			job := testingjob.MakeJob("rayjob-with-selector", ns.Name).
+				Queue("queue-name").
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing-cluster"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should allow RayJob with clusterSelector and no queue label", func() {
+			job := testingjob.MakeJob("rayjob-with-selector-no-queue", ns.Name).
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing-cluster"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		})
 	})
 })

@@ -107,6 +107,12 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
+	// RayJobs with clusterSelector use an existing cluster and should not be managed by Kueue.
+	// Skip all Kueue validation for these jobs.
+	if len(job.Spec.ClusterSelector) > 0 {
+		return allErrors, nil
+	}
+
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
@@ -114,11 +120,6 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 		// Should always delete the cluster after the job has ended, otherwise it will continue to the queue's resources.
 		if !spec.ShutdownAfterJobFinishes {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
-		}
-
-		// Should not want existing cluster. Kueue (workload) should be able to control the admission of the actual work, not only the trigger.
-		if len(spec.ClusterSelector) > 0 {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
 		}
 
 		clusterSpec := spec.RayClusterSpec
