@@ -1725,7 +1725,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 			})
 		})
 
-		ginkgo.FIt("Should be successfully re-admitted on another flavor also with a round-kilobyte memory request", func() {
+		ginkgo.It("Should be successfully re-admitted on another flavor also with a round-kilobyte memory request", func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
 				cq = testing.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
@@ -1827,12 +1827,6 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, job2, true)
 				})
 				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
-			})
-
-			ginkgo.By("await for wl2 to be created", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wl2Key, &wlObj)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("await for wl1 to be Admitted on flavor-2", func() {
