@@ -25,6 +25,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/failurerecovery"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -61,6 +62,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 			return "Cohort", err
 		}
 		watchers = append(watchers, cohortRec)
+	}
+
+	if features.Enabled(features.ZombiePodTermination) {
+		zpRec := failurerecovery.NewTerminatingPodReconciler(mgr.GetClient())
+		if err := zpRec.SetupWithManager(mgr); err != nil {
+			return "ZombiePodTermination", err
+		}
 	}
 
 	cqRec := NewClusterQueueReconciler(
