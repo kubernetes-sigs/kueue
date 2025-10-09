@@ -147,6 +147,11 @@ func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) RayClusterSpec(spec *rayv1.RayClusterSpec) *JobWrapper {
+	j.Spec.RayClusterSpec = spec
+	return j
+}
+
 func (j *JobWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *JobWrapper {
 	j.Spec.RayClusterSpec.WorkerGroupSpecs = workers
 	return j
