@@ -110,15 +110,32 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
+		hasClusterSelector := len(spec.ClusterSelector) > 0
+		hasRayClusterSpec := spec.RayClusterSpec != nil
+
+		// Validate the combination of clusterSelector and RayClusterSpec
+		if hasClusterSelector && hasRayClusterSpec {
+			// len(spec.ClusterSelector)>0 && spec.RayClusterSpec != nil -> validation error
+			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
+			return allErrors, nil
+		}
+
+		if hasClusterSelector && !hasRayClusterSpec {
+			// len(spec.ClusterSelector)>0 && spec.RayClusterSpec == nil -> valid (skip validation)
+			// RayJobs using existing clusters are not managed by Kueue
+			return allErrors, nil
+		}
+
+		if !hasClusterSelector && !hasRayClusterSpec {
+			// len(spec.ClusterSelector)==0 && spec.RayClusterSpec == nil -> validation error
+			allErrors = append(allErrors, field.Required(specPath.Child("rayClusterSpec"), "rayClusterSpec is required for Kueue-managed jobs that don't use clusterSelector"))
+			return allErrors, nil
+		}
+		// len(spec.ClusterSelector)==0 && spec.RayClusterSpec != nil -> valid + perform additional validation
 
 		// Should always delete the cluster after the job has ended, otherwise it will continue to the queue's resources.
 		if !spec.ShutdownAfterJobFinishes {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
-		}
-
-		// Should not want existing cluster. Kueue (workload) should be able to control the admission of the actual work, not only the trigger.
-		if len(spec.ClusterSelector) > 0 {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
 		}
 
 		clusterSpec := spec.RayClusterSpec
