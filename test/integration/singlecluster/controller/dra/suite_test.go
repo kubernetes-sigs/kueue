@@ -23,7 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
@@ -143,16 +143,16 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 }
 
 // Helper function to create a ResourceClaim
-func makeResourceClaim(name, namespace, deviceClassName string, count int64) *resourcev1beta2.ResourceClaim {
-	return &resourcev1beta2.ResourceClaim{
+func makeResourceClaim(name, namespace, deviceClassName string, count int64) *resourcev1.ResourceClaim {
+	return &resourcev1.ResourceClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec: resourcev1beta2.ResourceClaimSpec{
-			Devices: resourcev1beta2.DeviceClaim{
-				Requests: []resourcev1beta2.DeviceRequest{{
+		Spec: resourcev1.ResourceClaimSpec{
+			Devices: resourcev1.DeviceClaim{
+				Requests: []resourcev1.DeviceRequest{{
 					Name: "device-request",
-					Exactly: &resourcev1beta2.ExactDeviceRequest{
+					Exactly: &resourcev1.ExactDeviceRequest{
 						DeviceClassName: deviceClassName,
-						AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+						AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 						Count:           count,
 					},
 				}},
