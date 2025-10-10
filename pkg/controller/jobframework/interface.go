@@ -153,6 +153,12 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithCustomWorkloadActivation interface should be implemented by generic jobs,
+// when custom logic is needed to determine if the workload is active.
+type JobWithCustomWorkloadActivation interface {
+	IsWorkloadActive() bool
+}
+
 // JobWithManagedBy interface should be implemented by generic jobs
 // that implement the managedBy protocol for Multi-Kueue
 type JobWithManagedBy interface {
