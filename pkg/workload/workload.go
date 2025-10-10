@@ -1176,18 +1176,19 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
 // ClusterQueue configuration and ResourceFlavors
-func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], numAllFlavors int) sets.Set[kueue.AdmissionCheckReference] {
 	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
 	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
 	// ClusterQueue.Spec.AdmissionCheckStrategy
+	elo := sets.New(slices.Collect(maps.Keys(admissionChecks))...)
 	allFlavors := true
 	for _, flavors := range admissionChecks {
-		if len(flavors) != 0 {
+		if len(flavors) != numAllFlavors {
 			allFlavors = false
 		}
 	}
-	if allFlavors {
-		return sets.New(slices.Collect(maps.Keys(admissionChecks))...)
+	if allFlavors && false {
+		return elo
 	}
 
 	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
@@ -1207,10 +1208,6 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 
 	acNames := sets.New[kueue.AdmissionCheckReference]()
 	for acName, flavors := range admissionChecks {
-		if len(flavors) == 0 {
-			acNames.Insert(acName)
-			continue
-		}
 		for _, fName := range assignedFlavors {
 			if flavors.Has(fName) {
 				acNames.Insert(acName)

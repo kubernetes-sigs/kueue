@@ -55,6 +55,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		workerCluster1           *kueue.MultiKueueCluster
 		managerMultiKueueConfig  *kueue.MultiKueueConfig
 		multiKueueAC             *kueue.AdmissionCheck
+		flavor                   *kueue.ResourceFlavor
 		managerCq                *kueue.ClusterQueue
 		managerLq                *kueue.LocalQueue
 
@@ -111,8 +112,14 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		flavor = utiltesting.MakeResourceFlavor("flavor1").Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, flavor)
+
 		managerCq = utiltesting.MakeClusterQueue("q1").
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas(flavor.Name).
+				Resource("example.com/gpu", "5", "5").Obj()).
+			Cohort("cohort").
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerCq)).Should(gomega.Succeed())
 
@@ -130,6 +137,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		gomega.Expect(util.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
 		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
+		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, flavor, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
@@ -146,7 +154,10 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
@@ -160,7 +171,10 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager", func() {
-			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
+			admission := utiltesting.MakeAdmission(managerCq.Name).
+				PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment("cpu", "flavor1", "1").
+					Obj()).Obj()
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -228,11 +242,11 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 
 	ginkgo.It("Should not create a MPIJob workload, when MPIJob adapter is not enabled", func() {
 		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "launcher",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
+			utiltesting.MakePodSetAssignment("launcher").
+				Assignment("cpu", "flavor1", "1").
+				Obj(), utiltesting.MakePodSetAssignment("worker").
+				Assignment("cpu", "flavor1", "1").
+				Obj(),
 		)
 		mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
 			Queue(managerLq.Name).

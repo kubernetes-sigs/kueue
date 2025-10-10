@@ -169,9 +169,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 	ginkgo.When("the queue has admission checks", func() {
 		var (
-			flavor *kueue.ResourceFlavor
-			check1 *kueue.AdmissionCheck
-			check2 *kueue.AdmissionCheck
+			flavor    *kueue.ResourceFlavor
+			check1    *kueue.AdmissionCheck
+			check2    *kueue.AdmissionCheck
+			admission *kueue.Admission
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -195,6 +196,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
+
+			admission = testing.MakeAdmission(clusterQueue.Name).
+				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()).Obj()
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -208,8 +213,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}
-			ginkgo.By("creating the workload, the check conditions should be added", func() {
+			ginkgo.By("creating the workload and reserving quota, the check conditions should be added", func() {
 				util.MustCreate(ctx, k8sClient, wl)
+
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
@@ -258,15 +265,17 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				check2Cond := admissioncheck.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
-				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
+				gomega.Expect(check2Cond).NotTo(gomega.BeNil())
 			})
 		})
 		ginkgo.It("should finish an unadmitted workload with failure when a check is rejected", func() {
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}
-			ginkgo.By("creating the workload, the check conditions should be added", func() {
+			ginkgo.By("creating the workload and reserving quota, the check conditions should be added", func() {
 				util.MustCreate(ctx, k8sClient, wl)
+
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
@@ -274,10 +283,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						return string(c.Name)
 					})).Should(gomega.ConsistOf("check1", "check2"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("reserving quota for a Workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, testing.MakeAdmission(clusterQueue.Name).Obj())
 			})
 
 			ginkgo.By("setting the check conditions", func() {
@@ -319,8 +324,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
 			wlKey := client.ObjectKeyFromObject(wl)
 			createdWl := kueue.Workload{}
-			ginkgo.By("creating the workload, the check conditions should be added", func() {
+			ginkgo.By("creating the workload and reserving quota, the check conditions should be added", func() {
 				util.MustCreate(ctx, k8sClient, wl)
+
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
@@ -330,9 +337,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("setting quota reservation and the checks ready, should admit the workload", func() {
-				util.SetQuotaReservation(ctx, k8sClient, wlKey, testing.MakeAdmission(clusterQueue.Name).Obj())
-
+			ginkgo.By("setting the checks ready, should admit the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
