@@ -22,7 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -159,19 +159,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle multiple workloads sharing DRA quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplates")
-			rct1 := &resourcev1beta2.ResourceClaimTemplate{
+			rct1 := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "quota-template-1",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           4,
 								},
 							}},
@@ -181,19 +181,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, rct1)).To(gomega.Succeed())
 
-			rct2 := &resourcev1beta2.ResourceClaimTemplate{
+			rct2 := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "quota-template-2",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           4,
 								},
 							}},
@@ -265,19 +265,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should admit workload with DRA resource claim templates", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
+			rct := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "device-template",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           2,
 								},
 							}},
@@ -318,19 +318,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle multiple workloads with ResourceClaimTemplates", func() {
 			ginkgo.By("Creating ResourceClaimTemplates")
-			rct1 := &resourcev1beta2.ResourceClaimTemplate{
+			rct1 := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "device-template-1",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           3,
 								},
 							}},
@@ -340,19 +340,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, rct1)).To(gomega.Succeed())
 
-			rct2 := &resourcev1beta2.ResourceClaimTemplate{
+			rct2 := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "device-template-2",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           3,
 								},
 							}},
@@ -424,19 +424,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle ResourceClaimTemplate with insufficient quota", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate that exceeds quota")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
+			rct := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "device-template-large",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           12,
 								},
 							}},
@@ -471,19 +471,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle unmapped device classes with proper error", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with unmapped device class")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
+			rct := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "unmapped-template",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "unmapped.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           2,
 								},
 							}},
@@ -557,19 +557,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle multi-pod workloads with correct DRA resource calculation", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
+			rct := &resourcev1.ResourceClaimTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "multi-pod-template",
 					Namespace: ns.Name,
 				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           1,
 								},
 							}},

@@ -34,7 +34,7 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -135,7 +135,7 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	err = kftrainer.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = resourcev1beta2.AddToScheme(f.scheme)
+	err = resourcev1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	k8sClient, err := client.New(cfg, client.Options{Scheme: f.scheme})
