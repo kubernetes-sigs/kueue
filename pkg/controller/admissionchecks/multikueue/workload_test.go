@@ -1755,16 +1755,18 @@ func (m *mockQueue) Add(item reconcile.Request) {
 	m.addedItems = append(m.addedItems, item)
 }
 
-func (m *mockQueue) Len() int                                  { return 0 }
-func (m *mockQueue) Get() (reconcile.Request, bool)            { return reconcile.Request{}, false }
-func (m *mockQueue) Done(reconcile.Request)                    {}
-func (m *mockQueue) Forget(reconcile.Request)                  {}
-func (m *mockQueue) NumRequeues(reconcile.Request) int         { return 0 }
-func (m *mockQueue) AddRateLimited(reconcile.Request)          {}
-func (m *mockQueue) AddAfter(reconcile.Request, time.Duration) {}
-func (m *mockQueue) ShutDown()                                 {}
-func (m *mockQueue) ShutDownWithDrain()                        {}
-func (m *mockQueue) ShuttingDown() bool                        { return false }
+func (m *mockQueue) Len() int                          { return 0 }
+func (m *mockQueue) Get() (reconcile.Request, bool)    { return reconcile.Request{}, false }
+func (m *mockQueue) Done(reconcile.Request)            {}
+func (m *mockQueue) Forget(reconcile.Request)          {}
+func (m *mockQueue) NumRequeues(reconcile.Request) int { return 0 }
+func (m *mockQueue) AddRateLimited(reconcile.Request)  {}
+func (m *mockQueue) AddAfter(item reconcile.Request, duration time.Duration) {
+	m.addedItems = append(m.addedItems, item)
+}
+func (m *mockQueue) ShutDown()          {}
+func (m *mockQueue) ShutDownWithDrain() {}
+func (m *mockQueue) ShuttingDown() bool { return false }
 
 func TestConfigHandlerUpdate(t *testing.T) {
 	cases := map[string]struct {
@@ -1776,60 +1778,60 @@ func TestConfigHandlerUpdate(t *testing.T) {
 	}{
 		"clusters unchanged - no workloads queued": {
 			admissionChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl1", TestNamespace).
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					Obj(),
 			},
-			oldConfig:         utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
-			newConfig:         utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			oldConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			newConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
 			expectedQueuedWLs: nil, // No workloads should be queued
 		},
 		"clusters changed - workloads queued": {
 			admissionChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl1", TestNamespace).
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					Obj(),
-				*utiltesting.MakeWorkload("wl2", TestNamespace).
+				*utiltestingapi.MakeWorkload("wl2", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
 					Obj(),
 			},
-			oldConfig:         utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
-			newConfig:         utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			oldConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
+			newConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
 			expectedQueuedWLs: []string{"wl1", "wl2"}, // Both workloads should be queued
 		},
 		"multiple configs - only affected workloads queued": {
 			admissionChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
-				*utiltesting.MakeAdmissionCheck("ac2").
+				*utiltestingapi.MakeAdmissionCheck("ac2").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "other-config").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl1", TestNamespace).
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					Obj(),
-				*utiltesting.MakeWorkload("wl2", TestNamespace).
+				*utiltestingapi.MakeWorkload("wl2", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}).
 					Obj(),
 			},
-			oldConfig:         utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
-			newConfig:         utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			oldConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
+			newConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
 			expectedQueuedWLs: []string{"wl1"}, // Only wl1 uses config1, wl2 uses other-config
 		},
 	}
@@ -1847,7 +1849,7 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &configHandler{client: fakeClient}
+			handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
 			mockQ := &mockQueue{}
 
 			updateEvent := event.UpdateEvent{
@@ -1874,12 +1876,12 @@ func TestConfigHandlerUpdate(t *testing.T) {
 func TestConfigHandlerDelete(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	admissionCheck := utiltesting.MakeAdmissionCheck("ac1").
+	admissionCheck := utiltestingapi.MakeAdmissionCheck("ac1").
 		ControllerName(kueue.MultiKueueControllerName).
 		Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 		Obj()
 
-	workload := utiltesting.MakeWorkload("wl1", TestNamespace).
+	workload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 		Obj()
 
@@ -1887,10 +1889,10 @@ func TestConfigHandlerDelete(t *testing.T) {
 	clientBuilder = clientBuilder.WithObjects(admissionCheck, workload)
 	fakeClient := clientBuilder.Build()
 
-	handler := &configHandler{client: fakeClient}
+	handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
 	mockQ := &mockQueue{}
 
-	config := utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
+	config := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
 	deleteEvent := event.DeleteEvent{
 		Object: config,
 	}
