@@ -29,6 +29,7 @@ import (
 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
+	"k8s.io/client-go/rest"
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
 
@@ -57,8 +58,8 @@ var (
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) error {
-	config := newVisibilityServerConfig()
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager, kubeConfig *rest.Config) error {
+	config := newVisibilityServerConfig(kubeConfig)
 	if err := applyVisibilityServerOptions(config); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
@@ -92,7 +93,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) er
 	return o.ApplyTo(config)
 }
 
-func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
+func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
 	c := genericapiserver.NewRecommendedConfig(api.Codecs)
 	versionInfo := version.Get()
 	version := strings.Split(versionInfo.String(), "-")[0]
@@ -106,6 +107,7 @@ func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
 	c.OpenAPIV3Config.Info.Version = version
 
 	c.EnableMetrics = true
+	c.ClientConfig = rest.CopyConfig(kubeConfig)
 
 	return c
 }
