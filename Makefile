@@ -375,9 +375,15 @@ prepare-manifests:
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
 
+.PHONY: check-tag
+check-tag:
+ifeq (,$(findstring v,$(GIT_TAG)))
+  $(error GIT_TAG must be a valid semver, starting with v)
+endif
+
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="artifacts"
-artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate release artifacts.
+artifacts: check-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate release artifacts.
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
