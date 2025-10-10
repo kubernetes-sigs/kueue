@@ -184,7 +184,7 @@ func TestListWorkloadsWithAdmissionCheck(t *testing.T) {
 		},
 		"single workload, single match": {
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("wl1", TestNamespace).
+				utiltestingapi.MakeWorkload("wl1", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "ac1",
 						State: kueue.CheckStatePending,
@@ -195,7 +195,7 @@ func TestListWorkloadsWithAdmissionCheck(t *testing.T) {
 		},
 		"single workload, no match": {
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("wl2", TestNamespace).
+				utiltestingapi.MakeWorkload("wl2", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "ac2",
 						State: kueue.CheckStatePending,
@@ -205,12 +205,12 @@ func TestListWorkloadsWithAdmissionCheck(t *testing.T) {
 		},
 		"multiple workloads, single match": {
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("wl1", TestNamespace).
+				utiltestingapi.MakeWorkload("wl1", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "ac1",
 						State: kueue.CheckStatePending,
 					}).Obj(),
-				utiltesting.MakeWorkload("wl2", TestNamespace).
+				utiltestingapi.MakeWorkload("wl2", TestNamespace).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "ac2",
 						State: kueue.CheckStatePending,
