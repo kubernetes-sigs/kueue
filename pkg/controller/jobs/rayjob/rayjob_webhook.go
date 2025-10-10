@@ -107,6 +107,12 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
+	// RayJobs with clusterSelector use an existing cluster and should not be managed by Kueue.
+	// Skip all Kueue validation for these jobs.
+	if len(job.Spec.ClusterSelector) > 0 {
+		return allErrors, nil
+	}
+
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
@@ -116,28 +122,25 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 			allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
 		}
 
-		// Should not want existing cluster. Kueue (workload) should be able to control the admission of the actual work, not only the trigger.
-		if len(spec.ClusterSelector) > 0 {
-			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
-		}
-
 		clusterSpec := spec.RayClusterSpec
-		clusterSpecPath := specPath.Child("rayClusterSpec")
+		if clusterSpec != nil {
+			clusterSpecPath := specPath.Child("rayClusterSpec")
 
-		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
-		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) {
-			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
-		}
+			// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
+			if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) {
+				allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed job should not use autoscaling"))
+			}
 
-		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(clusterSpec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(clusterSpecPath.Child("workerGroupSpecs"), len(clusterSpec.WorkerGroupSpecs), 7))
-		}
+			// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
+			if len(clusterSpec.WorkerGroupSpecs) > 7 {
+				allErrors = append(allErrors, field.TooMany(clusterSpecPath.Child("workerGroupSpecs"), len(clusterSpec.WorkerGroupSpecs), 7))
+			}
 
-		// None of the workerGroups should be named "head"
-		for i := range clusterSpec.WorkerGroupSpecs {
-			if clusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
-				allErrors = append(allErrors, field.Forbidden(clusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+			// None of the workerGroups should be named "head"
+			for i := range clusterSpec.WorkerGroupSpecs {
+				if clusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
+					allErrors = append(allErrors, field.Forbidden(clusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+				}
 			}
 		}
 	}

@@ -168,15 +168,13 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
 			}.ToAggregate(),
 		},
-		"invalid managed - has cluster selector": {
+		"valid managed - has cluster selector (skipped by Kueue)": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ClusterSelector(map[string]string{
 					"k1": "v1",
 				}).
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "clusterSelector"), map[string]string{"k1": "v1"}, "a kueue managed job should not use an existing cluster"),
-			}.ToAggregate(),
+			wantErr: nil, // RayJobs with clusterSelector are skipped by Kueue, no validation error
 		},
 		"invalid managed - has auto scaler": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").

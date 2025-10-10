@@ -78,6 +78,7 @@ type RayJob rayv1.RayJob
 
 var _ jobframework.GenericJob = (*RayJob)(nil)
 var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
+var _ jobframework.JobWithSkip = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -98,6 +99,12 @@ func (j *RayJob) IsActive() bool {
 
 func (j *RayJob) Suspend() {
 	j.Spec.Suspend = true
+}
+
+func (j *RayJob) Skip(ctx context.Context) bool {
+	// Skip reconciliation for RayJobs that use clusterSelector to reference existing clusters.
+	// These jobs are not managed by Kueue.
+	return len(j.Spec.ClusterSelector) > 0
 }
 
 func (j *RayJob) GVK() schema.GroupVersionKind {
