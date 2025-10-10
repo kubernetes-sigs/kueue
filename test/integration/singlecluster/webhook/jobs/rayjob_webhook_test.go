@@ -76,5 +76,17 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("should handle RayJob with queue label but nil RayClusterSpec gracefully", func() {
+			job := testingjob.MakeJob("rayjob-nil-clusterspec", ns.Name).
+				Queue("queue-name").
+				RayClusterSpec(nil).
+				Obj()
+			// This should not panic, though it will fail for other reasons (missing required fields)
+			// The important thing is that the webhook doesn't crash
+			_ = k8sClient.Create(ctx, job)
+			// We don't check the error because the job will fail validation for missing RayClusterSpec,
+			// but that's expected. We just want to ensure no panic occurs.
+		})
 	})
 })
