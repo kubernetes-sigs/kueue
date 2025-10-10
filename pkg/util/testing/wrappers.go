@@ -23,10 +23,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -1815,4 +1817,162 @@ func (p *PodSetAssignmentWrapper) DelayedTopologyRequest(state kueue.DelayedTopo
 
 func (p *PodSetAssignmentWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *PodSetAssignmentWrapper {
 	return p.Flavor(r, f).ResourceUsage(r, value)
+}
+
+// ResourceClaimTemplateWrapper wraps a resourcev1.ResourceClaimTemplate
+type ResourceClaimTemplateWrapper struct {
+	resourcev1.ResourceClaimTemplate
+}
+
+// MakeResourceClaimTemplate creates a ResourceClaimTemplateWrapper with basic metadata
+func MakeResourceClaimTemplate(name, namespace string) *ResourceClaimTemplateWrapper {
+	return &ResourceClaimTemplateWrapper{
+		resourcev1.ResourceClaimTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: resourcev1.ResourceClaimTemplateSpec{
+				Spec: resourcev1.ResourceClaimSpec{
+					Devices: resourcev1.DeviceClaim{
+						Requests: []resourcev1.DeviceRequest{},
+					},
+				},
+			},
+		},
+	}
+}
+
+// DeviceRequest adds a basic device request with the specified name and device class
+func (r *ResourceClaimTemplateWrapper) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimTemplateWrapper {
+	req := resourcev1.DeviceRequest{
+		Name: requestName,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClassName,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
+		},
+	}
+	r.Spec.Spec.Devices.Requests = append(r.Spec.Spec.Devices.Requests, req)
+	return r
+}
+
+// AllocationModeAll sets the AllocationMode to All for the last device request
+func (r *ResourceClaimTemplateWrapper) AllocationModeAll() *ResourceClaimTemplateWrapper {
+	if len(r.Spec.Spec.Devices.Requests) > 0 {
+		lastIdx := len(r.Spec.Spec.Devices.Requests) - 1
+		if r.Spec.Spec.Devices.Requests[lastIdx].Exactly != nil {
+			r.Spec.Spec.Devices.Requests[lastIdx].Exactly.AllocationMode = resourcev1.DeviceAllocationModeAll
+			r.Spec.Spec.Devices.Requests[lastIdx].Exactly.Count = 0
+		}
+	}
+	return r
+}
+
+// WithCELSelectors adds CEL selectors to the last device request
+func (r *ResourceClaimTemplateWrapper) WithCELSelectors(expression string) *ResourceClaimTemplateWrapper {
+	if len(r.Spec.Spec.Devices.Requests) > 0 {
+		lastIdx := len(r.Spec.Spec.Devices.Requests) - 1
+		if r.Spec.Spec.Devices.Requests[lastIdx].Exactly != nil {
+			r.Spec.Spec.Devices.Requests[lastIdx].Exactly.Selectors = []resourcev1.DeviceSelector{{
+				CEL: &resourcev1.CELDeviceSelector{
+					Expression: expression,
+				},
+			}}
+		}
+	}
+	return r
+}
+
+// WithAdminAccess sets AdminAccess on the last device request
+func (r *ResourceClaimTemplateWrapper) WithAdminAccess(enabled bool) *ResourceClaimTemplateWrapper {
+	if len(r.Spec.Spec.Devices.Requests) > 0 {
+		lastIdx := len(r.Spec.Spec.Devices.Requests) - 1
+		if r.Spec.Spec.Devices.Requests[lastIdx].Exactly != nil {
+			r.Spec.Spec.Devices.Requests[lastIdx].Exactly.AdminAccess = ptr.To(enabled)
+		}
+	}
+	return r
+}
+
+// WithDeviceConstraints adds device constraints to the template
+func (r *ResourceClaimTemplateWrapper) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimTemplateWrapper {
+	constraint := resourcev1.DeviceConstraint{
+		Requests:       requestNames,
+		MatchAttribute: ptr.To(resourcev1.FullyQualifiedName(matchAttribute)),
+	}
+	r.Spec.Spec.Devices.Constraints = append(r.Spec.Spec.Devices.Constraints, constraint)
+	return r
+}
+
+// WithDeviceConfig adds device configuration to the template
+func (r *ResourceClaimTemplateWrapper) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimTemplateWrapper {
+	config := resourcev1.DeviceClaimConfiguration{
+		Requests: []string{requestName},
+		DeviceConfiguration: resourcev1.DeviceConfiguration{
+			Opaque: &resourcev1.OpaqueDeviceConfiguration{
+				Driver:     driver,
+				Parameters: runtime.RawExtension{Raw: parameters},
+			},
+		},
+	}
+	r.Spec.Spec.Devices.Config = append(r.Spec.Spec.Devices.Config, config)
+	return r
+}
+
+// FirstAvailableRequest adds a FirstAvailable device request
+func (r *ResourceClaimTemplateWrapper) FirstAvailableRequest(requestName, deviceClassName string) *ResourceClaimTemplateWrapper {
+	req := resourcev1.DeviceRequest{
+		Name: requestName,
+		FirstAvailable: []resourcev1.DeviceSubRequest{{
+			Name:            "sub1",
+			DeviceClassName: deviceClassName,
+		}},
+	}
+	r.Spec.Spec.Devices.Requests = append(r.Spec.Spec.Devices.Requests, req)
+	return r
+}
+
+// Obj returns the underlying ResourceClaimTemplate
+func (r *ResourceClaimTemplateWrapper) Obj() *resourcev1.ResourceClaimTemplate {
+	return &r.ResourceClaimTemplate
+}
+
+// ResourceClaimWrapper wraps a resourcev1.ResourceClaim
+type ResourceClaimWrapper struct{ resourcev1.ResourceClaim }
+
+// MakeResourceClaim creates a ResourceClaimWrapper with basic metadata
+func MakeResourceClaim(name, namespace string) *ResourceClaimWrapper {
+	return &ResourceClaimWrapper{
+		resourcev1.ResourceClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: resourcev1.ResourceClaimSpec{
+				Devices: resourcev1.DeviceClaim{
+					Requests: []resourcev1.DeviceRequest{},
+				},
+			},
+		},
+	}
+}
+
+// DeviceRequest adds a basic device request with the specified name and device class
+func (r *ResourceClaimWrapper) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimWrapper {
+	req := resourcev1.DeviceRequest{
+		Name: requestName,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClassName,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
+		},
+	}
+	r.Spec.Devices.Requests = append(r.Spec.Devices.Requests, req)
+	return r
+}
+
+// Obj returns the underlying ResourceClaim
+func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
+	return &r.ResourceClaim
 }

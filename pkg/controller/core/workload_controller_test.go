@@ -426,20 +426,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaim("gpu", "rc1").
 					Obj()).
 				Obj(),
-			resourceClaims: []*resourcev1.ResourceClaim{{
-				ObjectMeta: metav1.ObjectMeta{Name: "rc1", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimSpec{
-					Devices: resourcev1.DeviceClaim{
-						Requests: []resourcev1.DeviceRequest{{
-							Exactly: &resourcev1.ExactDeviceRequest{
-								DeviceClassName: "gpu.example.com",
-								AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-								Count:           1,
-							},
-						}},
-					},
-				},
-			}},
+			resourceClaims: []*resourcev1.ResourceClaim{
+				utiltesting.MakeResourceClaim("rc1", "ns").
+					DeviceRequest("device-request", "gpu.example.com", 1).
+					Obj(),
+			},
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
@@ -476,23 +467,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimTemplateSpec{
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{{
-								Name: "gpu-request",
-								Exactly: &resourcev1.ExactDeviceRequest{
-									DeviceClassName: "gpu.example.com",
-									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-									Count:           1,
-								},
-							}},
-						},
-					},
-				},
-			}},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj(),
+			},
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
@@ -523,23 +502,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimTemplateSpec{
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{{
-								Name: "gpu-request",
-								Exactly: &resourcev1.ExactDeviceRequest{
-									DeviceClassName: "gpu.example.com",
-									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-									Count:           2,
-								},
-							}},
-						},
-					},
-				},
-			}},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 2).
+					Obj(),
+			},
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
@@ -568,23 +535,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimTemplateSpec{
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{{
-								Name: "gpu-request",
-								Exactly: &resourcev1.ExactDeviceRequest{
-									DeviceClassName: "unmapped.example.com",
-									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-									Count:           1,
-								},
-							}},
-						},
-					},
-				},
-			}},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "unmapped.example.com", 1).
+					Obj(),
+			},
 			cq: utiltesting.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltesting.MakeFlavorQuotas("flavor1").
