@@ -133,7 +133,7 @@ update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
+generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
@@ -499,6 +499,10 @@ generate-kueuectl-docs: kueuectl-docs
 .PHONY: generate-helm-docs
 generate-helm-docs: helm-docs
 	$(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
+
+.PHONY: generate-metrics-tables
+generate-metrics-tables:
+	$(GO_CMD) run ./hack/metricsdoc --metrics-file=pkg/metrics/metrics.go --out=site/content/en/docs/reference/metrics.md
 
 # Build the ray-project-mini image
 .PHONY: ray-project-mini-image-build
