@@ -17,12 +17,50 @@ limitations under the License.
 package wait
 
 import (
+	"cmp"
 	"context"
+	"math"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/clock"
 )
+
+type Backoff struct {
+	// Min is the initial backoff duration.
+	Min time.Duration
+
+	// Factor is the multiplication factor for each iteration.
+	Factor float64
+
+	// Jitter is the jitter factor applied to each backoff duration.
+	Jitter float64
+
+	// Max is the maximum backoff duration. If no value is provided, it defaults
+	// to math.MaxInt64 / Factor.
+	Max time.Duration
+}
+
+// WaitTime returns the backoff duration for the given iteration.
+func (b Backoff) WaitTime(iteration int) time.Duration {
+	backoff := &wait.Backoff{
+		Duration: b.Min,
+		Factor:   b.Factor,
+		Jitter:   b.Jitter,
+		Steps:    iteration,
+		Cap:      cmp.Or(b.Max, time.Duration(math.MaxInt64/math.Ceil(b.Factor))),
+	}
+
+	var duration time.Duration
+	for range iteration {
+		duration = backoff.Step()
+		if duration == backoff.Cap { // wait.Backoff caps at limit, no need to continue iterating.
+			break
+		}
+	}
+
+	return duration
+}
 
 // UntilWithBackoff runs f in a loop until context indicates finished. It
 // applies backoff depending on the SpeedSignal f returns.  Backoff increases
@@ -36,7 +74,7 @@ func UntilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal) 
 
 func untilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal, timer clock.Timer) {
 	mgr := speedyBackoffManager{
-		backoff: noBackoff,
+		backoff: nil,
 		timer:   timer,
 	}
 	wait.BackoffUntil(func() {
@@ -54,34 +92,34 @@ const (
 	// SlowDown signals to backoff.
 	SlowDown SpeedSignal = false
 
-	noBackoff      = time.Millisecond * 0
-	initialBackoff = time.Millisecond * 1
+	initialBackoff = time.Millisecond
 	maxBackoff     = time.Millisecond * 100
 )
 
 func (s *speedyBackoffManager) toggleBackoff(speedSignal SpeedSignal) {
 	switch speedSignal {
 	case KeepGoing:
-		s.backoff = noBackoff
+		s.backoff = nil
 	case SlowDown:
-		if s.backoff == noBackoff {
-			s.backoff = initialBackoff
+		if s.backoff == nil {
+			s.backoff = &wait.Backoff{
+				Duration: initialBackoff,
+				Factor:   2,
+				Steps:    math.MaxInt,
+				Cap:      maxBackoff,
+			}
 		}
 	}
 }
 
 type speedyBackoffManager struct {
-	backoff time.Duration
+	backoff *wait.Backoff
 	timer   clock.Timer
 }
 
 var _ wait.BackoffManager = (*speedyBackoffManager)(nil)
 
 func (s *speedyBackoffManager) Backoff() clock.Timer {
-	s.timer.Reset(s.backoff)
-	s.backoff *= 2
-	if s.backoff > maxBackoff {
-		s.backoff = maxBackoff
-	}
+	s.timer.Reset(s.backoff.Step())
 	return s.timer
 }
