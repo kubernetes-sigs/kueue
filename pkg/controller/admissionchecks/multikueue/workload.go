@@ -547,11 +547,13 @@ func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.T
 
 func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	admissionChecks := &kueue.AdmissionCheckList{}
+	var errs []error
+
 	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
-		return err
+		errs = append(errs, err)
+		return errors.Join(errs...)
 	}
 
-	var errs []error
 	for _, admissionCheck := range admissionChecks.Items {
 		workloads := &kueue.WorkloadList{}
 		if err := c.client.List(ctx, workloads, client.MatchingFields{WorkloadsWithAdmissionCheckKey: admissionCheck.Name}); err != nil {
