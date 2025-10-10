@@ -359,6 +359,20 @@ The label 'reason' can have the following values:
 		}, []string{"preempting_cluster_queue", "reason"},
 	)
 
+	EvictionDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "eviction_duration_seconds",
+			Help: `The time between when a workload transitions from Evicted=True (while having PodsReady=True)
+until it reaches Evicted=True & (QuotaReserved=False || Finished || Deactivated).
+The label 'reason' can have the following values:
+- "QuotaReservedFalse" means the workload's quota reservation was cleared.
+- "Finished" means the workload finished execution.
+- "Deactivated" means the workload was deactivated (spec.active=false).`,
+			Buckets: generateExponentialBuckets(14),
+		}, []string{"cluster_queue", "reason"},
+	)
+
 	// Metrics tied to the cache.
 
 	ReservingActiveWorkloads = prometheus.NewGaugeVec(
@@ -584,6 +598,10 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 	PreemptedWorkloadsTotal.WithLabelValues(string(preemptingCqName), preemptingReason).Inc()
 }
 
+func ReportEvictionCompleted(lqName kueue.LocalQueueName, reason string, waitTime time.Duration) {
+	EvictionDuration.WithLabelValues(string(lqName), reason).Observe(waitTime.Seconds())
+}
+
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	return LocalQueueReference{
 		Name:      wl.Spec.QueueName,
@@ -606,6 +624,7 @@ func ClearClusterQueueMetrics(cqName string) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	EvictionDuration.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
@@ -774,6 +793,7 @@ func Register() {
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		EvictionDuration,
 		AdmissionWaitTime,
 		AdmissionChecksWaitTime,
 		QueuedUntilReadyWaitTime,

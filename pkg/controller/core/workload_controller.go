@@ -319,6 +319,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			if evicted {
 				if err := workload.Evict(ctx, r.client, r.recorder, wlOrig, reason, message, underlyingCause, r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+					// Report eviction duration for deactivated condition
+					workload.ReportEvictionCompleted(&wl, wl.Spec.QueueName, kueue.WorkloadDeactivated, message, r.clock.Now())
 					return &wl, nil
 				})); err != nil {
 					if !apierrors.IsNotFound(err) {
