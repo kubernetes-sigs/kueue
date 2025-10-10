@@ -1442,7 +1442,9 @@ func (m *mockQueue) Done(reconcile.Request)                    {}
 func (m *mockQueue) Forget(reconcile.Request)                  {}
 func (m *mockQueue) NumRequeues(reconcile.Request) int         { return 0 }
 func (m *mockQueue) AddRateLimited(reconcile.Request)          {}
-func (m *mockQueue) AddAfter(reconcile.Request, time.Duration) {}
+func (m *mockQueue) AddAfter(item reconcile.Request, duration time.Duration) {
+	m.addedItems = append(m.addedItems, item)
+}
 func (m *mockQueue) ShutDown()                                 {}
 func (m *mockQueue) ShutDownWithDrain()                        {}
 func (m *mockQueue) ShuttingDown() bool                        { return false }
@@ -1528,7 +1530,7 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			}
 
 			fakeClient := clientBuilder.Build()
-			handler := &configHandler{client: fakeClient}
+			handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
 			mockQ := &mockQueue{}
 
 			updateEvent := event.UpdateEvent{
@@ -1568,7 +1570,7 @@ func TestConfigHandlerDelete(t *testing.T) {
 	clientBuilder = clientBuilder.WithObjects(admissionCheck, workload)
 	fakeClient := clientBuilder.Build()
 
-	handler := &configHandler{client: fakeClient}
+	handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
 	mockQ := &mockQueue{}
 
 	config := utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()

@@ -512,7 +512,8 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 }
 
 type configHandler struct {
-	client client.Client
+	client            client.Client
+	eventsBatchPeriod time.Duration
 }
 
 func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -563,7 +564,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 			continue
 		}
 		for _, workload := range workloads.Items {
-			q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)})
+			q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)}, c.eventsBatchPeriod)
 		}
 	}
 	return errors.Join(errs...)
@@ -583,7 +584,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
-		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client}).
+		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
 		Complete(w)
 }
