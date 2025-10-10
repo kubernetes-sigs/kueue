@@ -377,6 +377,7 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 			metrics.ReportClusterQueueResourceUsage(cq.Spec.Cohort, cq.Name, string(fu.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
 		}
 	}
+
 }
 
 func updateResourceMetrics(oldCq, newCq *kueue.ClusterQueue) {
@@ -553,6 +554,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.FlavorsUsage = stats.AdmittedResources
 	cq.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
 	cq.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
+	cq.Status.WallTimeFlavorUsage = stats.WallTimeFlavorUsage
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
 		Type:               kueue.ClusterQueueActive,
