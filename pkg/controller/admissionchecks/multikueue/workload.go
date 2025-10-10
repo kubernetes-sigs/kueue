@@ -585,7 +585,8 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 }
 
 type configHandler struct {
-	client client.Client
+	client            client.Client
+	eventsBatchPeriod time.Duration
 }
 
 func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -622,11 +623,13 @@ func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.T
 
 func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	admissionChecks := &kueue.AdmissionCheckList{}
+	var errs []error
+
 	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
-		return err
+		errs = append(errs, err)
+		return errors.Join(errs...)
 	}
 
-	var errs []error
 	for _, admissionCheck := range admissionChecks.Items {
 		workloads := &kueue.WorkloadList{}
 		if err := c.client.List(ctx, workloads, client.MatchingFields{WorkloadsWithAdmissionCheckKey: admissionCheck.Name}); err != nil {
@@ -634,7 +637,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 			continue
 		}
 		for _, workload := range workloads.Items {
-			q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)})
+			q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workload)}, c.eventsBatchPeriod)
 		}
 	}
 	return errors.Join(errs...)
@@ -654,7 +657,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
-		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client}).
+		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
 		Complete(w)
 }
