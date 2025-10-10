@@ -53,7 +53,9 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
-var errFake = errors.New("fake error")
+var (
+	errFake = errors.New("fake error")
+)
 
 func TestWlReconcile(t *testing.T) {
 	now := time.Now()

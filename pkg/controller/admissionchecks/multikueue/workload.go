@@ -51,7 +51,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var realClock = clock.RealClock{}
+var (
+	realClock = clock.RealClock{}
+)
 
 type wlReconciler struct {
 	client            client.Client

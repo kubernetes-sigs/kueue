@@ -855,7 +855,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func()
 		// Set quota reservation to trigger MultiKueue processing
 		createdWorkload := &kueue.Workload{}
 		admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
-		gomega.Eventually(func() error {
+		gomega.Eventually(func(g gomega.Gomega) error {
 			if err := managerTestCluster.client.Get(managerTestCluster.ctx, workloadLookupKey, createdWorkload); err != nil {
 				return err
 			}
@@ -905,7 +905,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func()
 			// Set quota reservation to trigger MultiKueue processing
 			createdWorkload = &kueue.Workload{}
 			admission = utiltesting.MakeAdmission(managerCq.Name).Obj()
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) error {
 				if err := managerTestCluster.client.Get(managerTestCluster.ctx, workloadLookupKey, createdWorkload); err != nil {
 					return err
 				}
@@ -978,7 +978,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func()
 			// Configure worker1 with 50m CPU (insufficient)
 			worker1ResourceFlavor := utiltesting.MakeResourceFlavor("w1-re-eval-flavor").Obj()
 			gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, worker1ResourceFlavor)).To(gomega.Succeed())
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) error {
 				if err := worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(worker1Cq), worker1Cq); err != nil {
 					return err
 				}
@@ -996,7 +996,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func()
 			// Configure worker2 with 200m CPU (sufficient)
 			worker2ResourceFlavor := utiltesting.MakeResourceFlavor("w2-re-eval-flavor").Obj()
 			gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2ResourceFlavor)).To(gomega.Succeed())
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) error {
 				if err := worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(worker2Cq), worker2Cq); err != nil {
 					return err
 				}
@@ -1015,7 +1015,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func()
 			util.ExpectClusterQueuesToBeActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 
 			// Update the config to include both clusters
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) error {
 				if err := managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), managerMultiKueueConfig); err != nil {
 					return err
 				}
@@ -1035,7 +1035,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Ordered, func()
 
 			// First, wait for workload to be created on manager cluster and set reservation
 			createdWorkload := &kueue.Workload{}
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) error {
 				if err := managerTestCluster.client.Get(managerTestCluster.ctx, workloadLookupKey, createdWorkload); err != nil {
 					return err
 				}

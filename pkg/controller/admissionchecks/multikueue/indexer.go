@@ -35,7 +35,9 @@ const (
 	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
 )
 
-var configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
+var (
+	configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
+)
 
 func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []string {
 	return func(obj client.Object) []string {

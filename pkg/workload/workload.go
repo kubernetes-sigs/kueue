@@ -60,16 +60,14 @@ const (
 	StatusFinished      = "finished"
 )
 
-var (
-	admissionManagedConditions = []string{
-		kueue.WorkloadQuotaReserved,
-		kueue.WorkloadEvicted,
-		kueue.WorkloadAdmitted,
-		kueue.WorkloadPreempted,
-		kueue.WorkloadRequeued,
-		kueue.WorkloadDeactivationTarget,
-	}
-)
+var admissionManagedConditions = []string{
+	kueue.WorkloadQuotaReserved,
+	kueue.WorkloadEvicted,
+	kueue.WorkloadAdmitted,
+	kueue.WorkloadPreempted,
+	kueue.WorkloadRequeued,
+	kueue.WorkloadDeactivationTarget,
+}
 
 // Reference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
 type Reference string
@@ -534,7 +532,8 @@ func UpdateStatus(ctx context.Context,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
 	managerPrefix string,
-	clock clock.Clock) error {
+	clock clock.Clock,
+) error {
 	now := metav1.NewTime(clock.Now())
 	condition := metav1.Condition{
 		Type:               conditionType,
