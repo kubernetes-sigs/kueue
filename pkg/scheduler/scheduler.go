@@ -644,7 +644,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	s.admissionRoutineWrapper.Run(func() {
 		err := workload.PatchAdmissionStatus(ctx, s.client, origWorkload, s.clock, func() (*kueue.Workload, bool, error) {
 			return newWorkload, true, nil
-		}, workload.WithLoose())
+		})
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
