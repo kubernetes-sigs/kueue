@@ -1084,7 +1084,7 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domain *domain, remainingD
 	if *withLeader >= *remainingPrimary && domain.leaderState >= *remainingLeaderCount {
 		*primary = *remainingPrimary
 		domain.leaderState = *remainingLeaderCount
-		domain.state = (*remainingPrimary) * sliceSize
+		domain.state = *remainingPrimary * sliceSize
 		return domain, true
 	}
 
@@ -1096,7 +1096,7 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(domain *domain, remainingD
 		if domain.leaderState > *remainingLeaderCount {
 			domain.leaderState = *remainingLeaderCount
 		}
-		domain.state = (*withLeader) * sliceSize
+		domain.state = *withLeader * sliceSize
 		*remainingLeaderCount -= domain.leaderState
 		*remainingPrimary -= *withLeader
 		return domain, false
