@@ -34,6 +34,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/dra"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func Test_GetResourceRequests(t *testing.T) {
@@ -42,37 +43,13 @@ func Test_GetResourceRequests(t *testing.T) {
 	_ = kueuev1beta1.AddToScheme(scheme)
 	_ = resourcev1.AddToScheme(scheme)
 
-	tmpl := &resourcev1.ResourceClaimTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-1", Namespace: "ns1"},
-		Spec: resourcev1.ResourceClaimTemplateSpec{
-			Spec: resourcev1.ResourceClaimSpec{
-				Devices: resourcev1.DeviceClaim{
-					Requests: []resourcev1.DeviceRequest{{
-						Exactly: &resourcev1.ExactDeviceRequest{
-							AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-							Count:           2,
-							DeviceClassName: "test-deviceclass-1",
-						},
-					}},
-				},
-			},
-		},
-	}
+	tmpl := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-1", 2).
+		Obj()
 
-	claim := &resourcev1.ResourceClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "claim-2", Namespace: "ns1"},
-		Spec: resourcev1.ResourceClaimSpec{
-			Devices: resourcev1.DeviceClaim{
-				Requests: []resourcev1.DeviceRequest{{
-					Exactly: &resourcev1.ExactDeviceRequest{
-						AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-						Count:           1,
-						DeviceClassName: "test-deviceclass-2",
-					},
-				}},
-			},
-		},
-	}
+	claim := utiltesting.MakeResourceClaim("claim-2", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-2", 1).
+		Obj()
 
 	wl := &kueuev1beta1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
@@ -147,10 +124,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			extraObjects: []runtime.Object{
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-2", Namespace: "ns1"},
-					Spec:       resourcev1.ResourceClaimTemplateSpec{Spec: resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{Exactly: &resourcev1.ExactDeviceRequest{AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 1, DeviceClassName: "test-deviceclass-2"}}}}}},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-2", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-2", 1).
+					Obj(),
 			},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				m := map[corev1.ResourceName]corev1.ResourceName{"test-deviceclass-1": "res-1", "test-deviceclass-2": "res-2"}
@@ -193,10 +169,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Single template requesting two devices",
 			extraObjects: []runtime.Object{
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-3", Namespace: "ns1"},
-					Spec:       resourcev1.ResourceClaimTemplateSpec{Spec: resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{Exactly: &resourcev1.ExactDeviceRequest{AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 2, DeviceClassName: "test-deviceclass-1"}}}}}},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-3", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					Obj(),
 			},
 			modifyWL: func(w *kueuev1beta1.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
@@ -252,6 +227,132 @@ func Test_GetResourceRequests(t *testing.T) {
 				return "", false
 			},
 			want: map[kueuev1beta1.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+		},
+		{
+			name: "AllocationMode All returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-all", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 0).
+					AllocationModeAll().
+					Obj(),
+			},
+			modifyWL: func(w *kueuev1beta1.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-all", ResourceClaimTemplateName: ptr.To("claim-tmpl-all")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "test-deviceclass-1" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: true,
+		},
+		{
+			name: "CEL selectors returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			modifyWL: func(w *kueuev1beta1.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel", ResourceClaimTemplateName: ptr.To("claim-tmpl-cel")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "test-deviceclass-1" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: true,
+		},
+		{
+			name: "Device constraints returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
+					DeviceRequest("gpu-1", "test-deviceclass-1", 1).
+					DeviceRequest("gpu-2", "test-deviceclass-1", 1).
+					WithDeviceConstraints([]string{"gpu-1", "gpu-2"}, "numa-node").
+					Obj(),
+			},
+			modifyWL: func(w *kueuev1beta1.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-constraints", ResourceClaimTemplateName: ptr.To("claim-tmpl-constraints")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "test-deviceclass-1" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: true,
+		},
+		{
+			name: "FirstAvailable returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-first", "ns1").
+					FirstAvailableRequest("req", "test-deviceclass-1").
+					Obj(),
+			},
+			modifyWL: func(w *kueuev1beta1.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-first", ResourceClaimTemplateName: ptr.To("claim-tmpl-first")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "test-deviceclass-1" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: true,
+		},
+		{
+			name: "AdminAccess returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithAdminAccess(true).
+					Obj(),
+			},
+			modifyWL: func(w *kueuev1beta1.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-admin", ResourceClaimTemplateName: ptr.To("claim-tmpl-admin")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "test-deviceclass-1" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: true,
+		},
+		{
+			name: "Device config returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-config", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithDeviceConfig("req", "", nil).
+					Obj(),
+			},
+			modifyWL: func(w *kueuev1beta1.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-config", ResourceClaimTemplateName: ptr.To("claim-tmpl-config")},
+				}
+			},
+			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
+				if dc == "test-deviceclass-1" {
+					return "res-1", true
+				}
+				return "", false
+			},
+			wantErr: true,
 		},
 	}
 
