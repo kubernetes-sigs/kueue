@@ -144,6 +144,10 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 
 	podSets, podSetsErr := jobSet.PodSets(ctx)
 
+	if podSetsErr == nil {
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
+	}
+
 	for i, rj := range jobSet.Spec.ReplicatedJobs {
 		replicaJobTemplateMetaPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)...)
@@ -156,21 +160,19 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaJobTemplateMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta, podSet)...)
 	}
 
-	jobsMetadata := make([]jobframework.PodSetMetadata, len(jobSet.Spec.ReplicatedJobs))
-	for i, job := range jobSet.Spec.ReplicatedJobs {
-		jobsMetadata[i] = jobframework.PodSetMetadata{
-			AnnotationsPath: replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations"),
-			Meta:            &job.Template.Spec.Template.ObjectMeta,
-			Size:            podsCount(&job),
-		}
-	}
-	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(jobsMetadata)...)
-
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
 
 	return nil, podSetsErr
+}
+
+func buildPodSetAnnotationsPathByNameMap(jobSet *JobSet) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	for i, job := range jobSet.Spec.ReplicatedJobs {
+		podSetAnnotationsPathByName[kueue.PodSetReference(job.Name)] = replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

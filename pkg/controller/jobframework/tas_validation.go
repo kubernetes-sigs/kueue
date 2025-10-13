@@ -100,89 +100,6 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	return allErrs
 }
 
-type PodSetMetadata struct {
-	AnnotationsPath *field.Path
-	Meta            *metav1.ObjectMeta
-	Size            int32
-}
-
-var topologyFields = [...]string{kueuebeta.PodSetRequiredTopologyAnnotation, kueuebeta.PodSetPreferredTopologyAnnotation}
-
-func ValidatePodSetGroupingTopology(podSetTopologyConfigurations []PodSetMetadata) field.ErrorList {
-	configurationsByGroupName := make(map[string][]PodSetMetadata)
-	for _, config := range podSetTopologyConfigurations {
-		if config.Meta == nil {
-			continue
-		}
-		podSetGroupName, hasPodSetGroupName := config.Meta.Annotations[kueuebeta.PodSetGroupName]
-		if hasPodSetGroupName {
-			configurationsByGroupName[podSetGroupName] = append(configurationsByGroupName[podSetGroupName], config)
-		}
-	}
-
-	var allErrs field.ErrorList
-
-	// Sort group names to iterate over the groups in a deterministic fashion.
-	groupNames := make([]string, 0, len(configurationsByGroupName))
-	for groupName := range configurationsByGroupName {
-		groupNames = append(groupNames, groupName)
-	}
-	sort.Strings(groupNames)
-
-	for _, groupName := range groupNames {
-		configs := configurationsByGroupName[groupName]
-		if groupSize := len(configs); groupSize != 2 {
-			for _, config := range configs {
-				allErrs = append(
-					allErrs,
-					field.Invalid(
-						config.AnnotationsPath.Key(kueuebeta.PodSetGroupName),
-						groupName,
-						fmt.Sprintf("can only define groups of exactly 2 pod sets, got: %d pod set(s)", groupSize),
-					),
-				)
-			}
-			continue
-		}
-
-		config1, config2 := configs[0], configs[1]
-		if config1.Size != 1 && config2.Size != 1 {
-			sizeErrorMessage := fmt.Sprintf("can only define groups where at least one pod set has only 1 replica, got: %d replica(s) and %d replica(s) in the group", config1.Size, config2.Size)
-			allErrs = append(allErrs,
-				field.Invalid(
-					config1.AnnotationsPath.Key(kueuebeta.PodSetGroupName),
-					groupName,
-					sizeErrorMessage,
-				),
-				field.Invalid(
-					config2.AnnotationsPath.Key(kueuebeta.PodSetGroupName),
-					groupName,
-					sizeErrorMessage,
-				),
-			)
-		}
-		for _, fieldName := range topologyFields {
-			fieldValue1, fieldFound1 := config1.Meta.Annotations[fieldName]
-			fieldValue2, fieldFound2 := config2.Meta.Annotations[fieldName]
-			fieldPath1 := config1.AnnotationsPath.Key(fieldName)
-			fieldPath2 := config2.AnnotationsPath.Key(fieldName)
-
-			switch {
-			case fieldFound1 && !fieldFound2:
-				allErrs = append(allErrs, field.Required(fieldPath2, fmt.Sprintf("must be set if '%s' is specified", fieldPath1)))
-			case !fieldFound1 && fieldFound2:
-				allErrs = append(allErrs, field.Required(fieldPath1, fmt.Sprintf("must be set if '%s' is specified", fieldPath2)))
-			case fieldValue1 != fieldValue2:
-				allErrs = append(allErrs,
-					field.Invalid(fieldPath1, fieldValue1, fmt.Sprintf("must match '%s'", fieldPath2)),
-					field.Invalid(fieldPath2, fieldValue2, fmt.Sprintf("must match '%s'", fieldPath1)))
-			}
-		}
-	}
-
-	return allErrs
-}
-
 func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	if val, ok := replicaMetadata.Annotations[kueuebeta.PodSetUnconstrainedTopologyAnnotation]; ok {
 		if _, err := strconv.ParseBool(val); err != nil {
@@ -262,4 +179,99 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 	}
 
 	return nil
+}
+
+func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotationsByName map[kueuebeta.PodSetReference]*field.Path) field.ErrorList {
+	podSetsByGroupName := make(map[string][]kueuebeta.PodSet)
+	for _, podSet := range podSets {
+		if podSet.TopologyRequest == nil || podSet.TopologyRequest.PodSetGroupName == nil {
+			continue
+		}
+		groupName := *podSet.TopologyRequest.PodSetGroupName
+		podSetsByGroupName[groupName] = append(podSetsByGroupName[groupName], podSet)
+	}
+
+	var allErrs field.ErrorList
+
+	// Sort group names to iterate over the groups in a deterministic fashion.
+	groupNames := make([]string, 0, len(podSetsByGroupName))
+	for groupName := range podSetsByGroupName {
+		groupNames = append(groupNames, groupName)
+	}
+	sort.Strings(groupNames)
+
+	for _, groupName := range groupNames {
+		podSets := podSetsByGroupName[groupName]
+		if groupSize := len(podSets); groupSize != 2 {
+			for _, podSet := range podSets {
+				allErrs = append(
+					allErrs,
+					field.Invalid(
+						podSetAnnotationsByName[podSet.Name].Key(kueuebeta.PodSetGroupName),
+						groupName,
+						fmt.Sprintf("can only define groups of exactly 2 pod sets, got: %d pod set(s)", groupSize),
+					),
+				)
+			}
+			continue
+		}
+
+		podSet1, podSet2 := podSets[0], podSets[1]
+		podSetMetadataPath1 := podSetAnnotationsByName[podSet1.Name]
+		podSetMetadataPath2 := podSetAnnotationsByName[podSet2.Name]
+
+		// Validate group size
+		if podSet1.Count != 1 && podSet2.Count != 1 {
+			sizeErrorMessage := fmt.Sprintf("can only define groups where at least one pod set has only 1 replica, got: %d replica(s) and %d replica(s) in the group", podSet1.Count, podSet2.Count)
+			allErrs = append(allErrs,
+				field.Invalid(
+					podSetMetadataPath1.Key(kueuebeta.PodSetGroupName),
+					groupName,
+					sizeErrorMessage,
+				),
+				field.Invalid(
+					podSetMetadataPath2.Key(kueuebeta.PodSetGroupName),
+					groupName,
+					sizeErrorMessage,
+				),
+			)
+		}
+
+		// Validate required topology
+		requiredValue1 := podSet1.TopologyRequest.Required
+		requiredValue2 := podSet2.TopologyRequest.Required
+		requiredPath1 := podSetMetadataPath1.Key(kueuebeta.PodSetRequiredTopologyAnnotation)
+		requiredPath2 := podSetMetadataPath2.Key(kueuebeta.PodSetRequiredTopologyAnnotation)
+		allErrs = append(allErrs, validatePodSetTopologyRequestField(requiredPath1, requiredPath2, requiredValue1, requiredValue2)...)
+
+		// Validate preferred topology
+		preferredValue1 := podSet1.TopologyRequest.Preferred
+		preferredValue2 := podSet2.TopologyRequest.Preferred
+		preferredPath1 := podSetMetadataPath1.Key(kueuebeta.PodSetPreferredTopologyAnnotation)
+		preferredPath2 := podSetMetadataPath2.Key(kueuebeta.PodSetPreferredTopologyAnnotation)
+		allErrs = append(allErrs, validatePodSetTopologyRequestField(preferredPath1, preferredPath2, preferredValue1, preferredValue2)...)
+	}
+
+	return allErrs
+}
+
+func validatePodSetTopologyRequestField(fieldPath1, fieldPath2 *field.Path, fieldValue1, fieldValue2 *string) field.ErrorList {
+	var allErrs field.ErrorList
+
+	switch {
+	case fieldValue1 != nil && fieldValue2 != nil:
+		if *fieldValue1 != *fieldValue2 {
+			allErrs = append(allErrs,
+				field.Invalid(fieldPath1, *fieldValue1, fmt.Sprintf("must match '%s'", fieldPath2)),
+				field.Invalid(fieldPath2, *fieldValue2, fmt.Sprintf("must match '%s'", fieldPath1)))
+		}
+	case fieldValue1 != nil:
+		// fieldValue2 == nil
+		allErrs = append(allErrs, field.Required(fieldPath2, fmt.Sprintf("must be set if '%s' is specified", fieldPath1)))
+	case fieldValue2 != nil:
+		// fieldValue1 == nil
+		allErrs = append(allErrs, field.Required(fieldPath1, fmt.Sprintf("must be set if '%s' is specified", fieldPath2)))
+	}
+
+	return allErrs
 }

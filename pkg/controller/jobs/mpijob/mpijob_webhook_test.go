@@ -163,7 +163,9 @@ func TestValidateCreate(t *testing.T) {
 					},
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname2").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
@@ -188,7 +190,9 @@ func TestValidateCreate(t *testing.T) {
 					},
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname1").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
@@ -226,54 +230,6 @@ func TestValidateCreate(t *testing.T) {
 			topologyAwareScheduling: true,
 		},
 		{
-			name: "invalid PodSet grouping request - required topology only set in launcher",
-			job: testingutil.MakeMPIJob("job", "default").
-				Queue("queue-name").
-				MPIJobReplicaSpecs(
-					testingutil.MPIJobReplicaSpecRequirement{
-						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
-						ReplicaCount: 1,
-					},
-					testingutil.MPIJobReplicaSpecRequirement{
-						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
-						ReplicaCount: 3,
-					},
-				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname1").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
-		{
-			name: "invalid PodSet grouping request - required topology only set in worker",
-			job: testingutil.MakeMPIJob("job", "default").
-				Queue("queue-name").
-				MPIJobReplicaSpecs(
-					testingutil.MPIJobReplicaSpecRequirement{
-						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
-						ReplicaCount: 1,
-					},
-					testingutil.MPIJobReplicaSpecRequirement{
-						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
-						ReplicaCount: 3,
-					},
-				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname1").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/rack").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
-		{
 			name: "invalid PodSet grouping request - preferred topology does not match",
 			job: testingutil.MakeMPIJob("job", "default").
 				Queue("queue-name").
@@ -301,7 +257,7 @@ func TestValidateCreate(t *testing.T) {
 			topologyAwareScheduling: true,
 		},
 		{
-			name: "invalid PodSet grouping request - preferred topology only set in launcher",
+			name: "invalid PodSet grouping request - different topology annotations within group",
 			job: testingutil.MakeMPIJob("job", "default").
 				Queue("queue-name").
 				MPIJobReplicaSpecs(
@@ -315,36 +271,15 @@ func TestValidateCreate(t *testing.T) {
 					},
 				).
 				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname1").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-preferred-topology"), "must be set if 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
-		{
-			name: "invalid PodSet grouping request - preferred topology only set in worker",
-			job: testingutil.MakeMPIJob("job", "default").
-				Queue("queue-name").
-				MPIJobReplicaSpecs(
-					testingutil.MPIJobReplicaSpecRequirement{
-						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
-						ReplicaCount: 1,
-					},
-					testingutil.MPIJobReplicaSpecRequirement{
-						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
-						ReplicaCount: 3,
-					},
-				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname1").
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Required(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-preferred-topology"), "must be set if 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
+				field.Required(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},

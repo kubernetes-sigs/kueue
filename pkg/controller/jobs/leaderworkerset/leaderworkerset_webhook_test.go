@@ -407,7 +407,8 @@ func TestValidateCreate(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
+							kueuealpha.PodSetGroupName:                  "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
@@ -425,7 +426,8 @@ func TestValidateCreate(t *testing.T) {
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
+							kueuealpha.PodSetGroupName:                  "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
@@ -441,14 +443,16 @@ func TestValidateCreate(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname1",
+							kueuealpha.PodSetGroupName:                  "groupname1",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname2",
+							kueuealpha.PodSetGroupName:                  "groupname2",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
@@ -480,56 +484,8 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "cloud.com/rack", "must match 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "cloud.com/block", "must match 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
-		"invalid PodSet grouping request - required topology only set in leader": {
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName:                  "groupname",
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
-						},
-					},
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "must be set if 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
-		"invalid PodSet grouping request - required topology only set in worker": {
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
-						},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName:                  "groupname",
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
-					},
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "must be set if 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "cloud.com/rack", "must match 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -554,42 +510,19 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "cloud.com/rack", "must match 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
 				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "cloud.com/block", "must match 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "cloud.com/rack", "must match 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
-		"invalid PodSet grouping request - preferred topology only set in leader": {
+		"invalid PodSet grouping request - different topology annotations within group": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName:                   "groupname",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-						},
-					},
-				}).
-				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
-						},
-					},
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "must be set if 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
-		"invalid PodSet grouping request - preferred topology only set in worker": {
-			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
-				Queue("test-queue").
-				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
+							kueuealpha.PodSetGroupName:                  "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
@@ -603,11 +536,12 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "must be set if 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
 				field.Required(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "must be set if 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
-		"invalid PodSet group name request - neither preferred nor required topology is requested": {
+		"invalid PodSet grouping request - neither preferred nor required topology is requested": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -630,6 +564,23 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when neither 'kueue.x-k8s.io/podset-preferred-topology' nor 'kueue.x-k8s.io/podset-required-topology' is specified"),
 				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when neither 'kueue.x-k8s.io/podset-preferred-topology' nor 'kueue.x-k8s.io/podset-required-topology' is specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet grouping request - grouping requested without leader template": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName:                   "groupname",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-group-name]"), "groupname", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
