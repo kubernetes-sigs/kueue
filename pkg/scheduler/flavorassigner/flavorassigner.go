@@ -761,10 +761,14 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				}
 			}
 
+			resourceLimit := podSets[0].Template.Spec.Containers[0].Resources.Limits[rName]
+			podSetQuota := resourceLimit.Value()
+
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
-			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, val+assignmentUsage[fr], resQuota)
+
+			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, podSetQuota, val+assignmentUsage[fr], resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
@@ -890,31 +894,31 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota schdcache.ResourceQuota) (preemptionMode, int, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, currentPodsetQuota int64, totalRequestQuota int64, rQuota schdcache.ResourceQuota) (preemptionMode, int, *Status) {
 	var status Status
 
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
 
 	// No Fit
-	if val > maxCapacity {
-		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
-			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
+	if totalRequestQuota > maxCapacity {
+		status.appendf("insufficient quota for %s in flavor %s, remaining podset requests (%s) + current podset request (%s) > maximum capacity (%s)",
+			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, totalRequestQuota-currentPodsetQuota), resources.ResourceQuantityString(fr.Resource, currentPodsetQuota), resources.ResourceQuantityString(fr.Resource, maxCapacity))
 		return noFit, 0, &status
 	}
 
-	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
+	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, totalRequestQuota)
 	// Fit
-	if val <= available {
+	if totalRequestQuota <= available {
 		return fit, borrow, nil
 	}
 
 	// Preempt
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
-		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val-available))
+		fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, totalRequestQuota-available))
 
-	if val <= rQuota.Nominal || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
-		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
+	if totalRequestQuota <= rQuota.Nominal || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
+		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, totalRequestQuota)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
 		return mode, borrowAfterPreemptions, &status
 	}
