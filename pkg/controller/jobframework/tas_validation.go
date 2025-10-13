@@ -217,61 +217,77 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 		}
 
 		podSet1, podSet2 := podSets[0], podSets[1]
-		podSetMetadataPath1 := podSetAnnotationsByName[podSet1.Name]
-		podSetMetadataPath2 := podSetAnnotationsByName[podSet2.Name]
+		annotationsPath1 := podSetAnnotationsByName[podSet1.Name]
+		annotationsPath2 := podSetAnnotationsByName[podSet2.Name]
 
 		// Validate group size
 		if podSet1.Count != 1 && podSet2.Count != 1 {
-			sizeErrorMessage := fmt.Sprintf("can only define groups where at least one pod set has only 1 replica, got: %d replica(s) and %d replica(s) in the group", podSet1.Count, podSet2.Count)
+			sizeErrorMessage := fmt.Sprintf(
+				"can only define groups where at least one pod set has only 1 replica, got: %d replica(s) and %d replica(s) in the group",
+				podSet1.Count,
+				podSet2.Count,
+			)
 			allErrs = append(allErrs,
 				field.Invalid(
-					podSetMetadataPath1.Key(kueuebeta.PodSetGroupName),
+					annotationsPath1.Key(kueuebeta.PodSetGroupName),
 					groupName,
 					sizeErrorMessage,
 				),
 				field.Invalid(
-					podSetMetadataPath2.Key(kueuebeta.PodSetGroupName),
+					annotationsPath2.Key(kueuebeta.PodSetGroupName),
 					groupName,
 					sizeErrorMessage,
 				),
 			)
 		}
 
-		// Validate required topology
-		requiredValue1 := podSet1.TopologyRequest.Required
-		requiredValue2 := podSet2.TopologyRequest.Required
-		requiredPath1 := podSetMetadataPath1.Key(kueuebeta.PodSetRequiredTopologyAnnotation)
-		requiredPath2 := podSetMetadataPath2.Key(kueuebeta.PodSetRequiredTopologyAnnotation)
-		allErrs = append(allErrs, validatePodSetTopologyRequestField(requiredPath1, requiredPath2, requiredValue1, requiredValue2)...)
-
-		// Validate preferred topology
-		preferredValue1 := podSet1.TopologyRequest.Preferred
-		preferredValue2 := podSet2.TopologyRequest.Preferred
-		preferredPath1 := podSetMetadataPath1.Key(kueuebeta.PodSetPreferredTopologyAnnotation)
-		preferredPath2 := podSetMetadataPath2.Key(kueuebeta.PodSetPreferredTopologyAnnotation)
-		allErrs = append(allErrs, validatePodSetTopologyRequestField(preferredPath1, preferredPath2, preferredValue1, preferredValue2)...)
+		if !topologyRequestsValid(podSet1.TopologyRequest, podSet2.TopologyRequest) {
+			errorMessageTemplate := fmt.Sprintf(
+				"must specify consistent '%s' or '%s' topology with '%%s' in group '%s'",
+				kueuebeta.PodSetRequiredTopologyAnnotation,
+				kueuebeta.PodSetPreferredTopologyAnnotation,
+				groupName,
+			)
+			allErrs = append(
+				allErrs,
+				field.Invalid(
+					annotationsPath1,
+					field.OmitValueType{},
+					fmt.Sprintf(errorMessageTemplate, annotationsPath2),
+				),
+				field.Invalid(
+					annotationsPath2,
+					field.OmitValueType{},
+					fmt.Sprintf(errorMessageTemplate, annotationsPath1),
+				),
+			)
+		}
 	}
 
 	return allErrs
 }
 
-func validatePodSetTopologyRequestField(fieldPath1, fieldPath2 *field.Path, fieldValue1, fieldValue2 *string) field.ErrorList {
-	var allErrs field.ErrorList
-
-	switch {
-	case fieldValue1 != nil && fieldValue2 != nil:
-		if *fieldValue1 != *fieldValue2 {
-			allErrs = append(allErrs,
-				field.Invalid(fieldPath1, *fieldValue1, fmt.Sprintf("must match '%s'", fieldPath2)),
-				field.Invalid(fieldPath2, *fieldValue2, fmt.Sprintf("must match '%s'", fieldPath1)))
-		}
-	case fieldValue1 != nil:
-		// fieldValue2 == nil
-		allErrs = append(allErrs, field.Required(fieldPath2, fmt.Sprintf("must be set if '%s' is specified", fieldPath1)))
-	case fieldValue2 != nil:
-		// fieldValue1 == nil
-		allErrs = append(allErrs, field.Required(fieldPath1, fmt.Sprintf("must be set if '%s' is specified", fieldPath2)))
+func topologyRequestsValid(r1, r2 *kueuebeta.PodSetTopologyRequest) bool {
+	// Check that the requests have exactly one of `Required` and `Preferred`.
+	r1HasRequired := r1.Required != nil
+	r1HasPreferred := r1.Preferred != nil
+	if r1HasRequired == r1HasPreferred {
+		return false
+	}
+	r2HasRequired := r2.Required != nil
+	r2HasPreferred := r2.Preferred != nil
+	if r2HasRequired == r2HasPreferred {
+		return false
 	}
 
-	return allErrs
+	// Check that the request values are the same.
+	if r1HasRequired && r2HasRequired {
+		return *r1.Required == *r2.Required
+	}
+	if r1HasPreferred && r2HasPreferred {
+		return *r1.Preferred == *r2.Preferred
+	}
+
+	// One requested `Required`, other `Preferred` - invalid.
+	return false
 }

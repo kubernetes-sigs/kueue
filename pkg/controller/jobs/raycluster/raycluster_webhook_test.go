@@ -426,10 +426,8 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-required-topology"), "cloud.com/block", "must match 'spec.workerGroupSpecs[0].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
-				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-required-topology"), "cloud.com/rack", "must match 'spec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
+				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -461,10 +459,8 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-preferred-topology"), "cloud.com/block", "must match 'spec.workerGroupSpecs[0].template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
-				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-preferred-topology"), "cloud.com/rack", "must match 'spec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
+				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -496,10 +492,8 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.headGroupSpec.template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.workerGroupSpecs[0].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
-				field.Required(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-preferred-topology"), "must be set if 'spec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
+				field.Invalid(field.NewPath("spec.headGroupSpec.template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.workerGroupSpecs[0].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},

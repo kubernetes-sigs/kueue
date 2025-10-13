@@ -484,8 +484,8 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "cloud.com/block", "must match 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "cloud.com/rack", "must match 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]'"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -510,8 +510,8 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "cloud.com/block", "must match 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
-				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "cloud.com/rack", "must match 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]'"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -536,8 +536,8 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]"), "must be set if 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
-				field.Required(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "must be set if 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
