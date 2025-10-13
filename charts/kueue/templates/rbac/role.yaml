@@ -10,21 +10,22 @@ rules:
   - apiGroups:
       - ""
     resources:
-      - events
-    verbs:
-      - create
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - ""
-    resources:
+      - configmaps
       - limitranges
       - namespaces
       - nodes
     verbs:
       - get
       - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
       - watch
   - apiGroups:
       - ""
