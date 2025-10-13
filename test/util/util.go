@@ -626,6 +626,18 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
+	check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(admissionCheckName))
+	g.ExpectWithOffset(1, check).NotTo(gomega.BeNil())
+	g.ExpectWithOffset(1, check.State).To(gomega.Equal(expectedState))
+	if expectedMessage != "" {
+		g.ExpectWithOffset(1, check.Message).To(gomega.Equal(expectedMessage))
+	}
+	if len(podSetUpdates) > 0 {
+		g.ExpectWithOffset(1, check.PodSetUpdates).To(gomega.Equal(podSetUpdates))
+	}
+}
+
 func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		metric := metrics.LocalQueueAdmissionChecksWaitTime.WithLabelValues(lq.Name, lq.Namespace, priorityClass)
