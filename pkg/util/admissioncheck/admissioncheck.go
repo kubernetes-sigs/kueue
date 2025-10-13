@@ -169,26 +169,29 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 	if cq.Spec.AdmissionChecksStrategy != nil {
 		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
 		for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
-			checks[check.Name] = sets.New(check.OnFlavors...)
+			if len(check.OnFlavors) > 0 {
+				checks[check.Name] = sets.New(check.OnFlavors...)
+			} else {
+				checks[check.Name] = allFlavors(cq)
+			}
 		}
 	} else {
 		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
 		for _, checkName := range cq.Spec.AdmissionChecks {
-			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
-		}
-	}
-	// In case an AdmissionCheck empty, it should apply to all ResourceFlavors.
-	for _, check := range checks {
-		if len(check) != 0 {
-			continue
-		}
-		for _, rg := range cq.Spec.ResourceGroups {
-			for _, fv := range rg.Flavors {
-				check.Insert(fv.Name)
-			}
+			checks[checkName] = allFlavors(cq)
 		}
 	}
 	return checks
+}
+
+func allFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+	for _, rg := range cq.Spec.ResourceGroups {
+		for _, fv := range rg.Flavors {
+			flavors.Insert(fv.Name)
+		}
+	}
+	return flavors
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
