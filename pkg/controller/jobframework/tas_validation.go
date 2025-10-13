@@ -77,6 +77,10 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 		if sliceRequiredFound {
 			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
 		}
+
+		if !preferredFound && !requiredFound {
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when neither '%s' nor '%s' is specified", kueuebeta.PodSetPreferredTopologyAnnotation, kueuebeta.PodSetRequiredTopologyAnnotation)))
+		}
 	}
 
 	unconstrainedErrs := validateTASUnconstrained(annotationsPath, replicaMetadata)

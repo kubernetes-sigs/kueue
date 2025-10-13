@@ -320,6 +320,7 @@ func TestValidateCreate(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetGroupName:                       "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 							kueuealpha.PodSetSliceSizeAnnotation:             "1",
 						},
@@ -330,6 +331,7 @@ func TestValidateCreate(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							kueuealpha.PodSetGroupName:                       "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 							kueuealpha.PodSetSliceSizeAnnotation:             "1",
 						},
@@ -354,14 +356,16 @@ func TestValidateCreate(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
+							kueuealpha.PodSetGroupName:                  "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "groupname",
+							kueuealpha.PodSetGroupName:                  "groupname",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
@@ -375,14 +379,16 @@ func TestValidateCreate(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "1234",
+							kueuealpha.PodSetGroupName:                  "1234",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueuealpha.PodSetGroupName: "1234",
+							kueuealpha.PodSetGroupName:                  "1234",
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 				}).
@@ -598,6 +604,32 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Required(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]"), "must be set if 'spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		"invalid PodSet group name request - neither preferred nor required topology is requested": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "groupname",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueuealpha.PodSetGroupName: "groupname",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when neither 'kueue.x-k8s.io/podset-preferred-topology' nor 'kueue.x-k8s.io/podset-required-topology' is specified"),
+				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when neither 'kueue.x-k8s.io/podset-preferred-topology' nor 'kueue.x-k8s.io/podset-required-topology' is specified"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
