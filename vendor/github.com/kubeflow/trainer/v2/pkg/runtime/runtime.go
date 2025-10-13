@@ -87,7 +87,8 @@ type Container struct {
 
 // TODO (andreyvelich): Potentially, we can add ScheduleTimeoutSeconds to the Scheduler for consistency.
 type Scheduler struct {
-	PodLabels map[string]string
+	PodLabels      map[string]string
+	PodAnnotations map[string]string
 }
 
 type InfoOptions struct {

@@ -152,6 +152,9 @@ const (
 	// TorchTuneTokenizerPath is the config item name for the tokenizer path.
 	TorchTuneTokenizerPath string = "tokenizer.path"
 
+	// TorchTuneTokenizerMergeFile is the config item name for the tokenizer merge file.
+	TorchTuneTokenizerMergeFile string = "tokenizer.merges_file"
+
 	// TorchTuneCheckpointerDir is the config item name for the checkpointer directory.
 	TorchTuneCheckpointDir string = "checkpointer.checkpoint_dir"
 )
@@ -165,6 +168,9 @@ const (
 
 	// TORCHTUNE_MODEL_LLAMA3_3_70B is the model name for the Llama3.3 70B Instruct model.
 	TORCHTUNE_MODEL_LLAMA3_3_70B = "llama3_3/70B"
+
+	// TORCHTUNE_MODEL_QWEN2_1.5B is the model name for the Qwen2.5 1.5B model.
+	TORCHTUNE_MODEL_QWEN2_5_1_5B = "qwen2_5/1.5B"
 )
 
 var (
@@ -178,11 +184,11 @@ var (
 	ResourceInUseFinalizer = fmt.Sprintf("%s/resource-in-use", trainer.GroupVersion.Group)
 
 	// TorchTuneSupportedPretrainedModels supported pretrained models for TorchTune Trainer.
-	TorchTuneSupportedPretrainedModels = sets.New(TORCHTUNE_MODEL_LLAMA3_2_1B, TORCHTUNE_MODEL_LLAMA3_2_7B, TORCHTUNE_MODEL_LLAMA3_3_70B)
+	TorchTuneSupportedPretrainedModels = sets.New(TORCHTUNE_MODEL_LLAMA3_2_1B, TORCHTUNE_MODEL_LLAMA3_2_7B, TORCHTUNE_MODEL_LLAMA3_3_70B, TORCHTUNE_MODEL_QWEN2_5_1_5B)
 
 	// TorchTuneEntrypoint is the entrypoint for the torchtune.
 	TorchTuneEntrypoint = []string{"tune", "run"}
 
 	// TorchTuneImmutableConfigs is the set of immutable configs for the TorchTune Trainer.
-	TorchTuneImmutableConfigs = sets.New(TorchTuneModelOutputDir, TorchTuneTokenizerPath, TorchTuneCheckpointDir)
+	TorchTuneImmutableConfigs = sets.New(TorchTuneModelOutputDir, TorchTuneTokenizerPath, TorchTuneCheckpointDir, TorchTuneTokenizerMergeFile)
 )

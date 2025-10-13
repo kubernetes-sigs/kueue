@@ -167,7 +167,7 @@ func (t *Torch) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) 
 		// Add PyTorch distributed "PET_" values for torchrun and torchtune.
 		// TODO (andreyvelich): We should validate that envs from different plugins don't conflict with each other.
 		// Ref: https://github.com/kubeflow/trainer/pull/2308#discussion_r1823229940
-		apply.UpsertEnvVar(&trainerContainer.Env,
+		apply.UpsertEnvVars(&trainerContainer.Env,
 			*corev1ac.EnvVar().
 				WithName(constants.TorchEnvNumNodes).
 				WithValue(fmt.Sprintf("%d", ptr.Deref(ptr.Deref(trainerPS, runtime.PodSet{}).Count, 1))),
@@ -183,7 +183,7 @@ func (t *Torch) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) 
 
 		if !slices.Equal(trainJob.Spec.Trainer.Command, constants.TorchTuneEntrypoint) {
 			// Add PET_MASTER_ADDR and PET_MASTER_PORT envs for torchrun.
-			apply.UpsertEnvVar(&trainerContainer.Env,
+			apply.UpsertEnvVars(&trainerContainer.Env,
 				*corev1ac.EnvVar().
 					WithName(constants.TorchEnvMasterAddr).
 					WithValue(fmt.Sprintf("%s-%s-0-0.%s", trainJob.Name, constants.Node, trainJob.Name)),
