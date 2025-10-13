@@ -314,7 +314,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			wl := e.Obj.DeepCopy()
 			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func() (*kueue.Workload, bool, error) {
 				return wl, workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-			}, workload.WithLoose()); err != nil {
+			}, workload.WithLooseOnApply()); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -644,7 +644,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	s.admissionRoutineWrapper.Run(func() {
 		err := workload.PatchAdmissionStatus(ctx, s.client, origWorkload, s.clock, func() (*kueue.Workload, bool, error) {
 			return newWorkload, true, nil
-		}, workload.WithLoose())
+		}, workload.WithLooseOnApply())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)

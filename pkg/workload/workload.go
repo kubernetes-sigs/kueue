@@ -917,32 +917,39 @@ type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
 // are generated and applied.
 //
 // Fields:
-//   - Strict: Controls whether ResourceVersion should always be cleared
+//   - StrictPatch: Controls whether ResourceVersion should always be cleared
 //     from the "original" object to ensure its inclusion in the generated
-//     patch. Defaults to true. Setting Strict=false preserves the current
+//     patch. Defaults to true. Setting StrictPatch=false preserves the current
+//     ResourceVersion.
+//   - StrictApply: When using Patch Apply, controls whether ResourceVersion should always be cleared
+//     from the "original" object to ensure its inclusion in the generated
+//     patch. Defaults to true. Setting StrictPatch=false preserves the current
 //     ResourceVersion.
 //
 // Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
 // modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
 type PatchAdmissionStatusOptions struct {
-	Strict bool
+	StrictPatch bool
+	StrictApply bool
 }
 
 // DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
 // default settings.
 //
-// By default, Strict is set to true, meaning ResourceVersion is cleared
+// By default, StrictPatch and StrictApply is set to true, meaning ResourceVersion is cleared
 // from the original object so it will always be included in the generated
 // patch. This ensures stricter version handling during patch application.
 func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 	return &PatchAdmissionStatusOptions{
-		Strict: true, // default is strict
+		StrictPatch: true, // default is strict
+		StrictApply: true, // default is strict
 	}
 }
 
-// WithLoose returns a PatchAdmissionStatusOption that sets the Strict field on PatchAdmissionStatusOptions.
+// WithLoose returns a PatchAdmissionStatusOption that resets both the StrictPatch and StrictApply
+// fields on PatchAdmissionStatusOptions.
 //
-// By default, Strict is true. In strict mode, generated patches enforce stricter
+// By default, StrictPatch and StrictApply are true. In strict mode, generated patches enforce stricter
 // behavior by clearing the ResourceVersion field from the "original" object.
 // This ensures that the ResourceVersion is always included in the generated patch
 // and taken into account during patch application.
@@ -954,7 +961,26 @@ func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 //	}, WithLoose()) // disables strict mode
 func WithLoose() PatchAdmissionStatusOption {
 	return func(o *PatchAdmissionStatusOptions) {
-		o.Strict = false
+		o.StrictPatch = false
+		o.StrictApply = false
+	}
+}
+
+// WithLooseOnApply returns a PatchAdmissionStatusOption that resets the StrictApply field on PatchAdmissionStatusOptions.
+//
+// When using Patch Apply, setting StrictApply to false enforces looser
+// version handling only for Patch Apply.
+// This is useful when the update function already handles version conflicts
+// and we want to avoid additional conflicts during Patch Apply.
+//
+// Example:
+//	patch := clientutil.Patch(ctx, c, w, clk, func() (bool, error) {
+//	    return updateFn(obj), nil
+//	}, WithLooseOnApply()) // disables strict mode for Patch Apply
+
+func WithLooseOnApply() PatchAdmissionStatusOption {
+	return func(o *PatchAdmissionStatusOptions) {
+		o.StrictApply = false
 	}
 }
 
@@ -969,7 +995,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		var patchOptions []clientutil.PatchOption
-		if !opts.Strict {
+		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
 		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
@@ -981,7 +1007,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		return err
 	}
 
-	return ApplyAdmissionStatus(ctx, c, wPatched, opts.Strict, clk)
+	return ApplyAdmissionStatus(ctx, c, wPatched, opts.StrictApply, clk)
 }
 
 type Ordering struct {
