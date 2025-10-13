@@ -71,9 +71,9 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	// Create and refererence a fake ClusterTrainingRuntime
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To("trainer.kubeflow.org"),
+		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
 		Name:     "test",
-		Kind:     ptr.To("ClusterTrainingRuntime"),
+		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	})
 	testJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
 		testingjobset.ReplicatedJobRequirements{
@@ -92,6 +92,8 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "node",
+					Annotations:     map[string]string{"test-annotation": "test"},
+					Labels:          map[string]string{"test-label": "label"},
 					NodeSelector:    map[string]string{"disktype": "ssd"},
 					Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
@@ -99,14 +101,20 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				Annotation(firstOverrideIdx, "0").
-				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "node"},
 						},
-						NodeSelector:    map[string]string{"disktype": "ssd"},
-						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
+						Metadata: &metav1.ObjectMeta{
+							Annotations: map[string]string{"test-annotation": "test"},
+							Labels:      map[string]string{"test-label": "label"},
+						},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector:    map[string]string{"disktype": "ssd"},
+							Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
+							SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
+						},
 					},
 				}).
 				Suspend(false).
@@ -115,19 +123,23 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		},
 		"should respect user provided PodSpecOverrides when adding PodSet info config to the trainjob": {
 			trainJob: testTrainJob.Clone().
-				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "node"},
 						},
-						NodeSelector:    map[string]string{"disktype": "sdd"},
-						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector:    map[string]string{"disktype": "sdd"},
+							Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
+							SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
+						},
 					},
 				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
 					Name:            "node",
+					Annotations:     map[string]string{"test-annotation": "test"},
+					Labels:          map[string]string{"test-label": "label"},
 					NodeSelector:    map[string]string{"gpu": "nvidia"},
 					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
@@ -135,22 +147,30 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				Annotation(firstOverrideIdx, "1").
-				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "node"},
 						},
-						NodeSelector:    map[string]string{"disktype": "sdd"},
-						Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
-						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector:    map[string]string{"disktype": "sdd"},
+							Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
+							SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-4"}},
+						},
 					},
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "node"},
 						},
-						NodeSelector:    map[string]string{"gpu": "nvidia"},
-						Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
-						SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
+						Metadata: &metav1.ObjectMeta{
+							Annotations: map[string]string{"test-annotation": "test"},
+							Labels:      map[string]string{"test-label": "label"},
+						},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector:    map[string]string{"gpu": "nvidia"},
+							Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
+							SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
+						},
 					},
 				}).
 				Suspend(false).
@@ -238,50 +258,62 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantReturn: false,
 		},
-		"should remove all the podSpecOverrides starting from the index specified in the annotation": {
+		"should remove all the podTemplateOverrides starting from the index specified in the annotation": {
 			trainJob: testTrainJob.Clone().
 				Annotation(firstOverrideIdx, "2").
-				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "user-provided-1"},
 						},
-						NodeSelector: map[string]string{"disktype": "sdd"},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
 					},
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "user-provided-2"},
 						},
-						NodeSelector: map[string]string{"disktype": "sdd"},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
 					},
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "kueue-provided-1"},
 						},
-						NodeSelector: map[string]string{"disktype": "sdd"},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
 					},
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "kueue-provided-2"},
 						},
-						NodeSelector: map[string]string{"disktype": "sdd"},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
 					},
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Annotation(firstOverrideIdx, "2").
-				PodSpecOverrides([]kftrainerapi.PodSpecOverride{
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "user-provided-1"},
 						},
-						NodeSelector: map[string]string{"disktype": "sdd"},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
 					},
 					{
-						TargetJobs: []kftrainerapi.PodSpecOverrideTargetJob{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "user-provided-2"},
 						},
-						NodeSelector: map[string]string{"disktype": "sdd"},
+						Spec: &kftrainerapi.PodTemplateSpecOverride{
+							NodeSelector: map[string]string{"disktype": "sdd"},
+						},
 					},
 				}).
 				Obj(),
@@ -306,9 +338,9 @@ func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	// Create and refererence a fake ClusterTrainingRuntime
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
-		APIGroup: ptr.To("trainer.kubeflow.org"),
+		APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
 		Name:     "test",
-		Kind:     ptr.To("ClusterTrainingRuntime"),
+		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
 	})
 	testJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
 		testingjobset.ReplicatedJobRequirements{
