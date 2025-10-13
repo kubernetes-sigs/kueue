@@ -855,36 +855,23 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
-			flavor    *kueue.ResourceFlavor
-			cq        *kueue.ClusterQueue
-			lq        *kueue.LocalQueue
-			check     *kueue.AdmissionCheck
-			admission *kueue.Admission
+			cq    *kueue.ClusterQueue
+			lq    *kueue.LocalQueue
+			check *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
 			check = testing.MakeAdmissionCheck("check").ControllerName("check-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check)
 
-			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
-			util.MustCreate(ctx, k8sClient, flavor)
-			cq = testing.MakeClusterQueue("foo-cq").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
-					Resource(resourceGPU, "5", "5").Obj()).
-				Cohort("cohort").
-				AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()
+			cq = testing.MakeClusterQueue("foo-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.MustCreate(ctx, k8sClient, cq)
-
-			admission = testing.MakeAdmission(cq.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()).Obj()
 		})
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
 		ginkgo.It("Should delete clusterQueues successfully when no admitted workloads are running", func() {
@@ -900,7 +887,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			key := client.ObjectKeyFromObject(wl)
-			util.SetQuotaReservation(ctx, k8sClient, key, admission)
+			util.SetQuotaReservation(ctx, k8sClient, key, testing.MakeAdmission(cq.Name).Obj())
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedWl := &kueue.Workload{}
@@ -934,7 +921,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			ginkgo.By("Setting quota reservation")
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), testing.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
