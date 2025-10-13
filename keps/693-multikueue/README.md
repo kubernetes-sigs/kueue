@@ -195,11 +195,13 @@ type MultiKueueClusterSpec struct {
     // Exactly one of KubeConfig or ClusterProfile must be specified.
 
     // KubeConfig is the direct specification of the kubeconfig for the remote cluster.
+    // This field can only be configured when ClusterProfile is not specified.
     // +optional
     KubeConfig *KubeConfig `json:"kubeConfig,omitempty"`
 
     // ClusterProfile is a reference to a ClusterProfile object.
     // The controller will use the information from the ClusterProfile to connect to the remote cluster.
+    // This field can only be configured when KubeConfig is not specified.
     // +optional
     ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
 }
