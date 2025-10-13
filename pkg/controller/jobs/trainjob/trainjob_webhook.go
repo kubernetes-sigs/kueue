@@ -32,6 +32,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type TrainJobWebhook struct {
@@ -97,7 +98,11 @@ func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.Info("Validating create")
-	return nil, w.validateCreate(trainjob).ToAggregate()
+	validationErrs, err := w.validateCreate(trainjob)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -106,20 +111,55 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj run
 	newTrainJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.Info("Validating update")
-	return nil, w.validateUpdate(oldTrainJob, newTrainJob).ToAggregate()
+	validationErrs, err := w.validateUpdate(oldTrainJob, newTrainJob)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
 }
 
-func (w *TrainJobWebhook) validateUpdate(oldTrainJob, newTrainJob *TrainJob) field.ErrorList {
+func (w *TrainJobWebhook) validateUpdate(oldTrainJob, newTrainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldTrainJob, newTrainJob, w.queues.DefaultLocalQueueExist)...)
-	allErrs = append(allErrs, w.validateCreate(newTrainJob)...)
-	return allErrs
+	validationErrs, err := w.validateCreate(newTrainJob)
+	if err != nil {
+		return nil, err
+	}
+	allErrs = append(allErrs, validationErrs...)
+	return allErrs, nil
 }
 
-func (w *TrainJobWebhook) validateCreate(trainjob *TrainJob) field.ErrorList {
+func (w *TrainJobWebhook) validateCreate(trainjob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob)...)
-	return allErrs
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(trainjob)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, validationErrs...)
+	}
+	return allErrs, nil
+}
+
+func (w *TrainJobWebhook) validateTopologyRequest(trainJob *TrainJob) (field.ErrorList, error) {
+	var allErrs field.ErrorList
+
+	podSets, podSetsErr := podSets(trainJob)
+	for _, p := range podSets {
+		jobPath := field.NewPath("job").Key(string(p.Name))
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
+	}
+
+	if len(allErrs) > 0 {
+		for _, err := range allErrs {
+			err.Detail += `. Adjust either the "TrainJob.spec.podTemplateOverrides" or the "TrainingRuntime.Template" annotations for the corresponding Job`
+		}
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

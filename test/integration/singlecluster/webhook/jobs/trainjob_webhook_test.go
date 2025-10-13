@@ -23,9 +23,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -35,7 +39,18 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 
 	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(workloadtrainjob.SetupTrainJobWebhook))
+			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+				// Necessary to initialize the runtimes
+				if _, err := workloadtrainjob.NewReconciler(
+					ctx,
+					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
+					mgr.GetEventRecorderFor(constants.JobControllerName),
+					opts...); err != nil {
+					return err
+				}
+				return workloadtrainjob.SetupTrainJobWebhook(mgr, opts...)
+			}))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
@@ -48,12 +63,24 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 		})
 
 		ginkgo.It("should succed creating the TrainJob", func() {
-			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).
+			testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:     "node",
+					Replicas: 1,
+				}).
+				Obj()
+			testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
+			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
+				APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+				Name:     "test",
+				Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			}).
 				Queue("queue").
 				Suspend(false).
 				Obj()
 
 			ginkgo.By("by creating the TrainJob", func() {
+				util.MustCreate(ctx, k8sClient, testTr)
 				util.MustCreate(ctx, k8sClient, trainJob)
 			})
 
@@ -68,11 +95,23 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 		})
 
 		ginkgo.It("should not suspend a TrainJob without queue", func() {
-			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).
+			testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:     "node",
+					Replicas: 1,
+				}).
+				Obj()
+			testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
+			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
+				APIGroup: ptr.To(kftrainerapi.GroupVersion.Group),
+				Name:     "test",
+				Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			}).
 				Suspend(false).
 				Obj()
 
 			ginkgo.By("by creating the TrainJob", func() {
+				util.MustCreate(ctx, k8sClient, testTr)
 				util.MustCreate(ctx, k8sClient, trainJob)
 			})
 

@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			})
 
 			ginkgo.By("Verify the trainjob has nodeSelector set", func() {
-				gomega.Expect(trainjob.Spec.PodSpecOverrides[0].NodeSelector).To(gomega.Equal(
+				gomega.Expect(trainjob.Spec.PodTemplateOverrides[0].Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
 						"instance-type": "on-demand",
 					},

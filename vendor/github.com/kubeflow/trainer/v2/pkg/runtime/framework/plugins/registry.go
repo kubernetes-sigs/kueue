@@ -27,6 +27,7 @@ import (
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/mpi"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/plainml"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/torch"
+	"github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/volcano"
 )
 
 type Registry map[string]func(ctx context.Context, client client.Client, indexer client.FieldIndexer) (framework.Plugin, error)
@@ -34,6 +35,7 @@ type Registry map[string]func(ctx context.Context, client client.Client, indexer
 func NewRegistry() Registry {
 	return Registry{
 		coscheduling.Name: coscheduling.New,
+		volcano.Name:      volcano.New,
 		mpi.Name:          mpi.New,
 		plainml.Name:      plainml.New,
 		torch.Name:        torch.New,
