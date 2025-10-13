@@ -65,7 +65,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 To enable KueueViz on an existing Kueue installation by YAML:
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## Accessing the Dashboard
@@ -158,7 +158,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 To upgrade KueueViz by YAML:
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## Uninstall
@@ -168,7 +168,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 To uninstall KueueViz components:
 
 ```bash
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## What's next
