@@ -124,8 +124,8 @@ github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
 github.com/kubeflow/mpi-operator v0.6.0 h1:RzzG03oyQIiHe/SH2k19N+Hp4QkxEsG2l9G1T7US+ys=
 github.com/kubeflow/mpi-operator v0.6.0/go.mod h1:lu3cj3ESq3SdS29nbHC26TuXiTYYQYTHJ6fcy5Xv20c=
-github.com/kubeflow/trainer/v2 v2.0.1 h1:4bMZdFIpQBHjcUene6P+MqbY5v7ccyLUIKkefOhUFG8=
-github.com/kubeflow/trainer/v2 v2.0.1/go.mod h1:AH97YWUun+pLQlQHyRIlYcXw+YUuuQhnVWVYTbzGvgo=
+github.com/kubeflow/trainer/v2 v2.1.0-rc.0 h1:kr4Gjb7osBIwZm5qE4ajwxe0P4n2lWwD3grhfXc66ds=
+github.com/kubeflow/trainer/v2 v2.1.0-rc.0/go.mod h1:Y9hmSGG3A9tFKUjlcWf7Kg/SwibYwrZTK5ZqAxMxyno=
 github.com/kubeflow/training-operator v1.9.3 h1:aaSHqskOtCY8Dn8sVd+l9p5XAczW6O0nYMPjVLAw/lc=
 github.com/kubeflow/training-operator v1.9.3/go.mod h1:6zI0hgeCOheiW5Z12IcVkKBuSWm714fz8mUvYu4Fid4=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
@@ -410,3 +410,5 @@ sigs.k8s.io/structured-merge-diff/v6 v6.3.0 h1:jTijUJbW353oVOd9oTlifJqOGEkUw2jB/
 sigs.k8s.io/structured-merge-diff/v6 v6.3.0/go.mod h1:M3W8sfWvn2HhQDIbGWj3S099YozAsymCo/wrT5ohRUE=
 sigs.k8s.io/yaml v1.6.0 h1:G8fkbMSAFqgEFgh4b1wmtzDnioxFCUgTZhlbj5P9QYs=
 sigs.k8s.io/yaml v1.6.0/go.mod h1:796bPqUfzR/0jLAl6XjHl3Ck7MiyVv8dbTdyT3/pMf4=
+volcano.sh/apis v1.12.2 h1:KvNyM/kMizFVlALiH/uFHPwYFHRtxuVnBL0upbFbDss=
+volcano.sh/apis v1.12.2/go.mod h1:0XNNnIOevJSYNiXRmwhXUrYCcCcWcBeTY0nxrlkk03A=

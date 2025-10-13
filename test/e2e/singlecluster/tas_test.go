@@ -18,10 +18,13 @@ package e2e
 
 import (
 	"fmt"
+	"strconv"
 
+	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,10 +34,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -424,6 +429,124 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 						Levels: []string{corev1.LabelHostname},
 						Domains: []kueue.TopologyDomainAssignment{{
 							Count:  2,
+							Values: []string{"kind-worker"},
+						}},
+					},
+				))
+			})
+
+			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Creating a TrainJob requesting TAS", func() {
+		var (
+			topology     *kueue.Topology
+			onDemandRF   *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+		)
+		ginkgo.BeforeEach(func() {
+			topology = testing.MakeDefaultOneLevelTopology("hostname")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			onDemandRF = testing.MakeResourceFlavor("on-demand").
+				NodeLabel("instance-type", "on-demand").
+				TopologyName(topology.Name).
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, onDemandRF)
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllTrainJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		})
+
+		ginkgo.It("should admit a TrainJob via TAS", func() {
+			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).
+				RuntimeRefName("torch-distributed").
+				Queue(localQueue.Name).
+				// Even if we override the image coming from the TrainingRuntime, we still need to set the command and args
+				TrainerImage(util.GetAgnHostImage(), []string{"/agnhost"}, util.BehaviorExitFast).
+				TrainerRequest(corev1.ResourceCPU, "500m").
+				TrainerRequest(corev1.ResourceMemory, "200Mi").
+				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
+					{
+						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
+							{Name: "node"},
+						},
+						Metadata: &metav1.ObjectMeta{
+							Annotations: map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname},
+						},
+					},
+				}).
+				Obj()
+
+			ginkgo.By("Creating the TrainJob", func() {
+				util.MustCreate(ctx, k8sClient, trainjob)
+			})
+
+			ginkgo.By("waiting for the TrainJob to be unsuspended", func() {
+				trainjobKey := client.ObjectKeyFromObject(trainjob)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, trainjobKey, trainjob)).To(gomega.Succeed())
+					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the TrainJob has nodeSelector set", func() {
+				firstKueueOverride, exists := trainjob.Annotations["kueue.x-k8s.io/trainjob-override-idx"]
+				gomega.Expect(exists).Should(gomega.BeTrue())
+				firstKueueOverrideIdx, err := strconv.Atoi(firstKueueOverride)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				gomega.Expect(trainjob.Spec.PodTemplateOverrides[firstKueueOverrideIdx].Spec.NodeSelector).To(gomega.Equal(
+					map[string]string{
+						"instance-type": "on-demand",
+					},
+				))
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainjob.Name, trainjob.UID), Namespace: ns.Name}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By(fmt.Sprintf("await for admission of workload %q and verify TopologyAssignment", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					&kueue.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{{
+							Count:  1,
 							Values: []string{"kind-worker"},
 						}},
 					},

@@ -56,7 +56,7 @@ func (b *Builder) Initializer(trainJob *trainer.TrainJob) *Builder {
 					env := &b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Env
 					// Update the dataset initializer envs.
 					if storageUri := trainJob.Spec.Initializer.Dataset.StorageUri; storageUri != nil {
-						apply.UpsertEnvVar(env, *corev1ac.EnvVar().
+						apply.UpsertEnvVars(env, *corev1ac.EnvVar().
 							WithName(jobsetplgconsts.InitializerEnvStorageUri).
 							WithValue(*storageUri))
 					}
@@ -82,7 +82,7 @@ func (b *Builder) Initializer(trainJob *trainer.TrainJob) *Builder {
 					env := &b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Env
 					// Update the model initializer envs.
 					if storageUri := trainJob.Spec.Initializer.Model.StorageUri; storageUri != nil {
-						apply.UpsertEnvVar(env, *corev1ac.EnvVar().
+						apply.UpsertEnvVars(env, *corev1ac.EnvVar().
 							WithName(jobsetplgconsts.InitializerEnvStorageUri).
 							WithValue(*storageUri))
 					}
@@ -101,21 +101,26 @@ func (b *Builder) Initializer(trainJob *trainer.TrainJob) *Builder {
 	return b
 }
 
+// isRunLauncherAsNode returns true if runLauncherAsNode is set to true in the MPI policy.
+func (b *Builder) isRunLauncherAsNode(info *runtime.Info) bool {
+	return info.RuntimePolicy.MLPolicySource != nil &&
+		info.RuntimePolicy.MLPolicySource.MPI != nil &&
+		info.RuntimePolicy.MLPolicySource.MPI.RunLauncherAsNode != nil &&
+		*info.RuntimePolicy.MLPolicySource.MPI.RunLauncherAsNode
+}
+
 // Trainer updates JobSet values for the trainer Job.
 func (b *Builder) Trainer(info *runtime.Info, trainJob *trainer.TrainJob) *Builder {
 	for i, rJob := range b.Spec.ReplicatedJobs {
+		ancestor := ""
 		jobMetadata := rJob.Template.ObjectMetaApplyConfiguration
-		if jobMetadata == nil || jobMetadata.Labels == nil {
-			continue
+		if jobMetadata != nil && jobMetadata.Labels != nil {
+			ancestor = jobMetadata.Labels[constants.LabelTrainJobAncestor]
 		}
-		if ancestor, ok := jobMetadata.Labels[constants.LabelTrainJobAncestor]; ok && ancestor == constants.AncestorTrainer {
+		if ancestor == constants.AncestorTrainer {
 			// TODO: Support multiple replicas ('.template.spec.replicatedJobs[*].replicas') for replicated Jobs.
 			// REF: https://github.com/kubeflow/trainer/issues/2318
 			b.Spec.ReplicatedJobs[i].Replicas = ptr.To[int32](1)
-			// Update the Parallelism and Completions values for the Trainer Job.
-			b.Spec.ReplicatedJobs[i].Template.Spec.Parallelism = info.FindPodSetByAncestor(constants.AncestorTrainer).Count
-			b.Spec.ReplicatedJobs[i].Template.Spec.Completions = info.FindPodSetByAncestor(constants.AncestorTrainer).Count
-
 			// Update values for the Trainer container.
 			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
 				if *container.Name == constants.Node {
@@ -130,6 +135,16 @@ func (b *Builder) Trainer(info *runtime.Info, trainJob *trainer.TrainJob) *Build
 						if args := jobTrainer.Args; args != nil {
 							b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Args = args
 						}
+					}
+				}
+			}
+		}
+		if ancestor == constants.AncestorTrainer || b.isRunLauncherAsNode(info) && *rJob.Name == constants.Node {
+			// TODO (andreyvelich): For MPI we should apply container resources to the Node ReplicatedJob also.
+			// Eventually, we should find better way to propagate resources from TrainJob to JobSet.
+			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
+				if *container.Name == constants.Node {
+					if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil {
 						if resourcesPerNode := jobTrainer.ResourcesPerNode; resourcesPerNode != nil &&
 							(resourcesPerNode.Limits != nil || resourcesPerNode.Requests != nil) {
 							requirements := corev1ac.ResourceRequirements()
@@ -159,6 +174,13 @@ func (b *Builder) Trainer(info *runtime.Info, trainJob *trainer.TrainJob) *Build
 func (b *Builder) PodLabels(labels map[string]string) *Builder {
 	for i := range b.Spec.ReplicatedJobs {
 		b.Spec.ReplicatedJobs[i].Template.Spec.Template.WithLabels(labels)
+	}
+	return b
+}
+
+func (b *Builder) PodAnnotations(annotations map[string]string) *Builder {
+	for i := range b.Spec.ReplicatedJobs {
+		b.Spec.ReplicatedJobs[i].Template.Spec.Template.WithAnnotations(annotations)
 	}
 	return b
 }
