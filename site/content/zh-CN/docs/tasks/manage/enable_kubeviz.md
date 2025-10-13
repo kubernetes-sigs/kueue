@@ -67,7 +67,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 在现有的 Kueue 安装上通过 YAML 启用 KueueViz：
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## 访问 Dashboard {#accessing-the-dashboard}
@@ -161,7 +161,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 通过 YAML 升级 KueueViz：
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## 卸载 {#uninstall}
@@ -171,7 +171,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 卸载 KueueViz 组件：
 
 ```bash
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## 下一步 {#whats-next}
