@@ -140,10 +140,17 @@ func (j *RayJob) PodSets() ([]kueue.PodSet, error) {
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		wgs := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index]
+		count := int32(1)
+		if wgs.Replicas != nil {
+			count = *wgs.Replicas
+		}
+		if wgs.NumOfHosts > 1 {
+			count *= wgs.NumOfHosts
+		}
 		workerPodSet := kueue.PodSet{
 			Name:     kueue.NewPodSetReference(wgs.GroupName),
 			Template: *wgs.Template.DeepCopy(),
-			Count:    podsCount(wgs),
+			Count:    count,
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
@@ -312,15 +319,4 @@ func (j *RayJob) ManagedBy() *string {
 
 func (j *RayJob) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
-}
-
-func podsCount(wgs *rayv1.WorkerGroupSpec) int32 {
-	count := int32(1)
-	if wgs.Replicas != nil {
-		count = *wgs.Replicas
-	}
-	if wgs.NumOfHosts > 1 {
-		count *= wgs.NumOfHosts
-	}
-	return count
 }

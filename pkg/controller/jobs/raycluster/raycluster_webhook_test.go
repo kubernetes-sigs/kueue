@@ -304,7 +304,8 @@ func TestValidateCreate(t *testing.T) {
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{
-								kueue.PodSetGroupName: "1podset",
+								kueue.PodSetGroupName:                  "1podset",
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
 					},
@@ -316,7 +317,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetGroupName: "3podsets",
+									kueue.PodSetGroupName:                  "3podsets",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -327,7 +329,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetGroupName: "3podsets",
+									kueue.PodSetGroupName:                  "3podsets",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -338,7 +341,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetGroupName: "3podsets",
+									kueue.PodSetGroupName:                  "3podsets",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -366,7 +370,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetGroupName: "groupname",
+									kueue.PodSetGroupName:                  "groupname",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -377,7 +382,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetGroupName: "groupname",
+									kueue.PodSetGroupName:                  "groupname",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 								},
 							},
 						},
@@ -427,38 +433,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
-		"invalid PodSet grouping request - required topology only set in one pod set": {
-			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
-				WithHeadGroupSpec(rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetGroupName:                  "groupname",
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
-						},
-					},
-				}).
-				WithWorkerGroups(
-					rayv1.WorkerGroupSpec{
-						GroupName: "wg1",
-						Replicas:  ptr.To(int32(5)),
-						Template: corev1.PodTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Annotations: map[string]string{
-									kueue.PodSetGroupName: "groupname",
-								},
-							},
-						},
-					},
-				).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
-			}.ToAggregate(),
-			topologyAwareScheduling: true,
-		},
 		"invalid PodSet grouping request - preferred topology does not match": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
@@ -494,7 +468,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
-		"invalid PodSet grouping request - preferred topology only set in one pod set": {
+		"invalid PodSet grouping request - different topology annotations within group": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
@@ -513,7 +487,8 @@ func TestValidateCreate(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
-									kueue.PodSetGroupName: "groupname",
+									kueue.PodSetGroupName:                  "groupname",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 								},
 							},
 						},
@@ -521,6 +496,8 @@ func TestValidateCreate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec.headGroupSpec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-required-topology"), "must be set if 'spec.workerGroupSpecs[0].template.metadata.annotations[kueue.x-k8s.io/podset-required-topology]' is specified"),
 				field.Required(field.NewPath("spec.workerGroupSpecs[0].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-preferred-topology"), "must be set if 'spec.headGroupSpec.template.metadata.annotations[kueue.x-k8s.io/podset-preferred-topology]' is specified"),
 			}.ToAggregate(),

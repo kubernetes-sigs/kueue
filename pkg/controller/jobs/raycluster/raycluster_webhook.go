@@ -203,6 +203,7 @@ func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.E
 	if podSetsErr == nil {
 		headGroupPodSet := podset.FindPodSetByName(podSets, headGroupPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSet)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(rayJob))...)
 	}
 
 	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
@@ -217,26 +218,20 @@ func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.E
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta, podSet)...)
 	}
 
-	podSetsMetadata := make([]jobframework.PodSetMetadata, len(rayJob.Spec.WorkerGroupSpecs)+1)
-	podSetsMetadata[0] = jobframework.PodSetMetadata{
-		AnnotationsPath: headGroupMetaPath.Child("annotations"),
-		Meta:            &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta,
-		Size:            1,
-	}
-	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
-		podSetsMetadata[i+1] = jobframework.PodSetMetadata{
-			AnnotationsPath: workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations"),
-			Meta:            &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta,
-			Size:            podsCount(&wgs),
-		}
-	}
-	allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSetsMetadata)...)
-
 	if len(allErrs) > 0 {
 		return allErrs, nil
 	}
 
 	return nil, podSetsErr
+}
+
+func buildPodSetAnnotationsPathByNameMap(rayJob *RayCluster) map[kueuebeta.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueuebeta.PodSetReference]*field.Path)
+	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
+	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
+		podSetAnnotationsPathByName[kueuebeta.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
