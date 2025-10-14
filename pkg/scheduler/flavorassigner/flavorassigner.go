@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -523,7 +524,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
-	groupedRequests := newPodSetGroups()
+	groupedRequests := orderedgroups.NewOrderedGroups[string, indexedPodSet]()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
@@ -559,10 +560,10 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			groupKey = *tr.PodSetGroupName
 		}
 
-		groupedRequests.insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
+		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
-	for _, podSets := range groupedRequests.orderedPodSetGroups() {
+	for _, podSets := range groupedRequests.InOrder {
 		requests := make(resources.Requests)
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
