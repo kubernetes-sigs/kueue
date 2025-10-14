@@ -164,18 +164,17 @@ spec:
                   before borrowing or preempting in the flavor being evaluated.
                 properties:
                   whenCanBorrow:
-                    default: ReadyToUse
+                    default: MayStopSearch
                     description: |-
                       whenCanBorrow determines whether a workload should try the next flavor
                       before borrowing in current flavor. The possible values are:
 
-                      - `ReadyToUse` (default): allocate in the current flavor if borrowing
-                        is possible.
-                      - `TryNextFlavor`: try next flavor even if the current
-                        flavor has enough resources to borrow.
-                      - `Borrow` (deprecated): old name for `ReadyToUse`; please use new name.
+                      - `MayStopSearch` (default): stop looking for more flavors if workload either
+                        fits or requires borrowing to fit.
+                      - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
+                      - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
                     enum:
-                    - ReadyToUse
+                    - MayStopSearch
                     - TryNextFlavor
                     - Borrow
                     type: string
@@ -185,13 +184,13 @@ spec:
                       whenCanPreempt determines whether a workload should try the next flavor
                       before borrowing in current flavor. The possible values are:
 
-                      - `ReadyToUse`: stop looking for more flavors once Preempting flavor is
-                        found and it's possible to preempt some workloads.
-                      - `TryNextFlavor` (default): try next flavor even if there are enough
-                        candidates for preemption in the current flavor.
-                      - `Preempt` (deprecated): old name for `ReadyToUse`; please use new name.
+                      - `MayStopSearch`: stop looking for more flavors if workload fits or requires
+                        preemption to fit.
+                      - `TryNextFlavor` (default): try next flavor if workload requires preemption
+                        to fit in current flavor.
+                      - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
                     enum:
-                    - ReadyToUse
+                    - MayStopSearch
                     - TryNextFlavor
                     - Preempt
                     type: string

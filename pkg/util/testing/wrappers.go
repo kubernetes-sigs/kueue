@@ -839,7 +839,7 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 			NamespaceSelector: &metav1.LabelSelector{},
 			QueueingStrategy:  kueue.BestEffortFIFO,
 			FlavorFungibility: &kueue.FlavorFungibility{
-				WhenCanBorrow:  kueue.ReadyToUse,
+				WhenCanBorrow:  kueue.MayStopSearch,
 				WhenCanPreempt: kueue.TryNextFlavor,
 			},
 		},

@@ -1287,7 +1287,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, prodCQ)
@@ -1368,7 +1368,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				}).
-				FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.ReadyToUse}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.MayStopSearch}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, prodCQ)
 
@@ -2625,7 +2625,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
 				fungibility := kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.ReadyToUse}
+					WhenCanPreempt: kueue.MayStopSearch}
 				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 
 				cq1 = createQueue(testing.MakeClusterQueue("cq1").
@@ -2672,7 +2672,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 			ginkgo.It("chooses a correct flavor when borrowing is preferred", func() {
 				fungibility := kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
 					WhenCanPreempt: kueue.TryNextFlavor}
 				preemption := kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority, ReclaimWithinCohort: kueue.PreemptionPolicyAny, BorrowWithinCohort: &kueue.BorrowWithinCohort{Policy: kueue.BorrowWithinCohortPolicyLowerPriority}}
 

@@ -570,8 +570,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -592,8 +592,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -613,8 +613,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -634,8 +634,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -819,8 +819,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0", "10").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -837,8 +837,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -859,8 +859,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.ReadyToUse,
-					WhenCanPreempt: kueue.ReadyToUse,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
