@@ -53,4 +53,9 @@ const (
 	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
+
+	// WorkloadActiveLabel is a label set on the Workload to set whether
+	// it should be considered active or not.
+	// A Workload.Spec.Active of job will follow the label value of its owning job.
+	WorkloadActiveLabel = "kueue.x-k8s.io/active"
 )
