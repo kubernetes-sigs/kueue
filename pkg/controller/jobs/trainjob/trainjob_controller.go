@@ -210,16 +210,6 @@ func jobsetApplyToJobset(jobsetApply *jobsetapplyapi.JobSetApplyConfiguration) (
 	if err := json.Unmarshal(jsonData, jobset); err != nil {
 		return nil, err
 	}
-
-	// Run a dry-run patch to set the jobset defaults
-	// Defaults must be applied here because Kueue later compares podsets to match workloads.
-	// Workloads coming from the API server are already defaulted, so without defaulting this JobSet, matching would fail.
-	if err = reconciler.client.Patch(reconciler.ctx, jobset, client.Apply, &client.PatchOptions{
-		FieldManager: "defaulter",
-		DryRun:       []string{metav1.DryRunAll},
-	}); err != nil {
-		return nil, err
-	}
 	return jobset, nil
 }
 
