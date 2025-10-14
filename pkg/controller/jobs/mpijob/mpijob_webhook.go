@@ -40,7 +40,13 @@ import (
 )
 
 var (
-	mpiReplicaSpecsPath = field.NewPath("spec", "mpiReplicaSpecs")
+	mpiReplicaSpecsPath         = field.NewPath("spec", "mpiReplicaSpecs")
+	launcherAnnotationsPath     = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeLauncher)).Child("template", "metadata", "annotations")
+	workerAnnotationsPath       = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeWorker)).Child("template", "metadata", "annotations")
+	podSetAnnotationsPathByName = map[v1beta1.PodSetReference]*field.Path{
+		v1beta1.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherAnnotationsPath,
+		v1beta1.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerAnnotationsPath,
+	}
 )
 
 type MpiJobWebhook struct {
@@ -150,6 +156,10 @@ func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := mpiJob.PodSets()
+
+	if podSetsErr == nil {
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
+	}
 
 	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
 		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
