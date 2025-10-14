@@ -119,6 +119,23 @@ func TestValidateCreate(t *testing.T) {
 			topologyAwareScheduling: true,
 		},
 		{
+			name: "valid PodSet grouping request",
+			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "launcher", Replicas: 1, Parallelism: 1, Completions: 1,
+				PodAnnotations: map[string]string{
+					kueue.PodSetGroupName:                  "groupname",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name: "worker", Replicas: 4, Parallelism: 1, Completions: 1,
+				PodAnnotations: map[string]string{
+					kueue.PodSetGroupName:                  "groupname",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			topologyAwareScheduling: true,
+		},
+		{
 			name: "invalid PodSet grouping request - groups of size other than 2",
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(

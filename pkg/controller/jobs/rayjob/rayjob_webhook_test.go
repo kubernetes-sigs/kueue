@@ -332,6 +332,34 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
+		"valid PodSet grouping request": {
+			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:                  "groupname",
+								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "wg1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName:                  "groupname",
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			topologyAwareScheduling: true,
+		},
 		"invalid PodSet grouping request - groups of size other than 2": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
 				WithHeadGroupSpec(rayv1.HeadGroupSpec{
