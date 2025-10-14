@@ -118,6 +118,163 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
+		{
+			name: "valid PodSet grouping request",
+			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "launcher", Replicas: 1, Parallelism: 1, Completions: 1,
+				PodAnnotations: map[string]string{
+					kueue.PodSetGroupName:                  "groupname",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name: "worker", Replicas: 4, Parallelism: 1, Completions: 1,
+				PodAnnotations: map[string]string{
+					kueue.PodSetGroupName:                  "groupname",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - groups of size other than 2",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "1podset",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job3", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job4", Replicas: 2, Parallelism: 2, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "1podset", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[2].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[3].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - no leader in group",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 1, Parallelism: 3, Completions: 3, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - required topology does not match",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - preferred topology does not match",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                   "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                   "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - different topology annotations within group",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetGroupName:                   "groupname",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
 	}
 
 	for _, tc := range testcases {

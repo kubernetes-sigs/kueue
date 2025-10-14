@@ -107,14 +107,20 @@ func (wh *Webhook) podTemplateSpecDefault(lws *LeaderWorkerSet, podTemplateSpec 
 var _ webhook.CustomValidator = &Webhook{}
 
 var (
-	labelsPath               = field.NewPath("metadata", "labels")
-	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
-	specPath                 = field.NewPath("spec")
-	leaderWorkerTemplatePath = specPath.Child("leaderWorkerTemplate")
-	leaderTemplatePath       = leaderWorkerTemplatePath.Child("leaderTemplate")
-	leaderTemplateMetaPath   = leaderTemplatePath.Child("metadata")
-	workerTemplatePath       = leaderWorkerTemplatePath.Child("workerTemplate")
-	workerTemplateMetaPath   = workerTemplatePath.Child("metadata")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	specPath                      = field.NewPath("spec")
+	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
+	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
+	leaderTemplateMetaPath        = leaderTemplatePath.Child("metadata")
+	workerTemplatePath            = leaderWorkerTemplatePath.Child("workerTemplate")
+	workerTemplateMetaPath        = workerTemplatePath.Child("metadata")
+	workerTemplateAnnotationsPath = workerTemplateMetaPath.Child("annotations")
+	podSetAnnotationsPathByName   = map[kueuebeta.PodSetReference]*field.Path{
+		"leader": leaderTemplateMetaPath.Child("annotations"),
+		"worker": workerTemplateAnnotationsPath,
+		"main":   workerTemplateAnnotationsPath,
+	}
 )
 
 func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
@@ -225,6 +231,7 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerTemplateMetaPath,
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, workerPodSet)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
 	}
 
 	if len(allErrs) > 0 {
