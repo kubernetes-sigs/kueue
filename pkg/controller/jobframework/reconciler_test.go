@@ -186,6 +186,109 @@ func TestReconcileGenericJob(t *testing.T) {
 	}
 }
 
+type mockGenericJobWithActivation struct {
+	*mocks.MockGenericJob
+	workloadActive bool
+}
+
+func (m *mockGenericJobWithActivation) IsWorkloadActive() bool {
+	return m.workloadActive
+}
+
+func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
+	const (
+		testJobName = "test-job"
+		testNS      = metav1.NamespaceDefault
+	)
+
+	var (
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+		req                = types.NamespacedName{Name: testJobName, Namespace: testNS}
+	)
+
+	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobName).Queue(testLocalQueueName)
+	basePodSets := []kueue.PodSet{
+		*utiltesting.MakePodSet("main", 1).Obj(),
+	}
+	baseWl := utiltesting.MakeWorkload("job-test-job", testNS).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		PodSets(basePodSets...).
+		Priority(0)
+
+	testCases := map[string]struct {
+		initialActive  *bool
+		jobActive      bool
+		expectedActive bool
+	}{
+		"marks workload inactive when job requests": {
+			initialActive:  nil,
+			jobActive:      false,
+			expectedActive: false,
+		},
+		"marks workload active when job requests": {
+			initialActive:  ptr.To(false),
+			jobActive:      true,
+			expectedActive: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			job := baseJob.DeepCopy()
+			wl := baseWl.Clone().Name("job-test-job-1").Obj()
+			if tc.initialActive == nil {
+				wl.Spec.Active = nil
+			} else {
+				wl.Spec.Active = ptr.To(*tc.initialActive)
+			}
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(job, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := NewReconciler(cl, recorder)
+
+			mgj := &mockGenericJobWithActivation{
+				MockGenericJob: mocks.NewMockGenericJob(mockctrl),
+				workloadActive: tc.jobActive,
+			}
+			mgj.EXPECT().Object().Return(job).AnyTimes()
+			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mgj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+			mgj.EXPECT().IsActive().Return(tc.jobActive).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+			mgj.EXPECT().PodsReady(gomock.Any()).Return(false).AnyTimes()
+
+			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
+				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			}
+
+			updated := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKey{Name: wl.Name, Namespace: wl.Namespace}, updated); err != nil {
+				t.Fatalf("Failed to get workload: %v", err)
+			}
+
+			if updated.Spec.Active == nil {
+				t.Fatalf("Workload.Spec.Active is nil, want %t", tc.expectedActive)
+			}
+			if *updated.Spec.Active != tc.expectedActive {
+				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, tc.expectedActive)
+			}
+		})
+	}
+}
+
 func TestFindAncestorJobManagedByKueue(t *testing.T) {
 	grandparentJobName := "test-job-grandparent"
 	parentJobName := "test-job-parent"
