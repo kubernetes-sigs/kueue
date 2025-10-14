@@ -18,7 +18,6 @@ package jobframework
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
@@ -183,26 +183,18 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 }
 
 func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotationsByName map[kueuebeta.PodSetReference]*field.Path) field.ErrorList {
-	podSetsByGroupName := make(map[string][]kueuebeta.PodSet)
+	podSetGroups := orderedgroups.NewOrderedGroups[string, kueuebeta.PodSet]()
 	for _, podSet := range podSets {
 		if podSet.TopologyRequest == nil || podSet.TopologyRequest.PodSetGroupName == nil {
 			continue
 		}
 		groupName := *podSet.TopologyRequest.PodSetGroupName
-		podSetsByGroupName[groupName] = append(podSetsByGroupName[groupName], podSet)
+		podSetGroups.Insert(groupName, podSet)
 	}
 
 	var allErrs field.ErrorList
 
-	// Sort group names to iterate over the groups in a deterministic fashion.
-	groupNames := make([]string, 0, len(podSetsByGroupName))
-	for groupName := range podSetsByGroupName {
-		groupNames = append(groupNames, groupName)
-	}
-	sort.Strings(groupNames)
-
-	for _, groupName := range groupNames {
-		podSets := podSetsByGroupName[groupName]
+	for groupName, podSets := range podSetGroups.InOrder {
 		if groupSize := len(podSets); groupSize != 2 {
 			for _, podSet := range podSets {
 				allErrs = append(
