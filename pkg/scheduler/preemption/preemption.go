@@ -43,7 +43,6 @@ import (
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/logging"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -449,19 +448,15 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 // preempting workload needs.
 func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
 	var candidates []*workload.Info
-	wlPriority := priority.Priority(wl)
-	preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		for _, candidateWl := range cq.Workloads {
-			candidatePriority := priority.Priority(candidateWl.Obj)
-
 			if !preemptioncommon.SatisfiesPreemptionPolicy(
+				wl,
+				candidateWl.Obj,
+				p.workloadOrdering,
 				cq.Preemption.WithinClusterQueue,
-				wlPriority,
-				preemptorTS,
-				candidatePriority,
-				p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
+				true) {
 				continue
 			}
 
@@ -479,13 +474,12 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 				continue
 			}
 			for _, candidateWl := range cohortCQ.Workloads {
-				candidatePriority := priority.Priority(candidateWl.Obj)
 				if !preemptioncommon.SatisfiesPreemptionPolicy(
+					wl,
+					candidateWl.Obj,
+					p.workloadOrdering,
 					cq.Preemption.ReclaimWithinCohort,
-					wlPriority,
-					preemptorTS,
-					candidatePriority,
-					p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
+					true) {
 					continue
 				}
 				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {

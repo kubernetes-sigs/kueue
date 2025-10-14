@@ -17,17 +17,28 @@ limitations under the License.
 package preemptioncommon
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/priority"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func SatisfiesPreemptionPolicy(policy kueue.PreemptionPolicy, preemptorPriority int32, preemptorTimestamp *metav1.Time, candidatePriority int32, candidateTimestamp *metav1.Time) bool {
+func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, emptyPolicyValue bool) bool {
+	if policy == "" {
+		return emptyPolicyValue
+	}
+
+	preemptorPriority := priority.Priority(preemptor)
+	candidatePriority := priority.Priority(candidate)
+
 	lowerPriority := preemptorPriority > candidatePriority
 	if policy == kueue.PreemptionPolicyLowerPriority {
 		return lowerPriority
 	}
 	if policy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
-		newerEqualPriority := (preemptorPriority == candidatePriority) && preemptorTimestamp.Before(candidateTimestamp)
+		preemptorTS := workloadOrdering.GetQueueOrderTimestamp(preemptor)
+		candidateTS := workloadOrdering.GetQueueOrderTimestamp(candidate)
+		newerEqualPriority := (preemptorPriority == candidatePriority) &&
+			(preemptorTS != nil && candidateTS != nil && preemptorTS.Before(candidateTS))
 		return lowerPriority || newerEqualPriority
 	}
 	return policy == kueue.PreemptionPolicyAny
