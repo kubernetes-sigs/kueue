@@ -102,7 +102,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.MayStopSearch,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").
@@ -117,7 +117,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.MayStopSearch,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").
@@ -540,7 +540,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Obj(),
 			wantReason:  kueue.ClusterQueueActiveReasonReady,

@@ -423,7 +423,7 @@ func TestSnapshot(t *testing.T) {
 				),
 			},
 		},
-		"lendingLimit with 2 clusterQueues and 2 flavors(whenCanBorrow: Borrow)": {
+		"lendingLimit with 2 clusterQueues and 2 flavors(whenCanBorrow: MayStopSearch)": {
 			cqs: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("a").
 					Cohort("lending").
