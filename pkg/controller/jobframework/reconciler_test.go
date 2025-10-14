@@ -223,17 +223,36 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 	testCases := map[string]struct {
 		initialActive  *bool
 		jobActive      bool
-		expectedActive bool
+		labelValue     string
+		useInterface   bool
+		expectedActive *bool
 	}{
-		"marks workload inactive when job requests": {
+		"custom interface marks workload inactive": {
 			initialActive:  nil,
 			jobActive:      false,
-			expectedActive: false,
+			useInterface:   true,
+			expectedActive: ptr.To(false),
 		},
-		"marks workload active when job requests": {
+		"custom interface marks workload active": {
 			initialActive:  ptr.To(false),
 			jobActive:      true,
-			expectedActive: true,
+			useInterface:   true,
+			expectedActive: ptr.To(true),
+		},
+		"uses workload active label true": {
+			initialActive:  ptr.To(false),
+			labelValue:     "true",
+			expectedActive: ptr.To(true),
+		},
+		"uses workload active label false": {
+			initialActive:  ptr.To(true),
+			labelValue:     "false",
+			expectedActive: ptr.To(false),
+		},
+		"ignores invalid workload active label": {
+			initialActive:  ptr.To(true),
+			labelValue:     "invalid",
+			expectedActive: ptr.To(true),
 		},
 	}
 
@@ -243,6 +262,12 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			mockctrl := gomock.NewController(t)
 
 			job := baseJob.DeepCopy()
+			if tc.labelValue != "" {
+				if job.Labels == nil {
+					job.Labels = map[string]string{}
+				}
+				job.Labels[constants.WorkloadActiveLabel] = tc.labelValue
+			}
 			wl := baseWl.Clone().Name("job-test-job-1").Obj()
 			if tc.initialActive == nil {
 				wl.Spec.Active = nil
@@ -258,19 +283,33 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(cl, recorder)
 
-			mgj := &mockGenericJobWithActivation{
-				MockGenericJob: mocks.NewMockGenericJob(mockctrl),
-				workloadActive: tc.jobActive,
+			var genericJob GenericJob
+			if tc.useInterface {
+				mgj := &mockGenericJobWithActivation{
+					MockGenericJob: mocks.NewMockGenericJob(mockctrl),
+					workloadActive: tc.jobActive,
+				}
+				mgj.EXPECT().Object().Return(job).AnyTimes()
+				mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+				mgj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+				mgj.EXPECT().IsActive().Return(tc.jobActive).AnyTimes()
+				mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+				mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+				mgj.EXPECT().PodsReady(gomock.Any()).Return(false).AnyTimes()
+				genericJob = mgj
+			} else {
+				mgj := mocks.NewMockGenericJob(mockctrl)
+				mgj.EXPECT().Object().Return(job).AnyTimes()
+				mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+				mgj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+				mgj.EXPECT().IsActive().Return(tc.jobActive).AnyTimes()
+				mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+				mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+				mgj.EXPECT().PodsReady(gomock.Any()).Return(false).AnyTimes()
+				genericJob = mgj
 			}
-			mgj.EXPECT().Object().Return(job).AnyTimes()
-			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
-			mgj.EXPECT().IsActive().Return(tc.jobActive).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
-			mgj.EXPECT().PodsReady(gomock.Any()).Return(false).AnyTimes()
 
-			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
+			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, genericJob); err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
 
@@ -279,11 +318,19 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 				t.Fatalf("Failed to get workload: %v", err)
 			}
 
-			if updated.Spec.Active == nil {
-				t.Fatalf("Workload.Spec.Active is nil, want %t", tc.expectedActive)
+			if tc.expectedActive == nil {
+				if updated.Spec.Active != nil {
+					t.Fatalf("Workload.Spec.Active = %t, want nil", ptr.Deref(updated.Spec.Active, false))
+				}
+				return
 			}
-			if *updated.Spec.Active != tc.expectedActive {
-				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, tc.expectedActive)
+
+			if updated.Spec.Active == nil {
+				t.Fatalf("Workload.Spec.Active is nil, want %t", ptr.Deref(tc.expectedActive, false))
+			}
+
+			if *updated.Spec.Active != *tc.expectedActive {
+				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, *tc.expectedActive)
 			}
 		})
 	}
