@@ -30,7 +30,7 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -207,12 +207,12 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	}
 }
 
-func (o *ClusterQueueOptions) filterList(cql *v1beta1.ClusterQueueList) {
+func (o *ClusterQueueOptions) filterList(cql *kueue.ClusterQueueList) {
 	if len(o.Active) == 0 {
 		return
 	}
 
-	filtered := make([]v1beta1.ClusterQueue, 0, len(cql.Items))
+	filtered := make([]kueue.ClusterQueue, 0, len(cql.Items))
 	for _, cq := range cql.Items {
 		if o.Active[0] && isActiveStatus(&cq) {
 			filtered = append(filtered, cq)
@@ -224,6 +224,6 @@ func (o *ClusterQueueOptions) filterList(cql *v1beta1.ClusterQueueList) {
 	cql.Items = filtered
 }
 
-func isActiveStatus(cq *v1beta1.ClusterQueue) bool {
-	return meta.IsStatusConditionTrue(cq.Status.Conditions, v1beta1.ClusterQueueActive)
+func isActiveStatus(cq *kueue.ClusterQueue) bool {
+	return meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive)
 }

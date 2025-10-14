@@ -21,7 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 const (
@@ -30,21 +30,21 @@ const (
 )
 
 // MakeDefaultOneLevelTopology creates a default topology with hostname level.
-func MakeDefaultOneLevelTopology(name string) *kueuealpha.Topology {
+func MakeDefaultOneLevelTopology(name string) *kueue.Topology {
 	return MakeTopology(name).
 		Levels(corev1.LabelHostname).
 		Obj()
 }
 
 // MakeDefaultTwoLevelTopology creates a default topology with block and rack levels.
-func MakeDefaultTwoLevelTopology(name string) *kueuealpha.Topology {
+func MakeDefaultTwoLevelTopology(name string) *kueue.Topology {
 	return MakeTopology(name).
 		Levels(DefaultBlockTopologyLevel, DefaultRackTopologyLevel).
 		Obj()
 }
 
 // MakeDefaultThreeLevelTopology creates a default topology with block, rack and hostname levels.
-func MakeDefaultThreeLevelTopology(name string) *kueuealpha.Topology {
+func MakeDefaultThreeLevelTopology(name string) *kueue.Topology {
 	return MakeTopology(name).
 		Levels(DefaultBlockTopologyLevel, DefaultRackTopologyLevel, corev1.LabelHostname).
 		Obj()

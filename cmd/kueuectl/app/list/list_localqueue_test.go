@@ -28,7 +28,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -37,28 +37,28 @@ import (
 func TestLocalQueueFilter(t *testing.T) {
 	testCases := map[string]struct {
 		options *LocalQueueOptions
-		in      *v1beta1.LocalQueueList
-		out     *v1beta1.LocalQueueList
+		in      *kueue.LocalQueueList
+		out     *kueue.LocalQueueList
 	}{
 		"shouldn't filter": {
 			options: &LocalQueueOptions{},
-			in: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq2"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq2"},
 					},
 				},
 			},
-			out: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq2"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq2"},
 					},
 				},
 			},
@@ -67,20 +67,20 @@ func TestLocalQueueFilter(t *testing.T) {
 			options: &LocalQueueOptions{
 				ClusterQueueFilter: "cq1",
 			},
-			in: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq2"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq2"},
 					},
 				},
 			},
-			out: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
 					{
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
+						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 					},
 				},
 			},
