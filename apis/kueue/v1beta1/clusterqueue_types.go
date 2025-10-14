@@ -385,6 +385,7 @@ type FlavorFungibilityPolicy string
 const (
 	Borrow        FlavorFungibilityPolicy = "Borrow"
 	Preempt       FlavorFungibilityPolicy = "Preempt"
+	MayStopSearch FlavorFungibilityPolicy = "MayStopSearch"
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
@@ -394,22 +395,24 @@ type FlavorFungibility struct {
 	// whenCanBorrow determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Borrow` (default): allocate in current flavor if borrowing
-	//   is possible.
-	// - `TryNextFlavor`: try next flavor even if the current
-	//   flavor has enough resources to borrow.
+	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
+	//   fits or requires borrowing to fit.
+	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
+	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
-	// +kubebuilder:default="Borrow"
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Borrow}
+	// +kubebuilder:default="MayStopSearch"
 	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
-	// - `TryNextFlavor` (default): try next flavor even if there are enough
-	//   candidates for preemption in the current flavor.
+	// - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
+	//   preemption to fit.
+	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
+	//   to fit in current flavor.
+	// - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Preempt}
 	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 }
