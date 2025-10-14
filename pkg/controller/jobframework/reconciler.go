@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -410,23 +409,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if wl != nil {
-		var active *bool
-
-		if jobact, ok := job.(JobWithCustomWorkloadActivation); ok {
-			active = ptr.To(jobact.IsWorkloadActive())
-		} else if labelValue, hasLabel := object.GetLabels()[controllerconsts.WorkloadActiveLabel]; hasLabel {
-			if parsed, err := strconv.ParseBool(labelValue); err == nil {
-				active = ptr.To(parsed)
-			}
-		}
-
-		if active != nil {
-			if workload.IsActive(wl) != *active {
-				wl.Spec.Active = active
-				if err := r.client.Update(ctx, wl); err != nil {
-					return ctrl.Result{}, err
-				}
+	if jobact, ok := job.(JobWithCustomWorkloadActivation); wl != nil && ok {
+		active := jobact.IsWorkloadActive()
+		if workload.IsActive(wl) != active {
+			wl.Spec.Active = ptr.To(active)
+			if err := r.client.Update(ctx, wl); err != nil {
+				return ctrl.Result{}, err
 			}
 		}
 	}
