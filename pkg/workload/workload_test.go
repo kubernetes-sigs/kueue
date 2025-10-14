@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -844,6 +845,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
@@ -857,6 +859,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
 				Obj(),
 			wantAdmissionChecks: nil,
@@ -870,6 +873,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
@@ -883,16 +887,33 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 					Obj()).
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
+		"AdmissionCheckStrategy with a non-existent flavor": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionCheckStrategy(
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor-nonexistent").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
+		},
 		"Workload has no QuotaReserved": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Obj(),
 			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj(), *utiltesting.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
@@ -903,7 +924,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq))
+			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq), qutil.AllFlavors(tc.cq.Spec.ResourceGroups))
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
