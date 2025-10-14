@@ -164,7 +164,7 @@ func TestPatch(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			ctx := t.Context()
+			ctx, _ := utiltesting.ContextWithLog(t)
 			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).Build()
 			if err := Patch(ctx, clnt, tt.args.obj, tt.args.update, tt.args.options...); (err != nil) != tt.want.err {
 				t.Errorf("Patch() error = %v, wantErr %v", err, tt.want.err)
@@ -289,7 +289,7 @@ func TestPatchStatus(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			ctx := t.Context()
+			ctx, _ := utiltesting.ContextWithLog(t)
 			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).Build()
 			if err := PatchStatus(ctx, clnt, tt.args.obj, tt.args.update, tt.args.options...); (err != nil) != tt.want.err {
 				t.Errorf("Patch() error = %v, wantErr %v", err, tt.want.err)

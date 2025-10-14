@@ -681,4 +681,30 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should skip reconciliation for RayJobs with clusterSelector", func() {
+		ginkgo.By("Creating a RayJob with clusterSelector and queue label")
+		job := testingrayjob.MakeJob("rayjob-with-selector", ns.Name).
+			Queue("test-queue").
+			ClusterSelector(map[string]string{"ray.io/cluster": "existing-cluster"}).
+			Suspend(false).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		ginkgo.By("Checking that no workload is created for this job and the job remains unchanged")
+		lookupKey := types.NamespacedName{
+			Name:      workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+		createdWorkload := &kueue.Workload{}
+		createdJob := &rayv1.RayJob{}
+
+		gomega.Consistently(func(g gomega.Gomega) {
+			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
+			g.Expect(err).Should(gomega.HaveOccurred())
+			g.Expect(client.IgnoreNotFound(err)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+	})
 })

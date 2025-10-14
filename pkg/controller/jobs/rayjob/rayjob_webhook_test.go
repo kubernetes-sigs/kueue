@@ -144,6 +144,25 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+
+		"valid managed - has cluster selector but no RayClusterSpec": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				ClusterSelector(map[string]string{
+					"k1": "v1",
+				}).
+				RayClusterSpec(nil).
+				Obj(),
+			localQueueDefaulting: false,
+			wantErr:              nil,
+		},
+		"invalid managed - no cluster selector and no RayClusterSpec": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				RayClusterSpec(nil).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec", "rayClusterSpec"), "rayClusterSpec is required for Kueue-managed jobs that don't use clusterSelector"),
+			}.ToAggregate(),
+		},
 		"invalid unmanaged - local queue default": {
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
@@ -168,7 +187,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
 			}.ToAggregate(),
 		},
-		"invalid managed - has cluster selector": {
+		"invalid managed - has cluster selector and RayClusterSpec": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ClusterSelector(map[string]string{
 					"k1": "v1",
@@ -269,7 +288,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
-					field.NewPath("spec.rayClusterSpec.headGroupSpec.template, metadata.annotations"),
+					field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations"),
 					field.OmitValueType{},
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
@@ -323,7 +342,7 @@ func TestValidateCreate(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template, metadata.annotations").
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.rayClusterSpec.headGroupSpec.template.metadata.annotations").
 				Key("kueue.x-k8s.io/podset-slice-size"), "2", "must not be greater than pod set count 1"),
 				field.Invalid(field.NewPath("spec.rayClusterSpec.workerGroupSpecs[0].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "10", "must not be greater than pod set count 5"),

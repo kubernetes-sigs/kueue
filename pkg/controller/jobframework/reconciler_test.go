@@ -157,8 +157,8 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().Finished().Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets().Return(tc.podSets, nil).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
 				WithObjects(tc.objs...).
@@ -465,8 +465,8 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
-							APIVersion: "workload.codeflare.dev/appwrapper",
-							Kind:       "AppWrapper",
+							APIVersion: awv1beta2.GroupVersion.String(),
+							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
 							Controller: ptr.To(true),
 						}},
@@ -488,8 +488,8 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
-							APIVersion: "workload.codeflare.dev/v1beta2",
-							Kind:       "AppWrapper",
+							APIVersion: awv1beta2.GroupVersion.String(),
+							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
 							Controller: ptr.To(true),
 						}},
@@ -511,7 +511,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "deploy",
-							APIVersion: "apps/v1",
+							APIVersion: appsv1.SchemeGroupVersion.String(),
 							Kind:       "Deployment",
 							UID:        "deploy",
 							Controller: ptr.To(true),

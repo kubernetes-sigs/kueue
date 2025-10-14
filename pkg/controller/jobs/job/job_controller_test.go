@@ -164,7 +164,8 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.job.PodsReady()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got := tc.job.PodsReady(ctx)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -307,9 +308,10 @@ func TestPodSetsInfo(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			origSpec := *tc.job.Spec.DeepCopy()
 
-			gotErr := tc.job.RunWithPodSetsInfo(tc.runInfo)
+			gotErr := tc.job.RunWithPodSetsInfo(ctx, tc.runInfo)
 
 			if diff := cmp.Diff(tc.wantRunError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
@@ -504,7 +506,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := tc.job.PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := tc.job.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

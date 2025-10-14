@@ -82,9 +82,6 @@ type Scheduler struct {
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
-
-	// Stubs.
-	patchAdmission func(ctx context.Context, original, updated *kueue.Workload) error
 }
 
 type options struct {
@@ -150,7 +147,6 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
 	}
-	s.patchAdmission = s.patchAdmissionStatus
 	return s
 }
 
@@ -646,7 +642,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchAdmission(ctx, origWorkload, newWorkload)
+		err := workload.PatchAdmissionStatus(ctx, s.client, origWorkload, s.clock, func() (*kueue.Workload, bool, error) {
+			return newWorkload, true, nil
+		}, workload.WithLoose())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
@@ -670,12 +668,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	})
 
 	return nil
-}
-
-func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wOrig, w *kueue.Workload) error {
-	return workload.PatchAdmissionStatus(ctx, s.client, wOrig, s.clock, func() (*kueue.Workload, bool, error) {
-		return w, true, nil
-	}, workload.WithLoose())
 }
 
 type entryOrdering struct {
@@ -865,7 +857,7 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 	}
 	reason := kueue.WorkloadSliceReplaced
 	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
-	if err := workloadslicing.Finish(ctx, s.client, oldSlice, reason, message); err != nil {
+	if err := workloadslicing.Finish(ctx, s.client, s.clock, oldSlice, reason, message); err != nil {
 		return fmt.Errorf("failed to replace workload slice: %w", err)
 	}
 

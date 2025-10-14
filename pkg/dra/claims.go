@@ -23,7 +23,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -41,7 +41,7 @@ var (
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec.
-func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) resources.Requests {
+func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) resources.Requests {
 	out := resources.Requests{}
 	if claimSpec == nil {
 		return out
@@ -53,7 +53,7 @@ func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) resource
 		var q int64
 		if req.Exactly != nil {
 			dcName = req.Exactly.DeviceClassName
-			if req.Exactly.AllocationMode == resourcev1beta2.DeviceAllocationModeExactCount {
+			if req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeExactCount {
 				q = req.Exactly.Count
 			}
 		}
@@ -70,16 +70,16 @@ func countDevicesPerClass(claimSpec *resourcev1beta2.ResourceClaimSpec) resource
 // getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
 // and returns its *ResourceClaimSpec. A nil spec and nil error mean the reference is
 // empty (both name pointers are nil) and should be skipped.
-func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourcev1beta2.ResourceClaimSpec, error) {
+func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourcev1.ResourceClaimSpec, error) {
 	switch {
 	case prc.ResourceClaimTemplateName != nil:
-		var tmpl resourcev1beta2.ResourceClaimTemplate
+		var tmpl resourcev1.ResourceClaimTemplate
 		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimTemplateName}, &tmpl); err != nil {
 			return nil, err
 		}
 		return &tmpl.Spec.Spec, nil
 	case prc.ResourceClaimName != nil:
-		var claim resourcev1beta2.ResourceClaim
+		var claim resourcev1.ResourceClaim
 		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimName}, &claim); err != nil {
 			return nil, err
 		}

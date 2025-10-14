@@ -207,10 +207,14 @@ func (w *WorkloadWrapper) AdmittedAt(a bool, t time.Time) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
+	return w.FinishedAt(time.Now())
+}
+
+func (w *WorkloadWrapper) FinishedAt(t time.Time) *WorkloadWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.WorkloadFinished,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
+		LastTransitionTime: metav1.NewTime(t),
 		Reason:             "ByTest",
 		Message:            "Finished by test",
 	}
@@ -279,6 +283,11 @@ func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper
 
 func (w *WorkloadWrapper) AdmissionCheck(ac kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = append(w.Status.AdmissionChecks, ac)
+	return w
+}
+
+func (w *WorkloadWrapper) ResourceRequests(rr ...kueue.PodSetRequest) *WorkloadWrapper {
+	w.Status.ResourceRequests = rr
 	return w
 }
 

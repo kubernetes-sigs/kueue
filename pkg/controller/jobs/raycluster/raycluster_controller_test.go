@@ -283,7 +283,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := tc.rayCluster.PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := tc.rayCluster.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

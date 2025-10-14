@@ -27,7 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -407,8 +407,8 @@ func TestReconcile(t *testing.T) {
 		workload                  *kueue.Workload
 		cq                        *kueue.ClusterQueue
 		lq                        *kueue.LocalQueue
-		resourceClaims            []*resourcev1beta2.ResourceClaim
-		resourceClaimTemplates    []*resourcev1beta2.ResourceClaimTemplate
+		resourceClaims            []*resourcev1.ResourceClaim
+		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 		wantDRAResourceTotal      *int64
 		wantWorkloadsInQueue      *int
 		wantWorkload              *kueue.Workload
@@ -426,14 +426,14 @@ func TestReconcile(t *testing.T) {
 					ResourceClaim("gpu", "rc1").
 					Obj()).
 				Obj(),
-			resourceClaims: []*resourcev1beta2.ResourceClaim{{
+			resourceClaims: []*resourcev1.ResourceClaim{{
 				ObjectMeta: metav1.ObjectMeta{Name: "rc1", Namespace: "ns"},
-				Spec: resourcev1beta2.ResourceClaimSpec{
-					Devices: resourcev1beta2.DeviceClaim{
-						Requests: []resourcev1beta2.DeviceRequest{{
-							Exactly: &resourcev1beta2.ExactDeviceRequest{
+				Spec: resourcev1.ResourceClaimSpec{
+					Devices: resourcev1.DeviceClaim{
+						Requests: []resourcev1.DeviceRequest{{
+							Exactly: &resourcev1.ExactDeviceRequest{
 								DeviceClassName: "gpu.example.com",
-								AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+								AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 								Count:           1,
 							},
 						}},
@@ -476,16 +476,16 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1beta2.ResourceClaimTemplate{{
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
 				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "gpu-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "gpu.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           1,
 								},
 							}},
@@ -523,16 +523,16 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1beta2.ResourceClaimTemplate{{
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
 				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "gpu-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "gpu.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           2,
 								},
 							}},
@@ -568,16 +568,16 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1beta2.ResourceClaimTemplate{{
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
 				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
+				Spec: resourcev1.ResourceClaimTemplateSpec{
+					Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{
+							Requests: []resourcev1.DeviceRequest{{
 								Name: "gpu-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
+								Exactly: &resourcev1.ExactDeviceRequest{
 									DeviceClassName: "unmapped.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
+									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 									Count:           1,
 								},
 							}},

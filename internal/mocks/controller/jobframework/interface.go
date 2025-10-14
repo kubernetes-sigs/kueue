@@ -10,6 +10,7 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -46,9 +47,9 @@ func (m *MockGenericJob) EXPECT() *MockGenericJobMockRecorder {
 }
 
 // Finished mocks base method.
-func (m *MockGenericJob) Finished() (string, bool, bool) {
+func (m *MockGenericJob) Finished(ctx context.Context) (string, bool, bool) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Finished")
+	ret := m.ctrl.Call(m, "Finished", ctx)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(bool)
@@ -56,9 +57,9 @@ func (m *MockGenericJob) Finished() (string, bool, bool) {
 }
 
 // Finished indicates an expected call of Finished.
-func (mr *MockGenericJobMockRecorder) Finished() *gomock.Call {
+func (mr *MockGenericJobMockRecorder) Finished(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Finished", reflect.TypeOf((*MockGenericJob)(nil).Finished))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Finished", reflect.TypeOf((*MockGenericJob)(nil).Finished), ctx)
 }
 
 // GVK mocks base method.
@@ -118,32 +119,32 @@ func (mr *MockGenericJobMockRecorder) Object() *gomock.Call {
 }
 
 // PodSets mocks base method.
-func (m *MockGenericJob) PodSets() ([]v1beta1.PodSet, error) {
+func (m *MockGenericJob) PodSets(ctx context.Context) ([]v1beta1.PodSet, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodSets")
+	ret := m.ctrl.Call(m, "PodSets", ctx)
 	ret0, _ := ret[0].([]v1beta1.PodSet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PodSets indicates an expected call of PodSets.
-func (mr *MockGenericJobMockRecorder) PodSets() *gomock.Call {
+func (mr *MockGenericJobMockRecorder) PodSets(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodSets", reflect.TypeOf((*MockGenericJob)(nil).PodSets))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodSets", reflect.TypeOf((*MockGenericJob)(nil).PodSets), ctx)
 }
 
 // PodsReady mocks base method.
-func (m *MockGenericJob) PodsReady() bool {
+func (m *MockGenericJob) PodsReady(ctx context.Context) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodsReady")
+	ret := m.ctrl.Call(m, "PodsReady", ctx)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // PodsReady indicates an expected call of PodsReady.
-func (mr *MockGenericJobMockRecorder) PodsReady() *gomock.Call {
+func (mr *MockGenericJobMockRecorder) PodsReady(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodsReady", reflect.TypeOf((*MockGenericJob)(nil).PodsReady))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodsReady", reflect.TypeOf((*MockGenericJob)(nil).PodsReady), ctx)
 }
 
 // RestorePodSetsInfo mocks base method.
@@ -161,17 +162,17 @@ func (mr *MockGenericJobMockRecorder) RestorePodSetsInfo(podSetsInfo any) *gomoc
 }
 
 // RunWithPodSetsInfo mocks base method.
-func (m *MockGenericJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (m *MockGenericJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RunWithPodSetsInfo", podSetsInfo)
+	ret := m.ctrl.Call(m, "RunWithPodSetsInfo", ctx, podSetsInfo)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RunWithPodSetsInfo indicates an expected call of RunWithPodSetsInfo.
-func (mr *MockGenericJobMockRecorder) RunWithPodSetsInfo(podSetsInfo any) *gomock.Call {
+func (mr *MockGenericJobMockRecorder) RunWithPodSetsInfo(ctx, podSetsInfo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunWithPodSetsInfo", reflect.TypeOf((*MockGenericJob)(nil).RunWithPodSetsInfo), podSetsInfo)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunWithPodSetsInfo", reflect.TypeOf((*MockGenericJob)(nil).RunWithPodSetsInfo), ctx, podSetsInfo)
 }
 
 // Suspend mocks base method.
@@ -211,33 +212,33 @@ func (m *MockJobWithCustomValidation) EXPECT() *MockJobWithCustomValidationMockR
 }
 
 // ValidateOnCreate mocks base method.
-func (m *MockJobWithCustomValidation) ValidateOnCreate() (field.ErrorList, error) {
+func (m *MockJobWithCustomValidation) ValidateOnCreate(ctx context.Context) (field.ErrorList, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateOnCreate")
+	ret := m.ctrl.Call(m, "ValidateOnCreate", ctx)
 	ret0, _ := ret[0].(field.ErrorList)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ValidateOnCreate indicates an expected call of ValidateOnCreate.
-func (mr *MockJobWithCustomValidationMockRecorder) ValidateOnCreate() *gomock.Call {
+func (mr *MockJobWithCustomValidationMockRecorder) ValidateOnCreate(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateOnCreate", reflect.TypeOf((*MockJobWithCustomValidation)(nil).ValidateOnCreate))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateOnCreate", reflect.TypeOf((*MockJobWithCustomValidation)(nil).ValidateOnCreate), ctx)
 }
 
 // ValidateOnUpdate mocks base method.
-func (m *MockJobWithCustomValidation) ValidateOnUpdate(oldJob jobframework.GenericJob) (field.ErrorList, error) {
+func (m *MockJobWithCustomValidation) ValidateOnUpdate(ctx context.Context, oldJob jobframework.GenericJob) (field.ErrorList, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateOnUpdate", oldJob)
+	ret := m.ctrl.Call(m, "ValidateOnUpdate", ctx, oldJob)
 	ret0, _ := ret[0].(field.ErrorList)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ValidateOnUpdate indicates an expected call of ValidateOnUpdate.
-func (mr *MockJobWithCustomValidationMockRecorder) ValidateOnUpdate(oldJob any) *gomock.Call {
+func (mr *MockJobWithCustomValidationMockRecorder) ValidateOnUpdate(ctx, oldJob any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateOnUpdate", reflect.TypeOf((*MockJobWithCustomValidation)(nil).ValidateOnUpdate), oldJob)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateOnUpdate", reflect.TypeOf((*MockJobWithCustomValidation)(nil).ValidateOnUpdate), ctx, oldJob)
 }
 
 // MockJobWithManagedBy is a mock of JobWithManagedBy interface.
