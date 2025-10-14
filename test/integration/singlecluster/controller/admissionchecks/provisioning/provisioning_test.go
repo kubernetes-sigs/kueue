@@ -642,9 +642,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check state indicates an inactive check", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.Message).To(gomega.Equal(provisioning.CheckInactiveMessage))
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStatePending, provisioning.CheckInactiveMessage)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
