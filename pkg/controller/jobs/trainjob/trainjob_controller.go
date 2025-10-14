@@ -187,7 +187,7 @@ func getChildJobSet(ctx context.Context, t *TrainJob) (*jobsetapi.JobSet, error)
 		WithSpec(jobSetSpec)).Initializer(trainJob).Trainer(info, trainJob).PodLabels(info.Scheduler.PodLabels).Build()
 
 	// convert to jobset with the defaults set
-	return jobsetApplyToJobset(ctx, jobsetApply)
+	return jobsetApplyToJobset(jobsetApply)
 }
 
 // TODO: Remove mutex once RuntimeInfo gets thread safe - https://github.com/kubeflow/trainer/issues/2873
@@ -197,7 +197,7 @@ func (r *trainJobReconciler) runtimeInfo(runtime kftrainerruntime.Runtime, train
 	return runtime.RuntimeInfo(trainJob, trSpec.Template, trSpec.MLPolicy, trSpec.PodGroupPolicy)
 }
 
-func jobsetApplyToJobset(ctx context.Context, jobsetApply *jobsetapplyapi.JobSetApplyConfiguration) (*jobsetapi.JobSet, error) {
+func jobsetApplyToJobset(jobsetApply *jobsetapplyapi.JobSetApplyConfiguration) (*jobsetapi.JobSet, error) {
 	jsonData, err := json.Marshal(jobsetApply)
 	if err != nil {
 		return nil, err
@@ -208,15 +208,6 @@ func jobsetApplyToJobset(ctx context.Context, jobsetApply *jobsetapplyapi.JobSet
 		return nil, err
 	}
 
-	// Run a dry-run patch to set the jobset defaults
-	// Defaults must be applied here because Kueue later compares podsets to match workloads.
-	// Workloads coming from the API server are already defaulted, so without defaulting this JobSet, matching would fail.
-	if err = reconciler.client.Patch(ctx, jobset, client.Apply, &client.PatchOptions{
-		FieldManager: "defaulter",
-		DryRun:       []string{metav1.DryRunAll},
-	}); err != nil {
-		return nil, err
-	}
 	return jobset, nil
 }
 
@@ -243,7 +234,21 @@ func (t *TrainJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	return (*workloadjobset.JobSet)(jobset).PodSets(ctx)
+
+	podsets, err := (*workloadjobset.JobSet)(jobset).PodSets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Run a dry-run patch of a throwaway workload to set the podset defaults
+	// Podsets must be defaulted because Kueue later uses them to match workloads.
+	// Workloads coming from the API server are already defaulted, so without defaulting these podsets, matching would fail.
+	wl := jobframework.NewWorkload(t.Name, t.Object(), podsets, []string{})
+	if err := reconciler.client.Create(ctx, wl, &client.CreateOptions{DryRun: []string{metav1.DryRunAll}}); err != nil {
+		return nil, err
+	}
+
+	return wl.Spec.PodSets, nil
 }
 
 func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
