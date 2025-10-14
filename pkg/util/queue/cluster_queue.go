@@ -15,10 +15,20 @@
 package queue
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
-func NumAllFlavors(rgs []kueue.ResourceGroup) int {
-	return utilslices.Reduce(rgs, func(acc int, rg kueue.ResourceGroup) int { return acc + len(rg.Flavors) }, 0)
+func AllFlavors(rgs []kueue.ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+	return utilslices.Reduce(
+		rgs,
+		func(acc sets.Set[kueue.ResourceFlavorReference], rg kueue.ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+			for _, flavor := range rg.Flavors {
+				acc.Insert(flavor.Name)
+			}
+			return acc
+		},
+		sets.New[kueue.ResourceFlavorReference](),
+	)
 }

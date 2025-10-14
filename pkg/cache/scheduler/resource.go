@@ -75,6 +75,12 @@ func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorRe
 	return quotas
 }
 
-func NumAllFlavors(rgs []ResourceGroup) int {
-	return utilslices.Reduce(rgs, func(acc int, rg ResourceGroup) int { return acc + len(rg.Flavors) }, 0)
+func AllFlavors(rgs []ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+	return utilslices.Reduce(
+		rgs,
+		func(acc sets.Set[kueue.ResourceFlavorReference], rg ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+			return acc.Insert(rg.Flavors...)
+		},
+		sets.New[kueue.ResourceFlavorReference](),
+	)
 }

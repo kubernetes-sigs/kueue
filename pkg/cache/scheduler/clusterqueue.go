@@ -371,7 +371,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
 				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multiKueueAdmissionChecks.Insert(acName)
-				if flavors.Len() != NumAllFlavors(c.ResourceGroups) {
+				if !flavors.Equal(AllFlavors(c.ResourceGroups)) {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
 				}
 			}
