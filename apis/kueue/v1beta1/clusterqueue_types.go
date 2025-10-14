@@ -395,7 +395,7 @@ type FlavorFungibility struct {
 	// whenCanBorrow determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `MayStopSearch` (default): stop looking for more flavors if workload either
+	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
 	//   fits or requires borrowing to fit.
 	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
 	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
@@ -406,7 +406,7 @@ type FlavorFungibility struct {
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `MayStopSearch`: stop looking for more flavors if workload fits or requires
+	// - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
 	//   preemption to fit.
 	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
 	//   to fit in current flavor.
