@@ -244,7 +244,7 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 
 		if !topologyRequestsValid(podSet1.TopologyRequest, podSet2.TopologyRequest) {
 			errorMessageTemplate := fmt.Sprintf(
-				"must specify consistent '%s' or '%s' topology with '%%s' in group '%s'",
+				"must specify '%s' or '%s' topology consistent with '%%s' in group '%s'",
 				kueuebeta.PodSetRequiredTopologyAnnotation,
 				kueuebeta.PodSetPreferredTopologyAnnotation,
 				groupName,

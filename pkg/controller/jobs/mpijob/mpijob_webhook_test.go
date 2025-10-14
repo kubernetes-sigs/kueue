@@ -243,8 +243,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -268,8 +268,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -293,8 +293,8 @@ func TestValidateCreate(t *testing.T) {
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
-				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify consistent 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
