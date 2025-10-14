@@ -23,6 +23,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -109,16 +110,12 @@ func satisfiesPreemptionPolicy(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	} else {
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
-	lowerPriority := incomingPriority > candidatePriority
-	if preemptionPolicy == kueue.PreemptionPolicyLowerPriority {
-		return lowerPriority
-	}
-	if preemptionPolicy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
-		preemptorTS := ctx.WorkloadOrdering.GetQueueOrderTimestamp(ctx.Wl)
-		newerEqualPriority := (incomingPriority == candidatePriority) && preemptorTS.Before(ctx.WorkloadOrdering.GetQueueOrderTimestamp(wl.Obj))
-		return (lowerPriority || newerEqualPriority)
-	}
-	return preemptionPolicy == kueue.PreemptionPolicyAny
+	return preemptioncommon.SatisfiesPreemptionPolicy(
+		preemptionPolicy,
+		incomingPriority,
+		ctx.WorkloadOrdering.GetQueueOrderTimestamp(ctx.Wl),
+		candidatePriority,
+		ctx.WorkloadOrdering.GetQueueOrderTimestamp(wl.Obj))
 }
 
 func isAboveBorrowingThreshold(candidatePriority, incomingPriority int32, borrowWithinCohortThreshold *int32) bool {

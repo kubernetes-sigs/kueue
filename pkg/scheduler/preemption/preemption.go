@@ -455,18 +455,14 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		for _, candidateWl := range cq.Workloads {
 			candidatePriority := priority.Priority(candidateWl.Obj)
-			switch cq.Preemption.WithinClusterQueue {
-			case kueue.PreemptionPolicyLowerPriority:
-				if candidatePriority >= wlPriority {
-					continue
-				}
-			case kueue.PreemptionPolicyLowerOrNewerEqualPriority:
-				if candidatePriority > wlPriority {
-					continue
-				}
-				if candidatePriority == wlPriority && !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
-					continue
-				}
+
+			if !preemptioncommon.SatisfiesPreemptionPolicy(
+				cq.Preemption.WithinClusterQueue,
+				wlPriority,
+				preemptorTS,
+				candidatePriority,
+				p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
+				continue
 			}
 
 			if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
@@ -484,18 +480,13 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 			}
 			for _, candidateWl := range cohortCQ.Workloads {
 				candidatePriority := priority.Priority(candidateWl.Obj)
-				switch cq.Preemption.ReclaimWithinCohort {
-				case kueue.PreemptionPolicyLowerPriority:
-					if candidatePriority >= wlPriority {
-						continue
-					}
-				case kueue.PreemptionPolicyLowerOrNewerEqualPriority:
-					if candidatePriority > wlPriority {
-						continue
-					}
-					if candidatePriority == wlPriority && !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
-						continue
-					}
+				if !preemptioncommon.SatisfiesPreemptionPolicy(
+					cq.Preemption.ReclaimWithinCohort,
+					wlPriority,
+					preemptorTS,
+					candidatePriority,
+					p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
+					continue
 				}
 				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
 					continue
