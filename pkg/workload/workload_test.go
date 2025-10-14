@@ -894,6 +894,21 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
+		"AdmissionCheckStrategy with a non-existent flavor": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").
+					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionCheckStrategy(
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor-nonexistent").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
+		},
 		"Workload has no QuotaReserved": {
 			wl: utiltesting.MakeWorkload("wl", "ns").
 				Obj(),
