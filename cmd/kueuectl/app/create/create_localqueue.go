@@ -27,7 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -52,7 +52,7 @@ type LocalQueueOptions struct {
 	Name             string
 	Namespace        string
 	EnforceNamespace bool
-	ClusterQueue     v1beta1.ClusterQueueReference
+	ClusterQueue     kueue.ClusterQueueReference
 	IgnoreUnknownCq  bool
 
 	UserSpecifiedClusterQueue string
@@ -122,7 +122,7 @@ func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.
 		return err
 	}
 
-	o.ClusterQueue = v1beta1.ClusterQueueReference(o.UserSpecifiedClusterQueue)
+	o.ClusterQueue = kueue.ClusterQueueReference(o.UserSpecifiedClusterQueue)
 
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
@@ -190,10 +190,10 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	return o.PrintObj(lq, o.Out)
 }
 
-func (o *LocalQueueOptions) createLocalQueue() *v1beta1.LocalQueue {
-	return &v1beta1.LocalQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "LocalQueue"},
+func (o *LocalQueueOptions) createLocalQueue() *kueue.LocalQueue {
+	return &kueue.LocalQueue{
+		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "LocalQueue"},
 		ObjectMeta: metav1.ObjectMeta{Name: o.Name, Namespace: o.Namespace},
-		Spec:       v1beta1.LocalQueueSpec{ClusterQueue: o.ClusterQueue},
+		Spec:       kueue.LocalQueueSpec{ClusterQueue: o.ClusterQueue},
 	}
 }

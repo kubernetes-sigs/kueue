@@ -31,7 +31,7 @@ import (
 	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	kubetesting "k8s.io/client-go/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -47,7 +47,7 @@ func TestWorkloadCmd(t *testing.T) {
 		workloads     []runtime.Object
 		jobs          []runtime.Object
 		gvk           schema.GroupVersionKind
-		wantWorkloads []v1beta1.Workload
+		wantWorkloads []kueue.Workload
 		wantJobList   runtime.Object
 		ignoreOut     bool
 		wantOut       string
@@ -67,7 +67,7 @@ func TestWorkloadCmd(t *testing.T) {
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -95,7 +95,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -129,7 +129,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 				*utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
@@ -158,7 +158,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 				*utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
@@ -185,7 +185,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 				*utiltesting.MakeWorkload("wl3", "test").Obj(),
 			},
@@ -213,7 +213,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -237,7 +237,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -260,7 +260,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-			wantWorkloads: []v1beta1.Workload{
+			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{

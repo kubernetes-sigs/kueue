@@ -29,7 +29,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -92,12 +92,12 @@ ns2         lq2    cq2            2                   2                    120m
 			args: []string{"clusterqueue"},
 			objs: []runtime.Object{
 				utiltesting.MakeClusterQueue("cq1").
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Cohort("cohort1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "", "").
 					Cohort("cohort2").
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),

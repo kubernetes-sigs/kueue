@@ -21,7 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -66,8 +66,8 @@ var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					testingjob.ReplicatedJobRequirements{
 						Name: "leader",
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 						},
 					},
 				).
@@ -92,9 +92,9 @@ var _ = ginkgo.Describe("JobSet Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Parallelism: parallelism,
 					Completions: parallelism,
 					PodAnnotations: map[string]string{
-						kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-						kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-						kueuealpha.PodSetSliceSizeAnnotation:             invalidSliceSize,
+						kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
+						kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetSliceSizeAnnotation:             invalidSliceSize,
 					},
 				}).
 				RequestAndLimit("replicated-job-1", "example.com/gpu", "1").

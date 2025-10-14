@@ -24,7 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -117,7 +117,7 @@ func WorkloadNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*
 		}
 
 		if activeStatus != nil {
-			filteredItems := make([]v1beta1.Workload, 0, len(list.Items))
+			filteredItems := make([]kueue.Workload, 0, len(list.Items))
 			for _, wl := range list.Items {
 				if ptr.Deref(wl.Spec.Active, true) == *activeStatus {
 					filteredItems = append(filteredItems, wl)
@@ -154,12 +154,12 @@ func ClusterQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) fu
 		}
 
 		if activeStatus != nil {
-			filteredItems := make([]v1beta1.ClusterQueue, 0, len(list.Items))
+			filteredItems := make([]kueue.ClusterQueue, 0, len(list.Items))
 			for _, cq := range list.Items {
-				stopPolicy := ptr.Deref(cq.Spec.StopPolicy, v1beta1.None)
-				if *activeStatus && stopPolicy == v1beta1.None {
+				stopPolicy := ptr.Deref(cq.Spec.StopPolicy, kueue.None)
+				if *activeStatus && stopPolicy == kueue.None {
 					filteredItems = append(filteredItems, cq)
-				} else if !*activeStatus && stopPolicy != v1beta1.None {
+				} else if !*activeStatus && stopPolicy != kueue.None {
 					filteredItems = append(filteredItems, cq)
 				}
 			}
@@ -197,12 +197,12 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func
 		}
 
 		if activeStatus != nil {
-			filteredItems := make([]v1beta1.LocalQueue, 0, len(list.Items))
+			filteredItems := make([]kueue.LocalQueue, 0, len(list.Items))
 			for _, lq := range list.Items {
-				stopPolicy := ptr.Deref(lq.Spec.StopPolicy, v1beta1.None)
-				if *activeStatus && stopPolicy == v1beta1.None {
+				stopPolicy := ptr.Deref(lq.Spec.StopPolicy, kueue.None)
+				if *activeStatus && stopPolicy == kueue.None {
 					filteredItems = append(filteredItems, lq)
-				} else if !*activeStatus && stopPolicy != v1beta1.None {
+				} else if !*activeStatus && stopPolicy != kueue.None {
 					filteredItems = append(filteredItems, lq)
 				}
 			}

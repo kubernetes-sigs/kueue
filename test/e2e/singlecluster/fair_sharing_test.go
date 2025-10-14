@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -33,13 +33,13 @@ import (
 var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns  *corev1.Namespace
-		rf  *v1beta1.ResourceFlavor
-		cq1 *v1beta1.ClusterQueue
-		cq2 *v1beta1.ClusterQueue
-		cq3 *v1beta1.ClusterQueue
-		lq1 *v1beta1.LocalQueue
-		lq2 *v1beta1.LocalQueue
-		lq3 *v1beta1.LocalQueue
+		rf  *kueue.ResourceFlavor
+		cq1 *kueue.ClusterQueue
+		cq2 *kueue.ClusterQueue
+		cq3 *kueue.ClusterQueue
+		lq1 *kueue.LocalQueue
+		lq2 *kueue.LocalQueue
+		lq3 *kueue.LocalQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("create jobs")
 			for i := range 4 {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
-					Queue(v1beta1.LocalQueueName(lq1.Name)).
+					Queue(kueue.LocalQueueName(lq1.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					Parallelism(3).
 					Completions(3).
