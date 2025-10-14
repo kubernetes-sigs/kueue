@@ -31,7 +31,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
@@ -40,7 +40,7 @@ import (
 var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
-		cq *v1beta1.ClusterQueue
+		cq *v1beta2.ClusterQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -72,11 +72,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
-				var createdQueue v1beta1.LocalQueue
+				var createdQueue v1beta2.LocalQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
-					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta1.ClusterQueueReference(cq.Name)))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta2.ClusterQueueReference(cq.Name)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -98,11 +98,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
-				var createdQueue v1beta1.LocalQueue
+				var createdQueue v1beta2.LocalQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
-					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta1.ClusterQueueReference(cqName)))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta2.ClusterQueueReference(cqName)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -125,11 +125,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
-				var createdQueue v1beta1.LocalQueue
+				var createdQueue v1beta2.LocalQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
-					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta1.ClusterQueueReference(cq.Name)))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta2.ClusterQueueReference(cq.Name)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		const cqName = "cluster-queue"
 
 		ginkgo.AfterEach(func() {
-			var createdQueue v1beta1.ClusterQueue
+			var createdQueue v1beta2.ClusterQueue
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)
 			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
 			if !apierrors.IsNotFound(err) {
@@ -163,15 +163,15 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
-				var createdQueue v1beta1.ClusterQueue
+				var createdQueue v1beta2.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
 					g.Expect(createdQueue.Spec.Cohort).Should(gomega.BeEmpty())
-					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta1.BestEffortFIFO))
+					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta2.BestEffortFIFO))
 					g.Expect(*createdQueue.Spec.NamespaceSelector).Should(gomega.Equal(metav1.LabelSelector{}))
-					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(v1beta1.PreemptionPolicyNever))
-					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta1.PreemptionPolicyNever))
+					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(v1beta2.PreemptionPolicyNever))
+					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta2.PreemptionPolicyNever))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -199,21 +199,21 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
-				var createdQueue v1beta1.ClusterQueue
+				var createdQueue v1beta2.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal(v1beta1.CohortReference("cohort")))
-					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta1.StrictFIFO))
+					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal(v1beta2.CohortReference("cohort")))
+					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta2.StrictFIFO))
 					g.Expect(*createdQueue.Spec.NamespaceSelector).Should(gomega.Equal(metav1.LabelSelector{
 						MatchLabels: map[string]string{"fooX": "barX", "fooY": "barY"},
 					}))
-					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(v1beta1.PreemptionPolicyAny))
-					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta1.PreemptionPolicyLowerPriority))
-					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
+					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(v1beta2.PreemptionPolicyAny))
+					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta2.PreemptionPolicyLowerPriority))
+					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta2.ResourceGroup{
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
@@ -243,14 +243,14 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
-				var createdQueue v1beta1.ClusterQueue
+				var createdQueue v1beta2.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
+					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta2.ResourceGroup{
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
@@ -284,14 +284,14 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
-				var createdQueue v1beta1.ClusterQueue
+				var createdQueue v1beta2.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
+					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta2.ResourceGroup{
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						},
 						{
 							CoveredResources: []corev1.ResourceName{"gpu"},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("beta").
 									Resource("gpu", "0").
 									Obj(),
@@ -340,14 +340,14 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
-				var createdQueue v1beta1.ClusterQueue
+				var createdQueue v1beta2.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
+					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta2.ResourceGroup{
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0", "0", "0").
 									Resource(corev1.ResourceMemory, "0", "0", "0").
@@ -387,21 +387,21 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
-				var createdQueue v1beta1.ClusterQueue
+				var createdQueue v1beta2.ClusterQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(cqName))
-					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal(v1beta1.CohortReference("cohort")))
-					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta1.StrictFIFO))
+					g.Expect(createdQueue.Spec.Cohort).Should(gomega.Equal(v1beta2.CohortReference("cohort")))
+					g.Expect(createdQueue.Spec.QueueingStrategy).Should(gomega.Equal(v1beta2.StrictFIFO))
 					g.Expect(*createdQueue.Spec.NamespaceSelector).Should(gomega.Equal(metav1.LabelSelector{
 						MatchLabels: map[string]string{"fooX": "barX", "fooY": "barY"},
 					}))
-					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(v1beta1.PreemptionPolicyAny))
-					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta1.PreemptionPolicyLowerPriority))
-					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta1.ResourceGroup{
+					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(v1beta2.PreemptionPolicyAny))
+					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(v1beta2.PreemptionPolicyLowerPriority))
+					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]v1beta2.ResourceGroup{
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "2", "1", "0").
 									Resource(corev1.ResourceMemory, "2", "1", "0").
@@ -414,7 +414,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						},
 						{
 							CoveredResources: []corev1.ResourceName{"gpu"},
-							Flavors: []v1beta1.FlavorQuotas{
+							Flavors: []v1beta2.FlavorQuotas{
 								*testing.MakeFlavorQuotas("beta").
 									Resource("gpu", "2", "1", "0").
 									Obj(),
@@ -430,7 +430,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		const rfName = "resource-flavor"
 
 		ginkgo.AfterEach(func() {
-			var resourceFlavor v1beta1.ResourceFlavor
+			var resourceFlavor v1beta2.ResourceFlavor
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: rfName}, &resourceFlavor)
 			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
 			if !apierrors.IsNotFound(err) {
@@ -456,7 +456,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the resource flavor successfully created", func() {
-				var resourceFlavor v1beta1.ResourceFlavor
+				var resourceFlavor v1beta2.ResourceFlavor
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rfName, Namespace: ns.Name}, &resourceFlavor)).To(gomega.Succeed())
 					g.Expect(resourceFlavor.Name).Should(gomega.Equal(rfName))
@@ -489,7 +489,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the resource flavor successfully created", func() {
-				var resourceFlavor v1beta1.ResourceFlavor
+				var resourceFlavor v1beta2.ResourceFlavor
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rfName, Namespace: ns.Name}, &resourceFlavor)).To(gomega.Succeed())
 					g.Expect(resourceFlavor.Name).Should(gomega.Equal(rfName))
@@ -544,7 +544,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the resource flavor not created", func() {
-				var resourceFlavor v1beta1.ResourceFlavor
+				var resourceFlavor v1beta2.ResourceFlavor
 				gomega.Eventually(func(g gomega.Gomega) {
 					rfKey := types.NamespacedName{Name: rfName, Namespace: ns.Name}
 					g.Expect(k8sClient.Get(ctx, rfKey, &resourceFlavor)).Should(testing.BeNotFoundError())

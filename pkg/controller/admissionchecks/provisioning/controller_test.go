@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -456,7 +456,7 @@ func TestReconcile(t *testing.T) {
 				*baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "kueue.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1beta2",
 						Kind:    "Workload",
 					}, "wl", "").
 					Obj(),
@@ -1132,14 +1132,14 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "kueue.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1beta2",
 						Kind:    "Workload",
 					}, "wl", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "kueue.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1beta2",
 						Kind:    "Workload",
 					}, "wl", "").
 					Obj(),

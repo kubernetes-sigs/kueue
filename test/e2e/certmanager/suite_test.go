@@ -28,7 +28,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -38,7 +38,7 @@ var (
 	cfg              *rest.Config
 	restClient       *rest.RESTClient
 	kueueNS          = util.GetKueueNamespace()
-	visibilityClient visibilityv1beta1.VisibilityV1beta1Interface
+	visibilityClient visibilityv1beta2.VisibilityV1beta2Interface
 )
 
 func TestAPIs(t *testing.T) {

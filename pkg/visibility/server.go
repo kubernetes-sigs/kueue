@@ -34,7 +34,7 @@ import (
 	"k8s.io/component-base/version"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
-	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
@@ -81,7 +81,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool) error {
-	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibilityv1beta1.SchemeGroupVersion))
+	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibilityv1beta2.SchemeGroupVersion))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 	if enableInternalCertManagement {

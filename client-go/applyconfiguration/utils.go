@@ -22,10 +22,14 @@ import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	v1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta2"
 	applyconfigurationvisibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
+	applyconfigurationvisibilityv1beta2 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta2"
 )
 
 // ForKind returns an apply configuration type for the given GroupVersionKind, or nil if no
@@ -168,6 +172,142 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadStatus"):
 		return &kueuev1beta1.WorkloadStatusApplyConfiguration{}
 
+		// Group=kueue.x-k8s.io, Version=v1beta2
+	case v1beta2.SchemeGroupVersion.WithKind("Admission"):
+		return &kueuev1beta2.AdmissionApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheck"):
+		return &kueuev1beta2.AdmissionCheckApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckParametersReference"):
+		return &kueuev1beta2.AdmissionCheckParametersReferenceApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckSpec"):
+		return &kueuev1beta2.AdmissionCheckSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionChecksStrategy"):
+		return &kueuev1beta2.AdmissionChecksStrategyApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckState"):
+		return &kueuev1beta2.AdmissionCheckStateApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckStatus"):
+		return &kueuev1beta2.AdmissionCheckStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionCheckStrategyRule"):
+		return &kueuev1beta2.AdmissionCheckStrategyRuleApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionFairSharingStatus"):
+		return &kueuev1beta2.AdmissionFairSharingStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("AdmissionScope"):
+		return &kueuev1beta2.AdmissionScopeApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
+		return &kueuev1beta2.BorrowWithinCohortApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &kueuev1beta2.ClusterQueueApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):
+		return &kueuev1beta2.ClusterQueuePendingWorkloadApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkloadsStatus"):
+		return &kueuev1beta2.ClusterQueuePendingWorkloadsStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueuePreemption"):
+		return &kueuev1beta2.ClusterQueuePreemptionApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueueSpec"):
+		return &kueuev1beta2.ClusterQueueSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
+		return &kueuev1beta2.ClusterQueueStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("Cohort"):
+		return &kueuev1beta2.CohortApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("CohortSpec"):
+		return &kueuev1beta2.CohortSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("CohortStatus"):
+		return &kueuev1beta2.CohortStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("FairSharing"):
+		return &kueuev1beta2.FairSharingApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("FairSharingStatus"):
+		return &kueuev1beta2.FairSharingStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("FlavorFungibility"):
+		return &kueuev1beta2.FlavorFungibilityApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("FlavorQuotas"):
+		return &kueuev1beta2.FlavorQuotasApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("FlavorUsage"):
+		return &kueuev1beta2.FlavorUsageApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("KubeConfig"):
+		return &kueuev1beta2.KubeConfigApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &kueuev1beta2.LocalQueueApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFlavorStatus"):
+		return &kueuev1beta2.LocalQueueFlavorStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
+		return &kueuev1beta2.LocalQueueFlavorUsageApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueResourceUsage"):
+		return &kueuev1beta2.LocalQueueResourceUsageApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueSpec"):
+		return &kueuev1beta2.LocalQueueSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueStatus"):
+		return &kueuev1beta2.LocalQueueStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueCluster"):
+		return &kueuev1beta2.MultiKueueClusterApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
+		return &kueuev1beta2.MultiKueueClusterSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueClusterStatus"):
+		return &kueuev1beta2.MultiKueueClusterStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueConfig"):
+		return &kueuev1beta2.MultiKueueConfigApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("MultiKueueConfigSpec"):
+		return &kueuev1beta2.MultiKueueConfigSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSet"):
+		return &kueuev1beta2.PodSetApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSetAssignment"):
+		return &kueuev1beta2.PodSetAssignmentApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSetRequest"):
+		return &kueuev1beta2.PodSetRequestApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSetTopologyRequest"):
+		return &kueuev1beta2.PodSetTopologyRequestApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PodSetUpdate"):
+		return &kueuev1beta2.PodSetUpdateApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestConfig"):
+		return &kueuev1beta2.ProvisioningRequestConfigApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestConfigSpec"):
+		return &kueuev1beta2.ProvisioningRequestConfigSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestPodSetUpdates"):
+		return &kueuev1beta2.ProvisioningRequestPodSetUpdatesApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestPodSetUpdatesNodeSelector"):
+		return &kueuev1beta2.ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestRetryStrategy"):
+		return &kueuev1beta2.ProvisioningRequestRetryStrategyApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ReclaimablePod"):
+		return &kueuev1beta2.ReclaimablePodApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("RequeueState"):
+		return &kueuev1beta2.RequeueStateApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ResourceFlavor"):
+		return &kueuev1beta2.ResourceFlavorApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ResourceFlavorSpec"):
+		return &kueuev1beta2.ResourceFlavorSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ResourceGroup"):
+		return &kueuev1beta2.ResourceGroupApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ResourceQuota"):
+		return &kueuev1beta2.ResourceQuotaApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("ResourceUsage"):
+		return &kueuev1beta2.ResourceUsageApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("SchedulingStats"):
+		return &kueuev1beta2.SchedulingStatsApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("Topology"):
+		return &kueuev1beta2.TopologyApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyAssignment"):
+		return &kueuev1beta2.TopologyAssignmentApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
+		return &kueuev1beta2.TopologyDomainAssignmentApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyInfo"):
+		return &kueuev1beta2.TopologyInfoApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologyLevel"):
+		return &kueuev1beta2.TopologyLevelApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("TopologySpec"):
+		return &kueuev1beta2.TopologySpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("UnhealthyNode"):
+		return &kueuev1beta2.UnhealthyNodeApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("Workload"):
+		return &kueuev1beta2.WorkloadApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
+		return &kueuev1beta2.WorkloadPriorityClassApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WorkloadSchedulingStatsEviction"):
+		return &kueuev1beta2.WorkloadSchedulingStatsEvictionApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WorkloadSpec"):
+		return &kueuev1beta2.WorkloadSpecApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WorkloadStatus"):
+		return &kueuev1beta2.WorkloadStatusApplyConfiguration{}
+
 		// Group=visibility.kueue.x-k8s.io, Version=v1beta1
 	case visibilityv1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &applyconfigurationvisibilityv1beta1.ClusterQueueApplyConfiguration{}
@@ -177,6 +317,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationvisibilityv1beta1.PendingWorkloadApplyConfiguration{}
 	case visibilityv1beta1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
 		return &applyconfigurationvisibilityv1beta1.PendingWorkloadsSummaryApplyConfiguration{}
+
+		// Group=visibility.kueue.x-k8s.io, Version=v1beta2
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &applyconfigurationvisibilityv1beta2.ClusterQueueApplyConfiguration{}
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &applyconfigurationvisibilityv1beta2.LocalQueueApplyConfiguration{}
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("PendingWorkload"):
+		return &applyconfigurationvisibilityv1beta2.PendingWorkloadApplyConfiguration{}
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
+		return &applyconfigurationvisibilityv1beta2.PendingWorkloadsSummaryApplyConfiguration{}
 
 	}
 	return nil

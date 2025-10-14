@@ -60,7 +60,7 @@ func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create,versions=v1alpha1,name=mtrainjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create,versions=v1alpha1,name=mtrainjob.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 var _ admission.CustomDefaulter = &TrainJobWebhook{}
 
@@ -88,7 +88,7 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj runtime.Object) error
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create;update,versions=v1alpha1,name=vtrainjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-trainer-kubeflow-org-v1alpha1-trainjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=trainer.kubeflow.org,resources=trainjobs,verbs=create;update,versions=v1alpha1,name=vtrainjob.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 var _ admission.CustomValidator = &TrainJobWebhook{}
 

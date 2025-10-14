@@ -49,11 +49,11 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 	"sigs.k8s.io/yaml"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -187,7 +187,7 @@ func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
 	return restClient
 }
 
-func CreateVisibilityClient(user string) (visibilityv1beta1.VisibilityV1beta1Interface, error) {
+func CreateVisibilityClient(user string) (visibilityv1beta2.VisibilityV1beta2Interface, error) {
 	cfg, err := config.GetConfigWithContext("")
 	if err != nil {
 		return nil, fmt.Errorf("unable to get kubeconfig: %w", err)
@@ -202,7 +202,7 @@ func CreateVisibilityClient(user string) (visibilityv1beta1.VisibilityV1beta1Int
 	if err != nil {
 		return nil, fmt.Errorf("unable to create kueue clientset: %w", err)
 	}
-	visibilityClient := kueueClient.VisibilityV1beta1()
+	visibilityClient := kueueClient.VisibilityV1beta2()
 	return visibilityClient, nil
 }
 

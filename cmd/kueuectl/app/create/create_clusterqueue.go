@@ -33,9 +33,9 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -91,11 +91,11 @@ type ClusterQueueOptions struct {
 	DryRunStrategy               util.DryRunStrategy
 	Name                         string
 	Cohort                       string
-	QueueingStrategy             v1beta1.QueueingStrategy
+	QueueingStrategy             v1beta2.QueueingStrategy
 	NamespaceSelector            metav1.LabelSelector
-	ReclaimWithinCohort          v1beta1.PreemptionPolicy
-	PreemptionWithinClusterQueue v1beta1.PreemptionPolicy
-	ResourceGroups               []v1beta1.ResourceGroup
+	ReclaimWithinCohort          v1beta2.PreemptionPolicy
+	PreemptionWithinClusterQueue v1beta2.PreemptionPolicy
+	ResourceGroups               []v1beta2.ResourceGroup
 
 	UserSpecifiedQueueingStrategy             string
 	UserSpecifiedNamespaceSelector            map[string]string
@@ -105,7 +105,7 @@ type ClusterQueueOptions struct {
 	UserSpecifiedBorrowingLimit               []string
 	UserSpecifiedLendingLimit                 []string
 
-	Client kueuev1beta1.KueueV1beta1Interface
+	Client kueuev1beta2.KueueV1beta2Interface
 
 	PrintObj printers.ResourcePrinterFunc
 
@@ -116,9 +116,9 @@ func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOpt
 	return &ClusterQueueOptions{
 		PrintFlags:                   genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
 		IOStreams:                    streams,
-		QueueingStrategy:             v1beta1.BestEffortFIFO,
-		ReclaimWithinCohort:          v1beta1.PreemptionPolicyNever,
-		PreemptionWithinClusterQueue: v1beta1.PreemptionPolicyNever,
+		QueueingStrategy:             v1beta2.BestEffortFIFO,
+		ReclaimWithinCohort:          v1beta2.PreemptionPolicyNever,
+		PreemptionWithinClusterQueue: v1beta2.PreemptionPolicyNever,
 	}
 }
 
@@ -184,7 +184,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 	o.Name = args[0]
 
 	if cmd.Flags().Changed(queuingStrategy) {
-		o.QueueingStrategy = v1beta1.QueueingStrategy(o.UserSpecifiedQueueingStrategy)
+		o.QueueingStrategy = v1beta2.QueueingStrategy(o.UserSpecifiedQueueingStrategy)
 	}
 
 	if cmd.Flags().Changed(namespaceSelector) {
@@ -194,11 +194,11 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 	}
 
 	if cmd.Flags().Changed(reclaimWithinCohort) {
-		o.ReclaimWithinCohort = v1beta1.PreemptionPolicy(o.UserSpecifiedReclaimWithinCohort)
+		o.ReclaimWithinCohort = v1beta2.PreemptionPolicy(o.UserSpecifiedReclaimWithinCohort)
 	}
 
 	if cmd.Flags().Changed(preemptionWithinClusterQueue) {
-		o.PreemptionWithinClusterQueue = v1beta1.PreemptionPolicy(o.UserSpecifiedPreemptionWithinClusterQueue)
+		o.PreemptionWithinClusterQueue = v1beta2.PreemptionPolicy(o.UserSpecifiedPreemptionWithinClusterQueue)
 	}
 
 	var err error
@@ -214,7 +214,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
 	if err != nil {
@@ -264,15 +264,15 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	return o.PrintObj(cq, o.Out)
 }
 
-func (o *ClusterQueueOptions) createClusterQueue() *v1beta1.ClusterQueue {
-	return &v1beta1.ClusterQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
+func (o *ClusterQueueOptions) createClusterQueue() *v1beta2.ClusterQueue {
+	return &v1beta2.ClusterQueue{
+		TypeMeta:   metav1.TypeMeta{APIVersion: v1beta2.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
 		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
-		Spec: v1beta1.ClusterQueueSpec{
-			Cohort:            v1beta1.CohortReference(o.Cohort),
+		Spec: v1beta2.ClusterQueueSpec{
+			Cohort:            v1beta2.CohortReference(o.Cohort),
 			QueueingStrategy:  o.QueueingStrategy,
 			NamespaceSelector: &o.NamespaceSelector,
-			Preemption: &v1beta1.ClusterQueuePreemption{
+			Preemption: &v1beta2.ClusterQueuePreemption{
 				ReclaimWithinCohort: o.ReclaimWithinCohort,
 				WithinClusterQueue:  o.PreemptionWithinClusterQueue,
 			},
@@ -312,8 +312,8 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 	return nil
 }
 
-func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]v1beta1.ResourceGroup, error) {
-	var resourceGroups []v1beta1.ResourceGroup
+func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]v1beta2.ResourceGroup, error) {
+	var resourceGroups []v1beta2.ResourceGroup
 
 	regex := regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?\w+=\w+;)*(\w+[\.-]?)*\/?\w+=\w+;?$`)
 	for _, r := range resources {
@@ -332,17 +332,17 @@ func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]v
 	return resourceGroups, nil
 }
 
-func toResourceGroup(spec, quotaType string) (v1beta1.ResourceGroup, error) {
+func toResourceGroup(spec, quotaType string) (v1beta2.ResourceGroup, error) {
 	flavorName, userSpecifiedResources := parseKeyValue(spec, ":")
 	resourceSpecs := strings.Split(userSpecifiedResources, ";")
 	flavorQuotas, err := toFlavorQuotas(flavorName, resourceSpecs, quotaType)
 	if err != nil {
-		return v1beta1.ResourceGroup{}, err
+		return v1beta2.ResourceGroup{}, err
 	}
 
-	return v1beta1.ResourceGroup{
+	return v1beta2.ResourceGroup{
 		CoveredResources: getCoveredResources(resourceSpecs),
-		Flavors: []v1beta1.FlavorQuotas{
+		Flavors: []v1beta2.FlavorQuotas{
 			flavorQuotas,
 		},
 	}, nil
@@ -358,32 +358,32 @@ func getCoveredResources(resourceSpecs []string) []corev1.ResourceName {
 	return coveredResources
 }
 
-func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (v1beta1.FlavorQuotas, error) {
-	resourceQuotas := make([]v1beta1.ResourceQuota, 0, len(resourceSpecs))
+func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (v1beta2.FlavorQuotas, error) {
+	resourceQuotas := make([]v1beta2.ResourceQuota, 0, len(resourceSpecs))
 	for _, spec := range resourceSpecs {
 		rq, err := toResourceQuota(spec, quotaType)
 		if err != nil {
-			return v1beta1.FlavorQuotas{}, err
+			return v1beta2.FlavorQuotas{}, err
 		}
 
 		resourceQuotas = append(resourceQuotas, rq)
 	}
 
-	return v1beta1.FlavorQuotas{
-		Name:      v1beta1.ResourceFlavorReference(name),
+	return v1beta2.FlavorQuotas{
+		Name:      v1beta2.ResourceFlavorReference(name),
 		Resources: resourceQuotas,
 	}, nil
 }
 
-func toResourceQuota(spec, quotaType string) (v1beta1.ResourceQuota, error) {
+func toResourceQuota(spec, quotaType string) (v1beta2.ResourceQuota, error) {
 	name, quota := parseKeyValue(spec, "=")
-	rq := v1beta1.ResourceQuota{
+	rq := v1beta2.ResourceQuota{
 		Name: corev1.ResourceName(name),
 	}
 
 	quantity, err := resource.ParseQuantity(quota)
 	if err != nil {
-		return v1beta1.ResourceQuota{}, errInvalidResourceQuota
+		return v1beta2.ResourceQuota{}, errInvalidResourceQuota
 	}
 
 	switch quotaType {
@@ -406,10 +406,10 @@ func parseKeyValue(str, sep string) (string, string) {
 	return strings.TrimSpace(pair[0]), strings.TrimSpace(pair[1])
 }
 
-func mergeResourcesByFlavor(resourceGroups []v1beta1.ResourceGroup) ([]v1beta1.ResourceGroup, error) {
-	var mergedResources []v1beta1.ResourceGroup
+func mergeResourcesByFlavor(resourceGroups []v1beta2.ResourceGroup) ([]v1beta2.ResourceGroup, error) {
+	var mergedResources []v1beta2.ResourceGroup
 
-	indexByFlavor := make(map[v1beta1.ResourceFlavorReference]int)
+	indexByFlavor := make(map[v1beta2.ResourceFlavorReference]int)
 	var index int
 	for _, rg := range resourceGroups {
 		flavorName := rg.Flavors[0].Name
@@ -432,11 +432,11 @@ func mergeResourcesByFlavor(resourceGroups []v1beta1.ResourceGroup) ([]v1beta1.R
 	return mergedResources, nil
 }
 
-func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta1.ResourceQuota) ([]v1beta1.ResourceQuota, error) {
-	var mergedResourceQuotas []v1beta1.ResourceQuota
+func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta2.ResourceQuota) ([]v1beta2.ResourceQuota, error) {
+	var mergedResourceQuotas []v1beta2.ResourceQuota
 
 	for _, rq1 := range rQuotas1 {
-		idx := slices.IndexFunc(rQuotas2, func(rq v1beta1.ResourceQuota) bool { return rq.Name == rq1.Name })
+		idx := slices.IndexFunc(rQuotas2, func(rq v1beta2.ResourceQuota) bool { return rq.Name == rq1.Name })
 		if idx == -1 {
 			// both ResourceQuota lists should contain exactly the same resource names
 			return mergedResourceQuotas, errResourceQuotaNotFound
@@ -459,8 +459,8 @@ func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta1.ResourceQuota) ([]v1beta1.
 	return mergedResourceQuotas, nil
 }
 
-func mergeFlavorsByCoveredResources(resourceGroups []v1beta1.ResourceGroup) ([]v1beta1.ResourceGroup, error) {
-	var mergedResources []v1beta1.ResourceGroup
+func mergeFlavorsByCoveredResources(resourceGroups []v1beta2.ResourceGroup) ([]v1beta2.ResourceGroup, error) {
+	var mergedResources []v1beta2.ResourceGroup
 
 	indexByResourceGroupID := make(map[string]int)
 	var index int

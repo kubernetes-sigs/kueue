@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -56,7 +56,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager, dispatcherName string) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta2,name=mworkload.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -76,7 +76,7 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=vworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta2,name=vworkload.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 var _ webhook.CustomValidator = &WorkloadWebhook{}
 

@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -32,7 +32,7 @@ import (
 var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
-		cq *v1beta1.ClusterQueue
+		cq *v1beta2.ClusterQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -59,11 +59,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
-				var createdQueue v1beta1.LocalQueue
+				var createdQueue v1beta2.LocalQueue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
-					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta1.ClusterQueueReference(cq.Name)))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta2.ClusterQueueReference(cq.Name)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			})
 
 			ginkgo.By("Check that the local queue did not create", func() {
-				var createdQueue v1beta1.LocalQueue
+				var createdQueue v1beta2.LocalQueue
 				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).ToNot(gomega.Succeed())
 			})
 		})

@@ -22,6 +22,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-workload-codeflare-dev-v1beta2-appwrapper
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mappwrapper.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -45,6 +46,7 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-deployment
+    matchPolicy: Equivalent
     name: mdeployment.kb.io
     {{- if has "deployment" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -82,6 +84,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-batch-v1-job
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -106,6 +109,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mjobset.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -130,6 +134,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-jaxjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mjaxjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -154,6 +159,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mpaddlejob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -178,6 +184,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mpytorchjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -202,6 +209,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mtfjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -226,6 +234,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mxgboostjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -249,6 +258,7 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate--v1-pod
+    matchPolicy: Equivalent
     name: mpod.kb.io
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -285,6 +295,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mleaderworkerset.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -310,6 +321,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mmpijob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -334,6 +346,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-ray-io-v1-raycluster
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mraycluster.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -358,6 +371,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-ray-io-v1-rayjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mrayjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -381,6 +395,7 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-statefulset
+    matchPolicy: Equivalent
     name: mstatefulset.kb.io
     {{- if has "statefulset" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -418,6 +433,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-trainer-kubeflow-org-v1alpha1-trainjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mtrainjob.kb.io
     rules:
       - apiGroups:
@@ -436,14 +452,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
+        path: /mutate-kueue-x-k8s-io-v1beta2-clusterqueue
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mclusterqueue.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
         resources:
@@ -456,14 +473,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate-kueue-x-k8s-io-v1beta1-resourceflavor
+        path: /mutate-kueue-x-k8s-io-v1beta2-resourceflavor
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mresourceflavor.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
         resources:
@@ -476,14 +494,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate-kueue-x-k8s-io-v1beta1-workload
+        path: /mutate-kueue-x-k8s-io-v1beta2-workload
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: mworkload.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
         resources:
@@ -511,6 +530,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-workload-codeflare-dev-v1beta2-appwrapper
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vappwrapper.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -534,6 +554,7 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-deployment
+    matchPolicy: Equivalent
     name: vdeployment.kb.io
     {{- if has "deployment" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -570,6 +591,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-batch-v1-job
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -594,6 +616,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vjobset.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -618,6 +641,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-jaxjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vjaxjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -642,6 +666,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vpaddlejob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -666,6 +691,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vpytorchjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -690,6 +716,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vtfjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -714,6 +741,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vxgboostjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -737,6 +765,7 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate--v1-pod
+    matchPolicy: Equivalent
     name: vpod.kb.io
     {{- if has "pod" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -773,6 +802,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-leaderworkerset-x-k8s-io-v1-leaderworkerset
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vleaderworkerset.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -797,6 +827,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vmpijob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -821,6 +852,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-ray-io-v1-raycluster
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vraycluster.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -845,6 +877,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-ray-io-v1-rayjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vrayjob.kb.io
     {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
     namespaceSelector:
@@ -868,6 +901,7 @@ webhooks:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-statefulset
+    matchPolicy: Equivalent
     name: vstatefulset.kb.io
     {{- if has "statefulset" $integrationsConfig.frameworks }}
     failurePolicy: Fail
@@ -904,6 +938,7 @@ webhooks:
         namespace: '{{ .Release.Namespace }}'
         path: /validate-trainer-kubeflow-org-v1alpha1-trainjob
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vtrainjob.kb.io
     rules:
       - apiGroups:
@@ -922,14 +957,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
+        path: /validate-kueue-x-k8s-io-v1beta2-clusterqueue
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vclusterqueue.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
           - UPDATE
@@ -942,14 +978,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-cohort
+        path: /validate-kueue-x-k8s-io-v1beta2-cohort
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vcohort.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
           - UPDATE
@@ -962,14 +999,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-resourceflavor
+        path: /validate-kueue-x-k8s-io-v1beta2-resourceflavor
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vresourceflavor.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
           - UPDATE
@@ -982,14 +1020,15 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-workload
+        path: /validate-kueue-x-k8s-io-v1beta2-workload
     failurePolicy: Fail
+    matchPolicy: Equivalent
     name: vworkload.kb.io
     rules:
       - apiGroups:
           - kueue.x-k8s.io
         apiVersions:
-          - v1beta1
+          - v1beta2
         operations:
           - CREATE
           - UPDATE

@@ -22,7 +22,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobsxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"

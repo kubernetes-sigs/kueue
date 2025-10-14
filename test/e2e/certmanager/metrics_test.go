@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -43,7 +43,7 @@ const (
 var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	var (
 		ns             *corev1.Namespace
-		resourceFlavor *v1beta1.ResourceFlavor
+		resourceFlavor *v1beta2.ResourceFlavor
 
 		metricsReaderClusterRoleBinding *rbacv1.ClusterRoleBinding
 
@@ -128,9 +128,9 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 	ginkgo.When("workload is admitted", func() {
 		var (
-			clusterQueue *v1beta1.ClusterQueue
-			localQueue   *v1beta1.LocalQueue
-			workload     *v1beta1.Workload
+			clusterQueue *v1beta2.ClusterQueue
+			localQueue   *v1beta2.LocalQueue
+			workload     *v1beta2.Workload
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -152,7 +152,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 
 			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue.Name)).
 				PodSets(
 					*utiltesting.MakePodSet("ps1", 1).Obj(),
 				).

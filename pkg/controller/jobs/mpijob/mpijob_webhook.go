@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -43,9 +43,9 @@ var (
 	mpiReplicaSpecsPath         = field.NewPath("spec", "mpiReplicaSpecs")
 	launcherAnnotationsPath     = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeLauncher)).Child("template", "metadata", "annotations")
 	workerAnnotationsPath       = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeWorker)).Child("template", "metadata", "annotations")
-	podSetAnnotationsPathByName = map[v1beta1.PodSetReference]*field.Path{
-		v1beta1.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherAnnotationsPath,
-		v1beta1.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerAnnotationsPath,
+	podSetAnnotationsPathByName = map[v1beta2.PodSetReference]*field.Path{
+		v1beta2.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherAnnotationsPath,
+		v1beta2.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerAnnotationsPath,
 	}
 )
 
@@ -77,7 +77,7 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 var _ admission.CustomDefaulter = &MpiJobWebhook{}
 
@@ -97,7 +97,7 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 var _ admission.CustomValidator = &MpiJobWebhook{}
 
@@ -169,7 +169,7 @@ func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPI
 			continue
 		}
 
-		podSet := podset.FindPodSetByName(podSets, v1beta1.NewPodSetReference(string(replicaType)))
+		podSet := podset.FindPodSetByName(podSets, v1beta2.NewPodSetReference(string(replicaType)))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podSet)...)
 	}
 

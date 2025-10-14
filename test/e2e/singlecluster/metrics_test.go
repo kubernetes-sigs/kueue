@@ -28,7 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -45,7 +45,7 @@ const (
 var _ = ginkgo.Describe("Metrics", func() {
 	var (
 		ns             *corev1.Namespace
-		resourceFlavor *v1beta1.ResourceFlavor
+		resourceFlavor *v1beta2.ResourceFlavor
 
 		metricsReaderClusterRoleBinding *rbacv1.ClusterRoleBinding
 
@@ -100,9 +100,9 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 	ginkgo.When("workload is admitted", func() {
 		var (
-			clusterQueue *v1beta1.ClusterQueue
-			localQueue   *v1beta1.LocalQueue
-			workload     *v1beta1.Workload
+			clusterQueue *v1beta2.ClusterQueue
+			localQueue   *v1beta2.LocalQueue
+			workload     *v1beta2.Workload
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.MustCreate(ctx, k8sClient, localQueue)
 
 			workload = utiltesting.MakeWorkload("test-workload", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue.Name)).
 				PodSets(
 					*utiltesting.MakePodSet("ps1", 1).Obj(),
 				).
@@ -226,12 +226,12 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 	ginkgo.When("workload is admitted with admission checks", func() {
 		var (
-			admissionCheck  *v1beta1.AdmissionCheck
-			clusterQueue    *v1beta1.ClusterQueue
-			localQueue      *v1beta1.LocalQueue
+			admissionCheck  *v1beta2.AdmissionCheck
+			clusterQueue    *v1beta2.ClusterQueue
+			localQueue      *v1beta2.LocalQueue
 			createdJob      *batchv1.Job
 			workloadKey     types.NamespacedName
-			createdWorkload *v1beta1.Workload
+			createdWorkload *v1beta2.Workload
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
-				AdmissionChecks(v1beta1.AdmissionCheckReference(admissionCheck.Name)).
+				AdmissionChecks(v1beta2.AdmissionCheckReference(admissionCheck.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.MustCreate(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
@@ -270,11 +270,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Namespace: ns.Name,
 			}
 
-			createdWorkload = &v1beta1.Workload{}
+			createdWorkload = &v1beta2.Workload{}
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(v1beta1.WorkloadQuotaReserved))
+				g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(v1beta2.WorkloadQuotaReserved))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -291,9 +291,9 @@ var _ = ginkgo.Describe("Metrics", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
 					patch := util.BaseSSAWorkload(createdWorkload)
-					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, v1beta1.AdmissionCheckState{
-						Name:  v1beta1.AdmissionCheckReference(admissionCheck.Name),
-						State: v1beta1.CheckStateReady,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, v1beta2.AdmissionCheckState{
+						Name:  v1beta2.AdmissionCheckReference(admissionCheck.Name),
+						State: v1beta2.CheckStateReady,
 					}, realClock)
 					g.Expect(k8sClient.Status().
 						Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).
@@ -325,25 +325,25 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 	ginkgo.When("workload is admitted with eviction and preemption", func() {
 		var (
-			clusterQueue1 *v1beta1.ClusterQueue
-			clusterQueue2 *v1beta1.ClusterQueue
+			clusterQueue1 *v1beta2.ClusterQueue
+			clusterQueue2 *v1beta2.ClusterQueue
 
-			localQueue1 *v1beta1.LocalQueue
-			localQueue2 *v1beta1.LocalQueue
+			localQueue1 *v1beta2.LocalQueue
+			localQueue2 *v1beta2.LocalQueue
 
 			highPriorityClass *schedulingv1.PriorityClass
 
 			lowerJob1         *batchv1.Job
 			lowerWorkload1Key types.NamespacedName
-			lowerWorkload1    *v1beta1.Workload
+			lowerWorkload1    *v1beta2.Workload
 
 			lowerJob2         *batchv1.Job
 			lowerWorkload2Key types.NamespacedName
-			lowerWorkload2    *v1beta1.Workload
+			lowerWorkload2    *v1beta2.Workload
 
 			blockerJob         *batchv1.Job
 			blockerWorkloadKey types.NamespacedName
-			blockerWorkload    *v1beta1.Workload
+			blockerWorkload    *v1beta2.Workload
 
 			higherJob1 *batchv1.Job
 			higherJob2 *batchv1.Job
@@ -358,11 +358,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Resource(corev1.ResourceCPU, "2").
 						Obj(),
 				).
-				Preemption(v1beta1.ClusterQueuePreemption{
-					ReclaimWithinCohort: v1beta1.PreemptionPolicyLowerPriority,
-					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
-					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
-						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
+				Preemption(v1beta2.ClusterQueuePreemption{
+					ReclaimWithinCohort: v1beta2.PreemptionPolicyLowerPriority,
+					WithinClusterQueue:  v1beta2.PreemptionPolicyLowerPriority,
+					BorrowWithinCohort: &v1beta2.BorrowWithinCohort{
+						Policy: v1beta2.BorrowWithinCohortPolicyLowerPriority,
 					},
 				}).
 				Obj()
@@ -376,11 +376,11 @@ var _ = ginkgo.Describe("Metrics", func() {
 						Resource(corev1.ResourceCPU, "3").
 						Obj(),
 				).
-				Preemption(v1beta1.ClusterQueuePreemption{
-					ReclaimWithinCohort: v1beta1.PreemptionPolicyLowerPriority,
-					WithinClusterQueue:  v1beta1.PreemptionPolicyLowerPriority,
-					BorrowWithinCohort: &v1beta1.BorrowWithinCohort{
-						Policy: v1beta1.BorrowWithinCohortPolicyLowerPriority,
+				Preemption(v1beta2.ClusterQueuePreemption{
+					ReclaimWithinCohort: v1beta2.PreemptionPolicyLowerPriority,
+					WithinClusterQueue:  v1beta2.PreemptionPolicyLowerPriority,
+					BorrowWithinCohort: &v1beta2.BorrowWithinCohort{
+						Policy: v1beta2.BorrowWithinCohortPolicyLowerPriority,
 					},
 				}).
 				Obj()
@@ -402,7 +402,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue1.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
@@ -412,7 +412,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Name:      lowerWLName1,
 				Namespace: ns.Name,
 			}
-			lowerWorkload1 = &v1beta1.Workload{}
+			lowerWorkload1 = &v1beta2.Workload{}
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lowerWorkload1Key, lowerWorkload1)).To(gomega.Succeed())
@@ -421,7 +421,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1)
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue2.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Name:      lowerWLName2,
 				Namespace: ns.Name,
 			}
-			lowerWorkload2 = &v1beta1.Workload{}
+			lowerWorkload2 = &v1beta2.Workload{}
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lowerWorkload2Key, lowerWorkload2)).To(gomega.Succeed())
@@ -440,7 +440,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload2)
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue2.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
@@ -451,7 +451,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 				Name:      blockerWLName,
 				Namespace: ns.Name,
 			}
-			blockerWorkload = &v1beta1.Workload{}
+			blockerWorkload = &v1beta2.Workload{}
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
@@ -460,14 +460,14 @@ var _ = ginkgo.Describe("Metrics", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockerWorkload)
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue1.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue1.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
 			util.MustCreate(ctx, k8sClient, higherJob1)
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
-				Queue(v1beta1.LocalQueueName(localQueue2.Name)).
+				Queue(v1beta2.LocalQueueName(localQueue2.Name)).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
@@ -501,7 +501,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
-				g.Expect(blockerWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(v1beta1.WorkloadEvicted, v1beta1.WorkloadDeactivated))
+				g.Expect(blockerWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(v1beta2.WorkloadEvicted, v1beta2.WorkloadDeactivated))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Expecting at least one of the high-priority jobs to be admitted", func() {
