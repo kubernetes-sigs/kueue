@@ -310,7 +310,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	WorkloadRequestUseMergePatch: {
-		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Alpha},
 	},
 }
 
