@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 
 	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -269,25 +270,12 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 
 func topologyRequestsValid(r1, r2 *kueuebeta.PodSetTopologyRequest) bool {
 	// Check that the requests have exactly one of `Required` and `Preferred`.
-	r1HasRequired := r1.Required != nil
-	r1HasPreferred := r1.Preferred != nil
-	if r1HasRequired == r1HasPreferred {
+	if r1.Required == nil && r1.Preferred == nil {
 		return false
 	}
-	r2HasRequired := r2.Required != nil
-	r2HasPreferred := r2.Preferred != nil
-	if r2HasRequired == r2HasPreferred {
+	if r2.Required == nil && r2.Preferred == nil {
 		return false
 	}
-
-	// Check that the request values are the same.
-	if r1HasRequired && r2HasRequired {
-		return *r1.Required == *r2.Required
-	}
-	if r1HasPreferred && r2HasPreferred {
-		return *r1.Preferred == *r2.Preferred
-	}
-
-	// One requested `Required`, other `Preferred` - invalid.
-	return false
+	// Check that the non-nil pair has the same value.
+	return ptr.Equal(r1.Required, r2.Required) && ptr.Equal(r1.Preferred, r2.Preferred)
 }
