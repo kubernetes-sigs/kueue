@@ -8194,6 +8194,12 @@ func TestLastSchedulingContext(t *testing.T) {
 				scheduler.schedule(ctx)
 				wg.Wait()
 
+				if features.Enabled(features.WorkloadRequestUseMergePatch) {
+					// Schedule again to ensure all workloads are admitted, as with MergePatch we enforce stricter patching.
+					scheduler.schedule(ctx)
+					wg.Wait()
+				}
+
 				if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
 					t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 				}
