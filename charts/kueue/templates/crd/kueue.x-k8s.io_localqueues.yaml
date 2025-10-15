@@ -189,6 +189,7 @@ spec:
                       - status
                       - type
                     type: object
+                  maxItems: 64
                   type: array
                   x-kubernetes-list-map-keys:
                     - type
@@ -343,6 +344,7 @@ spec:
                           levels:
                             description: levels define the levels of topology.
                             items:
+                              maxLength: 256
                               type: string
                             maxItems: 8
                             minItems: 1

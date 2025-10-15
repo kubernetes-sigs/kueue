@@ -68,6 +68,7 @@ spec:
                   description: AdmissionCheckReference is the name of an AdmissionCheck.
                   maxLength: 316
                   type: string
+                maxItems: 64
                 type: array
               admissionChecksStrategy:
                 description: |-
@@ -94,10 +95,12 @@ spec:
                             maxLength: 253
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
+                          maxItems: 64
                           type: array
                       required:
                       - name
                       type: object
+                    maxItems: 64
                     type: array
                 type: object
               admissionScope:
@@ -110,6 +113,10 @@ spec:
                       in the AdmissionScope. Possible values are:
                       - UsageBasedAdmissionFairSharing
                       - NoAdmissionFairSharing
+                    enum:
+                    - UsageBasedAdmissionFairSharing
+                    - NoAdmissionFairSharing
+                    maxLength: 36
                     type: string
                 required:
                 - admissionMode
@@ -566,6 +573,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
@@ -748,15 +756,18 @@ spec:
                       properties:
                         name:
                           description: name indicates the name of the pending workload.
+                          maxLength: 256
                           type: string
                         namespace:
                           description: namespace indicates the name of the pending
                             workload.
+                          maxLength: 63
                           type: string
                       required:
                       - name
                       - namespace
                       type: object
+                    maxItems: 64
                     type: array
                     x-kubernetes-list-type: atomic
                   lastChangeTime:

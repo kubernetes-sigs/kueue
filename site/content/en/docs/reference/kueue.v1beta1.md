@@ -593,7 +593,8 @@ This may be an empty string.</p>
 </td>
 <td>
    <p>conditions hold the latest available observations of the AdmissionCheck
-current state.</p>
+current state.
+This is limited to at most 64 separate conditions.</p>
 </td>
 </tr>
 </tbody>

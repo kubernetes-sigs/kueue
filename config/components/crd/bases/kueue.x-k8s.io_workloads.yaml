@@ -8679,16 +8679,19 @@ spec:
                             - kubernetes job this is: kubernetes.io/job-completion-index
                             - JobSet: kubernetes.io/job-completion-index (inherited from Job)
                             - Kubeflow: training.kubeflow.org/replica-index
+                          maxLength: 256
                           type: string
                         podSetGroupName:
                           description: |-
                             podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
                             PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
+                          maxLength: 256
                           type: string
                         podSetSliceRequiredTopology:
                           description: |-
                             podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
                             indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+                          maxLength: 256
                           type: string
                         podSetSliceSize:
                           description: |-
@@ -8702,12 +8705,14 @@ spec:
                             preferred indicates the topology level preferred by the PodSet, as
                             indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
                             annotation.
+                          maxLength: 256
                           type: string
                         required:
                           description: |-
                             required indicates the topology level required by the PodSet, as
                             indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
                             annotation.
+                          maxLength: 256
                           type: string
                         subGroupCount:
                           description: |-
@@ -8719,6 +8724,7 @@ spec:
                           description: |-
                             subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
                             within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+                          maxLength: 256
                           type: string
                         unconstrained:
                           description: |-
@@ -8828,6 +8834,7 @@ spec:
                             Kueue schedules the second pass of scheduling for each workload with at
                             least one PodSet which has delayedTopologyRequest=true and without
                             topologyAssignment.
+                          maxLength: 7
                           type: string
                         flavors:
                           additionalProperties:
@@ -8926,6 +8933,7 @@ spec:
                                       domain. The values correspond to the consecutive topology levels, from
                                       the highest to the lowest.
                                     items:
+                                      maxLength: 256
                                       type: string
                                     maxItems: 8
                                     minItems: 1
@@ -8935,6 +8943,7 @@ spec:
                                 - count
                                 - values
                                 type: object
+                              maxItems: 64
                               type: array
                             levels:
                               description: |-
@@ -8942,6 +8951,7 @@ spec:
                                 topology (i.e. node label keys), from the highest to the lowest level of
                                 the topology.
                               items:
+                                maxLength: 256
                                 type: string
                               maxItems: 8
                               minItems: 1
@@ -9110,6 +9120,7 @@ spec:
                   affinity or propagation policies across workload slices.
 
                   This field is reset after the Workload is evicted.
+                maxLength: 256
                 type: string
               conditions:
                 description: |-
@@ -9176,6 +9187,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
@@ -9187,6 +9199,7 @@ spec:
                   `status.clusterName` is set.
                   This field is optional.
                 items:
+                  maxLength: 256
                   type: string
                 maxItems: 10
                 type: array
@@ -9304,6 +9317,7 @@ spec:
                       - reason
                       - underlyingCause
                       type: object
+                    maxItems: 64
                     type: array
                     x-kubernetes-list-map-keys:
                     - reason
@@ -9320,10 +9334,12 @@ spec:
                   properties:
                     name:
                       description: name is the name of the unhealthy node.
+                      maxLength: 256
                       type: string
                   required:
                   - name
                   type: object
+                maxItems: 2048
                 type: array
             type: object
             x-kubernetes-validations:

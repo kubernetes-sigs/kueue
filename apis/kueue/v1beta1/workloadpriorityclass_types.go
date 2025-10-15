@@ -41,6 +41,7 @@ type WorkloadPriorityClass struct {
 	// description is an arbitrary string that usually provides guidelines on
 	// when this workloadPriorityClass should be used.
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	Description string `json:"description,omitempty"`
 }
 
