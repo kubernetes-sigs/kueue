@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				})
 			})
 			ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
-				gomega.Eventually(func(g gomega.Gomega) []string {
+				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 					topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
 					g.Expect(topologyAssignment).NotTo(gomega.BeNil())
@@ -201,9 +201,10 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						chosenNodes = append(chosenNodes, domain.Values...)
 					}
 					slices.SortFunc(chosenNodes, strings.Compare)
-					return chosenNodes
-				}, util.Timeout, util.Interval).Should(gomega.BeEquivalentTo([]string{
-					"kind-worker2", "kind-worker3", "kind-worker4"}))
+					g.Expect(chosenNodes).To(
+						gomega.BeEquivalentTo([]string{
+							"kind-worker2", "kind-worker3", "kind-worker4"}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 		ginkgo.It("Should evict the workload if replacement is not possible", func() {
@@ -242,7 +243,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			})
 
 			pods := &corev1.PodList{}
-			wl := &kueue.Workload{}
 
 			ginkgo.By("ensure all pods are created, scheduled and running", func() {
 				listOpts := &client.ListOptions{
@@ -261,22 +261,23 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			wlKey := client.ObjectKey{Name: wlName, Namespace: ns.Name}
 			chosenPod := pods.Items[0]
 			node = &corev1.Node{}
-			ginkgo.By("Get node running the chosen pod and fail the pod", func() {
+			ginkgo.By("Terminate the chosen pod", func() {
 				var found bool
 				_, found = chosenPod.Annotations[kueue.WorkloadAnnotation]
 				gomega.Expect(found).Should(gomega.BeTrue())
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
 				chosenPod.Status.Phase = corev1.PodFailed
 				gomega.Expect(k8sClient.Status().Update(ctx, &chosenPod)).To(gomega.Succeed())
 			})
 
 			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
 				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
 					Type:               corev1.NodeReady,
 					Status:             corev1.ConditionFalse,
 					LastTransitionTime: metav1.NewTime(time.Now()),
 				})
 			})
+			wl := &kueue.Workload{}
 			ginkgo.By("Check that the workload is evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
