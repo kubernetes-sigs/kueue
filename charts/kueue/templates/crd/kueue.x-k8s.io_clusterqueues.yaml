@@ -842,6 +842,7 @@ spec:
                   description: |-
                     admissionChecks lists the AdmissionChecks required by this ClusterQueue.
                     Cannot be used along with AdmissionCheckStrategy.
+                    Admission checks are limited to at most 64 items.
                   items:
                     description: AdmissionCheckReference is the name of an AdmissionCheck.
                     maxLength: 316
@@ -870,11 +871,13 @@ spec:
                               maxLength: 253
                               pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
+                            maxItems: 64
                             type: array
                             x-kubernetes-list-type: set
                         required:
                           - name
                         type: object
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-map-keys:
                         - name
@@ -887,6 +890,9 @@ spec:
                       description: |-
                         admissionMode indicates which mode for AdmissionFairSharing should be used
                         in the AdmissionScope. Possible values are:
+                        - UsageBasedAdmissionFairSharing
+                        - NoAdmissionFairSharing
+                      enum:
                         - UsageBasedAdmissionFairSharing
                         - NoAdmissionFairSharing
                       type: string
@@ -1286,6 +1292,7 @@ spec:
                   description: |-
                     conditions hold the latest available observations of the ClusterQueue
                     current state.
+                    conditions are limited to 16 elements.
                   items:
                     description: Condition contains details for one aspect of the current state of this API Resource.
                     properties:
@@ -1339,6 +1346,7 @@ spec:
                       - status
                       - type
                     type: object
+                  maxItems: 16
                   type: array
                   x-kubernetes-list-map-keys:
                     - type
@@ -1390,6 +1398,7 @@ spec:
                   description: |-
                     flavorsReservation are the reserved quotas, by flavor, currently in use by the
                     workloads assigned to this ClusterQueue.
+                    flavorsReservation are limited to 64 elements.
                   items:
                     properties:
                       name:
@@ -1516,9 +1525,11 @@ spec:
                         properties:
                           name:
                             description: name indicates the name of the pending workload.
+                            maxLength: 256
                             type: string
                           namespace:
                             description: namespace indicates the name of the pending workload.
+                            maxLength: 63
                             type: string
                         required:
                           - name
