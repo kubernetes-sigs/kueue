@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 			ginkgo.By("checking the workload is updated with queue name when the JobSet does")
 			var jobSetQueueName kueue.LocalQueueName = "test-queue"
-			createdJobSet.Annotations = map[string]string{constants.QueueLabel: string(jobSetQueueName)}
+			createdJobSet.Labels = map[string]string{constants.QueueLabel: string(jobSetQueueName)}
 			gomega.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -792,7 +792,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				},
 			).Obj()
 			jobSetQueueName := "test-queue"
-			jobSet.Annotations = map[string]string{constants.QueueLabel: jobSetQueueName}
+			jobSet.Labels = map[string]string{constants.QueueLabel: jobSetQueueName}
 			util.MustCreate(ctx, k8sClient, jobSet)
 			lookupKey := types.NamespacedName{Name: jobSetName, Namespace: ns.Name}
 			createdJobSet := &jobsetapi.JobSet{}

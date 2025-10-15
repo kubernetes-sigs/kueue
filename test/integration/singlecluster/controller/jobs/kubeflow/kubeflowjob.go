@@ -90,7 +90,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
 
 	ginkgo.By("checking the workload is updated with queue name when the job does")
-	createdJob.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
+	createdJob.Object().SetLabels(map[string]string{constants.QueueLabel: string(jobQueueName)})
 	gomega.Expect(k8sClient.Update(ctx, createdJob.Object())).Should(gomega.Succeed())
 	util.AwaitAndVerifyWorkloadQueueName(ctx, k8sClient, createdWorkload, wlLookupKey, jobQueueName)
 
@@ -222,7 +222,7 @@ func ShouldNotReconcileUnmanagedJob(ctx context.Context, k8sClient client.Client
 
 func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, podsReadyTestSpec PodsReadyTestSpec, podSetsResources []PodSetsResource) {
 	ginkgo.By("Create a job")
-	job.Object().SetAnnotations(map[string]string{constants.QueueAnnotation: string(jobQueueName)})
+	job.Object().SetLabels(map[string]string{constants.QueueLabel: string(jobQueueName)})
 	util.MustCreate(ctx, k8sClient, job.Object())
 	lookupKey := client.ObjectKeyFromObject(job.Object())
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())

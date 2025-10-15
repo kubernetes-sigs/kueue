@@ -183,11 +183,7 @@ func QueueName(job GenericJob) kueue.LocalQueueName {
 }
 
 func QueueNameForObject(object client.Object) kueue.LocalQueueName {
-	if queueLabel := object.GetLabels()[constants.QueueLabel]; queueLabel != "" {
-		return kueue.LocalQueueName(queueLabel)
-	}
-	// fallback to the annotation (deprecated)
-	return kueue.LocalQueueName(object.GetAnnotations()[constants.QueueAnnotation])
+	return kueue.LocalQueueName(object.GetLabels()[constants.QueueLabel])
 }
 
 func MaximumExecutionTimeSeconds(job GenericJob) *int32 {

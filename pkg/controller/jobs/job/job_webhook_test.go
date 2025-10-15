@@ -54,12 +54,10 @@ const (
 )
 
 var (
-	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
@@ -80,11 +78,6 @@ func TestValidateCreate(t *testing.T) {
 			name:               "invalid queue-name label",
 			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
 			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
-		},
-		{
-			name:               "invalid queue-name annotation (deprecated)",
-			job:                testingutil.MakeJob("job", "default").QueueNameAnnotation("queue name").Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameAnnotationsPath, "queue name", invalidRFC1123Message)},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
