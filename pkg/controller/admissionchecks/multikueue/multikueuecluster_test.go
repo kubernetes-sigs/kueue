@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -116,7 +117,7 @@ func TestUpdateConfig(t *testing.T) {
 		"new valid client is added": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
@@ -125,7 +126,7 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "worker1 kubeconfig"),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
@@ -140,7 +141,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client with valid secret config": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
@@ -152,7 +153,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
@@ -168,7 +169,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client with valid path config": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "testdata/worker1KubeConfig").
 					Generation(1).
 					Obj(),
@@ -177,7 +178,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "testdata/worker1KubeConfig").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
@@ -193,7 +194,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client with invalid secret config": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
@@ -208,7 +209,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, "invalid", nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
 					Generation(1).
@@ -219,7 +220,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client with invalid path config": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
 					Generation(1).
 					Obj(),
@@ -228,7 +229,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
 					Active(metav1.ConditionFalse, "BadConfig", "open : no such file or directory", 1).
 					Generation(1).
@@ -239,7 +240,7 @@ func TestUpdateConfig(t *testing.T) {
 		"missing cluster is removed": {
 			reconcileFor: "worker2",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
@@ -249,7 +250,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker2": newTestClient(ctx, "worker2 kubeconfig", cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
@@ -264,7 +265,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client config, nowatch": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
@@ -279,7 +280,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": setReconnectState(newTestClient(ctx, "nowatch", nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
@@ -291,7 +292,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client config, nowatch 3rd try": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
@@ -307,7 +308,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": setReconnectState(newTestClient(ctx, "nowatch", nil), 3),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
@@ -319,7 +320,7 @@ func TestUpdateConfig(t *testing.T) {
 		"failed attempts are set to 0 on successful connection": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
@@ -335,7 +336,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, "good config", nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
@@ -346,7 +347,7 @@ func TestUpdateConfig(t *testing.T) {
 		"failed attempts are set to 0 on config change": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
@@ -362,7 +363,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, "invalid", nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
 					Generation(1).
@@ -432,7 +433,7 @@ func TestUpdateConfig(t *testing.T) {
 
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseWlBuilder := utiltesting.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
+	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload

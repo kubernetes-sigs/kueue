@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 )
 
@@ -253,10 +254,10 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -284,13 +285,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
@@ -321,11 +322,11 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.PaddleJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
@@ -517,12 +518,12 @@ func TestReconciler(t *testing.T) {
 			job:     testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantJob: testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("paddlejob", "ns").
+				*utiltestingapi.MakeWorkload("paddlejob", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).
+						*utiltestingapi.MakePodSet("master", 1).
 							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 							Obj(),
-						*utiltesting.MakePodSet("worker", 2).
+						*utiltestingapi.MakePodSet("worker", 2).
 							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 							Obj(),
 					).
@@ -552,12 +553,12 @@ func TestReconciler(t *testing.T) {
 				Active(kftraining.PaddleJobReplicaTypeWorker, 10).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
-						*utiltesting.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
+						*utiltestingapi.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
@@ -595,12 +596,12 @@ func TestReconciler(t *testing.T) {
 				Active(kftraining.PaddleJobReplicaTypeWorker, 10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
-						*utiltesting.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
+						*utiltestingapi.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
@@ -635,7 +636,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
-			kcBuilder = kcBuilder.WithObjects(utiltesting.MakeResourceFlavor("default").Obj())
+			kcBuilder = kcBuilder.WithObjects(utiltestingapi.MakeResourceFlavor("default").Obj())
 			kcBuilder = kcBuilder.WithObjects(tc.job, testNamespace)
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])

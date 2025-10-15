@@ -44,6 +44,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -535,7 +536,7 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", defaultNamespace.Name).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", defaultNamespace.Name).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}

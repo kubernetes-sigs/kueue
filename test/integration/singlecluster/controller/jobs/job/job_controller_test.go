@@ -47,6 +47,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -183,20 +184,20 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor := utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 		ginkgo.DeferCleanup(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
-		spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
+		spotFlavor := utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		util.MustCreate(ctx, k8sClient, spotFlavor)
-		clusterQueue := testing.MakeClusterQueue("cluster-queue").
+		clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
-				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		admission := testing.MakeAdmission(clusterQueue.Name).
-			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+		admission := utiltestingapi.MakeAdmission(clusterQueue.Name).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 				Assignment(corev1.ResourceCPU, "on-demand", "1m").
 				Count(createdWorkload.Spec.PodSets[0].Count).
 				Obj()).
@@ -247,8 +248,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		admission = testing.MakeAdmission(clusterQueue.Name).
-			PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+		admission = utiltestingapi.MakeAdmission(clusterQueue.Name).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 				Assignment(corev1.ResourceCPU, "spot", "1m").
 				Count(createdWorkload.Spec.PodSets[0].Count).
 				Obj()).
@@ -296,14 +297,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	ginkgo.It("Should sync workload priority when job priority label changes", func() {
-		priorityClass := testing.MakeWorkloadPriorityClass(priorityClassName).
+		priorityClass := utiltestingapi.MakeWorkloadPriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
 		})
 
-		highPriorityClass := testing.MakeWorkloadPriorityClass(highPriorityClassName).
+		highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass(highPriorityClassName).
 			PriorityValue(int32(highPriorityValue)).Obj()
 		util.MustCreate(ctx, k8sClient, highPriorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -459,7 +460,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.It("Should change the suspension status of the child job when the parent's workload is not admitted", func() {
 			ginkgo.By("Create a resource flavor")
-			defaultFlavor := testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+			defaultFlavor := utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 			util.MustCreate(ctx, k8sClient, defaultFlavor)
 			ginkgo.DeferCleanup(func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
@@ -525,8 +526,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			wl := testing.MakeWorkload("wl", ns.Name).
-				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Containers(*container.DeepCopy()).
 					Obj()).
 				Obj()
@@ -547,8 +548,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				Image: "pause",
 			}
 			testingjob.SetContainerDefaults(&container)
-			wl := testing.MakeWorkload("wl", ns.Name).
-				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Containers(*container.DeepCopy()).
 					Obj()).
 				Obj()
@@ -584,7 +585,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("Admitting the workload, the job should unsuspend", func() {
-				admission := testing.MakeAdmission("cq", kueue.NewPodSetReference(container.Name)).Obj()
+				admission := utiltestingapi.MakeAdmission("cq", kueue.NewPodSetReference(container.Name)).Obj()
 				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
@@ -653,7 +654,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			admission := testing.MakeAdmission("q", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
+			admission := utiltestingapi.MakeAdmission("q", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
 			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
@@ -725,17 +726,17 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		)
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
+			admissionCheck = utiltestingapi.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, admissionCheck)
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
-			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
+			clusterQueueAc = utiltestingapi.MakeClusterQueue("prod-cq-with-checks").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
 				).AdmissionChecks("check").Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueueAc)
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
-			testFlavor = testing.MakeResourceFlavor("test-flavor").NodeLabel(instanceKey, "test-flavor").Obj()
+			testFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").NodeLabel(instanceKey, "test-flavor").Obj()
 			util.MustCreate(ctx, k8sClient, testFlavor)
 
 			jobLookupKey = &types.NamespacedName{Name: jobName, Namespace: ns.Name}
@@ -823,8 +824,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("admit the workload", func() {
-				admission := testing.MakeAdmission(clusterQueueAc.Name).
-					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				admission := utiltestingapi.MakeAdmission(clusterQueueAc.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "test-flavor", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
@@ -941,8 +942,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("attempt to admit the workload", func() {
-				admission := testing.MakeAdmission(clusterQueueAc.Name).
-					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				admission := utiltestingapi.MakeAdmission(clusterQueueAc.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "test-flavor", "1").
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
@@ -976,7 +977,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 
 	var (
 		ns            *corev1.Namespace
-		defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -1016,8 +1017,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admit the workload created for the job")
-			admission := testing.MakeAdmission("foo").
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			admission := utiltestingapi.MakeAdmission("foo").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", "1m").
 					Count(createdWorkload.Spec.PodSets[0].Count).
 					Obj()).
@@ -1314,10 +1315,10 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
-		spotTaintedFlavor = testing.MakeResourceFlavor("spot-tainted").
+		spotTaintedFlavor = utiltestingapi.MakeResourceFlavor("spot-tainted").
 			NodeLabel(instanceKey, "spot-tainted").
 			Taint(corev1.Taint{
 				Key:    instanceKey,
@@ -1326,21 +1327,21 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			}).Obj()
 		util.MustCreate(ctx, k8sClient, spotTaintedFlavor)
 
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = utiltestingapi.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
-		prodClusterQ = testing.MakeClusterQueue("prod-cq").
+		prodClusterQ = utiltestingapi.MakeClusterQueue("prod-cq").
 			Cohort("prod").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "5", "0").Obj(),
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "5", "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
 		util.MustCreate(ctx, k8sClient, prodClusterQ)
 
-		devClusterQ = testing.MakeClusterQueue("dev-clusterqueue").
+		devClusterQ = utiltestingapi.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).
 			FlavorFungibility(kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.MayStopSearch,
@@ -1352,20 +1353,20 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			Obj()
 		util.MustCreate(ctx, k8sClient, devClusterQ)
 
-		podsCountClusterQ = testing.MakeClusterQueue("pods-clusterqueue").
+		podsCountClusterQ = utiltestingapi.MakeClusterQueue("pods-clusterqueue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourcePods, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourcePods, "5").Obj(),
 			).
 			Obj()
 		util.MustCreate(ctx, k8sClient, podsCountClusterQ)
 
-		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		prodLocalQ = utiltestingapi.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, prodLocalQ)
 
-		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		devLocalQ = utiltestingapi.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, devLocalQ)
 
-		podsLocalQ = testing.MakeLocalQueue("pods-queue", ns.Name).ClusterQueue(podsCountClusterQ.Name).Obj()
+		podsLocalQ = utiltestingapi.MakeLocalQueue("pods-queue", ns.Name).ClusterQueue(podsCountClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, podsLocalQ)
 	})
 
@@ -1456,7 +1457,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}()
 
 		ginkgo.By("create a localQueue located in a different namespace as the job")
-		ns2LocalQ := testing.MakeLocalQueue("local-queue", ns2.Name).Obj()
+		ns2LocalQ := utiltestingapi.MakeLocalQueue("local-queue", ns2.Name).Obj()
 		ns2LocalQ.Spec.ClusterQueue = kueue.ClusterQueueReference(prodClusterQ.Name)
 
 		ginkgo.By("create a job")
@@ -1472,7 +1473,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("creating another localQueue of the same name and in the same namespace as the job")
-		localQ := testing.MakeLocalQueue(ns2LocalQ.Name, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		localQ := utiltestingapi.MakeLocalQueue(ns2LocalQ.Name, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQ)
 
 		ginkgo.By("job should be unsuspended and NodeSelector properly set")
@@ -1488,7 +1489,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.When("The workload's admission is removed", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
-			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			localQueue := utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
@@ -1531,7 +1532,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
 				wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
-				wl := testing.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+				wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
@@ -1547,7 +1548,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.When("The workload is deleted while admitted", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
-			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			localQueue := utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
@@ -1606,7 +1607,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.When("The job is deleted while admitted", func() {
 		ginkgo.It("Its workload finalizer should be removed", func() {
-			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			localQueue := utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
@@ -1763,7 +1764,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should readmit preempted Job with workloadPriorityClass in alternative flavor", func() {
-		highWorkloadPriorityClass := testing.MakeWorkloadPriorityClass("high-workload").PriorityValue(100).Obj()
+		highWorkloadPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("high-workload").PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(k8sClient.Delete(ctx, highWorkloadPriorityClass)).To(gomega.Succeed())
@@ -2154,23 +2155,23 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		)
 
 		ginkgo.BeforeEach(func() {
-			highPriorityClass = testing.MakeWorkloadPriorityClass("high").PriorityValue(highPriorityValue).Obj()
+			highPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(highPriorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
-			lowPriorityClass = testing.MakeWorkloadPriorityClass("low").PriorityValue(priorityValue).Obj()
+			lowPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(priorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityClass)
 
-			admissionCheck = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+			admissionCheck = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, admissionCheck)
 
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 
-			resourceFlavor = testing.MakeResourceFlavor("rf").NodeLabel(instanceKey, "on-demand").Obj()
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("rf").NodeLabel(instanceKey, "on-demand").Obj()
 			util.MustCreate(ctx, k8sClient, resourceFlavor)
 
-			clusterQueue = testing.MakeClusterQueue("cq").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				AdmissionChecks("ac").
 				Preemption(kueue.ClusterQueuePreemption{
@@ -2179,7 +2180,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 
-			localQueue = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 
@@ -2323,14 +2324,14 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		fl = testing.MakeResourceFlavor("fl").Obj()
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		util.MustCreate(ctx, k8sClient, fl)
 
-		cq = testing.MakeClusterQueue("cq").
-			ResourceGroup(*testing.MakeFlavorQuotas("fl").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("fl").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 
@@ -2356,7 +2357,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("setting quota reservation")
-			util.SetQuotaReservation(ctx, k8sClient, wlKey, testing.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("checking the workload is evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2413,7 +2414,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("setting quota reservation")
-			util.SetQuotaReservation(ctx, k8sClient, wlKey, testing.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2469,7 +2470,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("setting quota reservation")
-			util.SetQuotaReservation(ctx, k8sClient, wlKey, testing.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2543,7 +2544,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("setting quota reservation")
-			util.SetQuotaReservation(ctx, k8sClient, wlKey, testing.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2635,8 +2636,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			var admission *kueue.Admission
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				admission = testing.MakeAdmission(cq.Name).
-					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				admission = utiltestingapi.MakeAdmission(cq.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "on-demand", "1m").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
@@ -2742,13 +2743,13 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 
 			ginkgo.By("creating workload priority classes")
-			lowPriorityClass := testing.MakeWorkloadPriorityClass("low-priority").PriorityValue(priorityValue).Obj()
+			lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low-priority").PriorityValue(priorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, lowPriorityClass, true)
 			})
 
-			highPriorityClass := testing.MakeWorkloadPriorityClass("high-priority").PriorityValue(highPriorityValue).Obj()
+			highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("high-priority").PriorityValue(highPriorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
@@ -2777,8 +2778,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			highWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: highJob.Namespace}
 
 			ginkgo.By("setting quota reservation for both jobs")
-			util.SetQuotaReservation(ctx, k8sClient, lowWlKey, testing.MakeAdmission(cq.Name).Obj())
-			util.SetQuotaReservation(ctx, k8sClient, highWlKey, testing.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, lowWlKey, utiltestingapi.MakeAdmission(cq.Name).Obj())
+			util.SetQuotaReservation(ctx, k8sClient, highWlKey, utiltestingapi.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("setting low priority job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2878,21 +2879,21 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 		}
 		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
-		topology = testing.MakeTopology("default").Levels(tasBlockLabel).Obj()
+		topology = utiltestingapi.MakeTopology("default").Levels(tasBlockLabel).Obj()
 		util.MustCreate(ctx, k8sClient, topology)
 
-		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(nodeGroupLabel, "tas").
 			TopologyName("default").Obj()
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 
@@ -3053,15 +3054,15 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		fl = testing.MakeResourceFlavor("fl").Obj()
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		util.MustCreate(ctx, k8sClient, fl)
 
-		cq = testing.MakeClusterQueue("cq").
-			ResourceGroup(*testing.MakeFlavorQuotas(fl.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 
@@ -3102,8 +3103,8 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 				})
 
 				ginkgo.By("Admitting the Workload", func() {
-					admission := testing.MakeAdmission(cq.Name).
-						PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+					admission := utiltestingapi.MakeAdmission(cq.Name).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 							Count(wl.Spec.PodSets[0].Count).
 							Obj()).
@@ -3158,8 +3159,8 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				admission := testing.MakeAdmission(cq.Name).
-					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				admission := utiltestingapi.MakeAdmission(cq.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
@@ -3256,8 +3257,8 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				admission := testing.MakeAdmission(cq.Name).
-					PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+				admission := utiltestingapi.MakeAdmission(cq.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1m").
 						Count(wl.Spec.PodSets[0].Count).
 						Obj()).
@@ -3346,18 +3347,18 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		resourceFlavor = testing.MakeResourceFlavor("default").Obj()
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("default").
-			ResourceGroup(*testing.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 
-		localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
@@ -3543,14 +3544,14 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 
 		ginkgo.By("create low priority class")
-		lowPriorityClass := testing.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
+		lowPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(int32(priorityValue)).Obj()
 		util.MustCreate(ctx, k8sClient, lowPriorityClass)
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(k8sClient.Delete(ctx, lowPriorityClass)).To(gomega.Succeed())
 		})
 
 		ginkgo.By("create high priority class")
-		highPriorityClass := testing.MakeWorkloadPriorityClass("high").PriorityValue(int32(highPriorityValue)).Obj()
+		highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(int32(highPriorityValue)).Obj()
 		util.MustCreate(ctx, k8sClient, highPriorityClass)
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
@@ -3672,15 +3673,15 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 			Obj()
 		util.MustCreate(ctx, k8sClient, unmanagedNs)
 
-		rf = testing.MakeResourceFlavor(rfName).Obj()
+		rf = utiltestingapi.MakeResourceFlavor(rfName).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq = testing.MakeClusterQueue(cqName).
-			ResourceGroup(*testing.MakeFlavorQuotas(rfName).Resource(corev1.ResourceCPU, "5").Obj()).
+		cq = utiltestingapi.MakeClusterQueue(cqName).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rfName).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = testing.MakeLocalQueue(lqName, managedNs.Name).ClusterQueue(cqName).Obj()
+		lq = utiltestingapi.MakeLocalQueue(lqName, managedNs.Name).ClusterQueue(cqName).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 
