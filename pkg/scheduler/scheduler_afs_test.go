@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -513,87 +514,90 @@ func TestScheduleForAFS(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if tc.enableFairSharing {
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
-			}
-
-			for i, q := range queues {
-				if resList, found := tc.initialUsage[q.Name]; found {
-					queues[i].Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = resList
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				if tc.enableFairSharing {
+					features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 				}
-			}
 
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(
-					&kueue.WorkloadList{Items: tc.workloads},
-					&kueue.ClusterQueueList{Items: clusterQueues},
-					&kueue.LocalQueueList{Items: queues}).
-				WithObjects(
-					utiltesting.MakeNamespace("default"),
-				).
-				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			cl := clientBuilder.Build()
-
-			fairSharing := &config.FairSharing{
-				Enable: tc.enableFairSharing,
-			}
-			cqCache := schdcache.New(cl, schdcache.WithFairSharing(fairSharing.Enable), schdcache.WithAdmissionFairSharing(afsConfig))
-			qManager := qcache.NewManager(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
-
-			ctx, log := utiltesting.ContextWithLog(t)
-			for _, q := range queues {
-				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+				for i, q := range queues {
+					if resList, found := tc.initialUsage[q.Name]; found {
+						queues[i].Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = resList
+					}
 				}
-			}
-			for _, rf := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(log, rf)
-			}
-			for _, cq := range clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithLists(
+						&kueue.WorkloadList{Items: tc.workloads},
+						&kueue.ClusterQueueList{Items: clusterQueues},
+						&kueue.LocalQueueList{Items: queues}).
+					WithObjects(
+						utiltesting.MakeNamespace("default"),
+					).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				cl := clientBuilder.Build()
+
+				fairSharing := &config.FairSharing{
+					Enable: tc.enableFairSharing,
 				}
-				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				cqCache := schdcache.New(cl, schdcache.WithFairSharing(fairSharing.Enable), schdcache.WithAdmissionFairSharing(afsConfig))
+				qManager := qcache.NewManager(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+
+				ctx, log := utiltesting.ContextWithLog(t)
+				for _, q := range queues {
+					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+					}
 				}
-			}
-			recorder := &utiltesting.EventRecorder{}
-			scheduler := New(qManager, cqCache, cl, recorder,
-				WithFairSharing(fairSharing),
-				WithAdmissionFairSharing(afsConfig),
-				WithClock(t, fakeClock))
-			wg := sync.WaitGroup{}
-			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-				func() { wg.Add(1) },
-				func() { wg.Done() },
-			))
+				for _, rf := range resourceFlavors {
+					cqCache.AddOrUpdateResourceFlavor(log, rf)
+				}
+				for _, cq := range clusterQueues {
+					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+					}
+					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+				}
+				recorder := &utiltesting.EventRecorder{}
+				scheduler := New(qManager, cqCache, cl, recorder,
+					WithFairSharing(fairSharing),
+					WithAdmissionFairSharing(afsConfig),
+					WithClock(t, fakeClock))
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
 
-			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
 
-			for range len(tc.workloads) {
-				scheduler.schedule(ctx)
-				wg.Wait()
-			}
+				for range len(tc.workloads) {
+					scheduler.schedule(ctx)
+					wg.Wait()
+				}
 
-			gotWorkloads := &kueue.WorkloadList{}
-			err := cl.List(ctx, gotWorkloads)
-			if err != nil {
-				t.Fatalf("Unexpected list workloads error: %v", err)
-			}
+				gotWorkloads := &kueue.WorkloadList{}
+				err := cl.List(ctx, gotWorkloads)
+				if err != nil {
+					t.Fatalf("Unexpected list workloads error: %v", err)
+				}
 
-			defaultWorkloadCmpOpts := cmp.Options{
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
-				cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-			}
+				defaultWorkloadCmpOpts := cmp.Options{
+					cmpopts.EquateEmpty(),
+					cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
+				}
 
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-				t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
-			}
-		})
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+					t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
