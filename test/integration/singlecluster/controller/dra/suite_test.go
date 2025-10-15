@@ -89,7 +89,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Webhooks
-		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		mappings := []config.DeviceClassMapping{
