@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
@@ -35,7 +34,7 @@ const queueName = "queue-test"
 var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+			managerSetup(ctx, mgr)
 		})
 	})
 	ginkgo.AfterAll(func() {
