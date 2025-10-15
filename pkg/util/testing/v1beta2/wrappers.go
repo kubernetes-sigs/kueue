@@ -1441,9 +1441,17 @@ func (mkc *MultiKueueClusterWrapper) Obj() *kueue.MultiKueueCluster {
 }
 
 func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueue.LocationType, location string) *MultiKueueClusterWrapper {
-	mkc.Spec.KubeConfig = kueue.KubeConfig{
+	mkc.Spec.KubeConfig = &kueue.KubeConfig{
 		Location:     location,
 		LocationType: locationType,
+	}
+	return mkc
+}
+
+func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string, namespace string) *MultiKueueClusterWrapper {
+	mkc.Spec.ClusterProfile = &kueue.ClusterProfileReference{
+		Name:      name,
+		Namespace: namespace,
 	}
 	return mkc
 }

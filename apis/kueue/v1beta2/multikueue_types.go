@@ -62,10 +62,30 @@ type KubeConfig struct {
 	LocationType LocationType `json:"locationType"`
 }
 
+// +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfile
+
 type MultiKueueClusterSpec struct {
 	// kubeConfig is information on how to connect to the cluster.
+	// +optional
+	KubeConfig *KubeConfig `json:"kubeConfig,omitempty,omitzero"`
+
+	// clusterProfile is the reference to the ClusterProfile object used to connect to the cluster.
+	// +optional
+	ClusterProfile *ClusterProfileReference `json:"clusterProfile,omitempty"`
+}
+
+type ClusterProfileReference struct {
+	// name of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
 	// +required
-	KubeConfig KubeConfig `json:"kubeConfig,omitempty,omitzero"`
+	Name string `json:"name,omitempty"`
+
+	// namespace of the ClusterProfile.
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Namespace string `json:"namespace,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {

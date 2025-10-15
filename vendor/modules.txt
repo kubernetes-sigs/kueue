@@ -1582,6 +1582,10 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client/pkg/client
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client/pkg/client/metrics
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client/pkg/common/metrics
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client/proto/client
+# sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
+## explicit; go 1.24.0
+sigs.k8s.io/cluster-inventory-api/apis/v1alpha1
+sigs.k8s.io/cluster-inventory-api/pkg/credentials
 # sigs.k8s.io/controller-runtime v0.22.4
 ## explicit; go 1.24.0
 sigs.k8s.io/controller-runtime

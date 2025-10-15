@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:   kueue.MultiKueueClusterActive,
 						Status: metav1.ConditionFalse,
-						Reason: "BadConfig",
+						Reason: "BadKubeConfig",
 					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -425,7 +425,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:   kueue.MultiKueueClusterActive,
 						Status: metav1.ConditionFalse,
-						Reason: "BadConfig",
+						Reason: "BadKubeConfig",
 					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

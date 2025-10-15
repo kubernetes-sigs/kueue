@@ -34,9 +34,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -57,8 +59,9 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(ctx context.Context) func([]byte, client.Options) (client.WithWatch, error) {
-	return func(kubeconfig []byte, _ client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(ctx context.Context) func(*clientConfig, client.Options) (client.WithWatch, error) {
+	return func(config *clientConfig, _ client.Options) (client.WithWatch, error) {
+		kubeconfig := config.Kubeconfig
 		if strings.Contains(string(kubeconfig), "invalid") {
 			return nil, errInvalidConfig
 		}
@@ -75,11 +78,11 @@ func fakeClientBuilder(ctx context.Context) func([]byte, client.Options) (client
 	}
 }
 
-func newTestClient(ctx context.Context, config string, watchCancel func()) *remoteClient {
+func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Config, watchCancel func()) *remoteClient {
 	b := getClientBuilder(ctx)
 	localClient := b.Build()
 	ret := &remoteClient{
-		kubeconfig:  []byte(config),
+		config:      &clientConfig{Kubeconfig: kubeconfig, RestConfig: restConfig},
 		localClient: localClient,
 		watchCancel: watchCancel,
 
@@ -102,6 +105,37 @@ func makeTestSecret(name string, kubeconfig string) corev1.Secret {
 		},
 		Data: map[string][]byte{
 			kueue.MultiKueueConfigSecretKey: []byte(kubeconfig),
+		},
+	}
+}
+
+type testClusterProfileCreds struct {
+	supportedProviders map[string]bool
+}
+
+func (t *testClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+	for _, provider := range clusterprofile.Status.CredentialProviders {
+		if t.supportedProviders[provider.Name] {
+			return &rest.Config{
+				Host: clusterprofile.Name,
+			}, nil
+		}
+	}
+	return nil, errors.New("unsupported credential provider")
+}
+
+func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.ClusterProfile {
+	return inventoryv1alpha1.ClusterProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: TestNamespace,
+		},
+		Status: inventoryv1alpha1.ClusterProfileStatus{
+			CredentialProviders: []inventoryv1alpha1.CredentialProvider{
+				{
+					Name: providerName,
+				},
+			},
 		},
 	}
 }
@@ -135,10 +169,12 @@ func TestUpdateConfig(t *testing.T) {
 	validKubeconfigLocation := filepath.Join(t.TempDir(), "worker1KubeConfig")
 
 	cases := map[string]struct {
-		reconcileFor  string
-		remoteClients map[string]*remoteClient
-		clusters      []kueue.MultiKueueCluster
-		secrets       []corev1.Secret
+		reconcileFor    string
+		remoteClients   map[string]*remoteClient
+		clusters        []kueue.MultiKueueCluster
+		secrets         []corev1.Secret
+		clusterprofiles []inventoryv1alpha1.ClusterProfile
+		cpCreds         clusterProfileCreds
 
 		wantRemoteClients      map[string]*remoteClient
 		wantClusters           []kueue.MultiKueueCluster
@@ -166,9 +202,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": {
-					kubeconfig: []byte(testKubeconfig("worker1")),
-				},
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil),
 			},
 		},
 		"update client with valid secret config": {
@@ -183,7 +217,7 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfig("worker1")),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1 old kubeconfig")), nil, cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -194,7 +228,9 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
-					kubeconfig: []byte(testKubeconfig("worker1")),
+					config: &clientConfig{
+						Kubeconfig: []byte(testKubeconfig("worker1")),
+					},
 				},
 			},
 			wantCancelCalled: 1,
@@ -208,7 +244,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, testKubeconfig("worker1_old"), cancelCalled),
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1 old kubeconfig")), nil, cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -218,9 +254,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": {
-					kubeconfig: []byte(testKubeconfig("worker1")),
-				},
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil),
 			},
 			wantCancelCalled: 1,
 		},
@@ -236,10 +270,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfig("invalid")),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, testKubeconfig("invalid"), nil),
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -259,16 +293,17 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
-					Active(metav1.ConditionFalse, "BadConfig", "open : no such file or directory", 1).
+					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: open : no such file or directory", 1).
 					Generation(1).
 					Obj(),
 			},
 			wantCancelCalled: 1,
+			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("open : no such file or directory")),
 		},
 		"missing cluster is removed": {
 			reconcileFor: "worker2",
@@ -279,8 +314,8 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, "worker1 kubeconfig", cancelCalled),
-				"worker2": newTestClient(ctx, "worker2 kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, []byte("worker1 kubeconfig"), nil, cancelCalled),
+				"worker2": newTestClient(ctx, []byte("worker2 kubeconfig"), nil, cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -290,7 +325,9 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
-					kubeconfig: []byte("worker1 kubeconfig"),
+					config: &clientConfig{
+						Kubeconfig: []byte("worker1 kubeconfig"),
+					},
 				},
 			},
 			wantCancelCalled: 1,
@@ -307,10 +344,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfig("nowatch")),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(ctx, testKubeconfig("nowatch"), nil), 1),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("nowatch")), nil, nil), 1),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -335,10 +372,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfig("nowatch")),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(ctx, testKubeconfig("nowatch"), cancelCalled), 2),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("nowatch")), nil, cancelCalled), 2),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(ctx, testKubeconfig("nowatch"), nil), 3),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("nowatch")), nil, nil), 3),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -363,10 +400,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfig("good_user")),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(ctx, testKubeconfig("nowatch"), cancelCalled), 5),
+				"worker1": setReconnectState(newTestClient(ctx, []byte(testKubeconfig("nowatch")), nil, cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, testKubeconfig("good_user"), nil),
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("good_user")), nil, nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -390,10 +427,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfig("invalid")),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setReconnectState(newTestClient(ctx, "nowatch", cancelCalled), 5),
+				"worker1": setReconnectState(newTestClient(ctx, []byte("nowatch"), nil, cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, testKubeconfig("invalid"), nil),
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("invalid")), nil, nil),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -418,11 +455,11 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "InsecureKubeConfig", "insecure kubeconfig: tokenFile is not allowed", 1).
+					Active(metav1.ConditionFalse, "InsecureKubeConfig", "load client config failed: tokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
 			},
-			wantErr: fmt.Errorf("validating kubeconfig failed: %w", errors.New("tokenFile is not allowed")),
+			wantErr: fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
 		"remove client with invalid kubeconfig": {
 			reconcileFor: "worker1",
@@ -436,18 +473,18 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": newTestClient(ctx, "worker1 old kubeconfig", cancelCalled),
+				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, cancelCalled),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "InsecureKubeConfig", "insecure kubeconfig: tokenFile is not allowed", 1).
+					Active(metav1.ConditionFalse, "InsecureKubeConfig", "load client config failed: tokenFile is not allowed", 1).
 					Generation(1).
 					Obj(),
 			},
 			wantRemoteClients: map[string]*remoteClient{},
 			wantCancelCalled:  1,
-			wantErr:           fmt.Errorf("validating kubeconfig failed: %w", errors.New("tokenFile is not allowed")),
+			wantErr:           fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
 		"skip insecure kubeconfig validation": {
 			reconcileFor: "worker1",
@@ -469,10 +506,113 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
-					kubeconfig: []byte(testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+					config: &clientConfig{
+						Kubeconfig: []byte(testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+					},
 				},
 			},
 			skipInsecureKubeconfig: true,
+		},
+		"use cluster profile": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{},
+			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+				makeTestClusterProfile("worker1", "credentialProvider1"),
+			},
+			cpCreds: &testClusterProfileCreds{
+				supportedProviders: map[string]bool{
+					"credentialProvider1": true,
+				},
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Active(metav1.ConditionTrue, "Active", "Connected", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {
+					config: &clientConfig{
+						RestConfig: &rest.Config{Host: "worker1"},
+					},
+				},
+			},
+		},
+		"unsupported credential provider": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{},
+			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+				makeTestClusterProfile("worker1", "credentialProvider1"),
+			},
+			cpCreds: &testClusterProfileCreds{
+				supportedProviders: map[string]bool{},
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: unsupported credential provider", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("unsupported credential provider")),
+		},
+		"cluster profile not found": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{},
+			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+				makeTestClusterProfile("worker2", "credentialProvider2"),
+			},
+			cpCreds: &testClusterProfileCreds{
+				supportedProviders: map[string]bool{},
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: clusterprofiles.multicluster.x-k8s.io \"worker1\" not found", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New(`clusterprofiles.multicluster.x-k8s.io "worker1" not found`)),
+		},
+		"cluster profile feature gate disabled": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{},
+			cpCreds: &testClusterProfileCreds{
+				supportedProviders: map[string]bool{},
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1", TestNamespace).
+					Active(metav1.ConditionFalse, "MultiKueueClusterProfileFeatureDisabled", "load client config failed: MultiKueueClusterProfile feature gate is disabled", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
 	}
 
@@ -482,11 +622,12 @@ func TestUpdateConfig(t *testing.T) {
 			builder := getClientBuilder(ctx)
 			builder = builder.WithLists(&kueue.MultiKueueClusterList{Items: tc.clusters})
 			builder = builder.WithLists(&corev1.SecretList{Items: tc.secrets})
+			builder = builder.WithLists(&inventoryv1alpha1.ClusterProfileList{Items: tc.clusterprofiles})
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpCreds)
 
 			reconciler.rootContext = ctx
 
@@ -499,8 +640,12 @@ func TestUpdateConfig(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
 			}
 
+			if len(tc.clusterprofiles) > 0 {
+				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
+			}
+
 			// Create test kubeconfig file for path location type
-			if tc.clusters != nil && tc.clusters[0].Spec.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.KubeConfig.Location != "" {
+			if tc.clusters != nil && tc.clusters[0].Spec.KubeConfig != nil && tc.clusters[0].Spec.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.KubeConfig.Location != "" {
 				kubeconfigBytes := testKubeconfig("worker1")
 				if err := os.WriteFile(tc.clusters[0].Spec.KubeConfig.Location, []byte(kubeconfigBytes), 0666); err != nil {
 					t.Errorf("Failed to create test file (%s): %v", tc.clusters[0].Spec.KubeConfig.Location, err)
@@ -543,7 +688,16 @@ func TestUpdateConfig(t *testing.T) {
 					if a.failedConnAttempts != b.failedConnAttempts {
 						return false
 					}
-					return string(a.kubeconfig) == string(b.kubeconfig)
+					if a.config == nil || b.config == nil {
+						return a.config == b.config
+					}
+					if string(a.config.Kubeconfig) != string(b.config.Kubeconfig) {
+						return false
+					}
+					if cmp.Diff(a.config.RestConfig, b.config.RestConfig) != "" {
+						return false
+					}
+					return true
 				})); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}

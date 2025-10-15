@@ -314,6 +314,14 @@ rules:
       - list
       - watch
   - apiGroups:
+      - multicluster.x-k8s.io
+    resources:
+      - clusterprofiles
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
       - node.k8s.io
     resources:
       - runtimeclasses

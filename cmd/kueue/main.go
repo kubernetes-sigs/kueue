@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
+	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -101,6 +102,7 @@ func init() {
 	utilruntime.Must(configapiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -377,6 +379,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
+			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfileConfig),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
