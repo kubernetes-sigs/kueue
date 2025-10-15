@@ -624,6 +624,7 @@ Possible options:</p>
 <li>&quot;kubeflow.org/jaxjob&quot;</li>
 <li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
+<li>&quot;sparkoperator.k8s.io/sparkapplication&quot;</li>
 <li>&quot;pod&quot;</li>
 <li>&quot;deployment&quot; (requires enabling pod integration)</li>
 <li>&quot;statefulset&quot; (requires enabling pod integration)</li>

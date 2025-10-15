@@ -44,6 +44,8 @@ type WebhookBuilder struct {
 	mutationHandler admission.Handler
 	customValidator admission.CustomValidator
 	gvk             schema.GroupVersionKind
+	validatingPath  string
+	mutatingPath    string
 	mgr             manager.Manager
 	config          *rest.Config
 	recoverPanic    *bool
@@ -84,6 +86,20 @@ func (blder *WebhookBuilder) WithValidator(validator admission.CustomValidator) 
 // WithLogConstructor overrides the webhook's LogConstructor.
 func (blder *WebhookBuilder) WithLogConstructor(logConstructor func(base logr.Logger, req *admission.Request) logr.Logger) *WebhookBuilder {
 	blder.logConstructor = logConstructor
+	return blder
+}
+
+// WithValidatingWebhookPath sets the validating webhook's path.
+// path must start with a '/' and be unique among all webhooks served by the webhook server.
+func (blder *WebhookBuilder) WithValidatingWebhookPath(path string) *WebhookBuilder {
+	blder.validatingPath = path
+	return blder
+}
+
+// WithMutatingWebhookPath sets the mutating webhook's path.
+// path must start with a '/' and be unique among all webhooks served by the webhook server.
+func (blder *WebhookBuilder) WithMutatingWebhookPath(path string) *WebhookBuilder {
+	blder.mutatingPath = path
 	return blder
 }
 
@@ -160,6 +176,9 @@ func (blder *WebhookBuilder) registerDefaultingWebhook() {
 	if mwh != nil {
 		mwh.LogConstructor = blder.logConstructor
 		path := generateMutatePath(blder.gvk)
+		if blder.mutatingPath != "" {
+			path = blder.mutatingPath
+		}
 
 		// Checking if the path is already registered.
 		// If so, just skip it.
@@ -192,6 +211,9 @@ func (blder *WebhookBuilder) registerValidatingWebhook() {
 	if vwh != nil {
 		vwh.LogConstructor = blder.logConstructor
 		path := generateValidatePath(blder.gvk)
+		if blder.validatingPath != "" {
+			path = blder.validatingPath
+		}
 
 		// Checking if the path is already registered.
 		// If so, just skip it.
