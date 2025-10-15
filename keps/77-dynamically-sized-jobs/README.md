@@ -444,7 +444,7 @@ Integration tests will be executed against mocked clients for `batchv1/Job` reso
 
 ```yaml
 - lastTransitionTime: "2025-06-12T21:32:56Z"
-  message: "couldn't assign flavors to pod set main: couldn't change flavor from: smaller-flavor to: larger-flavor, insufficient quota for cpu in flavor smaller-flavor, request > maximum capacity (1100m > 1)"
+  message: "couldn't assign flavors to pod set main: couldn't change flavor from: smaller-flavor to: larger-flavor, previously considered podsets requests (0) + current podset request (1100m) > maximum capacity (1)
   observedGeneration: 1
   reason: Pending
   status: "False"
