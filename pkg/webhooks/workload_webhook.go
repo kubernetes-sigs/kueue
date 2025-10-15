@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -41,14 +40,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type WorkloadWebhook struct {
-	dispatcherName string
-}
+type WorkloadWebhook struct{}
 
-func setupWebhookForWorkload(mgr ctrl.Manager, dispatcherName string) error {
-	wh := &WorkloadWebhook{
-		dispatcherName: dispatcherName,
-	}
+func setupWebhookForWorkload(mgr ctrl.Manager) error {
+	wh := &WorkloadWebhook{}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.Workload{}).
 		WithDefaulter(wh).
@@ -94,7 +89,7 @@ func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj run
 	oldWL := oldObj.(*kueue.Workload)
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
-	return nil, ValidateWorkloadUpdate(newWL, oldWL, w.dispatcherName).ToAggregate()
+	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -273,7 +268,7 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 	return ret
 }
 
-func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload, dispatcherName string) field.ErrorList {
+func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	statusPath := field.NewPath("status")
@@ -287,7 +282,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload, dispatcherName strin
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
-	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, dispatcherName, statusPath)...)
+	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 	return allErrs
 }
 
@@ -372,9 +367,9 @@ func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.E
 	return allErrs
 }
 
-func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, dispatcherName string, statusPath *field.Path) field.ErrorList {
+func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if oldObj.Status.ClusterName == nil && newObj.Status.ClusterName != nil && dispatcherName != configapi.MultiKueueDispatcherModeAllAtOnce {
+	if oldObj.Status.ClusterName == nil && newObj.Status.ClusterName != nil {
 		found := slices.Contains(oldObj.Status.NominatedClusterNames, *newObj.Status.ClusterName)
 		if !found {
 			allErrs = append(allErrs, field.Invalid(statusPath.Child("clusterName"), newObj.Status.ClusterName, "when setting clusterName it must be one of the nominatedClusterNames"))
