@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -34,13 +34,13 @@ func TestResourceFlavorPrint(t *testing.T) {
 
 	testCases := map[string]struct {
 		options *ResourceFlavorOptions
-		in      *v1beta1.ResourceFlavorList
+		in      *kueue.ResourceFlavorList
 		out     []metav1.TableRow
 	}{
 		"should print resource flavor list": {
 			options: &ResourceFlavorOptions{},
-			in: &v1beta1.ResourceFlavorList{
-				Items: []v1beta1.ResourceFlavor{
+			in: &kueue.ResourceFlavorList{
+				Items: []kueue.ResourceFlavor{
 					*utiltesting.MakeResourceFlavor("rf").
 						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
 						NodeLabel("key1", "value").

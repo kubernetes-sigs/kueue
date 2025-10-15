@@ -28,7 +28,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -49,9 +49,9 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 	ginkgo.When("List LocalQueue", func() {
 		var (
-			lq1 *v1beta1.LocalQueue
-			lq2 *v1beta1.LocalQueue
-			lq3 *v1beta1.LocalQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+			lq3 *kueue.LocalQueue
 		)
 
 		ginkgo.JustBeforeEach(func() {
@@ -114,8 +114,8 @@ very-long-local-queue-name   cq1                            0                   
 
 	ginkgo.When("List ClusterQueue", func() {
 		var (
-			cq1 *v1beta1.ClusterQueue
-			cq2 *v1beta1.ClusterQueue
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
 		)
 
 		ginkgo.JustBeforeEach(func() {
@@ -177,9 +177,9 @@ very-long-cluster-queue-name            0                   0                   
 
 	ginkgo.When("List Workloads", func() {
 		var (
-			wl1 *v1beta1.Workload
-			wl2 *v1beta1.Workload
-			wl3 *v1beta1.Workload
+			wl1 *kueue.Workload
+			wl2 *kueue.Workload
+			wl3 *kueue.Workload
 		)
 
 		ginkgo.JustBeforeEach(func() {
@@ -239,8 +239,8 @@ wl2                                             very-long-local-queue-name      
 
 	ginkgo.When("List ResourceFlavors", func() {
 		var (
-			rf1 *v1beta1.ResourceFlavor
-			rf2 *v1beta1.ResourceFlavor
+			rf1 *kueue.ResourceFlavor
+			rf2 *kueue.ResourceFlavor
 		)
 
 		ginkgo.JustBeforeEach(func() {

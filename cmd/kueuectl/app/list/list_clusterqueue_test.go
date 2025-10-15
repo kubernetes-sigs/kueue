@@ -27,7 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,14 +52,14 @@ func TestClusterQueueRun(t *testing.T) {
 					Cohort("cohort1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(2).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Cohort("cohort2").
 					PendingWorkloads(3).
 					AdmittedWorkloads(4).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "", "").
 					Obj(),
 			},
 			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -74,14 +74,14 @@ cq1    cohort1   1                   2                    true     60m
 					Cohort("cohort1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(2).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
 					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
 					Cohort("cohort2").
 					PendingWorkloads(3).
 					AdmittedWorkloads(4).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "", "").
 					Obj(),
 			},
 			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -96,7 +96,7 @@ cq2    cohort2   3                   4                    false    120m
 					Cohort("cohort1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(2).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Label("key", "value1").
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
@@ -104,7 +104,7 @@ cq2    cohort2   3                   4                    false    120m
 					Cohort("cohort2").
 					PendingWorkloads(3).
 					AdmittedWorkloads(4).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "", "").
 					Label("key", "value2").
 					Obj(),
 			},
@@ -120,7 +120,7 @@ cq1    cohort1   1                   2                    true     60m
 					Cohort("cohort1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(2).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Label("key", "value1").
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
@@ -128,7 +128,7 @@ cq1    cohort1   1                   2                    true     60m
 					Cohort("cohort2").
 					PendingWorkloads(3).
 					AdmittedWorkloads(4).
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "", "").
 					Label("key", "value2").
 					Obj(),
 			},

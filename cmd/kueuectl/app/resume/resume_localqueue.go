@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -126,7 +126,7 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	}
 
 	lqOriginal := lq.DeepCopy()
-	lq.Spec.StopPolicy = ptr.To(v1beta1.None)
+	lq.Spec.StopPolicy = ptr.To(kueue.None)
 
 	opts := metav1.PatchOptions{}
 	patch := client.MergeFrom(lqOriginal)
