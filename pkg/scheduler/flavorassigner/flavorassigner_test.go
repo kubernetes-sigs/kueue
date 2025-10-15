@@ -435,8 +435,8 @@ func TestAssignFlavors(t *testing.T) {
 							"example.com/gpu":  resource.MustParse("4"),
 						},
 						Status: *NewStatus(
-							"insufficient quota for cpu in flavor one, request > maximum capacity (5 > 4)",
-							"insufficient quota for example.com/gpu in flavor two, request > maximum capacity (4 > 0)",
+							"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)",
+							"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
 						),
 						Count: 4,
 					},
@@ -446,8 +446,8 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU: resource.MustParse("1"),
 						},
 						Status: *NewStatus(
-							"insufficient quota for cpu in flavor one, request > maximum capacity (5 > 4)",
-							"insufficient quota for example.com/gpu in flavor two, request > maximum capacity (4 > 0)",
+							"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (5) > maximum capacity (4)",
+							"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (4) > maximum capacity (0)",
 						),
 						Count: 1,
 					}},
@@ -484,7 +484,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 					},
 					Status: *NewStatus(
-						"insufficient quota for memory in flavor b_one, request > maximum capacity (10Mi > 1Mi)",
+						"insufficient quota for memory in flavor b_one, previously considered podsets requests (0) + current podset request (10Mi) > maximum capacity (1Mi)",
 					),
 					Count: 1,
 				}},
@@ -597,7 +597,7 @@ func TestAssignFlavors(t *testing.T) {
 						"example.com/gpu":     resource.MustParse("3"),
 					},
 					Status: *NewStatus(
-						"insufficient quota for cpu in flavor one, request > maximum capacity (3 > 2)",
+						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
 						"insufficient unused quota for memory in flavor two, 5Mi more needed",
 						"insufficient unused quota for example.com/gpu in flavor b_one, 1 more needed",
 					),
@@ -637,8 +637,8 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 					},
 					Status: *NewStatus(
-						"insufficient quota for cpu in flavor one, request > maximum capacity (3 > 2)",
-						"insufficient quota for memory in flavor two, request > maximum capacity (10Mi > 5Mi)",
+						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						"insufficient quota for memory in flavor two, previously considered podsets requests (0) + current podset request (10Mi) > maximum capacity (5Mi)",
 					),
 					Count: 1,
 				}},
@@ -1030,7 +1030,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
 					},
-					Status: *NewStatus("insufficient quota for cpu in flavor one, request > maximum capacity (2 > 1)"),
+					Status: *NewStatus("insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)"),
 					Count:  1,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
@@ -1262,7 +1262,7 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU: resource.MustParse("10"),
 						},
 						Status: *NewStatus(
-							"insufficient quota for cpu in flavor one, request > maximum capacity (12 > 4)",
+							"insufficient quota for cpu in flavor one, previously considered podsets requests (2) + current podset request (10) > maximum capacity (4)",
 							"insufficient unused quota for cpu in flavor tainted, 3 more needed",
 						),
 						Count: 10,
@@ -1354,7 +1354,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("3"),
 						corev1.ResourcePods: resource.MustParse("3"),
 					},
-					Status: *NewStatus("insufficient quota for pods in flavor default, request > maximum capacity (3 > 2)"),
+					Status: *NewStatus("insufficient quota for pods in flavor default, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"),
 					Count:  3,
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
@@ -1836,7 +1836,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{
 					{
 						Name:   kueue.DefaultPodSetName,
-						Status: *NewStatus("insufficient quota for cpu in flavor one, request > maximum capacity (12 > 11)"),
+						Status: *NewStatus("insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (12) > maximum capacity (11)"),
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("12"),
 						},
@@ -2257,7 +2257,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 					Status: *NewStatus(
-						"insufficient quota for cpu in flavor one, request > maximum capacity (1 > 500m)",
+						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (500m)",
 						"could not assign two flavor since the original workload is assigned: one",
 					),
 				}},
