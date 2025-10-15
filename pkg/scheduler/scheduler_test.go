@@ -2100,7 +2100,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set three: insufficient quota for cpu in flavor default, request > maximum capacity (65 > 50)",
+						Message:            "couldn't assign flavors to pod set three: insufficient quota for cpu in flavor default, previously considered podsets requests (50) + current podset request (15) > maximum capacity (50)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(
@@ -5105,7 +5105,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, request > maximum capacity (100 > 50)",
+						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (100) > maximum capacity (50)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5239,7 +5239,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, request > maximum capacity (100 > 50)",
+						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (100) > maximum capacity (50)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -7524,7 +7524,7 @@ func TestLastSchedulingContext(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             "Pending",
-						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor spot, request > maximum capacity (20 > 10), insufficient unused quota for cpu in flavor on-demand, 20 more needed",
+						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (20) > maximum capacity (10), insufficient unused quota for cpu in flavor on-demand, 20 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
