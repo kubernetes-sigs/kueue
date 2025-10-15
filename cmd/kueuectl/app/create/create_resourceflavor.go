@@ -32,7 +32,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -186,11 +186,11 @@ func (o *ResourceFlavorOptions) Run(ctx context.Context) error {
 	return o.PrintObj(rf, o.Out)
 }
 
-func (o *ResourceFlavorOptions) createResourceFlavor() *v1beta1.ResourceFlavor {
-	return &v1beta1.ResourceFlavor{
-		TypeMeta:   metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
+func (o *ResourceFlavorOptions) createResourceFlavor() *kueue.ResourceFlavor {
+	return &kueue.ResourceFlavor{
+		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
 		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
-		Spec: v1beta1.ResourceFlavorSpec{
+		Spec: kueue.ResourceFlavorSpec{
 			NodeLabels:  o.NodeLabels,
 			NodeTaints:  o.NodeTaints,
 			Tolerations: o.Tolerations,

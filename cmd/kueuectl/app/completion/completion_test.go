@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -109,9 +109,9 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 	}{
 		"should return active cluster queue names": {
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeClusterQueue("cq2").StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeClusterQueue("cq3").StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeClusterQueue("cq3").StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			wantNames:     []string{"cq1", "cq2", "cq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
@@ -119,9 +119,9 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 		"should return cluster queue names": {
 			status: ptr.To(true),
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeClusterQueue("cq2").StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeClusterQueue("cq3").StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeClusterQueue("cq3").StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			wantNames:     []string{"cq1"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
@@ -129,18 +129,18 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 		"should return inactive cluster queue names": {
 			status: ptr.To(false),
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeClusterQueue("cq2").StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeClusterQueue("cq3").StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeClusterQueue("cq3").StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			wantNames:     []string{"cq2", "cq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"shouldn't return cluster queue names because only one argument can be passed": {
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeClusterQueue("cq2").StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeClusterQueue("cq3").StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeClusterQueue("cq3").StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			args:          []string{"cq2"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
@@ -178,9 +178,9 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 	}{
 		"should return local queue names": {
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			wantNames:     []string{"lq1", "lq2", "lq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
@@ -188,9 +188,9 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 		"should return active local queue names": {
 			status: ptr.To(true),
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			wantNames:     []string{"lq1"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
@@ -198,9 +198,9 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 		"should return inactive local queue names": {
 			status: ptr.To(false),
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(v1beta1.None).Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(v1beta1.Hold).Obj(),
-				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(kueue.None).Obj(),
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(kueue.Hold).Obj(),
+				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
 			wantNames:     []string{"lq2", "lq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
