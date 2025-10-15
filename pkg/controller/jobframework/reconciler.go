@@ -409,6 +409,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	if jobact, ok := job.(JobWithCustomWorkloadActivation); wl != nil && ok {
+		active := jobact.IsWorkloadActive()
+		if workload.IsActive(wl) != active {
+			wl.Spec.Active = ptr.To(active)
+			if err := r.client.Update(ctx, wl); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
