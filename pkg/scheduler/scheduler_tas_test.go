@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -2373,122 +2374,129 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			for fg, enable := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enable)
-			}
-			ctx, log := utiltesting.ContextWithLog(t)
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				for fg, enable := range tc.featureGates {
+					features.SetFeatureGateDuringTest(t, fg, enable)
+				}
+				ctx, log := utiltesting.ContextWithLog(t)
+				testWls := make([]kueue.Workload, 0, len(tc.workloads))
+				for _, wl := range tc.workloads {
+					testWls = append(testWls, *wl.DeepCopy())
+				}
 
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(
-					&kueue.AdmissionCheckList{Items: tc.admissionChecks},
-					&kueue.WorkloadList{Items: tc.workloads},
-					&kueue.TopologyList{Items: tc.topologies},
-					&corev1.PodList{Items: tc.pods},
-					&corev1.NodeList{Items: tc.nodes},
-					&kueue.LocalQueueList{Items: queues}).
-				WithObjects(utiltesting.MakeNamespace("default")).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
-				WithStatusSubresource(&kueue.Workload{}, &kueue.ClusterQueue{}, &kueue.LocalQueue{})
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithLists(
+						&kueue.AdmissionCheckList{Items: tc.admissionChecks},
+						&kueue.WorkloadList{Items: testWls},
+						&kueue.TopologyList{Items: tc.topologies},
+						&corev1.PodList{Items: tc.pods},
+						&corev1.NodeList{Items: tc.nodes},
+						&kueue.LocalQueueList{Items: queues}).
+					WithObjects(utiltesting.MakeNamespace("default")).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithStatusSubresource(&kueue.Workload{}, &kueue.ClusterQueue{}, &kueue.LocalQueue{})
 
-			for _, ac := range tc.admissionChecks {
-				clientBuilder = clientBuilder.WithStatusSubresource(ac.DeepCopy())
-			}
-			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-			cl := clientBuilder.Build()
-			recorder := &utiltesting.EventRecorder{}
-			cqCache := schdcache.New(cl)
-			now := time.Now()
-			fakeClock := testingclock.NewFakeClock(now)
-			qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
-				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
+				for _, ac := range tc.admissionChecks {
+					clientBuilder = clientBuilder.WithStatusSubresource(ac.DeepCopy())
+				}
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl)
+				now := time.Now()
+				fakeClock := testingclock.NewFakeClock(now)
+				qManager := qcache.NewManager(cl, cqCache, qcache.WithClock(fakeClock))
+				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
+					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
+				})
+				for _, ac := range tc.admissionChecks {
+					cqCache.AddOrUpdateAdmissionCheck(log, &ac)
+				}
+				for _, flavor := range tc.resourceFlavors {
+					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
+					if flavor.Spec.TopologyName != nil {
+						t := topologyByName[*flavor.Spec.TopologyName]
+						cqCache.AddOrUpdateTopology(log, &t)
+					}
+				}
+				for _, cq := range tc.clusterQueues {
+					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+					}
+					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+					if err := cl.Create(ctx, &cq); err != nil {
+						t.Fatalf("couldn't create the cluster queue: %v", err)
+					}
+				}
+				for _, q := range queues {
+					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+					}
+				}
+				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
+				for _, w := range testWls {
+					if workload.IsAdmitted(&w) && !workload.HasUnhealthyNodes(&w) {
+						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
+					}
+				}
+				for _, w := range testWls {
+					if qManager.QueueSecondPassIfNeeded(ctx, &w, 0) {
+						fakeClock.Step(time.Second)
+					}
+				}
+				scheduler := New(qManager, cqCache, cl, recorder)
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				gotAssignments := make(map[workload.Reference]kueue.Admission)
+				for cqName, c := range snapshot.ClusterQueues() {
+					for name, w := range c.Workloads {
+						if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
+							continue
+						}
+						switch {
+						case !workload.HasQuotaReservation(w.Obj):
+							t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+						case w.Obj.Status.Admission.ClusterQueue != cqName:
+							t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+						default:
+							gotAssignments[name] = *w.Obj.Status.Admission
+						}
+					}
+				}
+				if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+				}
+				qDump := qManager.Dump()
+				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+				}
+				qDumpInadmissible := qManager.DumpInadmissible()
+				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
 			})
-			for _, ac := range tc.admissionChecks {
-				cqCache.AddOrUpdateAdmissionCheck(log, &ac)
-			}
-			for _, flavor := range tc.resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
-				if flavor.Spec.TopologyName != nil {
-					t := topologyByName[*flavor.Spec.TopologyName]
-					cqCache.AddOrUpdateTopology(log, &t)
-				}
-			}
-			for _, cq := range tc.clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-				}
-				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-				}
-				if err := cl.Create(ctx, &cq); err != nil {
-					t.Fatalf("couldn't create the cluster queue: %v", err)
-				}
-			}
-			for _, q := range queues {
-				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-				}
-			}
-			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
-			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) && !workload.HasUnhealthyNodes(&w) {
-					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
-				}
-			}
-			for _, w := range tc.workloads {
-				if qManager.QueueSecondPassIfNeeded(ctx, &w, 0) {
-					fakeClock.Step(time.Second)
-				}
-			}
-			scheduler := New(qManager, cqCache, cl, recorder)
-			wg := sync.WaitGroup{}
-			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-				func() { wg.Add(1) },
-				func() { wg.Done() },
-			))
-
-			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
-
-			scheduler.schedule(ctx)
-			wg.Wait()
-			snapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			gotAssignments := make(map[workload.Reference]kueue.Admission)
-			for cqName, c := range snapshot.ClusterQueues() {
-				for name, w := range c.Workloads {
-					if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
-						continue
-					}
-					switch {
-					case !workload.HasQuotaReservation(w.Obj):
-						t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-					case w.Obj.Status.Admission.ClusterQueue != cqName:
-						t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-					default:
-						gotAssignments[name] = *w.Obj.Status.Admission
-					}
-				}
-			}
-			if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-			}
-			qDump := qManager.Dump()
-			if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-			}
-			qDumpInadmissible := qManager.DumpInadmissible()
-			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+		}
 	}
 }
 
@@ -2919,116 +2927,122 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(
-					&kueue.WorkloadList{Items: tc.workloads},
-					&kueue.TopologyList{Items: tc.topologies},
-					&corev1.PodList{Items: tc.pods},
-					&corev1.NodeList{Items: tc.nodes},
-					&kueue.LocalQueueList{Items: queues}).
-				WithObjects(
-					utiltesting.MakeNamespace("default"),
-				)
-			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-			cl := clientBuilder.Build()
-			recorder := &utiltesting.EventRecorder{}
-			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
-				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
-			})
-			for _, flavor := range tc.resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
-				if flavor.Spec.TopologyName != nil {
-					t := topologyByName[*flavor.Spec.TopologyName]
-					cqCache.AddOrUpdateTopology(log, &t)
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				ctx, log := utiltesting.ContextWithLog(t)
+				testWls := make([]kueue.Workload, 0, len(tc.workloads))
+				for _, wl := range tc.workloads {
+					testWls = append(testWls, *wl.DeepCopy())
 				}
-			}
-			for _, cq := range tc.clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-				}
-				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-				}
-				if err := cl.Create(ctx, &cq); err != nil {
-					t.Fatalf("couldn't create the cluster queue: %v", err)
-				}
-			}
-			for _, q := range queues {
-				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-				}
-			}
-			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
-			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) {
-					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
-				}
-			}
-			scheduler := New(qManager, cqCache, cl, recorder)
-			wg := sync.WaitGroup{}
-			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-				func() { wg.Add(1) },
-				func() { wg.Done() },
-			))
-
-			var mu sync.Mutex
-			gotPreempted := sets.New[workload.Reference]()
-			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
-				mu.Lock()
-				gotPreempted.Insert(workload.Key(w))
-				mu.Unlock()
-				return nil
-			})
-
-			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
-
-			scheduler.schedule(ctx)
-			wg.Wait()
-			snapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
-			}
-			gotAssignments := make(map[workload.Reference]kueue.Admission)
-			for cqName, c := range snapshot.ClusterQueues() {
-				for name, w := range c.Workloads {
-					if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
-						continue
-					}
-					switch {
-					case !workload.HasQuotaReservation(w.Obj):
-						t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-					case w.Obj.Status.Admission.ClusterQueue != cqName:
-						t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-					default:
-						gotAssignments[name] = *w.Obj.Status.Admission
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithLists(
+						&kueue.WorkloadList{Items: testWls},
+						&kueue.TopologyList{Items: tc.topologies},
+						&corev1.PodList{Items: tc.pods},
+						&corev1.NodeList{Items: tc.nodes},
+						&kueue.LocalQueueList{Items: queues}).
+					WithObjects(
+						utiltesting.MakeNamespace("default"),
+					)
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManager(cl, cqCache)
+				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
+					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
+				})
+				for _, flavor := range tc.resourceFlavors {
+					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
+					if flavor.Spec.TopologyName != nil {
+						t := topologyByName[*flavor.Spec.TopologyName]
+						cqCache.AddOrUpdateTopology(log, &t)
 					}
 				}
-			}
-			if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-			}
-			qDump := qManager.Dump()
-			if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-			}
-			qDumpInadmissible := qManager.DumpInadmissible()
-			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+				for _, cq := range tc.clusterQueues {
+					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+					}
+					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+					if err := cl.Create(ctx, &cq); err != nil {
+						t.Fatalf("couldn't create the cluster queue: %v", err)
+					}
+				}
+				for _, q := range queues {
+					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+					}
+				}
+				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
+				for _, w := range testWls {
+					if workload.IsAdmitted(&w) {
+						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
+					}
+				}
+				scheduler := New(qManager, cqCache, cl, recorder)
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+
+				var mu sync.Mutex
+				gotPreempted := sets.New[workload.Reference]()
+				scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
+					mu.Lock()
+					gotPreempted.Insert(workload.Key(w))
+					mu.Unlock()
+					return nil
+				})
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+					t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
+				}
+				gotAssignments := make(map[workload.Reference]kueue.Admission)
+				for cqName, c := range snapshot.ClusterQueues() {
+					for name, w := range c.Workloads {
+						if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
+							continue
+						}
+						switch {
+						case !workload.HasQuotaReservation(w.Obj):
+							t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+						case w.Obj.Status.Admission.ClusterQueue != cqName:
+							t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+						default:
+							gotAssignments[name] = *w.Obj.Status.Admission
+						}
+					}
+				}
+				if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+				}
+				qDump := qManager.Dump()
+				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+				}
+				qDumpInadmissible := qManager.DumpInadmissible()
+				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
@@ -3883,116 +3897,124 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-			ctx, log := utiltesting.ContextWithLog(t)
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+				ctx, log := utiltesting.ContextWithLog(t)
 
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(
-					&kueue.WorkloadList{Items: tc.workloads},
-					&kueue.TopologyList{Items: tc.topologies},
-					&corev1.PodList{Items: tc.pods},
-					&corev1.NodeList{Items: tc.nodes},
-					&kueue.LocalQueueList{Items: queues}).
-				WithObjects(
-					utiltesting.MakeNamespace("default"),
-				)
-			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-			cl := clientBuilder.Build()
-			recorder := &utiltesting.EventRecorder{}
-			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
-				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
-			})
-			for _, flavor := range tc.resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
-				if flavor.Spec.TopologyName != nil {
-					t := topologyByName[*flavor.Spec.TopologyName]
-					cqCache.AddOrUpdateTopology(log, &t)
+				testWls := make([]kueue.Workload, 0, len(tc.workloads))
+				for _, wl := range tc.workloads {
+					testWls = append(testWls, *wl.DeepCopy())
 				}
-			}
-			for _, cq := range tc.clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-				}
-				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-				}
-				if err := cl.Create(ctx, &cq); err != nil {
-					t.Fatalf("couldn't create the cluster queue: %v", err)
-				}
-			}
-			for _, q := range queues {
-				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-				}
-			}
-			initiallyAdmittedWorkloads := sets.New[workload.Reference]()
-			for _, w := range tc.workloads {
-				if workload.IsAdmitted(&w) {
-					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
-				}
-			}
-			scheduler := New(qManager, cqCache, cl, recorder)
-			wg := sync.WaitGroup{}
-			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-				func() { wg.Add(1) },
-				func() { wg.Done() },
-			))
-
-			var mu sync.Mutex
-			gotPreempted := sets.New[workload.Reference]()
-			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
-				mu.Lock()
-				gotPreempted.Insert(workload.Key(w))
-				mu.Unlock()
-				return nil
-			})
-
-			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
-
-			scheduler.schedule(ctx)
-			wg.Wait()
-			snapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
-			}
-			gotAssignments := make(map[workload.Reference]kueue.Admission)
-			for cqName, c := range snapshot.ClusterQueues() {
-				for name, w := range c.Workloads {
-					if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
-						continue
-					}
-					switch {
-					case !workload.HasQuotaReservation(w.Obj):
-						t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-					case w.Obj.Status.Admission.ClusterQueue != cqName:
-						t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-					default:
-						gotAssignments[name] = *w.Obj.Status.Admission
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithLists(
+						&kueue.WorkloadList{Items: testWls},
+						&kueue.TopologyList{Items: tc.topologies},
+						&corev1.PodList{Items: tc.pods},
+						&corev1.NodeList{Items: tc.nodes},
+						&kueue.LocalQueueList{Items: queues}).
+					WithObjects(
+						utiltesting.MakeNamespace("default"),
+					).
+					WithStatusSubresource(&kueue.Workload{})
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManager(cl, cqCache)
+				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
+					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
+				})
+				for _, flavor := range tc.resourceFlavors {
+					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
+					if flavor.Spec.TopologyName != nil {
+						t := topologyByName[*flavor.Spec.TopologyName]
+						cqCache.AddOrUpdateTopology(log, &t)
 					}
 				}
-			}
-			if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-			}
-			qDump := qManager.Dump()
-			if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-			}
-			qDumpInadmissible := qManager.DumpInadmissible()
-			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))...); diff != "" {
-				t.Errorf("unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+				for _, cq := range tc.clusterQueues {
+					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+					}
+					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+					if err := cl.Create(ctx, &cq); err != nil {
+						t.Fatalf("couldn't create the cluster queue: %v", err)
+					}
+				}
+				for _, q := range queues {
+					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+					}
+				}
+				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
+				for _, w := range testWls {
+					if workload.IsAdmitted(&w) {
+						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
+					}
+				}
+				scheduler := New(qManager, cqCache, cl, recorder)
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+
+				var mu sync.Mutex
+				gotPreempted := sets.New[workload.Reference]()
+				scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
+					mu.Lock()
+					gotPreempted.Insert(workload.Key(w))
+					mu.Unlock()
+					return nil
+				})
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+					t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
+				}
+				gotAssignments := make(map[workload.Reference]kueue.Admission)
+				for cqName, c := range snapshot.ClusterQueues() {
+					for name, w := range c.Workloads {
+						if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
+							continue
+						}
+						switch {
+						case !workload.HasQuotaReservation(w.Obj):
+							t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+						case w.Obj.Status.Admission.ClusterQueue != cqName:
+							t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+						default:
+							gotAssignments[name] = *w.Obj.Status.Admission
+						}
+					}
+				}
+				if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+				}
+				qDump := qManager.Dump()
+				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+				}
+				qDumpInadmissible := qManager.DumpInadmissible()
+				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))...); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
