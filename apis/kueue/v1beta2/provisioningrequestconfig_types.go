@@ -177,7 +177,3 @@ type ProvisioningRequestConfigList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ProvisioningRequestConfig `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ProvisioningRequestConfig{}, &ProvisioningRequestConfigList{})
-}

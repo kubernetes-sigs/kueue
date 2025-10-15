@@ -787,7 +787,3 @@ type WorkloadList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Workload `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&Workload{}, &WorkloadList{})
-}

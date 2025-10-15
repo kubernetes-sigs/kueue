@@ -38,11 +38,3 @@ var (
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
-
-func init() {
-	SchemeBuilder.Register(&Configuration{})
-	// We only register manually written functions here. The registration of the
-	// generated functions takes place in the generated files. The separation
-	// makes the code compile even when the generated files are missing.
-	localSchemeBuilder.Register(RegisterDefaults)
-}

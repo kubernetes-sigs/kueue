@@ -214,7 +214,3 @@ type LocalQueueList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []LocalQueue `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&LocalQueue{}, &LocalQueueList{})
-}

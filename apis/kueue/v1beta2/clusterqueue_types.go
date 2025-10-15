@@ -544,7 +544,3 @@ type ClusterQueueList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ClusterQueue `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ClusterQueue{}, &ClusterQueueList{})
-}

@@ -126,7 +126,3 @@ type AdmissionCheckList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []AdmissionCheck `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&AdmissionCheck{}, &AdmissionCheckList{})
-}
