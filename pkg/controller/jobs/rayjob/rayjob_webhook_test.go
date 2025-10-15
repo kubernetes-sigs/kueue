@@ -145,6 +145,25 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+
+		"valid managed - has cluster selector but no RayClusterSpec": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				ClusterSelector(map[string]string{
+					"k1": "v1",
+				}).
+				RayClusterSpec(nil).
+				Obj(),
+			localQueueDefaulting: false,
+			wantErr:              nil,
+		},
+		"invalid managed - no cluster selector and no RayClusterSpec": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				RayClusterSpec(nil).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("spec", "rayClusterSpec"), "rayClusterSpec is required for Kueue-managed jobs that don't use clusterSelector"),
+			}.ToAggregate(),
+		},
 		"invalid unmanaged - local queue default": {
 			job: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(false).
@@ -169,7 +188,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
 			}.ToAggregate(),
 		},
-		"invalid managed - has cluster selector": {
+		"invalid managed - has cluster selector and RayClusterSpec": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				ClusterSelector(map[string]string{
 					"k1": "v1",
