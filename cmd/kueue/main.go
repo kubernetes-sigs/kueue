@@ -362,7 +362,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		}
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}
 
