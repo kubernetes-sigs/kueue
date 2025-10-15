@@ -52,14 +52,6 @@ type AdmissionCheckSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ControllerName string `json:"controllerName"`
 
-	// retryDelayMinutes specifies how long to keep the workload suspended after
-	// a failed check (after it transitioned to False). When the delay period has passed, the check
-	// state goes to "Unknown". The default is 15 min.
-	// +optional
-	// +kubebuilder:default=15
-	// Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.
-	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
-
 	// parameters identifies a configuration with additional parameters for the
 	// check.
 	// +optional
