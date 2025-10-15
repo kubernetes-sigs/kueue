@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 			ginkgo.By("checking the workload is updated with queue name when the AppWrapper does")
 			awQueueName := "test-queue"
-			createdAppWrapper.Annotations = map[string]string{constants.QueueLabel: awQueueName}
+			createdAppWrapper.Labels = map[string]string{constants.QueueLabel: awQueueName}
 			gomega.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())

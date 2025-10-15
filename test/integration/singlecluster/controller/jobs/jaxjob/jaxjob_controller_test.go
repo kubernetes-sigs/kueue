@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created when queue name is set")
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+		createdJob.Labels = map[string]string{constants.QueueLabel: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())

@@ -120,7 +120,6 @@ func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorL
 func ValidateQueueName(obj client.Object) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(obj, constants.QueueLabel)...)
-	allErrs = append(allErrs, ValidateAnnotationAsCRDName(obj, constants.QueueAnnotation)...)
 	return allErrs
 }
 
