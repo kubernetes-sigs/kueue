@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -46,7 +47,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
-		cq = testing.MakeClusterQueue("cq").Obj()
+		cq = utiltestingapi.MakeClusterQueue("cq").Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 	})
 
@@ -214,7 +215,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("alpha").
+								*utiltestingapi.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
 									Obj(),
@@ -251,11 +252,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("alpha").
+								*utiltestingapi.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
 									Obj(),
-								*testing.MakeFlavorQuotas("beta").
+								*utiltestingapi.MakeFlavorQuotas("beta").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
 									Obj(),
@@ -292,11 +293,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("alpha").
+								*utiltestingapi.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
 									Obj(),
-								*testing.MakeFlavorQuotas("gamma").
+								*utiltestingapi.MakeFlavorQuotas("gamma").
 									Resource(corev1.ResourceCPU, "0").
 									Resource(corev1.ResourceMemory, "0").
 									Obj(),
@@ -305,7 +306,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"gpu"},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("beta").
+								*utiltestingapi.MakeFlavorQuotas("beta").
 									Resource("gpu", "0").
 									Obj(),
 							},
@@ -348,7 +349,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("alpha").
+								*utiltestingapi.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "0", "0", "0").
 									Resource(corev1.ResourceMemory, "0", "0", "0").
 									Obj(),
@@ -402,11 +403,11 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("alpha").
+								*utiltestingapi.MakeFlavorQuotas("alpha").
 									Resource(corev1.ResourceCPU, "2", "1", "0").
 									Resource(corev1.ResourceMemory, "2", "1", "0").
 									Obj(),
-								*testing.MakeFlavorQuotas("gamma").
+								*utiltestingapi.MakeFlavorQuotas("gamma").
 									Resource(corev1.ResourceCPU, "2", "1", "0").
 									Resource(corev1.ResourceMemory, "2", "1", "0").
 									Obj(),
@@ -415,7 +416,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"gpu"},
 							Flavors: []kueue.FlavorQuotas{
-								*testing.MakeFlavorQuotas("beta").
+								*utiltestingapi.MakeFlavorQuotas("beta").
 									Resource("gpu", "2", "1", "0").
 									Obj(),
 							},

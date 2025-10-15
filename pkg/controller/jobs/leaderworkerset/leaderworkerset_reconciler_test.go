@@ -37,6 +37,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
@@ -69,7 +70,7 @@ func TestReconciler(t *testing.T) {
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -127,7 +128,7 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -200,7 +201,7 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -232,7 +233,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Priority(0).
 					Obj(),
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -347,7 +348,7 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -457,7 +458,7 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -508,14 +509,14 @@ func TestReconciler(t *testing.T) {
 				UID(testUID).
 				Obj(),
 			workloadPriorityClasses: []kueue.WorkloadPriorityClass{
-				*utiltesting.MakeWorkloadPriorityClass("high-priority").PriorityValue(5000).Obj(),
+				*utiltestingapi.MakeWorkloadPriorityClass("high-priority").PriorityValue(5000).Obj(),
 			},
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("high-priority").
 				UID(testUID).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -555,7 +556,7 @@ func TestReconciler(t *testing.T) {
 			leaderWorkerSet:     leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			wantLeaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testUID).Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -574,7 +575,7 @@ func TestReconciler(t *testing.T) {
 						}).
 					Priority(0).
 					Obj(),
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod2", "test-pod2-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -595,7 +596,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "0"), testNS).
 					OwnerReference(gvk, testLWS, testUID).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod1", "test-pod1-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -614,7 +615,7 @@ func TestReconciler(t *testing.T) {
 						}).
 					Priority(0).
 					Obj(),
-				*utiltesting.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
+				*utiltestingapi.MakeWorkload(GetWorkloadName(types.UID(testUID), testLWS, "1"), testNS).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "test-pod2", "test-pod2-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 					Finalizers(kueue.ResourceInUseFinalizerName).

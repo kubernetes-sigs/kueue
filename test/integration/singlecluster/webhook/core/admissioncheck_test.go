@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -201,7 +202,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should allow to update AdmissionCheck when changing parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -223,7 +224,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should allow to update AdmissionCheck when removing parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -243,7 +244,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should fail to update AdmissionCheck when breaking parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()
@@ -263,7 +264,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.It("Should fail to update AdmissionCheck when breaking parameters", func() {
 		ginkgo.By("Creating a new AdmissionCheck")
-		ac := testing.MakeAdmissionCheck("admission-check").
+		ac := utiltestingapi.MakeAdmissionCheck("admission-check").
 			ControllerName("controller-name").
 			Parameters("ref.api.group", "RefKind", "ref-name").
 			Obj()

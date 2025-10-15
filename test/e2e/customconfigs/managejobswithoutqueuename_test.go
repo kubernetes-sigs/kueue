@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -70,15 +71,15 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
-		defaultRf = testing.MakeResourceFlavor("default").Obj()
+		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultRf)
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(defaultRf.Name).
+				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
-		localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
@@ -183,7 +184,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("creating a default LocalQueue", func() {
-				localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
+				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
 				util.MustCreate(ctx, k8sClient, localQueue)
 			})
 
@@ -225,7 +226,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			var jobLookupKey types.NamespacedName
 
 			ginkgo.By("creating a default LocalQueue", func() {
-				localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
+				localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cluster-queue").Obj()
 				util.MustCreate(ctx, k8sClient, localQueue)
 			})
 
@@ -1001,15 +1002,15 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
-		defaultRf = testing.MakeResourceFlavor("default").Obj()
+		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultRf)
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(defaultRf.Name).
+				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
-		localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 

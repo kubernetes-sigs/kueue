@@ -33,6 +33,7 @@ import (
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -93,7 +94,7 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns            *corev1.Namespace
-		defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 	)
 
 	ginkgo.BeforeAll(func() {
@@ -233,16 +234,16 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = utiltestingapi.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 	})
@@ -255,7 +256,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
 		ginkgo.By("creating localQueue")
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(
@@ -319,21 +320,21 @@ var _ = ginkgo.Describe("XGBoostJob controller with TopologyAwareScheduling", fr
 		}
 		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
-		topology = testing.MakeDefaultTwoLevelTopology("default")
+		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 		util.MustCreate(ctx, k8sClient, topology)
 
-		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(nodeGroupLabel, "tas").
 			TopologyName("default").Obj()
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 

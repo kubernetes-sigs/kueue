@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -73,12 +74,12 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 	ginkgo.When("There are pending workloads due to capacity maxed by the admitted job", func() {
 		ginkgo.BeforeEach(func() {
-			defaultRF = testing.MakeResourceFlavor(defaultFlavor).Obj()
+			defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
 			util.MustCreate(ctx, k8sClient, defaultRF)
 
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas(defaultFlavor).
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor).
 						Resource(corev1.ResourceCPU, "1").
 						Obj(),
 				).
@@ -86,10 +87,10 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-			localQueueA = testing.MakeLocalQueue("a", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueueA = utiltestingapi.MakeLocalQueue("a", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueueA)
 
-			localQueueB = testing.MakeLocalQueue("b", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueueB = utiltestingapi.MakeLocalQueue("b", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueueB)
 
 			highPriorityClass = testing.MakePriorityClass("high").PriorityValue(100).Obj()
@@ -387,7 +388,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 		})
 		ginkgo.It("Should allow fetching information about position of pending workloads from different LocalQueues from different Namespaces", func() {
 			ginkgo.By("Create a LocalQueue in a different Namespace", func() {
-				localQueueB = testing.MakeLocalQueue("b", nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
+				localQueueB = utiltestingapi.MakeLocalQueue("b", nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueueB)
 			})
 

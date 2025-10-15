@@ -26,7 +26,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestResourceFlavorPrint(t *testing.T) {
@@ -41,7 +41,7 @@ func TestResourceFlavorPrint(t *testing.T) {
 			options: &ResourceFlavorOptions{},
 			in: &kueue.ResourceFlavorList{
 				Items: []kueue.ResourceFlavor{
-					*utiltesting.MakeResourceFlavor("rf").
+					*utiltestingapi.MakeResourceFlavor("rf").
 						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
 						NodeLabel("key1", "value").
 						NodeLabel("key2", "value").
@@ -52,7 +52,7 @@ func TestResourceFlavorPrint(t *testing.T) {
 				{
 					Cells: []any{"rf", "key1=value, key2=value", "60m"},
 					Object: runtime.RawExtension{
-						Object: utiltesting.MakeResourceFlavor("rf").
+						Object: utiltestingapi.MakeResourceFlavor("rf").
 							Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
 							NodeLabel("key1", "value").
 							NodeLabel("key2", "value").

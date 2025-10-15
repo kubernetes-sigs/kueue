@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -420,9 +421,9 @@ func TestReconcile(t *testing.T) {
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			enableDRAFeature: true,
-			workload: utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaim("gpu", "rc1").
 					Obj()).
 				Obj(),
@@ -440,15 +441,15 @@ func TestReconcile(t *testing.T) {
 					},
 				},
 			}},
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("flavor1").
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpus", "2").Obj(),
 				).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wlWithDRAResourceClaim", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaim("gpu", "rc1").
 					Obj()).
 				Condition(metav1.Condition{
@@ -470,9 +471,9 @@ func TestReconcile(t *testing.T) {
 			enableDRAFeature:     true,
 			wantDRAResourceTotal: ptr.To(int64(1)),
 			wantWorkloadsInQueue: ptr.To(1),
-			workload: utiltesting.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
@@ -493,15 +494,15 @@ func TestReconcile(t *testing.T) {
 					},
 				},
 			}},
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("flavor1").
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "2").Obj(),
 				).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Condition(metav1.Condition{
@@ -517,9 +518,9 @@ func TestReconcile(t *testing.T) {
 			enableDRAFeature:     true,
 			wantDRAResourceTotal: ptr.To(int64(6)),
 			wantWorkloadsInQueue: ptr.To(1),
-			workload: utiltesting.MakeWorkload("wlMultiPodDRA", "ns").
+			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
@@ -540,15 +541,15 @@ func TestReconcile(t *testing.T) {
 					},
 				},
 			}},
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("flavor1").
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "10").Obj(),
 				).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wlMultiPodDRA", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Condition(metav1.Condition{
@@ -562,9 +563,9 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			enableDRAFeature: true,
-			workload: utiltesting.MakeWorkload("wlUnmappedDRA", "ns").
+			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
@@ -585,16 +586,16 @@ func TestReconcile(t *testing.T) {
 					},
 				},
 			}},
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("flavor1").
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "2").Obj(),
 				).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: func() *kueue.Workload {
-				wl := utiltesting.MakeWorkload("wlUnmappedDRA", "ns").
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
 					Queue("lq").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						ResourceClaimTemplate("gpu", "gpu-template").
 						Obj()).
 					Condition(metav1.Condition{
@@ -623,21 +624,21 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			enableDRAFeature: true,
-			workload: utiltesting.MakeWorkload("wlMissingTemplate", "ns").
+			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaimTemplate("gpu", "missing-template").
 					Obj()).
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("flavor1").
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
 						Resource("gpu", "2").Obj(),
 				).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wlMissingTemplate", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
 				Queue("lq").
-				PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					ResourceClaimTemplate("gpu", "missing-template").
 					Obj()).
 				Condition(metav1.Condition{
@@ -657,23 +658,23 @@ func TestReconcile(t *testing.T) {
 			wantEvents: nil,
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
 				Queue("queue").
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionCheckStrategy(
-					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
 				Obj(),
-			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			lq: utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
@@ -690,21 +691,21 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionChecks": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
 				Queue("queue").
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				AdmissionChecks("ac1", "ac2").
 				Obj(),
-			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			lq: utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
@@ -721,15 +722,15 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"admit": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuotaAt(utiltesting.MakeAdmission("q1").Obj(), testStartTime).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), testStartTime).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -752,16 +753,16 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"already admitted": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -770,7 +771,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"remove finalizer for finished workload": {
-			workload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 				Condition(metav1.Condition{
 					Type:   "Finished",
 					Status: "True",
@@ -780,7 +781,7 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: nil,
 		},
 		"don't remove finalizer for owned finished workload": {
-			workload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+			workload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 				Condition(metav1.Condition{
 					Type:   "Finished",
 					Status: "True",
@@ -788,7 +789,7 @@ func TestReconcile(t *testing.T) {
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 				DeletionTimestamp(testStartTime).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+			wantWorkload: utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 				Condition(metav1.Condition{
 					Type:   "Finished",
 					Status: "True",
@@ -798,17 +799,17 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"unadmitted workload with rejected checks gets deactivated": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
@@ -838,8 +839,8 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"admitted workload with rejected checks gets deactivated": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
@@ -847,8 +848,8 @@ func TestReconcile(t *testing.T) {
 					State: kueue.CheckStateRejected,
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
@@ -886,8 +887,8 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload with deactivation target condition should be deactivated and admission checks reset": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -908,8 +909,8 @@ func TestReconcile(t *testing.T) {
 					Message: "Admission check(s): check-1, were rejected",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -948,8 +949,8 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -991,8 +992,8 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload with retry checks should be evicted and checks should be pending": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check-1",
@@ -1002,8 +1003,8 @@ func TestReconcile(t *testing.T) {
 					State: kueue.CheckStateReady,
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:    "check-1",
@@ -1046,8 +1047,8 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffMaxDuration: time.Duration(3600) * time.Second,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -1077,8 +1078,8 @@ func TestReconcile(t *testing.T) {
 				).
 				Generation(1).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:    "check",
@@ -1128,8 +1129,8 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffJitter:     0,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -1144,8 +1145,8 @@ func TestReconcile(t *testing.T) {
 				Admitted(true).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -1170,8 +1171,8 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -1187,8 +1188,8 @@ func TestReconcile(t *testing.T) {
 				Admitted(true).
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:    "check",
@@ -1233,8 +1234,8 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -1256,8 +1257,8 @@ func TestReconcile(t *testing.T) {
 				}).
 				Admitted(true).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:    "check",
@@ -1299,7 +1300,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1308,7 +1309,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1319,7 +1320,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should keep the WorkloadRequeued condition until the WaitForPodsReady backoff expires": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1329,7 +1330,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1342,7 +1343,7 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
 		"should set the WorkloadRequeued condition when the WaitForPodsReady backoff expires": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1352,7 +1353,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1364,7 +1365,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should keep the WorkloadRequeued condition until the AdmissionCheck backoff expires": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1374,7 +1375,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1387,7 +1388,7 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
 		"should set the WorkloadRequeued condition when the AdmissionCheck backoff expires": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1397,7 +1398,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1409,7 +1410,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1425,7 +1426,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -1443,9 +1444,9 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the WorkloadRequeued condition to true on ClusterQueue started": {
-			cq: utiltesting.MakeClusterQueue("cq").Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -1455,7 +1456,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The ClusterQueue is stopped",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -1467,9 +1468,9 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the WorkloadRequeued condition to true on LocalQueue started": {
-			cq: utiltesting.MakeClusterQueue("cq").Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -1479,7 +1480,7 @@ func TestReconcile(t *testing.T) {
 					Message: "The LocalQueue is stopped",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -1491,8 +1492,8 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active=False": {
-			workload: utiltesting.MakeWorkload("wl", "ns").Active(false).Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Active(false).Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1509,14 +1510,14 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active=False and Admitted": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1541,9 +1542,9 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1559,9 +1560,9 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1602,9 +1603,9 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffJitter:      0,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1619,9 +1620,9 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1650,9 +1651,9 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1693,9 +1694,9 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffJitter:      0,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1710,9 +1711,9 @@ func TestReconcile(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1741,9 +1742,9 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1784,9 +1785,9 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffJitter:      0,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1802,9 +1803,9 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1835,9 +1836,9 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1878,9 +1879,9 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffJitter:      0,
 				}),
 			},
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1896,9 +1897,9 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1929,9 +1930,9 @@ func TestReconcile(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
@@ -1963,9 +1964,9 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1974,9 +1975,9 @@ func TestReconcile(t *testing.T) {
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1987,17 +1988,17 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Evicted condition with ClusterQueueStopped reason when the StopPolicy is HoldAndDrain": {
-			cq: utiltesting.MakeClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Admitted(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Admitted(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2023,17 +2024,17 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"should set the Evicted condition with LocalQueueStopped reason when the StopPolicy is HoldAndDrain": {
-			cq: utiltesting.MakeClusterQueue("cq").Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Admitted(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Admitted(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2059,19 +2060,19 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
-			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
 				}).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2084,7 +2085,7 @@ func TestReconcile(t *testing.T) {
 					Message: "LocalQueue lq is terminating or missing",
 				}).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -2100,20 +2101,20 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
-			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
 				}).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2126,7 +2127,7 @@ func TestReconcile(t *testing.T) {
 					Message: "LocalQueue lq is stopped",
 				}).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -2142,19 +2143,19 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was deleted": {
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
 				}).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2167,7 +2168,7 @@ func TestReconcile(t *testing.T) {
 					Message: "ClusterQueue cq is terminating or missing",
 				}).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -2183,20 +2184,20 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
-			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			cq: utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
 				}).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
-				Admission(utiltesting.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq", kueue.DefaultPodSetName).Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStatePending,
@@ -2209,7 +2210,7 @@ func TestReconcile(t *testing.T) {
 					Message: "ClusterQueue cq is stopped",
 				}).
 				Obj(),
-			wantWorkloadUseMergePatch: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -2225,11 +2226,11 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue is not created": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2241,12 +2242,12 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue StopPolicy=Hold": {
-			lq: utiltesting.MakeLocalQueue("lq", "ns").StopPolicy(kueue.Hold).Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2258,12 +2259,12 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue StopPolicy=HoldAndDrain": {
-			lq: utiltesting.MakeLocalQueue("lq", "ns").StopPolicy(kueue.HoldAndDrain).Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").StopPolicy(kueue.HoldAndDrain).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2275,12 +2276,12 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved ClusterQueue is not created": {
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2292,13 +2293,13 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved ClusterQueue StopPolicy=Hold": {
-			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				Queue("lq").
 				Condition(metav1.Condition{
@@ -2311,14 +2312,14 @@ func TestReconcile(t *testing.T) {
 		},
 
 		"admitted workload with max execution time": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				MaximumExecutionTimeSeconds(120).
 				AdmittedAt(true, testStartTime.Add(-time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				MaximumExecutionTimeSeconds(120).
 				AdmittedAt(true, testStartTime.Add(-time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -2327,14 +2328,14 @@ func TestReconcile(t *testing.T) {
 		},
 
 		"admitted workload with max execution time - expired": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				MaximumExecutionTimeSeconds(60).
 				AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				Obj(),
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				MaximumExecutionTimeSeconds(60).
 				AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -2356,7 +2357,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"shouldn't delete the workload because, object retention not configured": {
 			enableObjectRetentionPolicies: true,
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
@@ -2365,7 +2366,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(nil),
 			},
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
@@ -2375,7 +2376,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"shouldn't try to delete the workload (no event emitted) because it is already being deleted by kubernetes, object retention configured": {
 			enableObjectRetentionPolicies: true,
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
@@ -2398,7 +2399,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
 			enableObjectRetentionPolicies: true,
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
@@ -2415,7 +2416,7 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{
 				RequeueAfter: util.LongTimeout - util.Timeout,
 			},
-			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
@@ -2426,7 +2427,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"should delete the workload because the retention period has elapsed, object retention configured": {
 			enableObjectRetentionPolicies: true,
-			workload: utiltesting.MakeWorkload("wl", "ns").
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,

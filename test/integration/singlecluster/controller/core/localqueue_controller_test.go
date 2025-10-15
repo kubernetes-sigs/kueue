@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -41,14 +42,14 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		queue           *kueue.LocalQueue
 		clusterQueue    *kueue.ClusterQueue
 		resourceFlavors = []kueue.ResourceFlavor{
-			*testing.MakeResourceFlavor(flavorModelC).
+			*utiltestingapi.MakeResourceFlavor(flavorModelC).
 				NodeLabel(resourceGPU.String(), flavorModelC).
 				Taint(corev1.Taint{
 					Key:    "spot",
 					Value:  "true",
 					Effect: corev1.TaintEffectNoSchedule,
 				}).Obj(),
-			*testing.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
+			*utiltestingapi.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
 		}
 		emptyUsage = []kueue.LocalQueueFlavorUsage{
 			{
@@ -86,19 +87,19 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	})
 
 	ginkgo.BeforeEach(func() {
-		ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		util.MustCreate(ctx, k8sClient, ac)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
-		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
-				*testing.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
 			).
 			Cohort("cohort").
 			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 			Obj()
-		queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, queue)
 	})
 
@@ -227,28 +228,28 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		util.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 		workloads := []*kueue.Workload{
-			testing.MakeWorkload("one", ns.Name).
+			utiltestingapi.MakeWorkload("one", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "2").
 				Obj(),
-			testing.MakeWorkload("two", ns.Name).
+			utiltestingapi.MakeWorkload("two", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "3").
 				Obj(),
-			testing.MakeWorkload("three", ns.Name).
+			utiltestingapi.MakeWorkload("three", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "1").
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
-			testing.MakeAdmission(clusterQueue.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
-			testing.MakeAdmission(clusterQueue.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
-			testing.MakeAdmission(clusterQueue.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 
@@ -461,28 +462,28 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		})
 
 		workloads := []*kueue.Workload{
-			testing.MakeWorkload("one", ns.Name).
+			utiltestingapi.MakeWorkload("one", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "2").
 				Obj(),
-			testing.MakeWorkload("two", ns.Name).
+			utiltestingapi.MakeWorkload("two", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "3").
 				Obj(),
-			testing.MakeWorkload("three", ns.Name).
+			utiltestingapi.MakeWorkload("three", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(resourceGPU, "1").
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
-			testing.MakeAdmission(clusterQueue.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "2").Obj()).Obj(),
-			testing.MakeAdmission(clusterQueue.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelC, "3").Obj()).Obj(),
-			testing.MakeAdmission(clusterQueue.Name).
-				PodSets(testing.MakePodSetAssignment(kueue.DefaultPodSetName).
+			utiltestingapi.MakeAdmission(clusterQueue.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(resourceGPU, flavorModelD, "1").Obj()).Obj(),
 		}
 

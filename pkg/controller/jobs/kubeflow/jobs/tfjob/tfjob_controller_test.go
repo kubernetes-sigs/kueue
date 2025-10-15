@@ -27,7 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 )
 
@@ -251,13 +251,13 @@ func TestPodSets(t *testing.T) {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").TFReplicaSpecsDefault().Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -289,19 +289,19 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
@@ -334,15 +334,15 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
