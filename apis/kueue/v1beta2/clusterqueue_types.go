@@ -64,7 +64,7 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
-	// cohortName that this ClusterQueue belongs to. CQs that belong to the
+	// cohort that this ClusterQueue belongs to. CQs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
 	// A CQ can be a member of a single borrowing cohort. A workload submitted

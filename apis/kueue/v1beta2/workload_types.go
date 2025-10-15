@@ -405,7 +405,7 @@ type WorkloadStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 
-	// accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
+	// accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
 	// in Admitted state, in the previous `Admit` - `Evict` cycles.
 	//
 	// +optional
