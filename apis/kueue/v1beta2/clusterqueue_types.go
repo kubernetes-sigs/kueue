@@ -64,7 +64,7 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
-	// cohort that this ClusterQueue belongs to. CQs that belong to the
+	// cohortName that this ClusterQueue belongs to. CQs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
 	// A CQ can be a member of a single borrowing cohort. A workload submitted
@@ -76,7 +76,7 @@ type ClusterQueueSpec struct {
 	//
 	// A cohort is a name that links CQs together, but it doesn't reference any
 	// object.
-	Cohort CohortReference `json:"cohort,omitempty"`
+	CohortName CohortReference `json:"cohort,omitempty"`
 
 	// queueingStrategy indicates the queueing strategy of the workloads
 	// across the queues in this ClusterQueue.
@@ -103,16 +103,11 @@ type ClusterQueueSpec struct {
 	// flavorFungibility defines whether a workload should try the next flavor
 	// before borrowing or preempting in the flavor being evaluated.
 	// +kubebuilder:default={}
-	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
+	FlavorFungibility FlavorFungibility `json:"flavorFungibility,omitempty"`
 
 	// preemption defines the preemption policies.
 	// +kubebuilder:default={}
-	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
-
-	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-	// Cannot be used along with AdmissionCheckStrategy.
-	// +optional
-	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"`
+	Preemption ClusterQueuePreemption `json:"preemption,omitempty"`
 
 	// admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
 	// This property cannot be used in conjunction with the 'admissionChecks' property.
@@ -354,8 +349,6 @@ const (
 type FlavorFungibilityPolicy string
 
 const (
-	Borrow        FlavorFungibilityPolicy = "Borrow"
-	Preempt       FlavorFungibilityPolicy = "Preempt"
 	MayStopSearch FlavorFungibilityPolicy = "MayStopSearch"
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
@@ -369,9 +362,8 @@ type FlavorFungibility struct {
 	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
 	//   fits or requires borrowing to fit.
 	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
-	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Borrow}
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor}
 	// +kubebuilder:default="MayStopSearch"
 	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
@@ -381,9 +373,8 @@ type FlavorFungibility struct {
 	//   preemption to fit.
 	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
 	//   to fit in current flavor.
-	// - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Preempt}
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor}
 	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 }
@@ -434,7 +425,7 @@ type ClusterQueuePreemption struct {
 	// Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
 	// May only be configured with Classical Preemption, and __not__ with Fair Sharing.
 	// +kubebuilder:default={}
-	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
+	BorrowWithinCohort BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
 	// withinClusterQueue determines whether a pending Workload that doesn't fit
 	// within the nominal quota for its ClusterQueue, can preempt active Workloads in

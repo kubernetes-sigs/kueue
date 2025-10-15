@@ -139,15 +139,15 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation"`
+	FlavorsReservation []LocalQueueFlavorsUsage `json:"flavorsReservation"`
 
-	// flavorUsage are the used quotas, by flavor currently in use by the
+	// flavorsUsage are the used quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
+	FlavorsUsage []LocalQueueFlavorsUsage `json:"flavorsUsage"`
 
 	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
 	// +listType=map
@@ -167,7 +167,7 @@ const (
 	LocalQueueActive string = "Active"
 )
 
-type LocalQueueFlavorUsage struct {
+type LocalQueueFlavorsUsage struct {
 	// name of the flavor.
 	Name ResourceFlavorReference `json:"name"`
 

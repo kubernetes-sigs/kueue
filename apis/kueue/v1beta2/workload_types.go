@@ -409,7 +409,7 @@ type WorkloadStatus struct {
 	// in Admitted state, in the previous `Admit` - `Evict` cycles.
 	//
 	// +optional
-	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+	AccumulatedPastExecutionTimeSeconds *int32 `json:"accumulatedPastExecutionTimeSeconds,omitempty"`
 
 	// schedulingStats tracks scheduling statistics
 	//
