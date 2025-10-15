@@ -443,6 +443,28 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 	return resPerFlavor
 }
 
+func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering) []*workload.Info {
+	var candidates []*workload.Info
+	if policy == "" {
+		policy = kueue.PreemptionPolicyAny
+	}
+	for _, candidateWl := range workloadsToFilter {
+		if !preemptioncommon.SatisfiesPreemptionPolicy(
+			wl,
+			candidateWl.Obj,
+			workloadOrdering,
+			policy) {
+			continue
+		}
+
+		if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
+			continue
+		}
+		candidates = append(candidates, candidateWl)
+	}
+	return candidates
+}
+
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
@@ -450,21 +472,8 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 	var candidates []*workload.Info
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-		for _, candidateWl := range cq.Workloads {
-			if !preemptioncommon.SatisfiesPreemptionPolicy(
-				wl,
-				candidateWl.Obj,
-				p.workloadOrdering,
-				cq.Preemption.WithinClusterQueue,
-				true) {
-				continue
-			}
-
-			if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
-				continue
-			}
-			candidates = append(candidates, candidateWl)
-		}
+		newCandidates := findCandidatesForPolicy(wl, cq.Workloads, cq.Preemption.WithinClusterQueue, frsNeedPreemption, p.workloadOrdering)
+		candidates = append(candidates, newCandidates...)
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
@@ -473,20 +482,8 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
 			}
-			for _, candidateWl := range cohortCQ.Workloads {
-				if !preemptioncommon.SatisfiesPreemptionPolicy(
-					wl,
-					candidateWl.Obj,
-					p.workloadOrdering,
-					cq.Preemption.ReclaimWithinCohort,
-					true) {
-					continue
-				}
-				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
-					continue
-				}
-				candidates = append(candidates, candidateWl)
-			}
+			newCandidates := findCandidatesForPolicy(wl, cohortCQ.Workloads, cq.Preemption.ReclaimWithinCohort, frsNeedPreemption, p.workloadOrdering)
+			candidates = append(candidates, newCandidates...)
 		}
 	}
 	return candidates

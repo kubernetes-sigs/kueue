@@ -22,11 +22,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, emptyPolicyValue bool) bool {
-	if policy == "" {
-		return emptyPolicyValue
-	}
-
+func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
 	preemptorPriority := priority.Priority(preemptor)
 	candidatePriority := priority.Priority(candidate)
 
