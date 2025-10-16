@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type WorkloadWebhook struct {
@@ -372,14 +373,27 @@ func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.E
 	return allErrs
 }
 
+func isElasticJobReplacement(newObj *kueue.Workload) bool {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return false
+	}
+	if key := workloadslicing.ReplacementForKey(newObj); key != nil {
+		return true
+	}
+	return false
+}
+
 func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, dispatcherName string, statusPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
+	if isElasticJobReplacement(newObj) {
+		// Allow setting clusterName when the workload is a valid elastic job replacement.
+		return allErrs
+	}
 	if oldObj.Status.ClusterName == nil && newObj.Status.ClusterName != nil && dispatcherName != configapi.MultiKueueDispatcherModeAllAtOnce {
 		found := slices.Contains(oldObj.Status.NominatedClusterNames, *newObj.Status.ClusterName)
 		if !found {
 			allErrs = append(allErrs, field.Invalid(statusPath.Child("clusterName"), newObj.Status.ClusterName, "when setting clusterName it must be one of the nominatedClusterNames"))
 		}
 	}
-
 	return allErrs
 }
