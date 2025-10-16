@@ -144,7 +144,7 @@ generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto
 generate-mocks: mockgen ## Generate mockgen mocks
 	# Clean up previously generated mocks to keep generated mocks up-to-date.
 	rm -rf $(MOCKS_DIR)
-	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy
+	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
