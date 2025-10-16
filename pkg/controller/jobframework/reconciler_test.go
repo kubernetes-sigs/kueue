@@ -28,15 +28,20 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -49,6 +54,149 @@ import (
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
+
+type mockGenericJobWithActivation struct {
+	job            *batchv1.Job
+	gvk            schema.GroupVersionKind
+	podSets        []kueue.PodSet
+	active         bool
+	workloadActive bool
+	podsReady      bool
+}
+
+func (m *mockGenericJobWithActivation) Object() client.Object {
+	return m.job
+}
+
+func (m *mockGenericJobWithActivation) IsSuspended() bool {
+	return ptr.Deref(m.job.Spec.Suspend, false)
+}
+
+func (m *mockGenericJobWithActivation) Suspend() {
+	m.job.Spec.Suspend = ptr.To(true)
+}
+
+func (m *mockGenericJobWithActivation) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
+	m.job.Spec.Suspend = ptr.To(false)
+	return nil
+}
+
+func (m *mockGenericJobWithActivation) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
+	return false
+}
+
+func (m *mockGenericJobWithActivation) Finished() (string, bool, bool) {
+	return "", false, false
+}
+
+func (m *mockGenericJobWithActivation) PodSets() ([]kueue.PodSet, error) {
+	return m.podSets, nil
+}
+
+func (m *mockGenericJobWithActivation) IsActive() bool {
+	return m.active
+}
+
+func (m *mockGenericJobWithActivation) PodsReady() bool {
+	return m.podsReady
+}
+
+func (m *mockGenericJobWithActivation) GVK() schema.GroupVersionKind {
+	return m.gvk
+}
+
+func (m *mockGenericJobWithActivation) IsWorkloadActive() bool {
+	return m.workloadActive
+}
+
+func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
+	const (
+		testJobName = "test-job"
+		testNS      = metav1.NamespaceDefault
+	)
+
+	var (
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+		req                = types.NamespacedName{Name: testJobName, Namespace: testNS}
+	)
+
+	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobName).Queue(testLocalQueueName)
+	basePodSets := []kueue.PodSet{
+		*utiltesting.MakePodSet("main", 1).Obj(),
+	}
+	baseWl := utiltesting.MakeWorkload("job-test-job", testNS).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		PodSets(basePodSets...).
+		Priority(0)
+
+	testCases := map[string]struct {
+		initialActive  *bool
+		jobActive      bool
+		expectedActive bool
+	}{
+		"marks workload inactive when job requests": {
+			initialActive:  nil,
+			jobActive:      false,
+			expectedActive: false,
+		},
+		"marks workload active when job requests": {
+			initialActive:  ptr.To(false),
+			jobActive:      true,
+			expectedActive: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			job := baseJob.DeepCopy()
+			wl := baseWl.Clone().Name("job-test-job-1").Obj()
+			if tc.initialActive == nil {
+				wl.Spec.Active = nil
+			} else {
+				wl.Spec.Active = ptr.To(*tc.initialActive)
+			}
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(job, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := NewReconciler(cl, recorder)
+
+			mgj := &mockGenericJobWithActivation{
+				job:            job,
+				gvk:            testGVK,
+				podSets:        basePodSets,
+				active:         tc.jobActive,
+				workloadActive: tc.jobActive,
+			}
+
+			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
+				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			}
+
+			updated := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKey{Name: wl.Name, Namespace: wl.Namespace}, updated); err != nil {
+				t.Fatalf("Failed to get workload: %v", err)
+			}
+
+			if updated.Spec.Active == nil {
+				t.Fatalf("Workload.Spec.Active is nil, want %t", tc.expectedActive)
+			}
+			if *updated.Spec.Active != tc.expectedActive {
+				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, tc.expectedActive)
+			}
+		})
+	}
+}
 
 func TestFindAncestorJobManagedByKueue(t *testing.T) {
 	grandparentJobName := "test-job-grandparent"
