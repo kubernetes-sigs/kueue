@@ -433,7 +433,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 	})
 
 	ginkgo.It("Should allow reclaim of resources that are no longer needed", func() {
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 				g.Expect(*createdTrainJob1.Spec.Suspend).Should(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		testJobset2 := testingjobset.MakeJobSet("", "").ReplicatedJobs(
