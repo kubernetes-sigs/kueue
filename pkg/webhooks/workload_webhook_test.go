@@ -30,6 +30,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -613,6 +615,24 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
 					kueue.PodSetAssignment{Name: "ps1"},
 					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
+		},
+		"ClusterName doesn't have to be one of the nominatedClusterNames with ElasticJobs feature gate": {
+			enableElasticJobsFeature: true,
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 4).Obj()).
+				.Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
+					kueue.PodSetAssignment{Name: "ps1"},
+					kueue.PodSetAssignment{Name: "ps2"}).Obj()).
+				ClusterName("worker1").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.NewReference(testWorkloadNamespace, testWorkloadName))).
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {
