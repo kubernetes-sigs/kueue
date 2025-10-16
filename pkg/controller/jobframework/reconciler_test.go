@@ -266,9 +266,9 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.jobActive).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
-			mgj.EXPECT().PodsReady(gomock.Any()).Return(false).AnyTimes()
+			mgj.EXPECT().Finished().Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets().Return(basePodSets, nil).AnyTimes()
+			mgj.EXPECT().PodsReady().Return(false).AnyTimes()
 
 			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
