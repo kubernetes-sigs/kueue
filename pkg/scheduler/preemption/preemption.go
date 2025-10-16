@@ -445,9 +445,6 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 
 func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering) []*workload.Info {
 	var candidates []*workload.Info
-	if policy == "" {
-		policy = kueue.PreemptionPolicyAny
-	}
 	for _, candidateWl := range workloadsToFilter {
 		if !preemptioncommon.SatisfiesPreemptionPolicy(
 			wl,

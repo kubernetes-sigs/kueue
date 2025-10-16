@@ -4913,7 +4913,8 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
 					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					}).
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("default").
@@ -4924,7 +4925,8 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("other-beta").
 					Cohort("other").
 					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					}).
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("default").
@@ -4935,7 +4937,8 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeClusterQueue("other-gamma").
 					Cohort("other").
 					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					}).
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("default").
