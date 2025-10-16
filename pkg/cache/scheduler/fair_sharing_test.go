@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -59,9 +60,9 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("2000").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
@@ -80,20 +81,20 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
@@ -124,20 +125,20 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  7,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
@@ -167,19 +168,19 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 501,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("500").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("300")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("1000").Append().
 						Obj(),
 				).Obj(),
@@ -208,19 +209,19 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 800,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("300")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("500").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("300")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("1000").Append().
 						Obj(),
 				).Obj(),
@@ -250,20 +251,20 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  3,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
@@ -294,20 +295,20 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
@@ -342,20 +343,20 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  1,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("2").LendingLimit("0").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
 						Obj(),
@@ -390,22 +391,22 @@ func TestDominantResourceShare(t *testing.T) {
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 15_000,
 				{Flavor: "spot", Resource: corev1.ResourceCPU}:      5_000,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
 						ResourceQuotaWrapper("cpu").NominalQuota("20").Append().
 						Obj(),
-					*utiltesting.MakeFlavorQuotas("spot").
+					*utiltestingapi.MakeFlavorQuotas("spot").
 						ResourceQuotaWrapper("cpu").NominalQuota("80").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("cpu").NominalQuota("100").Append().
 						Obj(),
 				).Obj(),
@@ -437,19 +438,19 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("2")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
@@ -478,19 +479,19 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("0.5")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
@@ -519,19 +520,19 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("0")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
 				Cohort("test-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("10").Append().
 						Obj(),
 				).Obj(),
@@ -560,18 +561,18 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 10,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("child-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("child-cohort").FairWeight(resource.MustParse("2")).Parent("root").Obj(),
-				utiltesting.MakeCohort("root").ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("2")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("45").Append().
 						Obj(),
 				).Obj(),
@@ -601,18 +602,18 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 10,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("child-cohort").
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
 						Obj(),
 				).Obj(),
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("child-cohort").FairWeight(resource.MustParse("2")).Parent("root").Obj(),
-				utiltesting.MakeCohort("root").ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("2")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("50").Append().
 						Obj(),
 				).Obj(),
@@ -645,21 +646,21 @@ func TestDominantResourceShare(t *testing.T) {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 10,
 			},
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Cohort("child-cohort").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
 						Obj(),
 				).Obj(),
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("child-cohort").ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+				utiltestingapi.MakeCohort("child-cohort").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").BorrowingLimit("10").Append().
 						Obj(),
 				).Parent("root").Obj(),
-				utiltesting.MakeCohort("root").ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("default").
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("50").Append().
 						Obj(),
 				).Obj(),
@@ -690,9 +691,9 @@ func TestDominantResourceShare(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("default").Obj())
-			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("on-demand").Obj())
-			cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("spot").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("on-demand").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("spot").Obj())
 
 			_ = cache.AddClusterQueue(ctx, tc.clusterQueue)
 
@@ -711,13 +712,13 @@ func TestDominantResourceShare(t *testing.T) {
 			}
 			i := 0
 			for fr, v := range tc.usage {
-				admission := utiltesting.MakeAdmission("cq")
+				admission := utiltestingapi.MakeAdmission("cq")
 				quantity := resources.ResourceQuantity(fr.Resource, v)
-				admission.PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
 
-				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
+				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
 				snapshot.AddWorkload(workload.NewInfo(wl))

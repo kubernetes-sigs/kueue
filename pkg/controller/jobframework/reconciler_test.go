@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -67,9 +68,9 @@ func TestReconcileGenericJob(t *testing.T) {
 	baseReq := types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault}
 	baseJob := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).UID(testJobName).Queue(testLocalQueueName)
 	basePodSets := []kueue.PodSet{
-		*utiltesting.MakePodSet("main", 1).Obj(),
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
 	}
-	baseWl := utiltesting.MakeWorkload("job-test-job", metav1.NamespaceDefault).
+	baseWl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).
 		ResourceVersion("1").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Label(constants.JobUIDLabel, testJobName).
@@ -137,7 +138,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			podSets: basePodSets,
 			objs: []client.Object{
 				baseWl.Clone().Name("job-test-job-1").
-					PodSets(*utiltesting.MakePodSet("old", 2).Obj()).
+					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -200,9 +201,9 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 
 	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobName).Queue(testLocalQueueName)
 	basePodSets := []kueue.PodSet{
-		*utiltesting.MakePodSet("main", 1).Obj(),
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
 	}
-	baseWl := utiltesting.MakeWorkload("job-test-job", testNS).
+	baseWl := utiltestingapi.MakeWorkload("job-test-job", testNS).
 		ResourceVersion("1").
 		Finalizers(kueue.ResourceInUseFinalizerName).
 		Label(constants.JobUIDLabel, testJobName).

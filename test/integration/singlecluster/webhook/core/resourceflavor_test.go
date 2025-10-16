@@ -31,6 +31,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -60,7 +61,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 
 	ginkgo.When("Creating a ResourceFlavor", func() {
 		ginkgo.It("Should be valid", func() {
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "bar").
+			resourceFlavor := utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "bar").
 				Taint(corev1.Taint{
 					Key:    "spot",
 					Value:  "true",
@@ -77,7 +78,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 		})
 		ginkgo.It("Should have a finalizer", func() {
 			ginkgo.By("Creating a new empty resourceFlavor")
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Obj()
+			resourceFlavor := utiltestingapi.MakeResourceFlavor("resource-flavor").Obj()
 			util.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.DescribeTable("invalid number of properties", func(taintsCount int, nodeSelectorCount int, isInvalid bool) {
-		rf := testing.MakeResourceFlavor("resource-flavor")
+		rf := utiltestingapi.MakeResourceFlavor("resource-flavor")
 		for i := range taintsCount {
 			rf = rf.Taint(corev1.Taint{
 				Key:    fmt.Sprintf("t%d", i),
@@ -128,7 +129,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 	ginkgo.When("Updating a ResourceFlavor with invalid taints", func() {
 		ginkgo.It("Should fail to update", func() {
 			ginkgo.By("Creating a new resourceFlavor")
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Obj()
+			resourceFlavor := utiltestingapi.MakeResourceFlavor("resource-flavor").Obj()
 			util.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
@@ -163,7 +164,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 		gomega.Expect(err).Should(matcher)
 	},
 		ginkgo.Entry("Should fail to create with invalid taints",
-			testing.MakeResourceFlavor("resource-flavor").
+			utiltestingapi.MakeResourceFlavor("resource-flavor").
 				Taint(corev1.Taint{
 					Key: "skdajf",
 				}).
@@ -174,10 +175,10 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", ginkgo.Ordered, func() {
 				}).Obj(),
 			testing.BeInvalidError()),
 		ginkgo.Entry("Should fail to create with invalid label name",
-			testing.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
+			utiltestingapi.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			testing.BeForbiddenError()),
 		ginkgo.Entry("Should fail to create with invalid tolerations",
-			testing.MakeResourceFlavor("resource-flavor").
+			utiltestingapi.MakeResourceFlavor("resource-flavor").
 				Toleration(corev1.Toleration{
 					Key:      "@abc",
 					Operator: corev1.TolerationOpEqual,

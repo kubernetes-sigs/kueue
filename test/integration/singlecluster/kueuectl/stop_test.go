@@ -30,7 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 	ginkgo.When("Stopping the Workload", func() {
 		ginkgo.It("Should stop the Workload", func() {
-			wl := testing.MakeWorkload("wl", ns.Name).Active(true).Obj()
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Active(true).Obj()
 			ginkgo.By("Create a Workload")
 			util.MustCreate(ctx, k8sClient, wl)
 
@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 	ginkgo.When("Stopping a LocalQueue", func() {
 		ginkgo.DescribeTable("Should stop a LocalQueue",
 			func(name string, stopCmdArgs []string, wantStopPolicy kueue.StopPolicy) {
-				lq := testing.MakeLocalQueue(name, ns.Name).Obj()
+				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).Obj()
 
 				ginkgo.By("Create a LocalQueue", func() {
 					util.MustCreate(ctx, k8sClient, lq)
@@ -166,12 +166,12 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				})
 			},
 			ginkgo.Entry("Stop a ClusterQueue and drain workloads",
-				testing.MakeClusterQueue("cq-1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-1").Obj(),
 				[]string{},
 				kueue.HoldAndDrain,
 			),
 			ginkgo.Entry("Stop a ClusterQueue and let the admitted workloads finish",
-				testing.MakeClusterQueue("cq-2").Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").Obj(),
 				[]string{"--keep-already-running"},
 				kueue.Hold,
 			),

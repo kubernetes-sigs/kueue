@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
@@ -47,7 +48,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	baseWorkload := utiltesting.MakeWorkload(workloadName, metav1.NamespaceDefault)
+	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault)
 
 	tests := map[string]struct {
 		dispatcherName string
@@ -107,7 +108,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			},
 			remoteClusters: []string{"cluster1"},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("cluster1").
+				*utiltestingapi.MakeMultiKueueCluster("cluster1").
 					KubeConfig(kueue.SecretLocationType, "cluster1").
 					Generation(1).
 					Obj(),
@@ -122,7 +123,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			},
 			remoteClusters: []string{"cluster1"},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("cluster1").
+				*utiltestingapi.MakeMultiKueueCluster("cluster1").
 					KubeConfig(kueue.SecretLocationType, "cluster1").
 					Generation(1).
 					Obj(),
@@ -135,7 +136,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			objs := []client.Object{}
 			if tc.mkAcState != nil {
 				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
-				ac := utiltesting.MakeAdmissionCheck(string(tc.mkAcState.Name)).
+				ac := utiltestingapi.MakeAdmissionCheck(string(tc.mkAcState.Name)).
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
 					Obj()
@@ -148,7 +149,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			}
 
 			if tc.mkAcState != nil {
-				mkConfig := utiltesting.MakeMultiKueueConfig(string(tc.mkAcState.Name)).Clusters("cluster1").Obj()
+				mkConfig := utiltestingapi.MakeMultiKueueConfig(string(tc.mkAcState.Name)).Clusters("cluster1").Obj()
 				objs = append(objs, mkConfig)
 			}
 			scheme := runtime.NewScheme()
@@ -185,7 +186,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 	const testName = "test-wl"
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	baseWl := utiltesting.MakeWorkload(testName, metav1.NamespaceDefault).
+	baseWl := utiltestingapi.MakeWorkload(testName, metav1.NamespaceDefault).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "ac1",
 			State: kueue.CheckStatePending,

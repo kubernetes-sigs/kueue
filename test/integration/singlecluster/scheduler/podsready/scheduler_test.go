@@ -32,7 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -82,27 +82,27 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		}
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
 
-		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
 
-		prodClusterQ = testing.MakeClusterQueue("prod-cq").
+		prodClusterQ = utiltestingapi.MakeClusterQueue("prod-cq").
 			Cohort("all").
-			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, prodClusterQ)
 
-		devClusterQ = testing.MakeClusterQueue("dev-cq").
+		devClusterQ = utiltestingapi.MakeClusterQueue("dev-cq").
 			Cohort("all").
-			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, devClusterQ)
 
-		prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		prodQueue = utiltestingapi.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, prodQueue)
 
-		devQueue = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		devQueue = utiltestingapi.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, devQueue)
 
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, prodClusterQ, devClusterQ)
@@ -128,9 +128,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
-			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
-			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, devWl)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
@@ -150,9 +150,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
-			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
-			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, devWl)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should emit the PodsReadyToEvictedTimeSeconds metric", func() {
 			ginkgo.By("create a workload and await its admission")
-			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
 			// This resolve the issue that PodsReady status (while set manually) is overwritten by scheduler admission
 			// Recheck after scheduler refactor to use strict mode - when WorkloadRequestUseMergePatch goes beta
@@ -204,11 +204,11 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should unblock admission of new workloads once the admitted workload is deleted", func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
-			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 
-			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, devWl)
 			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
@@ -219,9 +219,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should block admission of one new workload if two are considered in the same scheduling cycle", framework.SlowSpec, func() {
 			ginkgo.By("creating two workloads but delaying cluster queue creation which has enough capacity")
-			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
-			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
+			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
 			util.WaitForNextSecondAfterCreation(prodWl)
 			util.MustCreate(ctx, k8sClient, devWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
@@ -229,9 +229,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("creating the cluster queue")
 			// Delay cluster queue creation to make sure workloads are in the same
 			// scheduling cycle.
-			testCQ := testing.MakeClusterQueue("test-cq").
+			testCQ := utiltestingapi.MakeClusterQueue("test-cq").
 				Cohort("all").
-				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "25", "0").Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "25", "0").Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, testCQ)
 			defer func() {
@@ -256,11 +256,11 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			const lowPrio, highPrio = 0, 100
 
 			ginkgo.By("create the 'prod1' workload")
-			prodWl1 := testing.MakeWorkload("prod1", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Priority(highPrio).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl1 := utiltestingapi.MakeWorkload("prod1", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Priority(highPrio).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl1)
 
 			ginkgo.By("create the 'prod2' workload")
-			prodWl2 := testing.MakeWorkload("prod2", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Priority(lowPrio).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl2 := utiltestingapi.MakeWorkload("prod2", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Priority(lowPrio).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl2)
 
 			ginkgo.By("checking the 'prod1' workload is admitted and the 'prod2' workload is waiting")
@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should re-admit a timed out workload and deactivate a workload exceeded the re-queue count limit. After that re-activating a workload", framework.SlowSpec, func() {
 			ginkgo.By("create the 'prod' workload")
-			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
 
 			ginkgo.By("checking the 'prod' workload is admitted")
@@ -370,10 +370,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
 			ginkgo.By("create the 'prod' workload")
-			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
 			util.WaitForNextSecondAfterCreation(prodWl)
-			devWl := testing.MakeWorkload("dev", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			devWl := utiltestingapi.MakeWorkload("dev", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, devWl)
 
 			ginkgo.By("wait for the 'prod' workload to be admitted and the 'dev' to be waiting")
@@ -464,9 +464,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time,
 		// letting them all to time out, we should see a circular buffer admission pattern
-		wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
-		wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
-		wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
+		wl1 := utiltestingapi.MakeWorkload("prod1", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
+		wl2 := utiltestingapi.MakeWorkload("prod2", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
+		wl3 := utiltestingapi.MakeWorkload("prod3", ns.Name).Queue(kueue.LocalQueueName(localQueueName)).Request(corev1.ResourceCPU, "5").Obj()
 
 		ginkgo.By("create the workloads", func() {
 			util.MustCreate(ctx, k8sClient, wl1)
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 
 		ginkgo.By("create the local queue to start admission", func() {
-			lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			lq := utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 		})
 
@@ -533,12 +533,12 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		ginkgo.JustBeforeEach(func() {
 			// Build a standalone cluster queue with just enough capacity for a single workload.
 			// (Avoid using prod/dev queues to avoid borrowing)
-			standaloneClusterQ = testing.MakeClusterQueue("standalone-cq").
-				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+			standaloneClusterQ = utiltestingapi.MakeClusterQueue("standalone-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, standaloneClusterQ)
 
-			standaloneQueue = testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
+			standaloneQueue = utiltestingapi.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
 			util.MustCreate(ctx, k8sClient, standaloneQueue)
 		})
 
@@ -549,9 +549,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.It("Should prioritize workloads submitted earlier", framework.SlowSpec, func() {
 			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
-			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 
 			ginkgo.By("create the workloads", func() {
 				util.MustCreate(ctx, k8sClient, wl1)
@@ -619,27 +619,27 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		}
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
 
-		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-nonblocking-")
 
-		prodClusterQ = testing.MakeClusterQueue("prod-cq").
+		prodClusterQ = utiltestingapi.MakeClusterQueue("prod-cq").
 			Cohort("all").
-			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, prodClusterQ)
 
-		devClusterQ = testing.MakeClusterQueue("dev-cq").
+		devClusterQ = utiltestingapi.MakeClusterQueue("dev-cq").
 			Cohort("all").
-			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, devClusterQ)
 
-		prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		prodQueue = utiltestingapi.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, prodQueue)
 
-		devQueue = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		devQueue = utiltestingapi.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 		util.MustCreate(ctx, k8sClient, devQueue)
 
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, prodClusterQ, devClusterQ)
@@ -665,18 +665,18 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 		ginkgo.It("Should not block admission of one new workload if two are considered in the same scheduling cycle", func() {
 			ginkgo.By("creating two workloads but delaying cluster queue creation which has enough capacity")
-			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
-			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
+			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "11").Obj()
 			util.MustCreate(ctx, k8sClient, devWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
 
 			ginkgo.By("creating the cluster queue")
 			// Delay cluster queue creation to make sure workloads are in the same
 			// scheduling cycle.
-			testCQ := testing.MakeClusterQueue("test-cq").
+			testCQ := utiltestingapi.MakeClusterQueue("test-cq").
 				Cohort("all").
-				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "25", "0").Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "25", "0").Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, testCQ)
 			defer func() {
@@ -696,7 +696,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 		ginkgo.It("Should re-admit a timed out workload", func() {
 			ginkgo.By("create the 'prod' workload")
-			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			util.MustCreate(ctx, k8sClient, prodWl)
 			ginkgo.By("checking the 'prod' workload is admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
@@ -735,12 +735,12 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		ginkgo.JustBeforeEach(func() {
 			// Build a standalone cluster queue with just enough capacity for a single workload.
 			// (Avoid using prod/dev queues to avoid borrowing)
-			standaloneClusterQ = testing.MakeClusterQueue("standalone-cq").
-				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+			standaloneClusterQ = utiltestingapi.MakeClusterQueue("standalone-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, standaloneClusterQ)
 
-			standaloneQueue = testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
+			standaloneQueue = utiltestingapi.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
 			util.MustCreate(ctx, k8sClient, standaloneQueue)
 		})
 
@@ -751,9 +751,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 		ginkgo.It("Should keep the evicted workload at the front of the queue", framework.SlowSpec, func() {
 			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
-			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
-			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(standaloneQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 
 			ginkgo.By("create the workloads", func() {
 				util.MustCreate(ctx, k8sClient, wl1)

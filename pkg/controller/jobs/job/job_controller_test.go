@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -340,7 +341,7 @@ func TestPodSets(t *testing.T) {
 		"no partial admission": {
 			job: (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
 					Obj(),
 			},
@@ -354,7 +355,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
 					SetMinimumCount(2).
 					Obj(),
@@ -369,7 +370,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
@@ -386,7 +387,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
@@ -404,7 +405,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
@@ -426,7 +427,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
@@ -444,7 +445,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
@@ -462,7 +463,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{
 						kueue.PodSetSliceSizeAnnotation: "1",
@@ -480,7 +481,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
@@ -495,7 +496,7 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
@@ -568,15 +569,15 @@ func TestReconciler(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
 
-	baseWorkloadWrapper := utiltesting.MakeWorkload("wl", "ns").
+	baseWorkloadWrapper := utiltestingapi.MakeWorkload("wl", "ns").
 		Finalizers(kueue.ResourceInUseFinalizerName).
-		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj())
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj())
 
-	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
+	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
 
-	highWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc-high").
+	highWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc-high").
 		PriorityValue(200)
 
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
@@ -962,10 +963,10 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
@@ -997,9 +998,9 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "redundantToCopyKey"}),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Labels(map[string]string{
@@ -2464,7 +2465,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -2486,16 +2487,16 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Priority(0).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Obj(),
@@ -2524,23 +2525,23 @@ func TestReconciler(t *testing.T) {
 				PodLabel(controllerconsts.PodSetLabel, string(kueue.DefaultPodSetName)).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							SetMinimumCount(5).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -2566,15 +2567,15 @@ func TestReconciler(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							SetMinimumCount(5).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -2607,9 +2608,9 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{
@@ -2645,9 +2646,9 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{
@@ -2656,9 +2657,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue-new").
 					Priority(0).
 					Labels(map[string]string{
@@ -2683,9 +2684,9 @@ func TestReconciler(t *testing.T) {
 				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(baseWPCWrapper.Value).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
@@ -2696,9 +2697,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(highWPCWrapper.Value).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
@@ -2730,9 +2731,9 @@ func TestReconciler(t *testing.T) {
 				UID(strings.Repeat("long-uid", 8)).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{}).
@@ -2808,17 +2809,17 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					Admitted(true).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					Admitted(true).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
@@ -2845,16 +2846,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").
+				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").
+				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Obj(),
 			},
@@ -2887,19 +2888,19 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").
+				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").
+				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj()).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
 					Admitted(true).
 					Obj(),
@@ -2921,22 +2922,22 @@ func TestReconciler(t *testing.T) {
 				Parallelism(5).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("first-workload", "ns").
+				*utiltestingapi.MakeWorkload("first-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 					Admitted(true).
 					Obj(),
-				*utiltesting.MakeWorkload("second-workload", "ns").
+				*utiltestingapi.MakeWorkload("second-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("first-workload", "ns").
+				*utiltestingapi.MakeWorkload("first-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -3092,9 +3093,9 @@ func TestReconciler(t *testing.T) {
 		"when the workload is finished, its finalizer is removed": {
 			job: *baseJobWrapper.Clone().Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
+				*utiltestingapi.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -3103,8 +3104,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("a", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -3138,9 +3139,9 @@ func TestReconciler(t *testing.T) {
 				WorkloadPriorityClass("test-wpc").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3183,9 +3184,9 @@ func TestReconciler(t *testing.T) {
 				PriorityClass("test-pc").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-pc").
 					Priority(200).
@@ -3230,9 +3231,9 @@ func TestReconciler(t *testing.T) {
 				PriorityClass("test-pc").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3302,9 +3303,9 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3312,9 +3313,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3347,9 +3348,9 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3358,9 +3359,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3391,9 +3392,9 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3401,9 +3402,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
 					Priority(100).
@@ -3444,11 +3445,11 @@ func TestReconciler(t *testing.T) {
 			}).NodeSelector("node-label", "value").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -3465,11 +3466,11 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey2",
 								Operator: corev1.TolerationOpExists,
@@ -3510,11 +3511,11 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -3528,7 +3529,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
@@ -3539,11 +3540,11 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -3557,7 +3558,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
@@ -3582,11 +3583,11 @@ func TestReconciler(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 							Toleration(corev1.Toleration{
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
@@ -3599,7 +3600,7 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "",
 					}).
 					Priority(0).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: kueue.DefaultPodSetName,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
@@ -3736,10 +3737,10 @@ func TestReconciler(t *testing.T) {
 				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					MaximumExecutionTimeSeconds(10).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
@@ -3762,20 +3763,20 @@ func TestReconciler(t *testing.T) {
 				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					MaximumExecutionTimeSeconds(5).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").
+				*utiltestingapi.MakeWorkload("job", "ns").
 					MaximumExecutionTimeSeconds(10).
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
@@ -3834,14 +3835,14 @@ func TestReconciler(t *testing.T) {
 				Image("", nil).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "labelled-ns").
+				*utiltestingapi.MakeWorkload("job", "labelled-ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -3875,7 +3876,7 @@ func TestReconciler(t *testing.T) {
 					Label("managed-by-kueue", "true").
 					Obj()
 
-				objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
+				objs := append(tc.priorityClasses, &tc.job, utiltestingapi.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
 				kcBuilder := clientBuilder.
 					WithObjects(objs...)
 

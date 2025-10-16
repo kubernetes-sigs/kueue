@@ -33,10 +33,11 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestConfigHelper(t *testing.T) {
-	testConfig := utiltesting.MakeProvisioningRequestConfig("config").
+	testConfig := utiltestingapi.MakeProvisioningRequestConfig("config").
 		ProvisioningClass("className").
 		WithParameter("p1", "v1").
 		WithManagedResource("cpu")
@@ -53,40 +54,40 @@ func TestConfigHelper(t *testing.T) {
 			wantError:            cmpopts.AnyError,
 		},
 		"no parameter reference": {
-			admissioncheck:       utiltesting.MakeAdmissionCheck("ac").Obj(),
+			admissioncheck:       utiltestingapi.MakeAdmissionCheck("ac").Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrNilParametersRef,
 		},
 		"bad parameter reference, no name": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrBadParametersRef,
 		},
 		"bad parameter reference, bad group": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				Parameters("not-"+kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrBadParametersRef,
 		},
 		"bad parameter reference, bad kind": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				Parameters(kueue.GroupVersion.Group, "NptProvisioningRequestConfig", "config").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrBadParametersRef,
 		},
 		"config not found": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            cmpopts.AnyError,
 		},
 		"config found": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config").
 				Obj(),
 			config:               testConfig.DeepCopy(),
@@ -131,19 +132,19 @@ func TestIndexerFunc(t *testing.T) {
 	}{
 		"nil ac": {},
 		"wrong controller": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				ControllerName("other-controller").
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config-name").
 				Obj(),
 		},
 		"wrong ref": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				ControllerName("test-controller").
 				Parameters(kueue.GroupVersion.Group, "NotProvisioningRequestConfig", "config-name").
 				Obj(),
 		},
 		"good": {
-			admissioncheck: utiltesting.MakeAdmissionCheck("ac").
+			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				ControllerName("test-controller").
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config-name").
 				Obj(),
@@ -184,9 +185,9 @@ func TestFilterCheckStates(t *testing.T) {
 		},
 		"two matches": {
 			admissionchecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("check1").ControllerName("test-controller").Obj(),
-				*utiltesting.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
-				*utiltesting.MakeAdmissionCheck("check3").ControllerName("test-controller").Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check1").ControllerName("test-controller").Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check3").ControllerName("test-controller").Obj(),
 			},
 			states: []kueue.AdmissionCheckState{
 				{Name: "check1"},
@@ -228,8 +229,8 @@ func TestGetMultiKueueAdmissionCheck(t *testing.T) {
 		},
 		"no relevant checks": {
 			admissionChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("check1").ControllerName("other-controller").Obj(),
-				*utiltesting.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check1").ControllerName("other-controller").Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
 			},
 			workloadACS: []kueue.AdmissionCheckState{
 				{Name: "check1"},
@@ -240,8 +241,8 @@ func TestGetMultiKueueAdmissionCheck(t *testing.T) {
 		},
 		"one relevant check": {
 			admissionChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("check1").ControllerName(kueue.MultiKueueControllerName).Obj(),
-				*utiltesting.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check1").ControllerName(kueue.MultiKueueControllerName).Obj(),
+				*utiltestingapi.MakeAdmissionCheck("check2").ControllerName("other-controller").Obj(),
 			},
 			workloadACS: []kueue.AdmissionCheckState{
 				{Name: "check1"},
@@ -327,7 +328,7 @@ func TestGetRemoteClusters(t *testing.T) {
 					return c.Get(ctx, key, obj, opts...)
 				},
 			})
-			ac := utiltesting.MakeAdmissionCheck(acTest).
+			ac := utiltestingapi.MakeAdmissionCheck(acTest).
 				ControllerName(kueue.MultiKueueControllerName).
 				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", acTest).
 				Obj()

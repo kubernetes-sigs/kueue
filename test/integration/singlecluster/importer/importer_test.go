@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -45,17 +45,17 @@ var _ = ginkgo.Describe("Importer", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-")
 
-		flavor = utiltesting.MakeResourceFlavor("f1").Obj()
+		flavor = utiltestingapi.MakeResourceFlavor("f1").Obj()
 		util.MustCreate(ctx, k8sClient, flavor)
 
-		cq = utiltesting.MakeClusterQueue("cq1").
+		cq = utiltestingapi.MakeClusterQueue("cq1").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "4").Obj(),
 			).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq)
 
-		lq = utiltesting.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
+		lq = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
 		util.MustCreate(ctx, k8sClient, lq)
 	})
 

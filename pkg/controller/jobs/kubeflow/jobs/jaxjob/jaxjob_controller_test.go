@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingJAXjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 )
 
@@ -125,7 +126,7 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.JAXJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
@@ -146,7 +147,7 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.JAXJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").

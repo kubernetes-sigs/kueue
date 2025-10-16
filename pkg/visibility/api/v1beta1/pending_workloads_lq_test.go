@@ -33,6 +33,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestPendingWorkloadsInLQ(t *testing.T) {
@@ -67,14 +68,14 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 	}{
 		"single ClusterQueue and single LocalQueue setup with two workloads and default query parameters": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
 			},
 			req: &req{
 				nsName:      nsNameA,
@@ -109,17 +110,17 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"single ClusterQueue and two LocalQueue setup with four workloads and default query parameters; LocalQueue A request": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeLocalQueue(lqNameB, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameB, nsNameA).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
 			req: &req{
 				nsName:      nsNameA,
@@ -154,17 +155,17 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"single ClusterQueue and two LocalQueue setup with four workloads and default query parameters; LocalQueue B request": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeLocalQueue(lqNameB, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameB, nsNameA).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
 			req: &req{
 				nsName:      nsNameA,
@@ -200,18 +201,18 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"two Namespaces, two ClusterQueue and two LocalQueue setup with four workloads and default query parameters, LocalQueue A request": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeClusterQueue(cqNameB).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameB).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeLocalQueue(lqNameB, nsNameB).ClusterQueue(cqNameB).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameB, nsNameB).ClusterQueue(cqNameB).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
 			req: &req{
 				nsName:      nsNameA,
@@ -247,18 +248,18 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"two Namespaces, two ClusterQueue and two LocalQueue setup with four workloads and default query parameters, LocalQueue B request": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeClusterQueue(cqNameB).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameB).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeLocalQueue(lqNameB, nsNameB).ClusterQueue(cqNameB).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameB, nsNameB).ClusterQueue(cqNameB).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
 			req: &req{
 				nsName:      nsNameB,
@@ -294,15 +295,15 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"limit query parameter set": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltestingapi.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
 			req: &req{
 				nsName:    nsNameA,
@@ -340,15 +341,15 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"offset query parameter set": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltestingapi.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
 			req: &req{
 				nsName:    nsNameA,
@@ -387,15 +388,15 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		},
 		"limit and offset query parameters set": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltestingapi.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
 			req: &req{
 				nsName:    nsNameA,

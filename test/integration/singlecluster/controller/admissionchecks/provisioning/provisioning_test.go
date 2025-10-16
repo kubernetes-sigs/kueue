@@ -36,6 +36,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -52,7 +53,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		flavorOnDemand                     = "on-demand"
 	)
 
-	baseConfig := testing.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
+	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
 	baseConfigWithParameters := baseConfig.Clone().Parameters(map[string]kueue.Parameter{
 		"p1": "v1",
@@ -89,24 +90,24 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 			util.MustCreate(ctx, k8sClient, prc)
 
-			prc2 = testing.MakeProvisioningRequestConfig("prov-config2").ProvisioningClass("provisioning-class2").Parameters(map[string]kueue.Parameter{
+			prc2 = utiltestingapi.MakeProvisioningRequestConfig("prov-config2").ProvisioningClass("provisioning-class2").Parameters(map[string]kueue.Parameter{
 				"p1": "v1.2",
 				"p2": "v2.2",
 			}).Obj()
 
 			util.MustCreate(ctx, k8sClient, prc2)
 
-			ac = testing.MakeAdmissionCheck("ac-prov").
+			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
-			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
+			rf = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
 			util.MustCreate(ctx, k8sClient, rf)
 
-			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -114,18 +115,18 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, cq)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
-			wl := testing.MakeWorkload("wl", ns.Name).
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
-					*testing.MakePodSet("ps1", 3).
+					*utiltestingapi.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
 						Image("image").
 						Obj(),
-					*testing.MakePodSet("ps2", 6).
+					*utiltestingapi.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
@@ -144,13 +145,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = testing.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(cq.Name).
 				PodSets(
-					testing.MakePodSetAssignment("ps1").
+					utiltestingapi.MakePodSetAssignment("ps1").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 						Count(3).
 						Obj(),
-					testing.MakePodSetAssignment("ps2").
+					utiltestingapi.MakePodSetAssignment("ps2").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
 						Count(4).
 						Obj(),
@@ -793,17 +794,17 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
 			util.MustCreate(ctx, k8sClient, prc)
 
-			ac = testing.MakeAdmissionCheck("ac-prov").
+			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
-			rf = testing.MakeResourceFlavor("rf1").Label("ns1", "ns1v").Obj()
+			rf = utiltestingapi.MakeResourceFlavor("rf1").Label("ns1", "ns1v").Obj()
 			util.MustCreate(ctx, k8sClient, rf)
 
-			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -811,18 +812,18 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, cq)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
-			wl := testing.MakeWorkload("wl", ns.Name).
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
-					*testing.MakePodSet("ps1", 3).
+					*utiltestingapi.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
 						Image("image").
 						Obj(),
-					*testing.MakePodSet("ps2", 6).
+					*utiltestingapi.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
@@ -833,13 +834,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(cq.Name).
 				PodSets(
-					testing.MakePodSetAssignment("ps1").
+					utiltestingapi.MakePodSetAssignment("ps1").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 						Count(3).
 						Obj(),
-					testing.MakePodSetAssignment("ps2").
+					utiltestingapi.MakePodSetAssignment("ps2").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
 						Count(4).
 						Obj(),
@@ -1228,31 +1229,31 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			prc = baseConfig.Clone().RetryLimit(2).BaseBackoff(2).Obj()
 			util.MustCreate(ctx, k8sClient, prc)
 
-			ac = testing.MakeAdmissionCheck("ac-prov").
+			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
-			rf = testing.MakeResourceFlavor("rf1").Obj()
+			rf = utiltestingapi.MakeResourceFlavor("rf1").Obj()
 			util.MustCreate(ctx, k8sClient, rf)
 
-			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5").Obj()).
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
-			wl := testing.MakeWorkload("wl", ns.Name).
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
-					*testing.MakePodSet("ps1", 3).
+					*utiltestingapi.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
 						Image("image").
 						Obj(),
@@ -1260,8 +1261,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, wl)
 
 			wlKey = client.ObjectKeyFromObject(wl)
-			admission = testing.MakeAdmission(cq.Name).
-				PodSets(testing.MakePodSetAssignment("ps1").
+			admission = utiltestingapi.MakeAdmission(cq.Name).
+				PodSets(utiltestingapi.MakePodSetAssignment("ps1").
 					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "3").
 					Count(3).
 					Obj()).
@@ -1402,17 +1403,17 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Obj()
 			util.MustCreate(ctx, k8sClient, prc)
 
-			ac = testing.MakeAdmissionCheck("ac-prov").
+			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
-			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
+			rf = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
 			util.MustCreate(ctx, k8sClient, rf)
 
-			cq = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas(rf.Name).
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
@@ -1420,20 +1421,20 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.MustCreate(ctx, k8sClient, cq)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 
-			wl := testing.MakeWorkload("wl", ns.Name).
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				PodSets(
-					*testing.MakePodSet("master", 1).
+					*utiltestingapi.MakePodSet("master", 1).
 						Request(corev1.ResourceCPU, "1").
 						Request(corev1.ResourceMemory, "2Gi").
 						Image("image").
 						Labels(map[string]string{"role": "master"}).
 						Obj(),
-					*testing.MakePodSet("worker", 4).
+					*utiltestingapi.MakePodSet("worker", 4).
 						Request(corev1.ResourceCPU, "1").
 						Request(corev1.ResourceMemory, "2Gi").
 						Image("image").
@@ -1449,13 +1450,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
 			}
 
-			admission = testing.MakeAdmission(cq.Name).
+			admission = utiltestingapi.MakeAdmission(cq.Name).
 				PodSets(
-					testing.MakePodSetAssignment("master").
+					utiltestingapi.MakePodSetAssignment("master").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
 						Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
 						Obj(),
-					testing.MakePodSetAssignment("worker").
+					utiltestingapi.MakePodSetAssignment("worker").
 						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
 						Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
 						Count(2).
@@ -1546,7 +1547,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 		priorityValue     = 1000
 	)
 
-	baseConfig := testing.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
+	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
 	ginkgo.JustBeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController))
@@ -1555,24 +1556,24 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 	ginkgo.JustBeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
-		rf1 = testing.MakeResourceFlavor(flavor1Name).NodeLabel("ns1", "ns1v").Obj()
+		rf1 = utiltestingapi.MakeResourceFlavor(flavor1Name).NodeLabel("ns1", "ns1v").Obj()
 		util.MustCreate(ctx, k8sClient, rf1)
-		rf2 = testing.MakeResourceFlavor(flavor2Name).NodeLabel("ns2", "ns2v").Obj()
+		rf2 = utiltestingapi.MakeResourceFlavor(flavor2Name).NodeLabel("ns2", "ns2v").Obj()
 		util.MustCreate(ctx, k8sClient, rf2)
 
-		priorityClass = testing.MakeWorkloadPriorityClass(priorityClassName).PriorityValue(priorityValue).Obj()
+		priorityClass = utiltestingapi.MakeWorkloadPriorityClass(priorityClassName).PriorityValue(priorityValue).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
 
 		prc = baseConfig.Clone().RetryLimit(1).Obj()
 		util.MustCreate(ctx, k8sClient, prc)
 
-		ac1 = testing.MakeAdmissionCheck(ac1Name).
+		ac1 = utiltestingapi.MakeAdmissionCheck(ac1Name).
 			ControllerName(kueue.ProvisioningRequestControllerName).
 			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
 			Obj()
 		util.MustCreate(ctx, k8sClient, ac1)
 
-		ac2 = testing.MakeAdmissionCheck(ac2Name).
+		ac2 = utiltestingapi.MakeAdmissionCheck(ac2Name).
 			ControllerName(kueue.ProvisioningRequestControllerName).
 			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
 			Obj()
@@ -1598,13 +1599,13 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
 		ginkgo.It("Should be successfully re-admitted on another flavor without an admission check", func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
-				cq = testing.MakeClusterQueue("cluster-queue").
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "0.75").Obj(),
-						*testing.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, "0.5").Obj(),
+						*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "0.75").Obj(),
+						*utiltestingapi.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, "0.5").Obj(),
 					).
 					AdmissionCheckStrategy(kueue.AdmissionCheckStrategyRule{
 						Name:      ac1Ref,
@@ -1614,7 +1615,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				util.MustCreate(ctx, k8sClient, cq)
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-				lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 				util.MustCreate(ctx, k8sClient, lq)
 				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 			})
@@ -1727,13 +1728,13 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 
 		ginkgo.It("Should be successfully re-admitted on another flavor with another admission check", func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
-				cq = testing.MakeClusterQueue("cluster-queue").
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "0.75").Obj(),
-						*testing.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, "0.5").Obj(),
+						*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "0.75").Obj(),
+						*utiltestingapi.MakeFlavorQuotas(rf2.Name).Resource(corev1.ResourceCPU, "0.5").Obj(),
 					).
 					AdmissionCheckStrategy(
 						kueue.AdmissionCheckStrategyRule{
@@ -1749,7 +1750,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				util.MustCreate(ctx, k8sClient, cq)
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-				lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 				util.MustCreate(ctx, k8sClient, lq)
 				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 			})
