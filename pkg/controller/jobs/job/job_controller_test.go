@@ -2714,6 +2714,48 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"shouldn't update workload when priority class no changes": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				PriorityClass(basePCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PriorityClass(basePCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(basePCWrapper.Value).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					PriorityClass(basePCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(basePCWrapper.Value).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					PriorityClass(basePCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
 		"the workload without uid label is created when job's uid is longer than 63 characters": {
 			job: *baseJobWrapper.
 				Clone().
