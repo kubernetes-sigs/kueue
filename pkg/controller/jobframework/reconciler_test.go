@@ -186,15 +186,6 @@ func TestReconcileGenericJob(t *testing.T) {
 	}
 }
 
-type mockGenericJobWithActivation struct {
-	*mocks.MockGenericJob
-	workloadActive bool
-}
-
-func (m *mockGenericJobWithActivation) IsWorkloadActive() bool {
-	return m.workloadActive
-}
-
 func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 	const (
 		testJobName = "test-job"
@@ -258,17 +249,19 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(cl, recorder)
 
-			mgj := &mockGenericJobWithActivation{
-				MockGenericJob: mocks.NewMockGenericJob(mockctrl),
-				workloadActive: tc.jobActive,
+			mgj := &struct {
+				*mocks.MockGenericJob
+				*mocks.MockJobWithCustomWorkloadActivation
+			}{
+				MockGenericJob:                      mocks.NewMockGenericJob(mockctrl),
+				MockJobWithCustomWorkloadActivation: mocks.NewMockJobWithCustomWorkloadActivation(mockctrl),
 			}
-			mgj.EXPECT().Object().Return(job).AnyTimes()
-			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
-			mgj.EXPECT().IsActive().Return(tc.jobActive).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
-			mgj.EXPECT().PodsReady(gomock.Any()).Return(false).AnyTimes()
+			mgj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
+			mgj.MockGenericJob.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mgj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+			mgj.MockGenericJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.MockGenericJob.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+			mgj.MockJobWithCustomWorkloadActivation.EXPECT().IsWorkloadActive().Return(tc.jobActive).MaxTimes(1)
 
 			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
