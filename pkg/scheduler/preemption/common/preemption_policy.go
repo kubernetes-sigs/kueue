@@ -33,8 +33,7 @@ func SatisfiesPreemptionPolicy(preemptor, candidate *kueue.Workload, workloadOrd
 	if policy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
 		preemptorTS := workloadOrdering.GetQueueOrderTimestamp(preemptor)
 		candidateTS := workloadOrdering.GetQueueOrderTimestamp(candidate)
-		newerEqualPriority := (preemptorPriority == candidatePriority) &&
-			(preemptorTS != nil && candidateTS != nil && preemptorTS.Before(candidateTS))
+		newerEqualPriority := (preemptorPriority == candidatePriority) && preemptorTS.Before(candidateTS)
 		return lowerPriority || newerEqualPriority
 	}
 	return policy == kueue.PreemptionPolicyAny
