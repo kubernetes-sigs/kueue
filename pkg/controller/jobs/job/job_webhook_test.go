@@ -55,11 +55,10 @@ const (
 )
 
 var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
-	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	labelsPath              = field.NewPath("metadata", "labels")
+	queueNameLabelPath      = labelsPath.Key(constants.QueueLabel)
+	prebuiltWlNameLabelPath = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	maxExecTimeLabelPath    = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -526,9 +525,6 @@ func TestValidateUpdate(t *testing.T) {
 			name:   "workloadPriorityClassName is immutable when job is running",
 			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Suspend(false).Obj(),
 			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Suspend(false).Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
-			},
 		},
 		{
 			name: "immutable prebuilt workload ",

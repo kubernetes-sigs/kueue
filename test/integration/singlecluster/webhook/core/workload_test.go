@@ -802,6 +802,92 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				},
 				testing.BeInvalidError(),
 			),
+			ginkgo.Entry("can set workload priority class when quota reserved (workload priority class source)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can update workload priority class when quota reserved (workload priority class source)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can delete workload priority class when quota reserved (workload priority class source)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can not set priority class when quota reserved (pod priority class source)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.PodPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("can not update priority class when quota reserved (pod priority class source)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("can not delete priority class when quota reserved (pod priority class source)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				testing.BeInvalidError(),
+			),
 		)
 
 		ginkgo.It("Should forbid the change of spec.queueName of an admitted workload", func() {

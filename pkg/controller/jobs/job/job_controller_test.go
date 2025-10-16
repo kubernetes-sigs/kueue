@@ -2714,7 +2714,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "UpdatedWorkload",
-					Message:   "Updated not matching Workload for suspended job: ns/job",
+					Message:   "Updated workload priority class: ns/job",
 				},
 			},
 		},
