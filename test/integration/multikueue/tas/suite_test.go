@@ -34,7 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -44,7 +45,6 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -77,12 +77,6 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	// Integration tests are disabled because Kueue feature gates are global,
-	// preventing TAS from being disabled in the manager while enabled in workers;
-	// to re-enable the tests, we need either per-cluster feature gate control or
-	// TAS support in the manager with MultiKueue.
-	t.Skip("MultiKueue + TAS tests are temporarily disabled")
-
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t,
 		"MultiKueue Suite",
@@ -111,8 +105,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	cCache := schdcache.New(mgr.GetClient())
+	queues := qcache.NewManager(mgr.GetClient(), cCache)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
@@ -132,9 +126,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	jobReconciler := workloadjob.NewReconciler(
+	jobReconciler, err := workloadjob.NewReconciler(
+		ctx,
 		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
 		mgr.GetEventRecorderFor(constants.JobControllerName))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
