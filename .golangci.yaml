@@ -71,6 +71,7 @@ linters:
         - name: var-naming
         - name: redundant-import-alias
         - name: use-any
+        - name: use-waitgroup-go
     forbidigo:
       forbid:
         - pattern: ^sort\.Slice$
