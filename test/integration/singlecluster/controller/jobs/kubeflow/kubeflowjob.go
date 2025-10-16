@@ -309,7 +309,7 @@ func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClie
 		gomega.ExpectWithOffset(1, createdJob.KFJobControl.ReplicaSpecs()[psr.RoleName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(string(psr.ResourceCPU)))
 	}
 	util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-	util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+	util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 }
 
 type PodSetsResource struct {

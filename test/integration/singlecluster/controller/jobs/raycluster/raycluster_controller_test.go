@@ -530,7 +530,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		gomega.Expect(createdJob.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 
 		ginkgo.By("checking a second no-fit RayCluster does not start")
 		job2 := testingraycluster.MakeCluster("dev-job2", ns.Name).Queue(localQueue.Name).
@@ -544,7 +544,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 
 		ginkgo.By("deleting the job", func() {
 			gomega.Expect(k8sClient.Delete(ctx, job)).Should(gomega.Succeed())
@@ -570,7 +570,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		gomega.Expect(createdJob2.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob2.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 2)
 	})
 })
 

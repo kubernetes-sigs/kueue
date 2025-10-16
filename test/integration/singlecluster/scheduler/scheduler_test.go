@@ -460,14 +460,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
-				util.ExpectReservingActiveWorkloadsMetric(preemptionClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, 1)
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload", func() {
 				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
 
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
-				util.ExpectReservingActiveWorkloadsMetric(preemptionClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, 1)
 			})
 
 			secondWl := testing.MakeWorkload("second-wl", ns.Name).Queue(kueue.LocalQueueName(preemptionQueue.Name)).
@@ -539,7 +539,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.MustCreate(ctx, k8sClient, wlHigh2)
 
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 5)
-				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 0)
 
 				util.UnholdClusterQueue(ctx, k8sClient, prodClusterQ)
 
@@ -587,7 +587,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.MustCreate(ctx, k8sClient, wlHigh2)
 
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 0)
 
 				util.UnholdLocalQueue(ctx, k8sClient, prodQueue)
 
@@ -632,7 +632,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 2)
-			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 
 			ginkgo.By("Marking the big workload as finished")
 			util.FinishWorkloads(ctx, k8sClient, bigWl)
@@ -653,14 +653,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
 				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})).To(gomega.Succeed())
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 
 				createWl := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
@@ -1960,7 +1960,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, wl1)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			ginkgo.By("Stopping the ClusterQueue")
 			var clusterQueue kueue.ClusterQueue
@@ -2044,7 +2044,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			createdLq := &kueue.LocalQueue{}
 
@@ -2450,7 +2450,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("creating first foundation workload which admits immediately")
 			createWorkloadWithPriority("foundation-queue", "1", 1000)
-			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, 1)
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 
 			ginkgo.By("creating second foundation workload which cannot admit")
@@ -2462,7 +2462,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			createWorkloadWithPriority("best-effort-queue", "1", 0)
 			createWorkloadWithPriority("best-effort-queue", "1", 0)
 
-			util.ExpectReservingActiveWorkloadsMetric(cq2, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, 1)
 			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
 
 			ginkgo.By("finish first foundation workload")
@@ -2507,7 +2507,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("creating first foundation workload which admits immediately")
 			createWorkloadWithPriority("foundation-queue", "1", 1000)
-			util.ExpectReservingActiveWorkloadsMetric(cq1, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, 1)
 			util.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 
 			ginkgo.By("creating second foundation workload which cannot admit")

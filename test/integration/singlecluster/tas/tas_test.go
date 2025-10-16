@@ -395,7 +395,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("verify admission for the workload1", func() {
@@ -437,7 +437,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 2)
 				})
 
 				ginkgo.By("verify admission for the workload2", func() {
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the wl3 is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl3)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 3)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 3)
 				})
 
 				ginkgo.By("verify admission for the wl3", func() {
@@ -513,7 +513,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the wl4 is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl4)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 3)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 4)
 				})
 
 				ginkgo.By("verify admission for the wl4", func() {
@@ -552,7 +552,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify wl1 is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("create wl2 which is blocked by wl1", func() {
@@ -660,7 +660,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("verify admission for the workload", func() {
@@ -729,7 +729,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("verify admission for the workload", func() {
@@ -862,7 +862,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("creating second a workload which cannot fit", func() {
@@ -1594,7 +1594,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("creating a mid priority workload which can fit", func() {
@@ -1609,7 +1609,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the wl2 gets admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 2)
 				})
 
 				ginkgo.By("creating a high priority workload which requires preemption", func() {
@@ -1735,7 +1735,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("creating a workload in CQB which reclaims its quota", func() {
@@ -1835,7 +1835,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 			})
@@ -1928,7 +1928,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload gets admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 			})
@@ -1996,7 +1996,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload gets admitted after label is added", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 			})
@@ -2192,7 +2192,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 			})
@@ -2307,7 +2307,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 			})
@@ -2430,7 +2430,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("Verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				})
 
@@ -2686,7 +2686,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
-					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 				})
 
 				ginkgo.By("verify admission for the workload1", func() {
