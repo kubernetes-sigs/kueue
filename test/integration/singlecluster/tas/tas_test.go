@@ -2648,7 +2648,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("await for the check to be ready", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlKey, wl1)).To(gomega.Succeed())
-						util.ExpectAdmissionCheckState(g, wl1, ac.Name, kueue.CheckStateReady, "")
+						util.ExpectAdmissionCheckState(g, wl1, ac.Name, kueue.CheckStateReady, "", []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
+									autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
+								},
+							},
+						}...)
 					}, util.Timeout, time.Millisecond).Should(gomega.Succeed())
 				})
 

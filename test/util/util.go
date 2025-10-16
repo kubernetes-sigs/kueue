@@ -76,6 +76,40 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
+var DefaultTestPodSetUpdates1 = []kueue.PodSetUpdate{
+	{
+		Name: "ps1",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-1",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+	{
+		Name: "ps2",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-1",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+}
+
+var DefaultTestPodSetUpdates2 = []kueue.PodSetUpdate{
+	{
+		Name: "ps1",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-2",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+	{
+		Name: "ps2",
+		Annotations: map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": "wl-ac-prov-2",
+			"autoscaling.x-k8s.io/provisioning-class-name":      "provisioning-class",
+		},
+	},
+}
+
 var SetupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(NewTestingLogger(ginkgo.GinkgoWriter))
 })
@@ -633,9 +667,7 @@ func ExpectAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admis
 	if expectedMessage != "" {
 		g.ExpectWithOffset(1, check.Message).To(gomega.Equal(expectedMessage))
 	}
-	if len(podSetUpdates) > 0 {
-		g.ExpectWithOffset(1, check.PodSetUpdates).To(gomega.Equal(podSetUpdates))
-	}
+	g.ExpectWithOffset(1, check.PodSetUpdates).To(gomega.Equal(podSetUpdates))
 }
 
 func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {

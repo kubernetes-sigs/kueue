@@ -388,7 +388,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStatePending, "Reset to Pending after eviction. Previously: Rejected")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStatePending, "Reset to Pending after eviction. Previously: Rejected", util.DefaultTestPodSetUpdates1...)
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if the AdmissionCheck is Ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "", util.DefaultTestPodSetUpdates1...)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -499,7 +499,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if workload is active and an event is not emitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "", util.DefaultTestPodSetUpdates1...)
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeTrue())
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -548,7 +548,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if the admission check is still ready and workload is admitted", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "", util.DefaultTestPodSetUpdates1...)
 					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -715,7 +715,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check remains ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "", util.DefaultTestPodSetUpdates1...)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -936,7 +936,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "", util.DefaultTestPodSetUpdates2...)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1143,7 +1143,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the admission check is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &updatedWl, ac.Name, kueue.CheckStateReady, "", util.DefaultTestPodSetUpdates2...)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1823,7 +1823,15 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 			ginkgo.By("await for wl1 to have status Ready for AdmissionCheck2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
-					util.ExpectAdmissionCheckState(g, &wlObj, ac2Name, kueue.CheckStateReady, "")
+					util.ExpectAdmissionCheckState(g, &wlObj, ac2Name, kueue.CheckStateReady, "", []kueue.PodSetUpdate{
+						{
+							Name: "main",
+							Annotations: map[string]string{
+								autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey2.Name,
+								autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
+							},
+						},
+					}...)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
