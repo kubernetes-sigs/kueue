@@ -1392,7 +1392,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 
 		ginkgo.By("checking a second no-fit prod job does not start")
 		prodJob2 := testingjob.MakeJob("prod-job2", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "5").Obj()
@@ -1404,7 +1404,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			g.Expect(createdProdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 
 		ginkgo.By("checking a dev job starts")
 		devJob := testingjob.MakeJob("dev-job", ns.Name).Queue(kueue.LocalQueueName(devLocalQ.Name)).Request(corev1.ResourceCPU, "5").Obj()
@@ -1416,7 +1416,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(devClusterQ, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(devClusterQ, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(devClusterQ, "", 1)
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -1674,7 +1674,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 		})
 
 		job2 := testingjob.MakeJob("job2", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "3").Obj()
@@ -2449,7 +2449,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-				util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -2612,7 +2612,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-				util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -2936,7 +2936,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {
@@ -2989,7 +2989,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {
