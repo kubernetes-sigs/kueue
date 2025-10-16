@@ -830,7 +830,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 		gomega.Expect(createdAppWrapper.Spec.Components[0].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdAppWrapper.Spec.Components[1].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 	})
 })
 
@@ -937,7 +937,7 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {
