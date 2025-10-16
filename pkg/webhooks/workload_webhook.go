@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type WorkloadWebhook struct{}
@@ -369,6 +370,10 @@ func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.E
 
 func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ReplacementForKey(newObj) != nil {
+		// Allow setting clusterName when the workload is a valid elastic job replacement.
+		return allErrs
+	}
 	if oldObj.Status.ClusterName == nil && newObj.Status.ClusterName != nil {
 		found := slices.Contains(oldObj.Status.NominatedClusterNames, *newObj.Status.ClusterName)
 		if !found {
