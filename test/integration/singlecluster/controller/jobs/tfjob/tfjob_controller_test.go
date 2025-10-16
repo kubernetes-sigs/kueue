@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {
