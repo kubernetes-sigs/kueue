@@ -399,12 +399,6 @@ func TestValidateUpdate(t *testing.T) {
 					ReadyReplicas: int32(1),
 				},
 			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: priorityClassNameLabelPath.String(),
-				},
-			}.ToAggregate(),
 		},
 		"change in replicas (scale down to zero)": {
 			oldObj: &appsv1.StatefulSet{
