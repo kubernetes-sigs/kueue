@@ -1022,7 +1022,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 	})
 
 	ginkgo.It("Should allow reclaim of resources that are no longer needed", func() {
@@ -1057,7 +1057,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 				g.Expect(*createdJobSet1.Spec.Suspend).Should(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 		})
 
 		jobSet2 := testingjobset.MakeJobSet("dev-jobset2", ns.Name).ReplicatedJobs(
@@ -1272,7 +1272,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {

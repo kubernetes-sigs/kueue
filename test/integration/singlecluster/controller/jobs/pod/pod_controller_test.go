@@ -2251,7 +2251,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 		})
 
 		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 
 		ginkgo.By("verify admission for the workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2302,7 +2302,7 @@ var _ = ginkgo.Describe("Pod controller when TopologyAwareScheduling enabled", g
 		})
 
 		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 
 		ginkgo.By("verify admission for the workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
