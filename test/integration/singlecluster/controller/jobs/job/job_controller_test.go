@@ -716,6 +716,88 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 	})
 
+	ginkgo.FIt("Should emit eviction duration metric when workload started eviction but suspended before eviction completes", func() {
+		job := testingjob.MakeJob(jobName, ns.Name).Queue(kueue.LocalQueueName("q")).Obj()
+		wl := &kueue.Workload{}
+		var wlLookupKey types.NamespacedName
+		ginkgo.By("create the job and admit the workload", func() {
+			util.MustCreate(ctx, k8sClient, job)
+			wlLookupKey = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			admission := testing.MakeAdmission("q", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("wait for the job to be unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		/*ginkgo.By("mark the job as active", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Status.Active = 1
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})*/
+
+		ginkgo.By("Updating the workload with PodsReady=True and workload evicting")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+			apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+				Type:   kueue.WorkloadPodsReady,
+				Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted,
+			})
+			apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+				Type:   kueue.WorkloadEvicted,
+				Status: metav1.ConditionTrue,
+				Reason: "testReason",
+			})
+			g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("mark the job as finished", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				now := metav1.Now()
+				job.Status.Active = 0
+				job.Status.StartTime = ptr.To(now)
+				job.Status.CompletionTime = ptr.To(now)
+				job.Status.Conditions = append(job.Status.Conditions,
+					batchv1.JobCondition{
+						Type:               batchv1.JobSuccessCriteriaMet,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+					},
+					batchv1.JobCondition{
+						Type:               batchv1.JobComplete,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+					},
+				)
+				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Test is flaky here. It flakes between 1 and 2 because the job controller watches for both
+		// workload and generic job objects.
+		// We manually update the workload, and allow the job controller to update the job.
+		util.ExpectEvictionDurationMetric("q", kueue.WorkloadFinished, 1)
+	})
+
 	ginkgo.When("the queue has admission checks", func() {
 		var (
 			clusterQueueAc *kueue.ClusterQueue
