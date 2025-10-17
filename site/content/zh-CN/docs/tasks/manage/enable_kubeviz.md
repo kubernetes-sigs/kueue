@@ -41,8 +41,8 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --version={{< param "chart_version" >}} \
   --namespace kueue-system \
   --create-namespace \
-  --set enableKueueViz=true \ # 启用 KueueViz
-  --wait --timeout 300s
+  --wait --timeout 300s \
+  --set enableKueueViz=true # 启用 KueueViz
 ```
 
 有关安装 Kueue 的更多信息，请参阅[安装](/zh-CN/docs/installation)。
@@ -67,7 +67,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 在现有的 Kueue 安装上通过 YAML 启用 KueueViz：
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## 访问 Dashboard {#accessing-the-dashboard}
@@ -77,8 +77,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 在开发或测试期间快速访问（已在 Docker Desktop 上测试）：
 
 ```bash
-kubectl port-forward svc/kueue-kueue-viz-frontend -n kueue-system 8080
-kubectl port-forward svc/kueue-kueue-viz-backend  -n kueue-system 8081:8080
+kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080
+kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
 ```
 
 编辑 kueue-viz-frontend Deployment 以设置环境变量
@@ -161,7 +161,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 通过 YAML 升级 KueueViz：
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## 卸载 {#uninstall}
@@ -171,7 +171,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 卸载 KueueViz 组件：
 
 ```bash
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## 下一步 {#whats-next}

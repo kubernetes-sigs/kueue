@@ -29,11 +29,12 @@ import (
 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
+	"k8s.io/client-go/rest"
 	"k8s.io/component-base/compatibility"
 	"k8s.io/component-base/version"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
-	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
@@ -57,9 +58,9 @@ var (
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager) error {
-	config := newVisibilityServerConfig()
-	if err := applyVisibilityServerOptions(config); err != nil {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manager, enableInternalCertManagement bool, kubeConfig *rest.Config) error {
+	config := newVisibilityServerConfig(kubeConfig)
+	if err := applyVisibilityServerOptions(config, enableInternalCertManagement); err != nil {
 		return fmt.Errorf("unable to apply VisibilityServerOptions: %w", err)
 	}
 
@@ -79,12 +80,17 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 	return nil
 }
 
-func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) error {
-	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibilityv1beta1.SchemeGroupVersion))
+func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, enableInternalCertManagement bool) error {
+	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(visibility.SchemeGroupVersion))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
-	// The directory where TLS certs will be created
-	o.SecureServing.ServerCert.CertDirectory = certDir
+	if enableInternalCertManagement {
+		// The directory where TLS certs will be created
+		o.SecureServing.ServerCert.CertDirectory = certDir
+	} else {
+		o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
+		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
+	}
 	o.Admission.DisablePlugins = disabledPlugins
 	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
 		return fmt.Errorf("error creating self-signed certificates: %v", err)
@@ -92,7 +98,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) er
 	return o.ApplyTo(config)
 }
 
-func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
+func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
 	c := genericapiserver.NewRecommendedConfig(api.Codecs)
 	versionInfo := version.Get()
 	version := strings.Split(versionInfo.String(), "-")[0]
@@ -106,6 +112,7 @@ func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
 	c.OpenAPIV3Config.Info.Version = version
 
 	c.EnableMetrics = true
+	c.ClientConfig = rest.CopyConfig(kubeConfig)
 
 	return c
 }

@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -253,16 +255,16 @@ func TestValidateJobOnUpdate(t *testing.T) {
 	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	fieldString := field.NewPath("metadata").Child("labels").Key(constants.QueueLabel).String()
 	testCases := map[string]struct {
-		oldJob                   *batchv1.Job
-		newJob                   *batchv1.Job
-		defaultLocalQueueEnabled bool
-		nsHasDefaultQueue        bool
-		wantErr                  field.ErrorList
+		oldJob            *batchv1.Job
+		newJob            *batchv1.Job
+		nsHasDefaultQueue bool
+		featureGates      map[featuregate.Feature]bool
+		wantErr           field.ErrorList
 	}{
 		"local queue cannot be changed if job is not suspended": {
-			oldJob:                   utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(false).Obj(),
-			newJob:                   utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(false).Obj(),
-			defaultLocalQueueEnabled: true,
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(false).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.LocalQueueDefaulting: true},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -271,22 +273,19 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			},
 		},
 		"local queue can be changed": {
-			oldJob:                   utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
-			newJob:                   utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
-			nsHasDefaultQueue:        true,
-			defaultLocalQueueEnabled: true,
+			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
+			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
+			nsHasDefaultQueue: true,
 		},
 		"local queue can be changed from default": {
-			oldJob:                   utiltestingjob.MakeJob("test-job", "ns1").Queue("default").Suspend(true).Obj(),
-			newJob:                   utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
-			nsHasDefaultQueue:        true,
-			defaultLocalQueueEnabled: true,
+			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("default").Suspend(true).Obj(),
+			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
+			nsHasDefaultQueue: true,
 		},
 		"local queue cannot be removed if default queue exists and feature is enabled": {
-			oldJob:                   utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
-			newJob:                   utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
-			nsHasDefaultQueue:        true,
-			defaultLocalQueueEnabled: true,
+			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
+			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
+			nsHasDefaultQueue: true,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -295,22 +294,43 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			},
 		},
 		"local queue can be removed if default queue does not exists and feature is enabled": {
-			oldJob:                   utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
-			newJob:                   utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
-			nsHasDefaultQueue:        false,
-			defaultLocalQueueEnabled: true,
+			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
+			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
+			nsHasDefaultQueue: false,
 		},
 		"local queue can be removed if feature is not enabled": {
-			oldJob:                   utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
-			newJob:                   utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
-			nsHasDefaultQueue:        true,
-			defaultLocalQueueEnabled: false,
+			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("lq1").Obj(),
+			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Queue("").Obj(),
+			nsHasDefaultQueue: true,
+			featureGates:      map[featuregate.Feature]bool{features.LocalQueueDefaulting: false},
+		},
+		"elastic job enabled annotation cannot be removed on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
+			},
+		},
+		"elastic job enabled annotation cannot be added on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.labels["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
+			},
 		},
 	}
 
 	for tcName, tc := range testCases {
 		t.Run(tcName, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.LocalQueueDefaulting, tc.defaultLocalQueueEnabled)
+			for feature, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, feature, enabled)
+			}
 
 			mockctrl := gomock.NewController(t)
 

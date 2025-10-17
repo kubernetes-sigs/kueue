@@ -1,29 +1,28 @@
 ---
-title: "Run Plain Pods"
-linkTitle: "Plain Pods"
+title: "运行普通 Pod"
+linkTitle: "普通 Pod"
 date: 2023-09-27
 weight: 6
 description: >
-  Run a single Pod, or a group of Pods as a Kueue-managed job.
+  以 Kueue 管理的作业来运行一个或一组 Pod。
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management
-capabilities when running plain Pods. Kueue supports management of both
-[individual Pods](#running-a-single-pod-admitted-by-kueue), or
-[Pod groups](#running-a-group-of-pods-to-be-admitted-together).
+本页面展示了如何在运行普通 Pod 时利用 Kueue 的调度和资源管理功能。
+Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
+或[一组 Pod](#running-a-group-of-pods-to-be-admitted-together)。
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
+本指南适用于对 Kueue 有基本了解的[批处理用户](/zh-CN/docs/tasks#batch-user)。更多信息请参见 [Kueue 概述](/zh-CN/docs/overview)。
 
-## Before you begin
+## 开始之前
 
-1. By default, the integration for `pod` is not enabled.
-   Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
-   and enable the `pod` integration.
+1. 默认情况下，`pod` 集成未启用。
+   学习如何[使用自定义管理器配置安装 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)
+   并启用 `pod` 集成。
 
-   To allow Kubernetes system pods to be successfully scheduled, you must limit the scope of the `pod` integration.
-   The recomended mechanism for doing this is using the `managedJobsNamespaceSelector`.
+   为了允许 Kubernetes 系统 Pod 成功调度，您必须限制 `pod` 集成的范围。
+   推荐的机制是使用 `managedJobsNamespaceSelector`。
 
-   One approach is to only enable management only for specific namespaces:
+   一种方法是仅对特定命名空间启用管理：
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta1
    kind: Configuration
@@ -34,7 +33,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
      frameworks:
       - "pod"
    ```
-   An alternate approach is to exempt system namespaces from management:
+   另一种方法是免除系统命名空间的管理：
    ```yaml
    apiVersion: config.kueue.x-k8s.io/v1beta1
    kind: Configuration
@@ -48,15 +47,15 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
       - "pod"
    ```
 
-{{% alert title="Note" color="primary" %}}
-  Prior to Kueue v0.10, the Configuration fields `integrations.podOptions.namespaceSelector`
-  and `integrations.podOptions.podSelector` were used instead. The use of `podOptions` was
-  deprecated in Kueue v0.11. Users should migrate to using `managedJobsNamespaceSelector`.
+{{% alert title="注意" color="primary" %}}
+  在 Kueue v0.10 之前，使用的是配置字段 `integrations.podOptions.namespaceSelector`
+  和 `integrations.podOptions.podSelector`。`podOptions` 的使用在 Kueue v0.11 中已被弃用。
+  用户应迁移到使用 `managedJobsNamespaceSelector`。
 {{% /alert %}}
 
 
-2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
-   used to filter the pods to reconcile. The default webhook namespaceSelector is:
+2. 如果启用了 Pod 集成，Kueue 将为所有创建的 Pod 运行 Webhook。Webhook namespaceSelector
+   可用于过滤需要协调的 Pod。默认的 Webhook namespaceSelector 是：
    ```yaml
    matchExpressions:
    - key: kubernetes.io/metadata.name
@@ -64,24 +63,24 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
      values: [ kube-system, kueue-system ]
    ```
    
-   When you [install Kueue via Helm](/docs/installation/#install-via-helm), the webhook namespace selector 
-   will match the `managedJobsNamespaceSelector` in the `values.yaml`.
+   当您[通过 Helm 安装 Kueue](/zh-CN/docs/installation/#install-via-helm) 时，Webhook
+   命名空间选择器将匹配 `values.yaml` 中的 `managedJobsNamespaceSelector`。
 
-   Make sure that namespaceSelector never matches the kueue namespace, otherwise the 
-   Kueue deployment won't be able to create Pods.
+   确保 namespaceSelector 永远不匹配 kueue 命名空间，否则
+   Kueue 部署将无法创建 Pod。
 
-3. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
-   For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
+3. 属于 Kueue 管理的其他 API 资源的 Pod 被排除在 `pod` 集成的队列之外。
+   例如，由 `batch/v1.Job` 管理的 Pod 不会被 `pod` 集成管理。
 
-4. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+4. 查看[管理集群配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
-## Running a single Pod admitted by Kueue
+## 运行由 Kueue 准入的单个 Pod
 
-When running Pods on Kueue, take into consideration the following aspects:
+在 Kueue 上运行 Pod 时，请考虑以下方面：
 
-### a. Queue selection
+### a. 队列选择
 
-The target [local queue](/docs/concepts/local_queue) should be specified in the `metadata.labels` section of the Pod configuration.
+目标[本地队列](/zh-CN/docs/concepts/local_queue)应在 Pod 配置的 `metadata.labels` 部分中指定。
 
 ```yaml
 metadata:
@@ -89,9 +88,9 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. Configure the resource needs
+### b. 配置资源需求
 
-The resource needs of the workload can be configured in the `spec.containers`.
+工作负载的资源需求可以在 `spec.containers` 中配置。
 
 ```yaml
     - resources:
@@ -99,33 +98,31 @@ The resource needs of the workload can be configured in the `spec.containers`.
           cpu: 3
 ```
 
-### c. The "managed" label
+### c. "managed" 标签
 
-Kueue will inject the `kueue.x-k8s.io/managed=true` label to indicate which pods are managed by it.
+Kueue 将注入 `kueue.x-k8s.io/managed=true` 标签来指示哪些 Pod 由其管理。
 
-### d. Limitations
+### d. 限制
 
-- A Kueue managed Pod cannot be created in `kube-system` or `kueue-system` namespaces.
-- In case of [preemption](/docs/concepts/cluster_queue/#preemption), the Pod will
-  be terminated and deleted.
+- Kueue 管理的 Pod 不能在 `kube-system` 或 `kueue-system` 命名空间中创建。
+- 在[抢占](/docs/concepts/cluster_queue/#preemption)的情况下，Pod 将被终止和删除。
 
-## Example Pod
+## 示例 Pod
 
-Here is a sample Pod that just sleeps for a few seconds:
+这是一个仅休眠几秒钟的示例 Pod：
 
 {{< include "examples/pods-kueue/kueue-pod.yaml" "yaml" >}}
 
-You can create the Pod using the following command:
+您可以使用以下命令创建 Pod：
 ```sh
-# Create the pod
+# 创建 Pod
 kubectl create -f kueue-pod.yaml
 ```
 
-## Running a group of Pods to be admitted together
+## 运行一组一起被准入的 Pod
 
-In order to run a set of Pods as a single unit, called Pod group, add the
-"pod-group-name" label, and the "pod-group-total-count" annotation to all
-members of the group, consistently:
+为了将一组 Pod 作为单个单元运行（称为 Pod 组），请一致地为组的所有成员添加
+"pod-group-name" 标签和 "pod-group-total-count" 注解：
 
 ```yaml
 metadata:
@@ -135,53 +132,46 @@ metadata:
     kueue.x-k8s.io/pod-group-total-count: "2"
 ```
 
-### Feature limitations
+### 功能限制
 
-Kueue provides only the minimal required functionality of running Pod groups,
-just for the need of environments where the Pods are managed by external
-controllers directly, without a Job-level CRD.
+Kueue 仅提供运行 Pod 组所需的最小功能，
+仅用于 Pod 由外部控制器直接管理而不需要 Job 级别 CRD 的环境。
 
-As a consequence of this design decision, Kueue does not re-implement core
-functionalities that are available in the Kubernetes Job API, such as advanced retry
-policies. In particular, Kueue does not re-create failed Pods.
+作为此设计决策的结果，Kueue 不会重新实现 Kubernetes Job API 中可用的核心功能，
+例如高级重试策略。特别是，Kueue 不会重新创建失败的 Pod。
 
-This design choice impacts the scenario of
-[preemption](/docs/concepts/cluster_queue/#preemption).
-When a Kueue needs to preempt a workload that represents a Pod group, kueue sends
-delete requests for all of the Pods in the group. It is the responsibility of the
-user or controller that created the original Pods to create replacement Pods.
+此设计选择影响[抢占](/docs/concepts/cluster_queue/#preemption)场景。
+当 Kueue 需要抢占表示 Pod 组的工作负载时，Kueue 会发送
+删除组中所有 Pod 的请求。创建原始 Pod 的用户或控制器有责任创建替换 Pod。
 
-{{% alert title="Note" color="primary" %}}
-We recommend using the kubernetes Job API or similar CRDs such as
-JobSet, MPIJob, RayJob (see more [here](/docs/tasks/#batch-user)).
+{{% alert title="注意" color="primary" %}}
+我们建议使用 Kubernetes Job API 或类似的 CRD，如
+JobSet、MPIJob、RayJob（更多信息请参见[这里](/zh-CN/docs/tasks/#batch-user)）。
 {{% /alert %}}
 
-### Termination
+### 终止
 
-Kueue considers a Pod group as successful, and marks the associated Workload as
-finished, when the number of succeeded Pods equals the Pod group size.
+当成功的 Pod 数量等于 Pod 组大小时，Kueue 认为 Pod 组成功，
+并将相关的工作负载标记为已完成。
 
-If a Pod group is not successful, there are two ways you may want to use to
-terminate execution of a Pod group to free the reserved resources:
-1. Issue a Delete request for the Workload object. Kueue will terminate all
-   remaining Pods.
-2. Set the `kueue.x-k8s.io/retriable-in-group: false` annotation on at least
-   one Pod in the group (can be a replacement Pod). Kueue will mark the workload
-   as finished once all Pods are terminated.
+如果 Pod 组不成功，您可以使用两种方式来终止 Pod 组的执行以释放保留的资源：
+1. 对工作负载对象发出删除请求。Kueue 将终止所有剩余的 Pod。
+2. 在组中至少一个 Pod（可以是替换 Pod）上设置 `kueue.x-k8s.io/retriable-in-group: false` 注解。
+   Kueue 将在所有 Pod 终止后将工作负载标记为已完成。
 
-### Example Pod group
+### 示例 Pod 组
 
-Here is a sample Pod group that just sleeps for a few seconds:
+这是一个仅休眠几秒钟的示例 Pod 组：
 
 {{< include "examples/pods-kueue/kueue-pod-group.yaml" "yaml" >}}
 
-You can create the Pod group using the following command:
+您可以使用以下命令创建 Pod 组：
 ```sh
 kubectl create -f kueue-pod-group.yaml
 ```
 
-The name of the associated Workload created by Kueue equals the name of the Pod
-group. In this example it is `sample-group`, you can inspect the workload using:
+Kueue 创建的相关工作负载的名称等于 Pod 组的名称。在此示例中为 `sample-group`，
+您可以使用以下命令检查工作负载：
 ```sh
 kubectl describe workload/sample-group
 ```

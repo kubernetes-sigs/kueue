@@ -41,6 +41,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -112,7 +113,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		var jobQueueName kueue.LocalQueueName = "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: string(jobQueueName)}
+		createdJob.Labels = map[string]string{constants.QueueLabel: string(jobQueueName)}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -142,20 +143,20 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor := utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
+		spotFlavor := utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		util.MustCreate(ctx, k8sClient, spotFlavor)
 		defer func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		}()
-		clusterQueue := testing.MakeClusterQueue("cluster-queue").
+		clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
-				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+		admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
 			kueue.PodSetAssignment{
 				Name: createdWorkload.Spec.PodSets[0].Name,
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -265,7 +266,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
 		if createdJob.Labels == nil {
-			createdJob.Labels = map[string]string{constants.QueueAnnotation: jobQueueName}
+			createdJob.Labels = map[string]string{constants.QueueLabel: jobQueueName}
 		} else {
 			createdJob.Labels[constants.QueueLabel] = jobQueueName
 		}
@@ -308,7 +309,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		wantCondition   *metav1.Condition
 	}
 
-	var defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
@@ -337,7 +338,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			ginkgo.By("Create a job")
 			job := testingraycluster.MakeCluster(jobName, ns.Name).Obj()
 			jobQueueName := "test-queue"
-			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+			job.Labels = map[string]string{constants.QueueLabel: jobQueueName}
 			util.MustCreate(ctx, k8sClient, job)
 			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 			createdJob := &rayv1.RayCluster{}
@@ -351,7 +352,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admit the workload created for the job")
-			admission := testing.MakeAdmission("foo").PodSets(
+			admission := utiltestingapi.MakeAdmission("foo").PodSets(
 				kueue.PodSetAssignment{
 					Name: createdWorkload.Spec.PodSets[0].Name,
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -492,16 +493,16 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = utiltestingapi.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "4").Obj(),
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "4").Obj(),
 			).Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 	})
@@ -514,7 +515,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
 		ginkgo.By("creating localQueue")
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 
 		ginkgo.By("checking a dev job starts")
@@ -531,7 +532,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		gomega.Expect(createdJob.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 
 		ginkgo.By("checking a second no-fit RayCluster does not start")
 		job2 := testingraycluster.MakeCluster("dev-job2", ns.Name).Queue(localQueue.Name).
@@ -545,7 +546,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 			g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 
 		ginkgo.By("deleting the job", func() {
 			gomega.Expect(k8sClient.Delete(ctx, job)).Should(gomega.Succeed())
@@ -571,7 +572,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		gomega.Expect(createdJob2.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob2.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 2)
 	})
 })
 
@@ -594,12 +595,12 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("clusterqueue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "4").Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
@@ -608,7 +609,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 
 		ginkgo.By("creating localQueue")
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 
 		ginkgo.By("creating priority")
@@ -712,18 +713,18 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		resourceFlavor = testing.MakeResourceFlavor("default").Obj()
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("default").
-			ResourceGroup(*testing.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 
-		localQueue = testing.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {

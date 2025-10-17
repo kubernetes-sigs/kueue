@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: "queue"}
+		createdJob.Labels = map[string]string{constants.QueueLabel: "queue"}
 		createdJob.Spec.Suspend = ptr.To(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 	})

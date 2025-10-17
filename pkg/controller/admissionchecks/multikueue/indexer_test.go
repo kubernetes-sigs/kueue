@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 const (
@@ -68,21 +69,21 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 		},
 		"single cluster, single match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
 		},
 		"single cluster, no match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
 			},
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"multiple clusters, single match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
-				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
@@ -126,21 +127,21 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 		},
 		"single config, single match": {
 			configs: []*kueue.MultiKueueConfig{
-				utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster2"},
 			wantList: []string{"config1"},
 		},
 		"single config, no match": {
 			configs: []*kueue.MultiKueueConfig{
-				utiltesting.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
 			},
 			filter: client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
 		},
 		"multiple configs, single match": {
 			configs: []*kueue.MultiKueueConfig{
-				utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
-				utiltesting.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
 			wantList: []string{"config1"},

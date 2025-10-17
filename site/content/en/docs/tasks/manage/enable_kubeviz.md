@@ -39,8 +39,8 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --version={{< param "chart_version" >}} \
   --namespace kueue-system \
   --create-namespace \
-  --set enableKueueViz=true \ # enable KueueViz
-  --wait --timeout 300s
+  --wait --timeout 300s \
+  --set enableKueueViz=true # enable KueueViz
 ```
 
 For more information on installing Kueue, please refer to [Installation](/docs/installation).
@@ -65,7 +65,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 To enable KueueViz on an existing Kueue installation by YAML:
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## Accessing the Dashboard
@@ -75,8 +75,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 For quick access during development or testing(had tested by Docker Desktop):
 
 ```bash
-kubectl port-forward svc/kueue-kueue-viz-frontend -n kueue-system 8080
-kubectl port-forward svc/kueue-kueue-viz-backend  -n kueue-system 8081:8080
+kubectl port-forward svc/kueue-kueueviz-frontend -n kueue-system 8080
+kubectl port-forward svc/kueue-kueueviz-backend  -n kueue-system 8081:8080
 ```
 
 Edit the kueue-viz-frontend Deployment to set env `REACT_APP_WEBSOCKET_URL=ws://localhost:8081`.
@@ -158,7 +158,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 To upgrade KueueViz by YAML:
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## Uninstall
@@ -168,7 +168,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 To uninstall KueueViz components:
 
 ```bash
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "chart_version" >}}/kueueviz.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
 ```
 
 ## What's next

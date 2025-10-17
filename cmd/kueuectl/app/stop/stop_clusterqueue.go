@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -139,10 +139,10 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	return o.PrintObj(cq, o.Out)
 }
 
-func (o *ClusterQueueOptions) stopClusterQueue(cq *v1beta1.ClusterQueue) {
+func (o *ClusterQueueOptions) stopClusterQueue(cq *kueue.ClusterQueue) {
 	if o.KeepAlreadyRunning {
-		cq.Spec.StopPolicy = ptr.To(v1beta1.Hold)
+		cq.Spec.StopPolicy = ptr.To(kueue.Hold)
 	} else {
-		cq.Spec.StopPolicy = ptr.To(v1beta1.HoldAndDrain)
+		cq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
 	}
 }

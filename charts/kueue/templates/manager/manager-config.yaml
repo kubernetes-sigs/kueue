@@ -6,4 +6,15 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 data:
-  controller_manager_config.yaml: {{ .Values.managerConfig.controllerManagerConfigYaml | toYaml | indent 1 }}
+  controller_manager_config.yaml: |
+{{- $config := .Values.managerConfig.controllerManagerConfigYaml | fromYaml }}
+{{- if not .Values.enableCertManager }}
+  {{- $defaultInternalCert := dict
+        "enable" true
+        "webhookServiceName" (printf "%s-webhook-service" (include "kueue.fullname" .))
+        "webhookSecretName" (printf "%s-webhook-server-cert" (include "kueue.fullname" .)) }}
+  {{- if not $config.internalCertManagement }}
+    {{- $_ := set $config "internalCertManagement" $defaultInternalCert }}
+  {{- end }}
+{{- end }}
+{{ $config | toYaml | indent 4 }}

@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -183,8 +182,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // NotifyTopologyUpdate triggers a topology update event only on creation or deletion,
 // as these are the only changes affecting the ClusterQueue's active state.
-func (r *ClusterQueueReconciler) NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology) {
-	var topology *kueuealpha.Topology
+func (r *ClusterQueueReconciler) NotifyTopologyUpdate(oldTopology, newTopology *kueue.Topology) {
+	var topology *kueue.Topology
 	switch {
 	case oldTopology == nil:
 		// Create Event.

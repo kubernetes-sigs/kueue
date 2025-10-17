@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -46,6 +47,41 @@ import (
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
+
+func defaultControlCacheOptions(namespace string) ctrlcache.Options {
+	return ctrlcache.Options{
+		ByObject: map[ctrlclient.Object]ctrlcache.ByObject{
+			objectKeySecret: {
+				Namespaces: map[string]ctrlcache.Config{
+					namespace: {},
+				},
+			},
+		},
+	}
+}
+
+func defaultControlOptions(namespace string) ctrl.Options {
+	return ctrl.Options{
+		Cache:                  defaultControlCacheOptions(namespace),
+		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+		Metrics: metricsserver.Options{
+			BindAddress: configapi.DefaultMetricsBindAddress,
+		},
+		LeaderElection:                true,
+		LeaderElectionID:              configapi.DefaultLeaderElectionID,
+		LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+		LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+		RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+		WebhookServer: &webhook.DefaultServer{
+			Options: webhook.Options{
+				Port:    configapi.DefaultWebhookPort,
+				CertDir: configapi.DefaultWebhookCertDir,
+			},
+		},
+	}
+}
 
 func TestLoad(t *testing.T) {
 	testScheme := runtime.NewScheme()
@@ -70,6 +106,14 @@ leaderElection:
   resourceName: c1f6bfd2.kueue.x-k8s.io
 webhook:
   port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	emptyConfig := filepath.Join(tmpDir, "empty-config.yaml")
+	if err := os.WriteFile(emptyConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -238,18 +282,6 @@ integrations:
 		t.Fatal(err)
 	}
 
-	queueVisibilityConfig := filepath.Join(tmpDir, "queueVisibility.yaml")
-	if err := os.WriteFile(queueVisibilityConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
-kind: Configuration
-queueVisibility:
-  updateIntervalSeconds: 10
-  clusterQueues:
-    maxCount: 0
-`), os.FileMode(0600)); err != nil {
-		t.Fatal(err)
-	}
-
 	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
 	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -335,31 +367,11 @@ webhook:
 kind: Configuration
 namespace: kueue-system
 objectRetentionPolicies:
-  workloads: 
+  workloads:
     afterFinished: 30m
     afterDeactivatedByKueue: 30m
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
-	}
-
-	defaultControlOptions := ctrl.Options{
-		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-		Metrics: metricsserver.Options{
-			BindAddress: configapi.DefaultMetricsBindAddress,
-		},
-		LeaderElection:                true,
-		LeaderElectionID:              configapi.DefaultLeaderElectionID,
-		LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
-		LeaderElectionReleaseOnCancel: true,
-		LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-		RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-		WebhookServer: &webhook.DefaultServer{
-			Options: webhook.Options{
-				Port:    configapi.DefaultWebhookPort,
-				CertDir: configapi.DefaultWebhookCertDir,
-			},
-		},
 	}
 
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
@@ -383,8 +395,8 @@ objectRetentionPolicies:
 	}
 
 	defaultClientConnection := &configapi.ClientConnection{
-		QPS:   ptr.To[float32](configapi.DefaultClientConnectionQPS),
-		Burst: ptr.To[int32](configapi.DefaultClientConnectionBurst),
+		QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
+		Burst: ptr.To(configapi.DefaultClientConnectionBurst),
 	}
 
 	defaultIntegrations := &configapi.Integrations{
@@ -401,18 +413,11 @@ objectRetentionPolicies:
 		},
 	}
 
-	defaultQueueVisibility := &configapi.QueueVisibility{
-		UpdateIntervalSeconds: configapi.DefaultQueueVisibilityUpdateIntervalSeconds,
-		ClusterQueues: &configapi.ClusterQueueVisibility{
-			MaxCount: 10,
-		},
-	}
-
 	defaultMultiKueue := &configapi.MultiKueue{
 		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
 		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    ptr.To[string](configapi.MultiKueueDispatcherModeAllAtOnce),
+		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	defaultWaitForPodsReady := &configapi.WaitForPodsReady{}
@@ -432,12 +437,12 @@ objectRetentionPolicies:
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
@@ -456,6 +461,24 @@ objectRetentionPolicies:
 					},
 				},
 			},
+		},
+		{
+			name:       "empty config",
+			configFile: emptyConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				InternalCertManagement:       enableDefaultInternalCertManagement,
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "bad path",
@@ -481,8 +504,7 @@ objectRetentionPolicies:
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
-				QueueVisibility: defaultQueueVisibility,
-				MultiKueue:      defaultMultiKueue,
+				MultiKueue: defaultMultiKueue,
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
@@ -494,7 +516,7 @@ objectRetentionPolicies:
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
 		{
 			name:       "ControllerManagerConfigurationSpec overwrite config",
@@ -509,12 +531,12 @@ objectRetentionPolicies:
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
 				HealthProbeBindAddress: ":38081",
 				Metrics: metricsserver.Options{
 					BindAddress: ":38080",
@@ -551,12 +573,11 @@ objectRetentionPolicies:
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "disable cert overwrite config",
@@ -573,12 +594,11 @@ objectRetentionPolicies:
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "leaderElection disabled config",
@@ -593,12 +613,12 @@ objectRetentionPolicies:
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions("kueue-system"),
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
@@ -643,11 +663,11 @@ objectRetentionPolicies:
 				},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			},
 			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
@@ -683,12 +703,11 @@ objectRetentionPolicies:
 					Burst: ptr.To[int32](100),
 				},
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "fullController config",
@@ -706,12 +725,12 @@ objectRetentionPolicies:
 					Burst: ptr.To[int32](100),
 				},
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				ReadinessEndpointName:  "ready",
 				LivenessEndpointName:   "live",
@@ -760,55 +779,12 @@ objectRetentionPolicies:
 					Frameworks:         []string{job.FrameworkName},
 					ExternalFrameworks: []string{"Foo.v1.example.com"},
 				},
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
-				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				Metrics: metricsserver.Options{
-					BindAddress: configapi.DefaultMetricsBindAddress,
-				},
-				LeaderElection:                true,
-				LeaderElectionID:              configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
-				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				WebhookServer: &webhook.DefaultServer{
-					Options: webhook.Options{
-						Port:    configapi.DefaultWebhookPort,
-						CertDir: configapi.DefaultWebhookCertDir,
-					},
-				},
-			},
-		},
-		{
-			name:       "queue visibility config",
-			configFile: queueVisibilityConfig,
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement:     enableDefaultInternalCertManagement,
-				ClientConnection:           defaultClientConnection,
-				Integrations:               defaultIntegrations,
-				QueueVisibility: &configapi.QueueVisibility{
-					UpdateIntervalSeconds: 10,
-					ClusterQueues: &configapi.ClusterQueueVisibility{
-						MaxCount: 0,
-					},
-				},
-				MultiKueue:                   defaultMultiKueue,
-				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
-				WaitForPodsReady:             defaultWaitForPodsReady,
-			},
-			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
@@ -840,7 +816,6 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
-				QueueVisibility:            defaultQueueVisibility,
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{
 						"pod",
@@ -871,6 +846,7 @@ objectRetentionPolicies:
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
+				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
@@ -903,17 +879,16 @@ objectRetentionPolicies:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
-				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To[string](configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "resourceTransform config",
@@ -928,7 +903,6 @@ objectRetentionPolicies:
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				Resources: &configapi.Resources{
@@ -960,7 +934,7 @@ objectRetentionPolicies:
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 		{
 			name:       "invalid config",
@@ -983,7 +957,6 @@ objectRetentionPolicies:
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
-				QueueVisibility:              defaultQueueVisibility,
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
@@ -994,7 +967,7 @@ objectRetentionPolicies:
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
 	}
 
@@ -1096,10 +1069,6 @@ func TestEncode(t *testing.T) {
 				},
 				"integrations": map[string]any{
 					"frameworks": []any{"batch/job"},
-				},
-				"queueVisibility": map[string]any{
-					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),
-					"clusterQueues":         map[string]any{"maxCount": int64(10)},
 				},
 				"multiKueue": map[string]any{
 					"gcInterval":        "1m0s",

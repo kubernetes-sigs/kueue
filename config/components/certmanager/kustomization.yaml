@@ -1,6 +1,7 @@
 resources:
 - certificate.yaml
 - certificate-metrics.yaml
+- certificate-visibility-server.yaml
 
 configurations:
 - kustomizeconfig.yaml

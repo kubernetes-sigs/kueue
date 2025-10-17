@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -44,6 +44,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -358,11 +359,11 @@ func TestDefault(t *testing.T) {
 			namespaceSelector:             defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				ManagedByKueueLabel().
 				KueueFinalizer().
 				RoleHash("a9f06f3a").
@@ -378,15 +379,15 @@ func TestDefault(t *testing.T) {
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Label("test-label", "test-value").
-				Annotation(kueuealpha.PodGroupPodIndexLabelAnnotation, "test-label").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				Annotation(kueuealpha.PodGroupPodIndexLabelAnnotation, "test-label").
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Label("test-label", "test-value").
-				Label(kueuealpha.PodGroupPodIndexLabel, "test-value").
+				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
@@ -535,7 +536,7 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", defaultNamespace.Name).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", defaultNamespace.Name).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
@@ -732,14 +733,14 @@ func TestValidateCreate(t *testing.T) {
 		"valid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 		},
 		"invalid topology request": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
 				ManagedByKueueLabel().
-				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{

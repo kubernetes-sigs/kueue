@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -69,11 +70,14 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
-				reconciler := raycluster.NewReconciler(
+				reconciler, err := raycluster.NewReconciler(
+					ctx,
 					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName),
 					opts...)
-				err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = indexer.Setup(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -82,10 +86,13 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				err = raycluster.SetupRayClusterWebhook(mgr, opts...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				reconciler = workloadrayjob.NewReconciler(
+				reconciler, err = workloadrayjob.NewReconciler(
+					ctx,
 					mgr.GetClient(),
+					mgr.GetFieldIndexer(),
 					mgr.GetEventRecorderFor(constants.JobControllerName),
 					opts...)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = reconciler.SetupWithManager(mgr)
@@ -134,7 +141,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admitting the workload created for the job")
-			admission := testing.MakeAdmission("foo").PodSets(
+			admission := utiltestingapi.MakeAdmission("foo").PodSets(
 				kueue.PodSetAssignment{
 					Name: createdWorkload.Spec.PodSets[0].Name,
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{

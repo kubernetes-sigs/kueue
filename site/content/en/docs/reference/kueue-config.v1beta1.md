@@ -498,6 +498,52 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DeviceClassMapping`     {#DeviceClassMapping}
+    
+
+**Appears in:**
+
+- [Resources](#Resources)
+
+
+<p>DeviceClassMapping holds device class to logical resource mappings
+for Dynamic Resource Allocation support.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>Name is referenced in ClusterQueue.nominalQuota and Workload status.
+Must be a valid fully qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length must not exceed 253 characters.</p>
+</td>
+</tr>
+<tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.
+Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
+followed by a slash and a DNS label, or just a DNS label.
+DNS labels consist of lower-case alphanumeric characters or hyphens,
+and must start and end with an alphanumeric character.
+DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+The total length of each name must not exceed 253 characters.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `FairSharing`     {#FairSharing}
     
 
@@ -576,6 +622,7 @@ Possible options:</p>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
 <li>&quot;kubeflow.org/jaxjob&quot;</li>
+<li>&quot;trainer.kubeflow.org/trainjob&quot;</li>
 <li>&quot;workload.codeflare.dev/appwrapper&quot;</li>
 <li>&quot;pod&quot;</li>
 <li>&quot;deployment&quot; (requires enabling pod integration)</li>
@@ -637,15 +684,16 @@ underlying job are changed.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>Enable controls the use of internal cert management for the webhook
-and metrics endpoints.
+   <p>Enable controls the use of internal cert management for the webhook,
+metrics and visibility endpoints.
 When enabled Kueue is using libraries to generate and
 self-sign the certificates.
 When disabled, you need to provide the certificates for
-the webhooks and metrics through a third party certificate
+the webhooks, metrics and visibility through a third party certificate
 This secret is mounted to the kueue controller manager pod. The mount
-path for webhooks is /tmp/k8s-webhook-server/serving-certs, whereas for
-metrics endpoint the expected path is <code>/etc/kueue/metrics/certs</code>.
+path for webhooks is /tmp/k8s-webhook-server/serving-certs, for
+metrics endpoint the expected path is <code>/etc/kueue/metrics/certs</code> and for
+visibility endpoint the expected path is <code>/visibility</code>.
 The keys and certs are named tls.key and tls.crt.</p>
 </td>
 </tr>
@@ -718,6 +766,43 @@ if the connection with its reserving worker cluster is lost.</p>
 <li>If specified, the workload will be handled by the named dispatcher.</li>
 <li>If not specified, the workload will be handled by the default (&quot;kueue.x-k8s.io/multikueue-dispatcher-all-at-once&quot;) dispatcher.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>externalFrameworks</code><br/>
+<a href="#MultiKueueExternalFramework"><code>[]MultiKueueExternalFramework</code></a>
+</td>
+<td>
+   <p>ExternalFrameworks defines a list of external frameworks that should be supported
+by the generic MultiKueue adapter. Each entry defines how to handle a specific
+GroupVersionKind (GVK) for MultiKueue operations.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueExternalFramework`     {#MultiKueueExternalFramework}
+    
+
+**Appears in:**
+
+- [MultiKueue](#MultiKueue)
+
+
+<p>MultiKueueExternalFramework defines a framework that is not built-in.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the GVK of the resource that are
+managed by external controllers
+the expected format is <code>kind.version.group</code>.</p>
 </td>
 </tr>
 </tbody>
@@ -981,6 +1066,14 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <td>
    <p>Transformations defines how to transform PodSpec resources into Workload resource requests.
 This is intended to be a map with Input as the key (enforced by validation code)</p>
+</td>
+</tr>
+<tr><td><code>deviceClassMappings</code><br/>
+<a href="#DeviceClassMapping"><code>[]DeviceClassMapping</code></a>
+</td>
+<td>
+   <p>DeviceClassMappings defines mappings from device classes to logical resources
+for Dynamic Resource Allocation support.</p>
 </td>
 </tr>
 </tbody>

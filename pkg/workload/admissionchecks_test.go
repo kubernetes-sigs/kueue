@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
@@ -344,7 +344,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			builder := utiltesting.MakeWorkload("foo", "bar").
+			builder := utiltestingapi.MakeWorkload("foo", "bar").
 				Admission(tc.admission).
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).

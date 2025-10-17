@@ -146,13 +146,14 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	return j
 }
 
-// QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
-func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
-	return j.SetAnnotation(constants.QueueAnnotation, queue)
-}
-
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	j.Annotations[key] = content
+	return j
+}
+
+// ResourceVersion sets resource version on job object - helpful when using controller-runtime fake client.
+func (j *JobWrapper) ResourceVersion(resourceVersion string) *JobWrapper {
+	j.ObjectMeta.ResourceVersion = resourceVersion
 	return j
 }
 

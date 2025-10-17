@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -192,13 +192,13 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {
-			if val, ok := pod.pod.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation]; ok {
+			if val, ok := pod.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]; ok {
 				if pod.pod.Labels == nil {
 					pod.pod.Labels = make(map[string]string, 1)
 				}
-				pod.pod.Labels[kueuealpha.PodGroupPodIndexLabel] = pod.pod.Labels[val]
+				pod.pod.Labels[kueue.PodGroupPodIndexLabel] = pod.pod.Labels[val]
 			}
-			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
+			utilpod.Gate(&pod.pod, kueue.TopologySchedulingGate)
 		}
 		if err := pod.addRoleHash(); err != nil {
 			return err

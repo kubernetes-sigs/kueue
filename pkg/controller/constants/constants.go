@@ -26,11 +26,6 @@ const (
 	// if the feature LocalQueueDefaulting is enabled and QueueLabel is not specified.
 	DefaultLocalQueueName kueue.LocalQueueName = "default"
 
-	// QueueAnnotation is the annotation key in the workload that holds the queue name.
-	//
-	// Deprecated: Use QueueLabel as a label key.
-	QueueAnnotation = QueueLabel
-
 	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
 	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
 

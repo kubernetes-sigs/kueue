@@ -39,4 +39,4 @@ window.env = {
 EOF
 
 # Start the server
-exec serve -s build -l 8080 
+exec serve -s build -l tcp://0.0.0.0:8080

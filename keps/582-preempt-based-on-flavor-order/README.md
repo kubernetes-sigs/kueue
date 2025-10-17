@@ -123,13 +123,13 @@ in my cluster. In this case I prefer my high priority jobs not running on spot
 instances. If high priority jobs can preempt jobs in standard instances before trying spot instances,
 stability can be achieved.
 
-My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to `Preempt` in the ClusterQueue's spec.
+My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to `MayStopSearch` in the ClusterQueue's spec.
 
 #### Story 2
 
 As an admin of system managed by Kueue I would like to minimize the risk that admitted workloads get preempted soon after admission. Since every borrowing workload is a preemption (reclaim) candidate, to minimize the risk, I would like to prioritize selecting flavors which are preempting rather than borrowing.
 
-My use case can be supported by setting `Spec.FlavorFungibility.WhenCanPreempt: Preempt`.
+My use case can be supported by setting `Spec.FlavorFungibility.WhenCanPreempt: MayStopSearch`.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -171,33 +171,35 @@ For each type of resource in each podSet, Kueue will traverse all resource group
 
 ```
 const (
-  Borrow FlavorFungibilityPolicy = "Borrow"
-  Preempt  FlavorFungibilityPolicy = "Preempt"
-  TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
+	Borrow        FlavorFungibilityPolicy = "Borrow"
+	Preempt       FlavorFungibilityPolicy = "Preempt"
+	MayStopSearch FlavorFungibilityPolicy = "MayStopSearch"
+	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
 
 type FlavorFungibility struct {
   // whenCanBorrow determines whether a workload should try the next flavor
   // or stop the search. The possible values are:
   //
-  // - `Borrow` (default): stop searching and use the best flavor found so far
-  //   according to the selection strategy
-  // - `TryNextFlavor`: try next flavor even if the current
-  //   flavor has enough resources to borrow.
+	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
+	//   fits or requires borrowing to fit.
+	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
+	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
   //
-  // +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
-  // +kubebuilder:default="Borrow"
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Borrow}
+	// +kubebuilder:default="MayStopSearch"
   WhenCanBorrow FlavorFungibilityPolicy  `json:"whenCanBorrow"`
   // whenCanPreempt determines whether a workload should try the next flavor
   // or stop the search. The possible values are:
   //
-  // - `Preempt`: stop searching and use the best flavor found so far 
-  //   according to the selection strategy
-  // - `TryNextFlavor` (default): try next flavor even if there are enough
-  //   candidates for preemption in the current flavor.
+	// - `MayStopSearch`: stop the search for candidate flavors if workload fits or requires
+	//   preemption to fit.
+	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
+	//   to fit in current flavor.
+	// - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
   //
-  // +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
-  // +kubebuilder:default="TryNextFlavor"
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Preempt}
+	// +kubebuilder:default="TryNextFlavor"
   WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
 }
 
@@ -208,7 +210,7 @@ type ClusterQueueSpec struct {
 }
 ```
 
-If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `Borrow` and set `WhenCanPreempt` to `TryNextFlavor` to maintain consistency with the current behavior.
+If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `MayStopSearch` and set `WhenCanPreempt` to `TryNextFlavor` to maintain consistency with the current behavior.
 
 ### Behavior Changes
 
@@ -220,9 +222,9 @@ We try to schedule a podset in succesive resource flavors in a loop and we decid
 |------ | -------- | ------- |
 | `NoFit` | any | continue |
 | `Preempt`, `NoBorrow` | `WhenCanPreempt = TryNextFlavor` | continue |
-| `Preempt`, `NoBorrow` | `WhenCanPreempt = Preempt` | break |
+| `Preempt`, `NoBorrow` | `WhenCanPreempt = MayStopSearch` | break |
 | `Fit`, `Borrow` | `WhenCanBorrow = TryNextFlavor` | continue |
-| `Fit`, `Borrow` | `WhenCanBorrow = Borrow` | break |
+| `Fit`, `Borrow` | `WhenCanBorrow = MayStopSearch` | break |
 | `Fit`, `NoBorrow`| any| break| 
 
 By `Borrow`/`NoBorrow` we mean whether borrowing is required or not to fit the considered podset in the sumulation result. After we complete the loop, either by trying all the flavors or by breaking out of it, we end up with a list of possible flavors containing all the considered flavors that yielded a result different than `NoFit`. We choose the flavor to assign based on the following default preference order: (`Fit`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `NoBorrow`), (`Preempt`, `Borrow`).
@@ -230,7 +232,7 @@ By `Borrow`/`NoBorrow` we mean whether borrowing is required or not to fit the c
 An alternative order of preference can be set by enabling the feature gate `FlavorFungibilityImplicitPreferenceDefault`.
 The alternative order prioritizes assignments that don't borrow: (`Fit`, `NoBorrow`),(`Preempt`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `Borrow`). It is used in two cases:
 
-1. If `WhenCanPreempt = Preempt` and `WhenCanBorrow = TryNextFlavor`
+1. If `WhenCanPreempt = MayStopSearch` and `WhenCanBorrow = TryNextFlavor`
 2. If `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor`
 
 We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastTriedFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
@@ -385,10 +387,10 @@ Describe what tests will be added to ensure proper quality of the enhancement.
 
 After the implementation PR is merged, add the names of the tests here.
 -->
-Scenarios that `WhenCanBorrow` is set as `Borrow` and `WhenCanPreempt` is set as `tryNextFlavor` are same with current behavior. So the added integration tests will these cover scenarios:
+Scenarios that `WhenCanBorrow` is set as `MayStopSearch` and `WhenCanPreempt` is set as `TryNextFlavor` are same with current behavior. So the added integration tests will these cover scenarios:
 
-- `WhenCanBorrow` is set as `tryNextFlavor`,
-- `WhenCanPreempt` is set as `Preempt`.
+- `WhenCanBorrow` is set as `TryNextFlavor`,
+- `WhenCanPreempt` is set as `MayStopSearch`.
 
 ### Graduation Criteria
 
