@@ -34,6 +34,8 @@ const (
 // +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.conditions[-1:].type`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$')", message="metadata.name must match RFC 1035 DNS label format"
+// +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 63", message="metadata.name must be no more than 63 characters"
 
 // TrainJob represents configuration of a training job.
 type TrainJob struct {
@@ -111,8 +113,9 @@ type TrainJobSpec struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 
 	// Custom overrides for the training runtime.
+	// When multiple overrides apply to the same targetJob, later entries in the slice override earlier field values.
 	// +listType=atomic
-	PodSpecOverrides []PodSpecOverride `json:"podSpecOverrides,omitempty"`
+	PodTemplateOverrides []PodTemplateOverride `json:"podTemplateOverrides,omitempty"`
 
 	// Whether the controller should suspend the running TrainJob.
 	// Defaults to false.
@@ -230,17 +233,36 @@ type Trainer struct {
 	NumProcPerNode *intstr.IntOrString `json:"numProcPerNode,omitempty"`
 }
 
-// PodSpecOverride represents the custom overrides that will be applied for the TrainJob's resources.
-type PodSpecOverride struct {
+// PodTemplateOverride represents the custom overrides that will be applied for the TrainJob's resources.
+type PodTemplateOverride struct {
 	// TrainJobs is the training job replicas in the training runtime template to apply the overrides.
 	// +listType=atomic
-	TargetJobs []PodSpecOverrideTargetJob `json:"targetJobs"`
+	TargetJobs []PodTemplateOverrideTargetJob `json:"targetJobs"`
 
+	// Override for the Pod template metadata.
+	// These values will be merged with the TrainingRuntime's Pod template metadata.
+	Metadata *metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// Override for the Pod template spec.
+	// These values will be merged with the TrainingRuntime's Pod template spec.
+	Spec *PodTemplateSpecOverride `json:"spec,omitempty"`
+}
+
+type PodTemplateOverrideTargetJob struct {
+	// Name is the target training job name for which the PodSpec is overridden.
+	Name string `json:"name"`
+}
+
+// PodTemplateSpecOverride represents the spec overrides for Pod template.
+type PodTemplateSpecOverride struct {
 	// Override for the service account.
 	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
 
 	// Override for the node selector to place Pod on the specific node.
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Override for the Pod's affinity.
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 
 	// Override for the Pod's tolerations.
 	// +listType=atomic
@@ -266,11 +288,11 @@ type PodSpecOverride struct {
 	// +listType=map
 	// +listMapKey=name
 	SchedulingGates []corev1.PodSchedulingGate `json:"schedulingGates,omitempty"`
-}
 
-type PodSpecOverrideTargetJob struct {
-	// Name is the target training job name for which the PodSpec is overridden.
-	Name string `json:"name"`
+	// ImagePullSecrets overrides the image pull secrets for the Pods in the target job templates.
+	// +listType=map
+	// +listMapKey=name
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 // ContainerOverride represents parameters that can be overridden using PodSpecOverrides.

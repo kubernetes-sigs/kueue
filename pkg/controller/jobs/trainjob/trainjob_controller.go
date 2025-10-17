@@ -229,13 +229,17 @@ func getRuntimeSpec(ctx context.Context, trainJob *kftrainer.TrainJob) (*kftrain
 	}
 }
 
-func (t *TrainJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+func podSets(ctx context.Context, t *TrainJob) ([]kueue.PodSet, error) {
 	jobset, err := getChildJobSet(ctx, t)
 	if err != nil {
 		return nil, err
 	}
 
-	podsets, err := (*workloadjobset.JobSet)(jobset).PodSets(ctx)
+	return (*workloadjobset.JobSet)(jobset).PodSets(ctx)
+}
+
+func (t *TrainJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
+	podsets, err := podSets(ctx, t)
 	if err != nil {
 		return nil, err
 	}
@@ -261,26 +265,28 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.
 		return podset.BadPodSetsInfoLenError(len(jobset.Spec.ReplicatedJobs), len(podSetsInfo))
 	}
 
-	if t.Spec.PodSpecOverrides == nil {
-		t.Spec.PodSpecOverrides = []kftrainer.PodSpecOverride{}
+	if t.Spec.PodTemplateOverrides == nil {
+		t.Spec.PodTemplateOverrides = []kftrainer.PodTemplateOverride{}
 	}
 	if t.Annotations == nil {
 		t.Annotations = map[string]string{}
 	}
-	t.Annotations[firstOverrideIdx] = strconv.Itoa(len(t.Spec.PodSpecOverrides))
+	t.Annotations[firstOverrideIdx] = strconv.Itoa(len(t.Spec.PodTemplateOverrides))
 	for _, info := range podSetsInfo {
 		// The trainjob controller merges each podSpecOverride sequentially, so any existing user provided override will be processed first
-		t.Spec.PodSpecOverrides = append(t.Spec.PodSpecOverrides, kftrainer.PodSpecOverride{
-			TargetJobs: []kftrainer.PodSpecOverrideTargetJob{
+		t.Spec.PodTemplateOverrides = append(t.Spec.PodTemplateOverrides, kftrainer.PodTemplateOverride{
+			TargetJobs: []kftrainer.PodTemplateOverrideTargetJob{
 				{Name: string(info.Name)},
 			},
-			// TODO: Set the labels/annotations when supported. See https://github.com/kubeflow/trainer/pull/2785
-			//
-			// NOTE: Due to the issue above, in TAS mode, missing PodSet-specific labels and annotations
-			//       prevent removal of the scheduling gate, leaving the Pod in a Pending state.
-			NodeSelector:    info.NodeSelector,
-			Tolerations:     info.Tolerations,
-			SchedulingGates: info.SchedulingGates,
+			Metadata: &metav1.ObjectMeta{
+				Annotations: info.Annotations,
+				Labels:      info.Labels,
+			},
+			Spec: &kftrainer.PodTemplateSpecOverride{
+				NodeSelector:    info.NodeSelector,
+				Tolerations:     info.Tolerations,
+				SchedulingGates: info.SchedulingGates,
+			},
 		})
 	}
 	// Update the podSpecOverrides while the job is suspended, since is a requirement from the trainjob admission webhook
@@ -327,7 +333,7 @@ func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 	if err != nil {
 		return false
 	}
-	t.Spec.PodSpecOverrides = t.Spec.PodSpecOverrides[:idxInt]
+	t.Spec.PodTemplateOverrides = t.Spec.PodTemplateOverrides[:idxInt]
 	return true
 }
 

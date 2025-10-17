@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -84,7 +86,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	}
 }
 
-func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		managerSetup(opts...)(ctx, mgr)
 
@@ -99,6 +101,14 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		if setupTASControllers {
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+
+			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 		err = sched.Start(ctx)

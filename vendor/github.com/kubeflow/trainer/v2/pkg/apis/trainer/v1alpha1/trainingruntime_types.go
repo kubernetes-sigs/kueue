@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	volcanov1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
 )
 
 const (
@@ -134,7 +135,8 @@ type PodGroupPolicySource struct {
 	// Coscheduling plugin from the Kubernetes scheduler-plugins for gang-scheduling.
 	Coscheduling *CoschedulingPodGroupPolicySource `json:"coscheduling,omitempty"`
 
-	// TODO (andreyvelich): Add support for Volcano gang-scheduler.
+	// Volcano plugin for gang-scheduling.
+	Volcano *VolcanoPodGroupPolicySource `json:"volcano,omitempty"`
 }
 
 // CoschedulingPodGroupPolicySource represents configuration for coscheduling plugin.
@@ -145,6 +147,13 @@ type CoschedulingPodGroupPolicySource struct {
 	// Defaults to 60 seconds.
 	// +kubebuilder:default=60
 	ScheduleTimeoutSeconds *int32 `json:"scheduleTimeoutSeconds,omitempty"`
+}
+
+// VolcanoPodGroupPolicySource represents configuration for the Volcano gang-scheduler.
+type VolcanoPodGroupPolicySource struct {
+	// NetworkTopology defines the NetworkTopology config, this field works in conjunction with network topology feature and hyperNode CRD.
+	// +optional
+	NetworkTopology *volcanov1beta1.NetworkTopologySpec `json:"networkTopology,omitempty"`
 }
 
 // MLPolicy represents configuration for the model trining with ML-specific parameters.

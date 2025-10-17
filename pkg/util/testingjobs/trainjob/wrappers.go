@@ -53,9 +53,9 @@ func (t *TrainJobWrapper) Clone() *TrainJobWrapper {
 	return &TrainJobWrapper{TrainJob: *t.DeepCopy()}
 }
 
-// PodSpecOverrides sets the custom pod spec overrides to be set to the TrainJob jobset jobs
-func (t *TrainJobWrapper) PodSpecOverrides(overrides []kftrainerapi.PodSpecOverride) *TrainJobWrapper {
-	t.Spec.PodSpecOverrides = overrides
+// PodTemplateOverrides sets the custom pod template overrides to be set to the TrainJob jobset jobs
+func (t *TrainJobWrapper) PodTemplateOverrides(overrides []kftrainerapi.PodTemplateOverride) *TrainJobWrapper {
+	t.Spec.PodTemplateOverrides = overrides
 	return t
 }
 
