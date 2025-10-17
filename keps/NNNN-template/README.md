@@ -31,7 +31,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
+    - [Integration Tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -185,7 +185,7 @@ extending the production code to implement this enhancement.
 
 - `<package>`: `<date>` - `<test coverage>`
 
-#### Integration tests
+#### Integration Tests
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
