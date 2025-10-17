@@ -229,11 +229,12 @@ We try to schedule a podset in succesive resource flavors in a loop and we decid
 
 By `Borrow`/`NoBorrow` we mean whether borrowing is required or not to fit the considered podset in the sumulation result. After we complete the loop, either by trying all the flavors or by breaking out of it, we end up with a list of possible flavors containing all the considered flavors that yielded a result different than `NoFit`. We choose the flavor to assign based on the following default preference order: (`Fit`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `NoBorrow`), (`Preempt`, `Borrow`).
 
-An alternative order of preference can be set by enabling the feature gate `FlavorFungibilityImplicitPreferenceDefault`.
-The alternative order prioritizes assignments that don't borrow: (`Fit`, `NoBorrow`),(`Preempt`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `Borrow`). It is used in two cases:
+An alternative order of preference can be selected via the API by setting `spec.flavorFungibility` on the `ClusterQueue`.
+When `.spec.flavorFungibility.whenCanBorrow` is `TryNextFlavor`, Kueue prioritizes assignments that don't borrow:
+(`Fit`, `NoBorrow`), (`Preempt`, `NoBorrow`), (`Fit`, `Borrow`), (`Preempt`, `Borrow`). This applies, for example, when:
 
-1. If `WhenCanPreempt = MayStopSearch` and `WhenCanBorrow = TryNextFlavor`
-2. If `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor`
+1. `WhenCanPreempt = MayStopSearch` and `WhenCanBorrow = TryNextFlavor`
+2. `WhenCanPreempt = TryNextFlavor` and `WhenCanBorrow = TryNextFlavor`
 
 We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastTriedFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
 
@@ -410,10 +411,8 @@ milestones with these graduation criteria:
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
 
-The feature gate `FlavorFungibilityImplicitPreferenceDefault` is a temporary measure
-until a new shape of the API, that allows to explicitely define the preference
-is implemented. The feature gate will be removed once the API is updated
-(planned for kueue v0.14).
+The feature gate `FlavorFungibilityImplicitPreferenceDefault` was a temporary measure.
+Preference is now configured per ClusterQueue via `spec.flavorFungibility`; the gate has been removed.
 
 ## Implementation History
 
