@@ -34,6 +34,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/dra"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func Test_GetResourceRequests(t *testing.T) {
@@ -42,37 +43,13 @@ func Test_GetResourceRequests(t *testing.T) {
 	_ = kueue.AddToScheme(scheme)
 	_ = resourcev1.AddToScheme(scheme)
 
-	tmpl := &resourcev1.ResourceClaimTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-1", Namespace: "ns1"},
-		Spec: resourcev1.ResourceClaimTemplateSpec{
-			Spec: resourcev1.ResourceClaimSpec{
-				Devices: resourcev1.DeviceClaim{
-					Requests: []resourcev1.DeviceRequest{{
-						Exactly: &resourcev1.ExactDeviceRequest{
-							AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-							Count:           2,
-							DeviceClassName: "test-deviceclass-1",
-						},
-					}},
-				},
-			},
-		},
-	}
+	tmpl := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-1", 2).
+		Obj()
 
-	claim := &resourcev1.ResourceClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "claim-2", Namespace: "ns1"},
-		Spec: resourcev1.ResourceClaimSpec{
-			Devices: resourcev1.DeviceClaim{
-				Requests: []resourcev1.DeviceRequest{{
-					Exactly: &resourcev1.ExactDeviceRequest{
-						AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-						Count:           1,
-						DeviceClassName: "test-deviceclass-2",
-					},
-				}},
-			},
-		},
-	}
+	claim := utiltesting.MakeResourceClaim("claim-2", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-2", 1).
+		Obj()
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
@@ -147,10 +124,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			extraObjects: []runtime.Object{
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-2", Namespace: "ns1"},
-					Spec:       resourcev1.ResourceClaimTemplateSpec{Spec: resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{Exactly: &resourcev1.ExactDeviceRequest{AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 1, DeviceClassName: "test-deviceclass-2"}}}}}},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-2", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-2", 1).
+					Obj(),
 			},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				m := map[corev1.ResourceName]corev1.ResourceName{"test-deviceclass-1": "res-1", "test-deviceclass-2": "res-2"}
@@ -193,10 +169,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Single template requesting two devices",
 			extraObjects: []runtime.Object{
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-3", Namespace: "ns1"},
-					Spec:       resourcev1.ResourceClaimTemplateSpec{Spec: resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{Exactly: &resourcev1.ExactDeviceRequest{AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 2, DeviceClassName: "test-deviceclass-1"}}}}}},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-3", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{

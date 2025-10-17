@@ -19,9 +19,11 @@ package testing
 import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -330,4 +332,287 @@ func (e *EventRecordWrapper) Message(message string) *EventRecordWrapper {
 
 func (e *EventRecordWrapper) Obj() EventRecord {
 	return e.EventRecord
+}
+
+// ResourceClaimSpecBuilder provides a common interface for building ResourceClaimSpec
+type ResourceClaimSpecBuilder struct {
+	spec resourcev1.ResourceClaimSpec
+}
+
+// NewResourceClaimSpecBuilder creates a new ResourceClaimSpecBuilder with default values
+func NewResourceClaimSpecBuilder() *ResourceClaimSpecBuilder {
+	return &ResourceClaimSpecBuilder{
+		spec: resourcev1.ResourceClaimSpec{
+			Devices: resourcev1.DeviceClaim{
+				Requests: []resourcev1.DeviceRequest{},
+			},
+		},
+	}
+}
+
+// DeviceRequest adds a basic device request with the specified name and device class
+func (b *ResourceClaimSpecBuilder) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimSpecBuilder {
+	req := resourcev1.DeviceRequest{
+		Name: requestName,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClassName,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
+		},
+	}
+	b.spec.Devices.Requests = append(b.spec.Devices.Requests, req)
+	return b
+}
+
+// AllocationModeAll sets the AllocationMode to All for the last device request
+func (b *ResourceClaimSpecBuilder) AllocationModeAll() *ResourceClaimSpecBuilder {
+	if len(b.spec.Devices.Requests) > 0 {
+		lastIdx := len(b.spec.Devices.Requests) - 1
+		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
+			b.spec.Devices.Requests[lastIdx].Exactly.AllocationMode = resourcev1.DeviceAllocationModeAll
+			b.spec.Devices.Requests[lastIdx].Exactly.Count = 0
+		}
+	}
+	return b
+}
+
+// WithCELSelectors adds CEL selectors to the last device request
+func (b *ResourceClaimSpecBuilder) WithCELSelectors(expression string) *ResourceClaimSpecBuilder {
+	if len(b.spec.Devices.Requests) > 0 {
+		lastIdx := len(b.spec.Devices.Requests) - 1
+		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
+			b.spec.Devices.Requests[lastIdx].Exactly.Selectors = []resourcev1.DeviceSelector{{
+				CEL: &resourcev1.CELDeviceSelector{
+					Expression: expression,
+				},
+			}}
+		}
+	}
+	return b
+}
+
+// WithAdminAccess sets AdminAccess on the last device request
+func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimSpecBuilder {
+	if len(b.spec.Devices.Requests) > 0 {
+		lastIdx := len(b.spec.Devices.Requests) - 1
+		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
+			b.spec.Devices.Requests[lastIdx].Exactly.AdminAccess = ptr.To(enabled)
+		}
+	}
+	return b
+}
+
+// WithDeviceConstraints adds device constraints to the spec
+func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimSpecBuilder {
+	constraint := resourcev1.DeviceConstraint{
+		Requests:       requestNames,
+		MatchAttribute: ptr.To(resourcev1.FullyQualifiedName(matchAttribute)),
+	}
+	b.spec.Devices.Constraints = append(b.spec.Devices.Constraints, constraint)
+	return b
+}
+
+// WithDeviceConfig adds device configuration to the spec
+func (b *ResourceClaimSpecBuilder) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimSpecBuilder {
+	config := resourcev1.DeviceClaimConfiguration{
+		Requests: []string{requestName},
+		DeviceConfiguration: resourcev1.DeviceConfiguration{
+			Opaque: &resourcev1.OpaqueDeviceConfiguration{
+				Driver:     driver,
+				Parameters: runtime.RawExtension{Raw: parameters},
+			},
+		},
+	}
+	b.spec.Devices.Config = append(b.spec.Devices.Config, config)
+	return b
+}
+
+// FirstAvailableRequest adds a FirstAvailable device request
+func (b *ResourceClaimSpecBuilder) FirstAvailableRequest(requestName, deviceClassName string) *ResourceClaimSpecBuilder {
+	req := resourcev1.DeviceRequest{
+		Name: requestName,
+		FirstAvailable: []resourcev1.DeviceSubRequest{{
+			Name:            "sub1",
+			DeviceClassName: deviceClassName,
+		}},
+	}
+	b.spec.Devices.Requests = append(b.spec.Devices.Requests, req)
+	return b
+}
+
+// Build returns the built ResourceClaimSpec
+func (b *ResourceClaimSpecBuilder) Build() resourcev1.ResourceClaimSpec {
+	return b.spec
+}
+
+// ResourceClaimTemplateWrapper wraps a resourcev1.ResourceClaimTemplate
+type ResourceClaimTemplateWrapper struct {
+	resourcev1.ResourceClaimTemplate
+}
+
+// MakeResourceClaimTemplate creates a ResourceClaimTemplateWrapper with basic metadata
+func MakeResourceClaimTemplate(name, namespace string) *ResourceClaimTemplateWrapper {
+	return &ResourceClaimTemplateWrapper{
+		resourcev1.ResourceClaimTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: resourcev1.ResourceClaimTemplateSpec{
+				Spec: NewResourceClaimSpecBuilder().Build(),
+			},
+		},
+	}
+}
+
+// DeviceRequest adds a basic device request with the specified name and device class
+func (r *ResourceClaimTemplateWrapper) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.DeviceRequest(requestName, deviceClassName, count)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// AllocationModeAll sets the AllocationMode to All for the last device request
+func (r *ResourceClaimTemplateWrapper) AllocationModeAll() *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.AllocationModeAll()
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// WithCELSelectors adds CEL selectors to the last device request
+func (r *ResourceClaimTemplateWrapper) WithCELSelectors(expression string) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithCELSelectors(expression)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// WithAdminAccess sets AdminAccess on the last device request
+func (r *ResourceClaimTemplateWrapper) WithAdminAccess(enabled bool) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithAdminAccess(enabled)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// WithDeviceConstraints adds device constraints to the template
+func (r *ResourceClaimTemplateWrapper) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithDeviceConstraints(requestNames, matchAttribute)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// WithDeviceConfig adds device configuration to the template
+func (r *ResourceClaimTemplateWrapper) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithDeviceConfig(requestName, driver, parameters)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// FirstAvailableRequest adds a FirstAvailable device request
+func (r *ResourceClaimTemplateWrapper) FirstAvailableRequest(requestName, deviceClassName string) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.FirstAvailableRequest(requestName, deviceClassName)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// Obj returns the underlying ResourceClaimTemplate
+func (r *ResourceClaimTemplateWrapper) Obj() *resourcev1.ResourceClaimTemplate {
+	return &r.ResourceClaimTemplate
+}
+
+// ResourceClaimWrapper wraps a resourcev1.ResourceClaim
+type ResourceClaimWrapper struct{ resourcev1.ResourceClaim }
+
+// MakeResourceClaim creates a ResourceClaimWrapper with basic metadata
+func MakeResourceClaim(name, namespace string) *ResourceClaimWrapper {
+	return &ResourceClaimWrapper{
+		resourcev1.ResourceClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: NewResourceClaimSpecBuilder().Build(),
+		},
+	}
+}
+
+// DeviceRequest adds a basic device request with the specified name and device class
+func (r *ResourceClaimWrapper) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.DeviceRequest(requestName, deviceClassName, count)
+	r.Spec = builder.Build()
+	return r
+}
+
+// AllocationModeAll sets the AllocationMode to All for the last device request
+func (r *ResourceClaimWrapper) AllocationModeAll() *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.AllocationModeAll()
+	r.Spec = builder.Build()
+	return r
+}
+
+// WithCELSelectors adds CEL selectors to the last device request
+func (r *ResourceClaimWrapper) WithCELSelectors(expression string) *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.WithCELSelectors(expression)
+	r.Spec = builder.Build()
+	return r
+}
+
+// WithAdminAccess sets AdminAccess on the last device request
+func (r *ResourceClaimWrapper) WithAdminAccess(enabled bool) *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.WithAdminAccess(enabled)
+	r.Spec = builder.Build()
+	return r
+}
+
+// WithDeviceConstraints adds device constraints to the claim
+func (r *ResourceClaimWrapper) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.WithDeviceConstraints(requestNames, matchAttribute)
+	r.Spec = builder.Build()
+	return r
+}
+
+// WithDeviceConfig adds device configuration to the claim
+func (r *ResourceClaimWrapper) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.WithDeviceConfig(requestName, driver, parameters)
+	r.Spec = builder.Build()
+	return r
+}
+
+// FirstAvailableRequest adds a FirstAvailable device request
+func (r *ResourceClaimWrapper) FirstAvailableRequest(requestName, deviceClassName string) *ResourceClaimWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec
+	builder.FirstAvailableRequest(requestName, deviceClassName)
+	r.Spec = builder.Build()
+	return r
+}
+
+// Obj returns the underlying ResourceClaim
+func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
+	return &r.ResourceClaim
 }
