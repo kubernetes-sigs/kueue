@@ -404,6 +404,7 @@ type Integrations struct {
 	//  - "kubeflow.org/jaxjob"
 	//  - "trainer.kubeflow.org/trainjob"
 	//  - "workload.codeflare.dev/appwrapper"
+	// - "sparkoperator.k8s.io/sparkapplication"
 	//  - "pod"
 	//  - "deployment" (requires enabling pod integration)
 	//  - "statefulset" (requires enabling pod integration)
