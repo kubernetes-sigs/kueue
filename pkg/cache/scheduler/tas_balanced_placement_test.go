@@ -70,7 +70,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got := selectOptimalDomainSetToFit(tc.domains, tc.workerCount, tc.leaderCount, 1)
+			got := selectOptimalDomainSetToFit(tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
 				gotIDs[i] = string(d.id)

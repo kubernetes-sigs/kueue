@@ -770,7 +770,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			// the balanced placement algorithm selects domains on three levels: levelIdx -1, levelIdx and levelIdx + 1
 			// unless levelIdx == sliceLevelIdx in which case it selects only on two levels: levelIdx -1 and levelIdx
 			if levelIdx < sliceLevelIdx {
-				currFitDomain = selectOptimalDomainSetToFit(bestSingleDomain.children, sliceCount, leaderCount, sliceSize)
+				currFitDomain = selectOptimalDomainSetToFit(bestSingleDomain.children, sliceCount, leaderCount, sliceSize, true)
 				fitLevelIdx = levelIdx + 1
 			} else {
 				fitLevelIdx = levelIdx

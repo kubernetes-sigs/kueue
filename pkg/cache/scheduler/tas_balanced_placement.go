@@ -18,18 +18,17 @@ package scheduler
 
 import (
 	"maps"
+	"math"
 	"slices"
 )
 
 func simulateGreedy(domains []*domain, sliceCount int32, leaderCount int32) (bool, int32, *domain, *domain) {
 	var selectedDomainsCount int32
-	var sorted []*domain
+	var remainingSorted, sorted []*domain
+	var lastDomain, lastDomainWithLeader *domain
 	remainingSliceCount := sliceCount
 	remainingLeaderCount := leaderCount
-	var lastDomain *domain
-	var lastDomainWithLeader *domain
 	idx := 0
-	var remainingSorted []*domain
 	if leaderCount > 0 {
 		sorted = sortedDomainsWithLeader(domains, false)
 		for ; remainingLeaderCount > 0 && idx < len(sorted) && sorted[idx].leaderState > 0; idx++ {
@@ -58,12 +57,11 @@ func simulateGreedy(domains []*domain, sliceCount int32, leaderCount int32) (boo
 	return true, selectedDomainsCount, lastDomainWithLeader, lastDomain
 }
 
-// the balance threshold value is maximum possible minimum number of slices placed on a domain in a balanced placement solution
-// to find the value, we greedily pick the domains (starting from the largest one) to accommodate the request and simulate placing
+// The balance threshold value is maximum possible minimum number of slices placed on a domain in a balanced placement solution.
+// To find this value, we greedily pick the domains (starting from the largest one) to accommodate the request and simulate placing
 // the requested pods evenly on the selected domains.
 func balanceThresholdValue(startingDomain *domain, sliceCount int32, leaderCount int32, balanceOnChildren bool) (int32, bool) {
-	var lastDomain *domain
-	var lastDomainWithLeader *domain
+	var lastDomain, lastDomainWithLeader *domain
 	var domainsToBalance []*domain
 	if sliceCount == 0 && leaderCount == 0 {
 		return 0, true
@@ -92,11 +90,16 @@ func balanceThresholdValue(startingDomain *domain, sliceCount int32, leaderCount
 	return threshold, true
 }
 
-func selectOptimalDomainSetToFit(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32) []*domain {
+func selectOptimalDomainSetToFit(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool) []*domain {
 	fit, optimalNumberOfDomains, _, _ := simulateGreedy(domains, sliceCount, leaderCount)
 	if !fit {
 		return nil
 	}
+
+	if priorizeByEntropy {
+		sortDomainsByCapacityAndEntropy(domains)
+	}
+
 	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
 	// 'j' leaders and 'k' pods left to fit
 	domainPlacements := make([]map[int32]map[int32][]*domain, optimalNumberOfDomains+1)
@@ -165,7 +168,7 @@ func selectOptimalDomainSetToFit(domains []*domain, sliceCount int32, leaderCoun
 }
 
 func placeSlicesOnDomainsBalanced(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32) ([]*domain, string) {
-	resultDomains := selectOptimalDomainSetToFit(domains, sliceCount, leaderCount, sliceSize)
+	resultDomains := selectOptimalDomainSetToFit(domains, sliceCount, leaderCount, sliceSize, false)
 	if resultDomains == nil {
 		return nil, "TAS Balanced Placement Error: Cannot find optimal domain set to fit"
 	}
@@ -199,4 +202,65 @@ func placeSlicesOnDomainsBalanced(domains []*domain, sliceCount int32, leaderCou
 		return nil, "TAS Balanced Placement Error: Not all slices or leaders could be placed"
 	}
 	return resultDomains, ""
+}
+
+func calculateEntropy(blockSizes []int32) float64 {
+	if len(blockSizes) == 0 {
+		return 0.0
+	}
+
+	var total int32
+	for _, size := range blockSizes {
+		total += size
+	}
+
+	if total == 0 {
+		return 0.0
+	}
+
+	var entropy float64
+	totalF := float64(total)
+	for _, size := range blockSizes {
+		if size > 0 {
+			p_i := float64(size) / totalF
+			entropy += -p_i * math.Log2(p_i)
+		}
+	}
+	return entropy
+}
+
+func sortDomainsByCapacityAndEntropy(domains []*domain) {
+	// Create a temporary struct to hold domains and their calculated entropy
+	// to avoid re-calculation during sort.
+	type domainWithEntropy struct {
+		d       *domain
+		entropy float64
+	}
+
+	domainsWithEntropy := make([]domainWithEntropy, 0, len(domains))
+	for _, d := range domains {
+		childrenCapacities := make([]int32, len(d.children))
+		for i, child := range d.children {
+			childrenCapacities[i] = child.sliceState
+		}
+		domainsWithEntropy = append(domainsWithEntropy, domainWithEntropy{d: d, entropy: calculateEntropy(childrenCapacities)})
+	}
+
+	// Sort by capacity (desc), then by entropy (desc).
+	slices.SortFunc(domainsWithEntropy, func(a, b domainWithEntropy) int {
+		if r := b.d.sliceState - a.d.sliceState; r != 0 {
+			return int(r)
+		}
+		if b.entropy > a.entropy {
+			return 1
+		}
+		if b.entropy < a.entropy {
+			return -1
+		}
+		return 0
+	})
+
+	for i := range domainsWithEntropy {
+		domains[i] = domainsWithEntropy[i].d
+	}
 }
