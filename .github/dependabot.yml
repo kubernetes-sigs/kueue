@@ -83,22 +83,7 @@ updates:
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-  # Maintain npm dependencies for KueueViz frontend
-  - package-ecosystem: "npm"
-    directory: "/cmd/kueueviz/frontend"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "ok-to-test"
-      - "release-note-none"
-    groups:
-      mui-packages:
-        patterns:
-          - "@mui/*"
-      all:
-        update-types:
-          - "minor"
-          - "patch"
+  # Frontend npm dependencies managed by Renovate (see renovate.json)
 
   # Maintain npm dependencies for KueueViz frontend cypress e2e tests
   - package-ecosystem: "npm"
