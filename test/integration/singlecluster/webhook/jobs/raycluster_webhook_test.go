@@ -26,7 +26,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -101,7 +100,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				jobframework.EnableIntegration(workloadrayjob.FrameworkName)
 
-				failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+				failedWebhook, err := webhooks.Setup(mgr)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil
