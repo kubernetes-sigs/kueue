@@ -62,7 +62,8 @@ linters:
     generated: strict
     rules:
     ## KAL should only run on API folders.
-    - path-except: "apis/kueue/*"
+    ## With v1beta2 we will fix linter issues on v1beta2 API from now on.
+    - path-except: "apis/kueue/v1beta2"
       linters:
         - kubeapilinter
 

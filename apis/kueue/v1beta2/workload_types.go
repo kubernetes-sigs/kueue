@@ -92,15 +92,19 @@ type PodSetTopologyRequest struct {
 	// required indicates the topology level required by the PodSet, as
 	// indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
 	// annotation.
+	// This is limited to 63 characters.
 	//
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	Required *string `json:"required,omitempty"`
 
 	// preferred indicates the topology level preferred by the PodSet, as
 	// indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
 	// annotation.
+	// This is limited to 63 characters.
 	//
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	Preferred *string `json:"preferred,omitempty"`
 
 	// unconstrained indicates that Kueue has the freedom to schedule the PodSet within
@@ -116,10 +120,14 @@ type PodSetTopologyRequest struct {
 	// - kubernetes job this is: kubernetes.io/job-completion-index
 	// - JobSet: kubernetes.io/job-completion-index (inherited from Job)
 	// - Kubeflow: training.kubeflow.org/replica-index
+	// 	// This is limited to 256 characters.
+	// +kubebuilder:validation:MaxLength=256
 	PodIndexLabel *string `json:"podIndexLabel,omitempty"`
 
 	// subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
 	// within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+	// 	This is limited to 256 characters.
+	// +kubebuilder:validation:MaxLength=256
 	SubGroupIndexLabel *string `json:"subGroupIndexLabel,omitempty"`
 
 	// subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
@@ -130,12 +138,15 @@ type PodSetTopologyRequest struct {
 	// PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
 	//
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	PodSetGroupName *string `json:"podSetGroupName,omitempty"`
 
 	// podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
 	// indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
 	//
+	// This is limited to 63
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	PodSetSliceRequiredTopology *string `json:"podSetSliceRequiredTopology,omitempty"`
 
 	// podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
@@ -251,6 +262,8 @@ type PodSetAssignment struct {
 
 // DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
 // +enum
+// +kubebuilder:validation:enum=Pending;Ready
+// +kubebuilder:validation:MaxLength=7
 type DelayedTopologyRequestState string
 
 const (
@@ -269,13 +282,15 @@ type TopologyAssignment struct {
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:MaxLength=256
 	Levels []string `json:"levels"`
 
 	// domains is a list of topology assignments split by topology domains at
 	// the lowest level of the topology.
 	//
 	// +required
+	// +kubebuilder:validation:MaxItems=64
 	Domains []TopologyDomainAssignment `json:"domains"`
 }
 
@@ -287,7 +302,8 @@ type TopologyDomainAssignment struct {
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:MaxLength=256
 	Values []string `json:"values"`
 
 	// count indicates the number of Pods to be scheduled in the topology
@@ -357,12 +373,14 @@ type WorkloadStatus struct {
 	// - Finished: the associated workload finished running (failed or succeeded).
 	// - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
 	// succeeded.
+	// conditions are limited to 16 items.
 	//
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// admission holds the parameters of the admission of the workload by a
@@ -423,6 +441,7 @@ type WorkloadStatus struct {
 	//
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:items:MaxLength=256
 	// +optional
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 
@@ -434,6 +453,7 @@ type WorkloadStatus struct {
 	//
 	// This field is reset after the Workload is evicted.
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	ClusterName *string `json:"clusterName,omitempty"`
 
 	// unhealthyNodes holds the failed nodes running at least one pod of this workload
@@ -442,6 +462,7 @@ type WorkloadStatus struct {
 	// Requires enabling the TASFailedNodeReplacement feature gate.
 	//
 	// +optional
+	// +kubebuilder:validation:MaxItems=2048
 	UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
 }
 
@@ -455,6 +476,7 @@ type SchedulingStats struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=reason
 	// +patchMergeKey=underlyingCause
+	// +kubebuilder:validation:MaxItems=256
 	Evictions []WorkloadSchedulingStatsEviction `json:"evictions,omitempty"`
 }
 
@@ -490,6 +512,7 @@ type UnhealthyNode struct {
 	//
 	// +required
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=256
 	Name string `json:"name"`
 }
 

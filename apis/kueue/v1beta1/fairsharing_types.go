@@ -82,8 +82,6 @@ type AdmissionScope struct {
 	AdmissionMode AdmissionMode `json:"admissionMode"`
 }
 
-// +kubebuilder:validation:Enum=UsageBasedAdmissionFairSharing;NoAdmissionFairSharing
-// +kubebuilder:validation:MaxLength=36
 type AdmissionMode string
 
 const (

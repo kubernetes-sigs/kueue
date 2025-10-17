@@ -50,8 +50,6 @@ type AdmissionCheckSpec struct {
 	// not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:MinLength=1
 	ControllerName string `json:"controllerName"`
 
 	// retryDelayMinutes specifies how long to keep the workload suspended after
@@ -87,13 +85,11 @@ type AdmissionCheckParametersReference struct {
 type AdmissionCheckStatus struct {
 	// conditions hold the latest available observations of the AdmissionCheck
 	// current state.
-	// This is limited to at most 64 separate conditions.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=64
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 

@@ -49,7 +49,6 @@ type KubeConfig struct {
 	//
 	// If LocationType is Secret then Location is the name of the secret inside the namespace in
 	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
-	// +kubebuilder:validation:MaxLength=256
 	Location string `json:"location"`
 
 	// locationType of the KubeConfig.
@@ -72,7 +71,6 @@ type MultiKueueClusterStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=64
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
@@ -114,7 +112,6 @@ type MultiKueueConfigSpec struct {
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=10
-	// +kubebuilder:validation:items:MaxLength=256
 	Clusters []string `json:"clusters"`
 }
 

@@ -78,6 +78,7 @@ type AdmissionScope struct {
 	// - UsageBasedAdmissionFairSharing
 	// - NoAdmissionFairSharing
 	//
+	// +kubebuilder:validation:Enum=UsageBasedAdmissionFairSharing;NoAdmissionFairSharing
 	// +required
 	AdmissionMode AdmissionMode `json:"admissionMode"`
 }

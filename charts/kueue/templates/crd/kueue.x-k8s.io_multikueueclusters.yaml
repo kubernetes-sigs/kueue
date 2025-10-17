@@ -73,7 +73,6 @@ spec:
 
                         If LocationType is Secret then Location is the name of the secret inside the namespace in
                         which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
-                      maxLength: 256
                       type: string
                     locationType:
                       default: Secret
@@ -149,7 +148,6 @@ spec:
                       - status
                       - type
                     type: object
-                  maxItems: 64
                   type: array
                   x-kubernetes-list-map-keys:
                     - type
@@ -203,6 +201,7 @@ spec:
 
                         If LocationType is Secret then Location is the name of the secret inside the namespace in
                         which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
+                      maxLength: 256
                       type: string
                     locationType:
                       default: Secret
@@ -225,6 +224,7 @@ spec:
                   description: |-
                     conditions hold the latest available observations of the MultiKueueCluster
                     current state.
+                    conditions are limited to 16 elements.
                   items:
                     description: Condition contains details for one aspect of the current state of this API Resource.
                     properties:
@@ -278,6 +278,7 @@ spec:
                       - status
                       - type
                     type: object
+                  maxItems: 16
                   type: array
                   x-kubernetes-list-map-keys:
                     - type

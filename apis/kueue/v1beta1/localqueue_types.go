@@ -105,7 +105,6 @@ type TopologyInfo struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
-	// +kubebuilder:validation:items:MaxLength=256
 	Levels []string `json:"levels"`
 }
 
@@ -118,7 +117,6 @@ type LocalQueueStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=64
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
