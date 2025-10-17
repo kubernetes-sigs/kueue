@@ -3,7 +3,7 @@ kep-number: 6915
 authors:
   - "@VassilisVassiliadis"
   - "@tg123"
-status: provisional
+status: implementable
 creation-date: 2025-10-16
 reviewers:
   - "@mimowo"
