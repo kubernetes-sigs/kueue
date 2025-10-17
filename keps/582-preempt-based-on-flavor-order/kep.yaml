@@ -26,7 +26,10 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - FlavorFungibility
-  - FlavorFungibilityImplicitPreferenceDefault
+  # FlavorFungibilityImplicitPreferenceDefault was a temporary alpha gate to infer
+  # borrow vs preempt preference from flavorFungibility. It is removed; the
+  # behavior is now configured per-ClusterQueue via the API (spec.flavorFungibility).
+  # See https://github.com/kubernetes-sigs/kueue/issues/6184 and PR #6133.
 disable-supported: true
 
 # The following PRR answers are required at beta release
