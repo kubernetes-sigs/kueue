@@ -563,7 +563,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	})
 	if r.fairSharingEnabled {
 		if r.reportResourceMetrics {
-			metrics.ReportClusterQueueWeightedShare(cq.Name, stats.WeightedShare)
+			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.Cohort), stats.PreciseWeightedShare)
 		}
 		if cq.Status.FairSharing == nil {
 			cq.Status.FairSharing = &kueue.FairSharingStatus{}

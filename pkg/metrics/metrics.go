@@ -479,7 +479,7 @@ the ClusterQueue, and divided by the weight.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 If the ClusterQueue has a weight of zero and is borrowing, this will return 9223372036854775807,
 the maximum possible share value.`,
-		}, []string{"cluster_queue"},
+		}, []string{"cluster_queue", "cohort"},
 	)
 
 	CohortWeightedShare = prometheus.NewGaugeVec(
@@ -685,8 +685,8 @@ func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource stri
 	LocalQueueResourceUsage.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource).Set(usage)
 }
 
-func ReportClusterQueueWeightedShare(cq string, weightedShare int64) {
-	ClusterQueueWeightedShare.WithLabelValues(cq).Set(float64(weightedShare))
+func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64) {
+	ClusterQueueWeightedShare.WithLabelValues(cq, cohort).Set(weightedShare)
 }
 
 func ReportCohortWeightedShare(cohort string, weightedShare int64) {

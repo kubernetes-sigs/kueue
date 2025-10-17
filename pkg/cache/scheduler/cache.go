@@ -682,11 +682,12 @@ func (c *Cache) ForgetWorkload(log logr.Logger, w *kueue.Workload) error {
 }
 
 type ClusterQueueUsageStats struct {
-	ReservedResources  []kueue.FlavorUsage
-	ReservingWorkloads int
-	AdmittedResources  []kueue.FlavorUsage
-	AdmittedWorkloads  int
-	WeightedShare      int64
+	ReservedResources    []kueue.FlavorUsage
+	ReservingWorkloads   int
+	AdmittedResources    []kueue.FlavorUsage
+	AdmittedWorkloads    int
+	WeightedShare        int64
+	PreciseWeightedShare float64
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
@@ -710,6 +711,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		drs := dominantResourceShare(cq, nil)
 		weightedShare, _ := drs.roundedWeightedShare()
 		stats.WeightedShare = weightedShare
+		stats.PreciseWeightedShare = drs.PreciseWeightedShare()
 	}
 	return stats, nil
 }
