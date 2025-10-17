@@ -371,6 +371,9 @@ const (
 )
 
 // isPreferred returns true if mode a is better than b according to the selected policy
+// Preference is driven solely by ClusterQueue's flavorFungibility configuration.
+// If WhenCanBorrow is TryNextFlavor, we prioritize assignments that avoid borrowing,
+// otherwise we prioritize assignments that avoid preemption.
 func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
 		return false
@@ -379,25 +382,18 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		return true
 	}
 
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		if a.preemptionMode != b.preemptionMode {
-			return a.preemptionMode > b.preemptionMode
-		} else {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
-	}
-
 	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
+		// Prefer less borrowing first, then fewer preemptions.
 		if a.borrowingLevel != b.borrowingLevel {
 			return a.borrowingLevel.betterThan(b.borrowingLevel)
 		}
 		return a.preemptionMode > b.preemptionMode
-	} else {
-		if a.preemptionMode != b.preemptionMode {
-			return a.preemptionMode > b.preemptionMode
-		}
-		return a.borrowingLevel.betterThan(b.borrowingLevel)
 	}
+	// Default: prefer avoiding preemptions first, then less borrowing.
+	if a.preemptionMode != b.preemptionMode {
+		return a.preemptionMode > b.preemptionMode
+	}
+	return a.borrowingLevel.betterThan(b.borrowingLevel)
 }
 
 func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) preemptionMode {
