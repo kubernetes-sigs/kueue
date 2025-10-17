@@ -241,14 +241,17 @@ func sortDomainsByCapacityAndEntropy(domains []*domain) {
 	for _, d := range domains {
 		childrenCapacities := make([]int32, len(d.children))
 		for i, child := range d.children {
-			childrenCapacities[i] = child.sliceState
+			childrenCapacities[i] = child.state
 		}
 		domainsWithEntropy = append(domainsWithEntropy, domainWithEntropy{d: d, entropy: calculateEntropy(childrenCapacities)})
 	}
 
 	// Sort by capacity (desc), then by entropy (desc).
 	slices.SortFunc(domainsWithEntropy, func(a, b domainWithEntropy) int {
-		if r := b.d.sliceState - a.d.sliceState; r != 0 {
+		if r := b.d.leaderState - a.d.leaderState; r != 0 {
+			return int(r)
+		}
+		if r := b.d.sliceStateWithLeader - a.d.sliceStateWithLeader; r != 0 {
 			return int(r)
 		}
 		if b.entropy > a.entropy {
