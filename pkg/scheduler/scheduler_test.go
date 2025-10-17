@@ -6954,7 +6954,7 @@ func TestSchedule(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 				}
 				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsViaWorkloadSlice)
-				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, tc.flavorFungibilityImplicitPreferenceDefault)
+				// Preference now comes from ClusterQueue.Spec.FlavorFungibility; gate toggling removed
 
 				ctx, log := utiltesting.ContextWithLog(t)
 

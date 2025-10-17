@@ -2797,9 +2797,7 @@ func TestAssignFlavors(t *testing.T) {
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
-			if tc.enableImplicitPreferenceDefault {
-				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
-			}
+			// Preference is now derived solely from ClusterQueue.Spec.FlavorFungibility
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
