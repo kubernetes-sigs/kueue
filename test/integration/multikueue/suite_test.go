@@ -72,6 +72,7 @@ type cluster struct {
 	ctx    context.Context
 	fwk    *framework.Framework
 }
+type dispatcherCtxKey struct{}
 
 func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
@@ -131,7 +132,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce))
+	// allow overriding dispatcher name via context value, fallback to configuration default
+	dispatcherName, _ := ctx.Value(dispatcherCtxKey{}).(string)
+	if dispatcherName == "" {
+		dispatcherName = ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
+	}
+	failedWebhook, err := webhooks.Setup(mgr, dispatcherName)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -334,7 +340,8 @@ func managerAndMultiKueueSetup(
 	enabledIntegrations sets.Set[string],
 	dispatcherName string,
 ) {
-	managerSetup(ctx, mgr)
+	ctxWithDispatcher := context.WithValue(ctx, dispatcherCtxKey{}, dispatcherName)
+	managerSetup(ctxWithDispatcher, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
