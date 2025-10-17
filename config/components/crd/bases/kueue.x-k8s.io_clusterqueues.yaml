@@ -827,10 +827,12 @@ spec:
                 description: |-
                   admissionChecks lists the AdmissionChecks required by this ClusterQueue.
                   Cannot be used along with AdmissionCheckStrategy.
+                  Admission checks are limited to at most 64 items.
                 items:
                   description: AdmissionCheckReference is the name of an AdmissionCheck.
                   maxLength: 316
                   type: string
+                maxItems: 64
                 type: array
               admissionChecksStrategy:
                 description: |-
@@ -857,10 +859,12 @@ spec:
                             maxLength: 253
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
+                          maxItems: 64
                           type: array
                       required:
                       - name
                       type: object
+                    maxItems: 64
                     type: array
                 type: object
               admissionScope:
@@ -873,6 +877,9 @@ spec:
                       in the AdmissionScope. Possible values are:
                       - UsageBasedAdmissionFairSharing
                       - NoAdmissionFairSharing
+                    enum:
+                    - UsageBasedAdmissionFairSharing
+                    - NoAdmissionFairSharing
                     type: string
                 required:
                 - admissionMode
@@ -1329,6 +1336,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
@@ -1382,6 +1390,7 @@ spec:
                 description: |-
                   flavorsReservation are the reserved quotas, by flavor, currently in use by the
                   workloads assigned to this ClusterQueue.
+                  Conditions are limited to 16 elements.
                 items:
                   properties:
                     name:
@@ -1427,7 +1436,7 @@ spec:
                   - name
                   - resources
                   type: object
-                maxItems: 64
+                maxItems: 16
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -1511,15 +1520,18 @@ spec:
                       properties:
                         name:
                           description: name indicates the name of the pending workload.
+                          maxLength: 256
                           type: string
                         namespace:
                           description: namespace indicates the name of the pending
                             workload.
+                          maxLength: 63
                           type: string
                       required:
                       - name
                       - namespace
                       type: object
+                    maxItems: 64
                     type: array
                     x-kubernetes-list-type: atomic
                   lastChangeTime:

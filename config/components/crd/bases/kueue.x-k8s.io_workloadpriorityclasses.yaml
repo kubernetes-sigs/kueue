@@ -82,6 +82,8 @@ spec:
             description: |-
               description is an arbitrary string that usually provides guidelines on
               when this workloadPriorityClass should be used.
+              The description is limited to a maximum of 2048 characters.
+            maxLength: 2048
             type: string
           kind:
             description: |-

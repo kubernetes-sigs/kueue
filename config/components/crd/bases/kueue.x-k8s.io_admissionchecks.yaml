@@ -184,6 +184,8 @@ spec:
                 description: |-
                   controllerName identifies the controller that processes the AdmissionCheck,
                   not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
+                maxLength: 253
+                minLength: 1
                 type: string
                 x-kubernetes-validations:
                 - message: field is immutable
@@ -232,6 +234,7 @@ spec:
                 description: |-
                   conditions hold the latest available observations of the AdmissionCheck
                   current state.
+                  This is limited to at most 16 separate conditions.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -286,6 +289,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 16
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
