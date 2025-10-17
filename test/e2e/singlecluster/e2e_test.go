@@ -427,16 +427,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 				})
 			})
 
-			ginkgo.By("Verify priority label is immutable when running", func() {
-				createdJob := &batchv1.Job{}
-				jobKey = client.ObjectKeyFromObject(sampleJob)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-					createdJob.Labels[constants.WorkloadPriorityClassLabel] = ""
-					g.Expect(k8sClient.Update(ctx, createdJob)).Should(testing.BeForbiddenError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			var sampleJob2 *batchv1.Job
 			ginkgo.By("Create job-two with low priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", ns.Name).
@@ -528,16 +518,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(samplePriority))
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Remove job priority", func() {
-				createdJob := &batchv1.Job{}
-				jobKey = client.ObjectKeyFromObject(sampleJob)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-					createdJob.Labels[constants.WorkloadPriorityClassLabel] = ""
-					g.Expect(k8sClient.Update(ctx, createdJob)).Should(testing.BeForbiddenError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
