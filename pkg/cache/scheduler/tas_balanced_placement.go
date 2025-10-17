@@ -222,8 +222,8 @@ func calculateEntropy(blockSizes []int32) float64 {
 	totalF := float64(total)
 	for _, size := range blockSizes {
 		if size > 0 {
-			p_i := float64(size) / totalF
-			entropy += -p_i * math.Log2(p_i)
+			pI := float64(size) / totalF
+			entropy += -pI * math.Log2(pI)
 		}
 	}
 	return entropy
