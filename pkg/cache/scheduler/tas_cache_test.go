@@ -3327,7 +3327,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		//    /    |        /     |     \
 		// x1:20  x2:8  x3:15   x4:13   x5:10
 		// request: 22
-		// expected outcome: x1:11, x2:11
+		// expected outcome: x3:11, x4:11
 		"balanced placement; three level topology; balance on the lowest level": {
 			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
 			nodes: []corev1.Node{
