@@ -1569,21 +1569,21 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
-				topology = testing.MakeDefaultThreeLevelTopology("default")
+				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				util.MustCreate(ctx, k8sClient, topology)
 
-				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+				tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 					NodeLabel("node-group", "tas").
 					TopologyName("default").Obj()
 				util.MustCreate(ctx, k8sClient, tasFlavor)
 
-				clusterQueue = testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource("nvidia.com/gpu", "40").Obj()).
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource("nvidia.com/gpu", "40").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueue)
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-				localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueue)
 
 				_ = features.SetEnable(features.TASBalancedPlacement, true)
@@ -1607,8 +1607,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				var wl1 *kueue.Workload
 
 				ginkgo.By("creating a workload", func() {
-					wl1 = testing.MakeWorkload("wl1", ns.Name).
-						PodSets(*testing.MakePodSet("worker", 16).
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 16).
 							PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
 							SliceRequiredTopologyRequest(corev1.LabelHostname).
 							SliceSizeTopologyRequest(4).
@@ -1635,15 +1635,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				var wl1 *kueue.Workload
 
 				ginkgo.By("creating a workload", func() {
-					wl1 = testing.MakeWorkload("wl1", ns.Name).
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(
-							*testing.MakePodSet("leader", 1).
+							*utiltestingapi.MakePodSet("leader", 1).
 								PodSetGroup("group").
 								PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
 								SliceRequiredTopologyRequest(corev1.LabelHostname).
 								Request("nvidia.com/gpu", "1").
 								Obj(),
-							*testing.MakePodSet("worker", 30).
+							*utiltestingapi.MakePodSet("worker", 30).
 								PodSetGroup("group").
 								PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
 								SliceRequiredTopologyRequest(corev1.LabelHostname).

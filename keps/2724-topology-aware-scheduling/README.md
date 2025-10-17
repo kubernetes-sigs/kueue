@@ -1200,7 +1200,7 @@ The algorithm could be summarized as follows:
 2. If no domain on level L-1 fits the entire request, fallback to the standard algorithm.
 3. Otherwise, pick a domain D on level L-1 that maximizes the value of T.
 4. Prune every descendant of D with capacity below T.
-5. On levels L and L+1 find an optimal subset of ancestors of D that fit the request:
+5. On levels L and L+1 find an optimal subset of descendants of D that fit the request:
 - first optmize the size of the subset
 - secondly optimize the total capacity of the subset
 6. For the subset on L+1, place the pods by first placing T pods on each domain, and then distribute the rest abritrarily.
