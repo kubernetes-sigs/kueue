@@ -1039,6 +1039,8 @@ Kueue places pods on domains with different algorithms, depending on the annotat
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
 - `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
 However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
+- `BalancedPlacement` algorithm -- Kueue selects as many domains as needed (if it meets user's requirement) and places pods evenly on the selected domains.
+The balanced placement is performed only a one leve, indicated by the `preferred` annotation (for more details see [Balanced placement](#balanced-placement)).
 
 #### Example
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
@@ -1076,6 +1078,7 @@ Since v0.15, the available feature gates are as follows:
 | None <br/> or TASProfileMixed (deprecated) | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
 | TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+| TASBalancedPlacement                       | BalancedPlacement | BestFit           | LeastFreeCapacity |
 
 Based on the user feedback, we decided to make `TASProfileMixed` default. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
 
