@@ -22,14 +22,11 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -38,11 +35,6 @@ import (
 )
 
 func Test_GetResourceRequests(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = kueue.AddToScheme(scheme)
-	_ = resourcev1.AddToScheme(scheme)
-
 	tmpl := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
 		DeviceRequest("device-request", "test-deviceclass-1", 2).
 		Obj()
@@ -258,7 +250,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					objs = append(objs, o.(client.Object))
 				}
 			}
-			baseClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			baseClient := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
 
 			wlCopy := wl.DeepCopy()
 			if tc.modifyWL != nil {
