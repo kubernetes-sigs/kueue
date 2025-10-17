@@ -2730,9 +2730,9 @@ func TestReconciler(t *testing.T) {
 				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("job", "ns").
+				*utiltesting.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(basePCWrapper.Value).
 					PriorityClassSource(constants.PodPriorityClassSource).
@@ -2743,9 +2743,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("job", "ns").
+				*utiltesting.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(basePCWrapper.Value).
 					PriorityClassSource(constants.PodPriorityClassSource).
