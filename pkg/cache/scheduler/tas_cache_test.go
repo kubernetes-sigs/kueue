@@ -277,12 +277,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 		tasRackLabel,
 		corev1.LabelHostname,
 	}
-	defaultFourLevels := []string{
-		tasBlockLabel,
-		tasSubBlockLabel,
-		tasRackLabel,
-		corev1.LabelHostname,
-	}
 
 	//           b1                    b2
 	//       /        \             /      \
@@ -3207,7 +3201,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			levels: defaultFourLevels,
+			levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel},
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred:                   ptr.To(string(tasSubBlockLabel)),
@@ -3219,15 +3213,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 				count: 20,
 				wantAssignment: &kueue.TopologyAssignment{
-					Levels: defaultOneLevel,
+					Levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel},
 					Domains: []kueue.TopologyDomainAssignment{
 						{
 							Count:  10,
-							Values: []string{"x3"},
+							Values: []string{"b1", "sb2", "r3"},
 						},
 						{
 							Count:  10,
-							Values: []string{"x4"},
+							Values: []string{"b1", "sb2", "r4"},
 						},
 					},
 				},
@@ -3499,6 +3493,95 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			},
+		},
+		//                  b1
+		//              /        \
+		//            r1         r2
+		//        /   |        /  |   \
+		//     x1:10 x2:5  x3:5  x4:5  x5:5
+		// request: 15
+		// expected outcome: x:5, x4:5, x5:5
+		"balanced placement; prefer balanced domains": {
+			enableFeatureGates: []featuregate.Feature{features.TASBalancedPlacement},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("10"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x5").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: ptr.To(string(tasRackLabel)),
+				},
+				requests: resources.Requests{
+					"example.com/gpu": 1,
+				},
+				count: 15,
+				wantAssignment: &kueue.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []kueue.TopologyDomainAssignment{
+						{
+							Count:  5,
+							Values: []string{"x3"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x4"},
+						},
+						{
+							Count:  5,
+							Values: []string{"x5"},
+						},
+					},
+				},
+			}},
 		},
 		"block required for podset; rack required for slices; podset fits in a block, but slices do not fit in racks": {
 
@@ -4846,9 +4929,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		/*if name != "balanced placement; leader worker set" {
-			continue
-		}*/
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			// TODO: remove after dropping the TAS profiles feature gates
