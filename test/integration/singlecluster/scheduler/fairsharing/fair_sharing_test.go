@@ -918,12 +918,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Validate pending workloads")
 			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				util.FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq2)
-				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
-				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+
+			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
 		})
 
 		ginkgo.It("sticky workload deleted, next workload can admit", func() {
@@ -950,13 +951,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Validate pending workloads")
 			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
 
+			ginkgo.By("Complete preemption")
+			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
-			gomega.Eventually(func(g gomega.Gomega) {
-				util.FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq2)
-				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
-				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
 		})
 	})
 
