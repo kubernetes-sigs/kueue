@@ -568,7 +568,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		if cq.Status.FairSharing == nil {
 			cq.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
-		cq.Status.FairSharing.WeightedShare = stats.WeightedShare
+		cq.Status.FairSharing.WeightedShare = stats.WeightedShare()
 	} else {
 		cq.Status.FairSharing = nil
 	}
