@@ -127,6 +127,12 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+	$(MAKE) compile-crd-manifests
+
+.PHONY: compile-crd-manifests
+compile-crd-manifests: kustomize
+	@mkdir -p config/components/crd/_output
+	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
 
 .PHONY: update-helm
 update-helm: manifests yq yaml-processor

@@ -51,6 +51,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -74,11 +76,19 @@ func (f *Framework) Init() *rest.Config {
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "bases")
+		baseCrdPath := filepath.Join(util.GetProjectBaseDir(), "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			CRDDirectoryPaths:     append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing: true,
 		}
+		var err error
+		f.testEnv.Scheme = scheme.Scheme
+		err = kueue.AddToScheme(f.testEnv.Scheme)
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+		err = kueuev1beta2.AddToScheme(f.testEnv.Scheme)
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
 		if len(f.WebhookPath) > 0 {
 			f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
 		}
@@ -97,7 +107,6 @@ func (f *Framework) Init() *rest.Config {
 			f.testEnv.ControlPlane.GetAPIServer().Err = ginkgo.GinkgoWriter
 		}
 
-		var err error
 		cfg, err = f.testEnv.Start()
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
@@ -112,6 +121,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuev1beta2.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(f.scheme)

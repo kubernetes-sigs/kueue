@@ -862,7 +862,7 @@ func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 
 // Cohort sets the borrowing cohort.
 func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueueWrapper {
-	c.Spec.Cohort = cohort
+	c.Spec.CohortName = cohort
 	return c
 }
 

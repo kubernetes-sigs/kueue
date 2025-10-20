@@ -624,49 +624,6 @@ spec:
                 required:
                 - weightedShare
                 type: object
-              flavorUsage:
-                description: |-
-                  flavorUsage are the used quotas, by flavor currently in use by the
-                  workloads assigned to this LocalQueue.
-                items:
-                  properties:
-                    name:
-                      description: name of the flavor.
-                      maxLength: 253
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                      type: string
-                    resources:
-                      description: resources lists the quota usage for the resources
-                        in this flavor.
-                      items:
-                        properties:
-                          name:
-                            description: name of the resource.
-                            type: string
-                          total:
-                            anyOf:
-                            - type: integer
-                            - type: string
-                            description: total is the total quantity of used quota.
-                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                            x-kubernetes-int-or-string: true
-                        required:
-                        - name
-                        type: object
-                      maxItems: 16
-                      type: array
-                      x-kubernetes-list-map-keys:
-                      - name
-                      x-kubernetes-list-type: map
-                  required:
-                  - name
-                  - resources
-                  type: object
-                maxItems: 16
-                type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
               flavors:
                 description: flavors lists all currently available ResourceFlavors
                   in specified ClusterQueue.
@@ -765,6 +722,49 @@ spec:
               flavorsReservation:
                 description: |-
                   flavorsReservation are the reserved quotas, by flavor currently in use by the
+                  workloads assigned to this LocalQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    resources:
+                      description: resources lists the quota usage for the resources
+                        in this flavor.
+                      items:
+                        properties:
+                          name:
+                            description: name of the resource.
+                            type: string
+                          total:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: total is the total quantity of used quota.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - name
+                        type: object
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                  required:
+                  - name
+                  - resources
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              flavorsUsage:
+                description: |-
+                  flavorsUsage are the used quotas, by flavor currently in use by the
                   workloads assigned to this LocalQueue.
                 items:
                   properties:
