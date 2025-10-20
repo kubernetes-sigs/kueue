@@ -87,34 +87,6 @@ connection.</p>
 </tbody>
 </table>
 
-## `ClusterQueueVisibility`     {#ClusterQueueVisibility}
-    
-
-**Appears in:**
-
-- [QueueVisibility](#QueueVisibility)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>maxCount</code> <B>[Required]</B><br/>
-<code>int32</code>
-</td>
-<td>
-   <p>MaxCount indicates the maximal number of pending workloads exposed in the
-cluster queue status.  When the value is set to 0, then ClusterQueue
-visibility updates are disabled.
-The maximal value is 4000.
-Defaults to 10.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `Configuration`     {#Configuration}
     
 
@@ -206,17 +178,6 @@ API server client.</p>
 <td>
    <p>Integrations provide configuration options for AI/ML/Batch frameworks
 integrations (including K8S job).</p>
-</td>
-</tr>
-<tr><td><code>queueVisibility</code> <B>[Required]</B><br/>
-<a href="#QueueVisibility"><code>QueueVisibility</code></a>
-</td>
-<td>
-   <p>QueueVisibility is configuration to expose the information about the top
-pending workloads.
-Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
-(https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-instead.</p>
 </td>
 </tr>
 <tr><td><code>multiKueue</code> <B>[Required]</B><br/>
@@ -779,40 +740,6 @@ A nil value disables automatic deletion of Workloads.</p>
 
 
 
-
-## `QueueVisibility`     {#QueueVisibility}
-    
-
-**Appears in:**
-
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>clusterQueues</code> <B>[Required]</B><br/>
-<a href="#ClusterQueueVisibility"><code>ClusterQueueVisibility</code></a>
-</td>
-<td>
-   <p>ClusterQueues is configuration to expose the information
-about the top pending workloads in the cluster queue.</p>
-</td>
-</tr>
-<tr><td><code>updateIntervalSeconds</code> <B>[Required]</B><br/>
-<code>int32</code>
-</td>
-<td>
-   <p>UpdateIntervalSeconds specifies the time interval for updates to the structure
-of the top pending workloads in the queues.
-The minimum value is 1.
-Defaults to 5.</p>
-</td>
-</tr>
-</tbody>
-</table>
 
 ## `RequeuingStrategy`     {#RequeuingStrategy}
     
