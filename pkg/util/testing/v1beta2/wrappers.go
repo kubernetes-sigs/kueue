@@ -391,7 +391,7 @@ func (w *WorkloadWrapper) MaximumExecutionTimeSeconds(v int32) *WorkloadWrapper 
 }
 
 func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
-	w.Status.AccumulatedPastExexcutionTimeSeconds = &v
+	w.Status.AccumulatedPastExecutionTimeSeconds = &v
 	return w
 }
 

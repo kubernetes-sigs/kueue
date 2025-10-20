@@ -70,6 +70,9 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 		}, {
 			Type: cert.CRDConversion,
 			Name: "clusterqueues.kueue.x-k8s.io",
+		}, {
+			Type: cert.CRDConversion,
+			Name: "workloads.kueue.x-k8s.io",
 		}},
 		// When kueue is running in the leader election mode,
 		// we expect webhook server will run in primary and secondary instance
