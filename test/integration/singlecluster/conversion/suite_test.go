@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -83,8 +84,19 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
+	jobReconciler, err := workloadjob.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = jobReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = workloadjob.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	jobframework.EnableIntegration(workloadjob.FrameworkName)
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 	err = sched.Start(ctx)

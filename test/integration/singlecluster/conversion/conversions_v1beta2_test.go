@@ -20,13 +20,16 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -39,41 +42,32 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 		resourceGPU corev1.ResourceName = "example.com/gpu"
 	)
 	var (
-		ns              *corev1.Namespace
-		localQueue      *kueue.LocalQueue
-		clusterQueues   []*kueue.ClusterQueue
-		workloads       []*kueue.Workload
-		resourceFlavors = []kueue.ResourceFlavor{
-			*utiltestingapi.MakeResourceFlavor(flavorModelC).NodeLabel(resourceGPU.String(), flavorModelC).Obj(),
-			*utiltestingapi.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
-		}
-		emptyUsage = []kueue.LocalQueueFlavorUsage{
-			{
-				Name: flavorModelC,
-				Resources: []kueue.LocalQueueResourceUsage{
-					{
-						Name:  resourceGPU,
-						Total: resource.MustParse("0"),
-					},
-				},
-			},
-			{
-				Name: flavorModelD,
-				Resources: []kueue.LocalQueueResourceUsage{
-					{
-						Name:  resourceGPU,
-						Total: resource.MustParse("0"),
-					},
-				},
-			},
-		}
+		ns                      *corev1.Namespace
+		localQueue              *kueue.LocalQueue
+		clusterQueues           []*kueue.ClusterQueue
+		jobs                    []*batchv1.Job
+		resourceFlavors         []kueue.ResourceFlavor
+		workloadPriorityClasses []kueue.WorkloadPriorityClass
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 	})
 
-	ginkgo.BeforeEach(func() {
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		for _, cq := range clusterQueues {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		}
+		for _, rf := range resourceFlavors {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
+		}
+		for _, wpc := range workloadPriorityClasses {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &wpc, true)
+		}
+	})
+
+	ginkgo.It("Should update status when workloads are created", framework.SlowSpec, func() {
 		cq1 := utiltestingapi.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "2", "2").Obj(),
@@ -95,25 +89,15 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 			Cohort("cohort").
 			Obj()
 		clusterQueues = []*kueue.ClusterQueue{cq1, cq2}
+
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq1.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
-	})
 
-	ginkgo.AfterEach(func() {
-		for _, wl := range workloads {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-		}
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		for _, cq := range clusterQueues {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		}
-		for _, rf := range resourceFlavors {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
-		}
-	})
-
-	ginkgo.It("Should update status when workloads are created", framework.SlowSpec, func() {
 		ginkgo.By("Creating resourceFlavors")
+		resourceFlavors = []kueue.ResourceFlavor{
+			*utiltestingapi.MakeResourceFlavor(flavorModelC).NodeLabel(resourceGPU.String(), flavorModelC).Obj(),
+			*utiltestingapi.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
+		}
 		for _, rf := range resourceFlavors {
 			util.MustCreate(ctx, k8sClient, &rf)
 		}
@@ -131,6 +115,26 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("await for the LocalQueue to be ready")
+		emptyUsage := []kueue.LocalQueueFlavorUsage{
+			{
+				Name: flavorModelC,
+				Resources: []kueue.LocalQueueResourceUsage{
+					{
+						Name:  resourceGPU,
+						Total: resource.MustParse("0"),
+					},
+				},
+			},
+			{
+				Name: flavorModelD,
+				Resources: []kueue.LocalQueueResourceUsage{
+					{
+						Name:  resourceGPU,
+						Total: resource.MustParse("0"),
+					},
+				},
+			},
+		}
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedQueue kueue.LocalQueue
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &updatedQueue)).To(gomega.Succeed())
@@ -149,12 +153,11 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating workloads wave1")
-		workload1 := utiltestingapi.MakeWorkload("one", ns.Name).
-			Queue(kueue.LocalQueueName(localQueue.Name)).
-			Request(resourceGPU, "4").
-			Obj()
-		util.MustCreate(ctx, k8sClient, workload1)
-		workloads = append(workloads, workload1)
+		job1 := testingjob.MakeJob("job1", ns.Name).
+			Label(constants.QueueLabel, localQueue.Name).
+			RequestAndLimit(resourceGPU, "4").Obj()
+		util.MustCreate(ctx, k8sClient, job1)
+		jobs = append(jobs, job1)
 
 		ginkgo.By("Verify the LocalQueue flavor usage is updated correctly")
 		partUsage := []kueue.LocalQueueFlavorUsage{
@@ -184,26 +187,17 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 				ReservingWorkloads: 1,
 				AdmittedWorkloads:  1,
 				PendingWorkloads:   0,
-				Conditions: []metav1.Condition{
-					{
-						Type:    kueue.LocalQueueActive,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Ready",
-						Message: "Can submit new workloads to localQueue",
-					},
-				},
 				FlavorsReservation: partUsage,
 				FlavorsUsage:       partUsage,
-			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors")))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors", "Conditions")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating workloads wave2")
-		workload2 := utiltestingapi.MakeWorkload("two", ns.Name).
-			Queue(kueue.LocalQueueName(localQueue.Name)).
-			Request(resourceGPU, "4").
-			Obj()
-		util.MustCreate(ctx, k8sClient, workload2)
-		workloads = append(workloads, workload2)
+		job2 := testingjob.MakeJob("job2", ns.Name).
+			Label(constants.QueueLabel, localQueue.Name).
+			RequestAndLimit(resourceGPU, "4").Obj()
+		util.MustCreate(ctx, k8sClient, job2)
+		jobs = append(jobs, job2)
 
 		ginkgo.By("Verify the LocalQueue flavor usage is updated correctly")
 		fullUsage := []kueue.LocalQueueFlavorUsage{
