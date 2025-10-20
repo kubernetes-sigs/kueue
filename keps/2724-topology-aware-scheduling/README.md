@@ -1039,8 +1039,10 @@ Kueue places pods on domains with different algorithms, depending on the annotat
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
 - `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
 However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
-- `BalancedPlacement` algorithm -- Kueue selects as many domains as needed (if it meets user's requirement) and places pods evenly on the selected domains.
-The balanced placement is performed only a one leve, indicated by the `preferred` annotation (for more details see [Balanced placement](#balanced-placement)).
+- `BalancedPlacement` algorithm - Kueue selects as many domains as needed (if it meets user's requirement)
+and places pods evenly on the selected domains. The balanced placement is performed only at two consecutive
+levels, where the higher of these two levels is indicated by the `preferred` annotation
+(for more details see [Balanced placement](#balanced-placement)).
 
 #### Example
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
@@ -1191,7 +1193,7 @@ In the first implemetation, we propose to perform the balanced algorithm only on
 by the user with the `preferred` flag. Let L be the level indicated by the `preferred` flag. We assume that the
 request must fit within a single domain on level L-1 and otherwise we fallback to the standard algorithm. The above
 assumptions are motivated by the application of the balanced placement algorithm to all-to-all communication
-on the specific networking for GPUs, but if the concept of balanced placement would be useful in other contexts it
+on the specific networking for GPUs. If the concept of balanced placement would be useful in other contexts it
 would be possible to lift these assumptions. This balancing algorithm is enabled by the `TASBalancedPlacement` feature gate.
 
 The algorithm could be summarized as follows:
