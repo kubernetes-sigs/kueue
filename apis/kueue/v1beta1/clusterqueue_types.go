@@ -111,6 +111,7 @@ type ClusterQueueSpec struct {
 
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
 	// Cannot be used along with AdmissionCheckStrategy.
+	// +listType=atomic
 	// +optional
 	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"`
 
@@ -147,6 +148,8 @@ type ClusterQueueSpec struct {
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
+	// +listType=map
+	// +listTypeKey=name
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
 }
 

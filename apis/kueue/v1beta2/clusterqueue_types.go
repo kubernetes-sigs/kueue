@@ -112,6 +112,7 @@ type ClusterQueueSpec struct {
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
 	// Cannot be used along with AdmissionCheckStrategy.
 	// +optional
+	// +listType=atomic
 	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"`
 
 	// admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
@@ -147,6 +148,8 @@ type ClusterQueueSpec struct {
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
+	// +listType=map
+	// +listMapKey=name
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
 }
 
@@ -158,6 +161,7 @@ type AdmissionCheckStrategyRule struct {
 	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
 	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
 	// +optional
+	// +listType=atomic
 	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
@@ -184,6 +188,7 @@ type ResourceGroup struct {
 	// of up to 256 covered resources across all resource groups in the ClusterQueue.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
+	// +listType=atomic
 	CoveredResources []corev1.ResourceName `json:"coveredResources"`
 
 	// flavors is the list of flavors that provide the resources of this group.

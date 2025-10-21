@@ -260,6 +260,9 @@ spec:
                       type: object
                     maxItems: 8
                     type: array
+                    x-kubernetes-list-map-keys:
+                    - key
+                    x-kubernetes-list-type: map
                 type: object
               provisioningClassName:
                 description: |-
