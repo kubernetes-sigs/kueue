@@ -161,9 +161,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			}
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 8)
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 2)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 625)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 0)
-			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 625.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 0.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0.0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
 			util.WaitForNextSecondAfterCreation(wls[len(wls)-1])
@@ -171,9 +171,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkload("b", "1")
 			}
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 5)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 625)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 0)
-			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 625.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 0.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0.0)
 
 			ginkgo.By("Terminating 4 running workloads in cqA: shared quota is fair-shared")
 			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 4)
@@ -183,9 +183,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 3)
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 2)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 250)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 250)
-			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 250.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 250.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0.0)
 
 			ginkgo.By("Terminating 2 more running workloads in cqA: cqB starts to take over shared quota")
 			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 2)
@@ -195,9 +195,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 125)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 375)
-			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 125.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 375.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0.0)
 
 			ginkgo.By("Checking that weight share status changed")
 			cqAKey := client.ObjectKeyFromObject(cqA)
@@ -266,9 +266,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			}
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 9)
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 667)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 0)
-			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 6.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 0.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0.0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
 			for range 5 {
@@ -279,24 +279,24 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Finishing eviction of 4 running workloads in cqA: shared quota is fair-shared")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 4)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 223)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 112)
-			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 2.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 1.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0.0)
 
 			ginkgo.By("cq-c reclaims one unit, preemption happens in cq-a")
 			cWorkload := utiltestingapi.MakeWorkload("c0", ns.Name).Queue("c").Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, cWorkload)
 			util.ExpectPendingWorkloadsMetric(cqC, 1, 0)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 223)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 112)
-			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 2.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 1.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0.0)
 
 			ginkgo.By("Finishing eviction of 1 running workloads in the CQ with highest usage: cqA")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqC, 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqA, 112)
-			util.ExpectClusterQueueWeightedShareMetric(cqB, 112)
-			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 1.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 1.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0.0)
 
 			ginkgo.By("Checking that weight share status changed")
 			cqAKey := client.ObjectKeyFromObject(cqA)
@@ -608,7 +608,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectReservingActiveWorkloadsMetric(cqp1, 18)
 
 			ginkgo.By("Expected Weighted Shares")
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
 			expectCohortWeightedShare("cohort-a", 0)
 		})
 		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (FlavorFungibilityImplicitPreferenceDefault=true)", func() {
@@ -621,7 +621,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectReservingActiveWorkloadsMetric(cqp1, 18)
 
 			ginkgo.By("Expected Weighted Shares")
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
 			expectCohortWeightedShare("cohort-a", 0)
 		})
 
@@ -652,8 +652,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectReservingActiveWorkloadsMetric(cqp5, 2)
 
 			ginkgo.By("Expected Weighted Shares")
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600)
-			util.ExpectClusterQueueWeightedShareMetric(cqp5, 100)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqp5, 100.0)
 			expectCohortWeightedShare("cohort-a", 0)
 			expectCohortWeightedShare("cohort-b", 0)
 		})
@@ -728,8 +728,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
-			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 4.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 5.0*1000.0/9.0)
 		})
 
 		// The larger workload, size 6, satisfies
@@ -761,8 +761,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
-			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 4.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 5.0*1000.0/9.0)
 		})
 
 		ginkgo.It("workload of size 4 admits with inadmissible higher priority workload at ClusterQueue head", func() {
@@ -787,8 +787,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
-			util.ExpectClusterQueueWeightedShareMetric(cqp2, 445)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 4.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 4.0*1000.0/9.0)
 		})
 
 		ginkgo.It("workload admits when several higher priority blocking workloads in front", func() {
@@ -814,8 +814,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cqp1, 445)
-			util.ExpectClusterQueueWeightedShareMetric(cqp2, 556)
+			util.ExpectClusterQueueWeightedShareMetric(cqp1, 4.0*1000.0/9.0)
+			util.ExpectClusterQueueWeightedShareMetric(cqp2, 5.0*1000.0/9.0)
 		})
 	})
 
@@ -885,8 +885,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
-			util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
-			util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
+			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
 
 		ginkgo.It("sticky workload becomes inadmissible. next workload admits", func() {
@@ -921,8 +921,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			gomega.Eventually(func(g gomega.Gomega) {
 				util.FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq2)
 				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
-				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+				util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
+				util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -954,8 +954,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			gomega.Eventually(func(g gomega.Gomega) {
 				util.FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq2)
 				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-				util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
-				util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+				util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
+				util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
