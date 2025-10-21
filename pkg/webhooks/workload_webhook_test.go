@@ -27,10 +27,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -617,11 +618,29 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					kueue.PodSetAssignment{Name: "ps1"},
 					kueue.PodSetAssignment{Name: "ps2"}).Obj()).Obj(),
 		},
+		"ClusterName doesn't have to be one of the nominatedClusterNames with ElasticJobs feature gate": {
+			enableElasticJobsFeature: true,
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 4).Obj()).
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 4).Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").PodSets(
+					kueue.PodSetAssignment{Name: "ps1"},
+					kueue.PodSetAssignment{Name: "ps2"}).Obj()).
+				ClusterName("worker1").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.NewReference(testWorkloadNamespace, testWorkloadName))).
+				Obj(),
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.enableElasticJobsFeature)
-			errList := ValidateWorkloadUpdate(tc.after, tc.before, configapi.MultiKueueDispatcherModeAllAtOnce)
+			errList := ValidateWorkloadUpdate(tc.after, tc.before)
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkloadUpdate() mismatch (-want +got):\n%s", diff)
 			}
