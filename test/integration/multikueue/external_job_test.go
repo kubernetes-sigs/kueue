@@ -27,7 +27,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -88,7 +87,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-				failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce))
+				failedWebhook, err := webhooks.Setup(mgr)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				// Set up RayJob webhook (but not MultiKueue integration)
