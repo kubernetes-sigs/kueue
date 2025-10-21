@@ -729,11 +729,11 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 }
 
 func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value int64) {
-	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name)
+	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.Cohort))
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int64(v)).Should(gomega.Equal(value))
+		g.Expect(v).Should(gomega.Equal(value))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
