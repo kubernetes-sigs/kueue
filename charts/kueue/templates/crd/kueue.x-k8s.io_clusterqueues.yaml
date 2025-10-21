@@ -855,10 +855,14 @@ spec:
                               pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
                             type: array
+                            x-kubernetes-list-type: set
                         required:
                           - name
                         type: object
                       type: array
+                      x-kubernetes-list-map-keys:
+                        - name
+                      x-kubernetes-list-type: map
                   type: object
                 admissionScope:
                   description: admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
@@ -1122,6 +1126,7 @@ spec:
                         maxItems: 64
                         minItems: 1
                         type: array
+                        x-kubernetes-list-type: atomic
                       flavors:
                         description: |-
                           flavors is the list of flavors that provide the resources of this group.

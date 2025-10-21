@@ -276,6 +276,7 @@ type TopologyAssignment struct {
 	// the lowest level of the topology.
 	//
 	// +required
+	// +listType=atomic
 	Domains []TopologyDomainAssignment `json:"domains"`
 }
 
@@ -442,6 +443,8 @@ type WorkloadStatus struct {
 	// Requires enabling the TASFailedNodeReplacement feature gate.
 	//
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	UnhealthyNodes []UnhealthyNode `json:"unhealthyNodes,omitempty"`
 }
 
@@ -570,6 +573,7 @@ type PodSetUpdate struct {
 	// tolerations of the PodSet to modify.
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
+	// +listType=atomic
 	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.key) ? x.operator == 'Exists' : true)", message="operator must be Exists when 'key' is empty, which means 'match all values and all keys'"
 	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.tolerationSeconds) ? x.effect == 'NoExecute' : true)", message="effect must be 'NoExecute' when 'tolerationSeconds' is set"
 	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.operator) || x.operator in ['Equal', 'Exists'])", message="supported toleration values: 'Equal'(default), 'Exists'"

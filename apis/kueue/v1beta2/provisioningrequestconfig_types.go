@@ -95,6 +95,8 @@ type ProvisioningRequestPodSetUpdates struct {
 	//
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
+	// +listType=map
+	// +listMapKey=key
 	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelector `json:"nodeSelector,omitempty"`
 }
 
