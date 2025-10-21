@@ -805,7 +805,8 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
-	Flavors            []kueue.LocalQueueFlavorStatus
+	// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
+	Flavors []kueue.LocalQueueFlavorStatus
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {

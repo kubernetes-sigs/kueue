@@ -24,14 +24,16 @@ import (
 // LocalQueueStatusApplyConfiguration represents a declarative configuration of the LocalQueueStatus type for use
 // with apply.
 type LocalQueueStatusApplyConfiguration struct {
-	Conditions         []v1.ConditionApplyConfiguration           `json:"conditions,omitempty"`
-	PendingWorkloads   *int32                                     `json:"pendingWorkloads,omitempty"`
-	ReservingWorkloads *int32                                     `json:"reservingWorkloads,omitempty"`
-	AdmittedWorkloads  *int32                                     `json:"admittedWorkloads,omitempty"`
-	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorsReservation,omitempty"`
-	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorUsage,omitempty"`
-	Flavors            []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
-	FairSharing        *FairSharingStatusApplyConfiguration       `json:"fairSharing,omitempty"`
+	Conditions         []v1.ConditionApplyConfiguration          `json:"conditions,omitempty"`
+	PendingWorkloads   *int32                                    `json:"pendingWorkloads,omitempty"`
+	ReservingWorkloads *int32                                    `json:"reservingWorkloads,omitempty"`
+	AdmittedWorkloads  *int32                                    `json:"admittedWorkloads,omitempty"`
+	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
+	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
+	// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
+	// Consequently, LocalQueueFlavorStatusApplyConfiguration is also deprecated and will be removed.
+	Flavors     []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
+	FairSharing *FairSharingStatusApplyConfiguration       `json:"fairSharing,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs a declarative configuration of the LocalQueueStatus type for use with
@@ -106,6 +108,8 @@ func (b *LocalQueueStatusApplyConfiguration) WithFlavorUsage(values ...*LocalQue
 // WithFlavors adds the given value to the Flavors field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Flavors field.
+// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
+// Consequently, LocalQueueFlavorStatusApplyConfiguration is also deprecated.
 func (b *LocalQueueStatusApplyConfiguration) WithFlavors(values ...*LocalQueueFlavorStatusApplyConfiguration) *LocalQueueStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
