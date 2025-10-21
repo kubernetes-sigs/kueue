@@ -85,7 +85,6 @@ spec:
                     maxLength: 316
                     type: string
                   type: array
-                  x-kubernetes-list-type: atomic
                 admissionChecksStrategy:
                   description: |-
                     admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
@@ -114,7 +113,6 @@ spec:
                           - name
                         type: object
                       type: array
-                      x-kubernetes-list-type: map
                   type: object
                 admissionScope:
                   description: admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
