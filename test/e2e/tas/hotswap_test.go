@@ -19,8 +19,6 @@ package tase2e
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -50,7 +48,13 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
-
+	// The topology of the e2e cluster looks as follows
+	// Block:              b1                                 b2
+	//                /          \                      /           \
+	// Rack:        r1               r2                r3             r4
+	//            /     \          /      \        /      \         /      \
+	// Hostname: worker worker2 worker3 worker4 worker5 worker6 worker7 worker8
+	// Each node has 1 GPU (extraResource)
 	ginkgo.When("Creating a JobSet with slices", func() {
 		var (
 			topology      *kueue.Topology
@@ -104,7 +108,11 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
-
+		// In this test we use a jobset with SliceSize = 3 and SliceRequiredTopology = Block
+		// Each pod requires 1 "extraResource" so the jobSet will use three nodes from a Block.
+		// Since each Block has 4 nodes (see the image above), one node will be free.
+		// When one of the nodes fail, the replacement mechanism should find the available node
+		// and replace the failed one.
 		ginkgo.It("Should replace a failed node with a new one within the same domain", func() {
 			replicas := 1
 			parallelism := 3
@@ -178,9 +186,14 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				})
 			})
 		})
+		// In this test we use a jobset with SliceSize = 2 and SliceRequiredTopology = Rack
+		// Each pod requires 1 "extraResource" so the jobSet will use both nodes from a Rack.
+		// When one of the nodes fail, the replacement mechanism would need to find the
+		// replacement within the same rack, which is not possible, thus the workload
+		// will be evicted.
 		ginkgo.It("Should evict the workload if replacement is not possible", func() {
-			replicas := 2
-			parallelism := 4
+			replicas := 1
+			parallelism := 2
 			numPods := replicas * parallelism
 			jobName := "ranks-jobset"
 			replicatedJobName := "replicated-job-1"
@@ -196,8 +209,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceSizeAnnotation:             "4",
+							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+							kueue.PodSetSliceSizeAnnotation:             "2",
 						},
 					},
 				).
@@ -233,7 +246,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			wlKey := client.ObjectKey{Name: wlName, Namespace: ns.Name}
 			ginkgo.By("Verify initial topology assignment of the workload", func() {
 				expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, []string{
-					"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4", "kind-worker5", "kind-worker6", "kind-worker7", "kind-worker8",
+					"kind-worker", "kind-worker2",
 				})
 			})
 			chosenPod := pods.Items[0]
@@ -289,7 +302,6 @@ func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Clie
 			g.Expect(domain.Count).To(gomega.Equal(int32(1)))
 			chosenNodes = append(chosenNodes, domain.Values...)
 		}
-		slices.SortFunc(chosenNodes, strings.Compare)
 		g.Expect(chosenNodes).To(gomega.BeEquivalentTo(expectedNodes))
 	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 }
