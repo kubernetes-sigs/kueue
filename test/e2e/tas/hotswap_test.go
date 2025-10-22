@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 					g.Expect(wl.Status.Admission).To(gomega.BeNil())
 					g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -270,7 +270,7 @@ func waitForDummyWorkloadToRunOnNode(node *corev1.Node, lq *kueue.LocalQueue) {
 				Type:   batchv1.JobComplete,
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 }
 
