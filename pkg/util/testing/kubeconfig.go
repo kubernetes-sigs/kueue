@@ -22,29 +22,86 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
-func RestConfigToKubeConfig(restConfig *rest.Config) ([]byte, error) {
-	cfg := clientcmdapi.Config{
-		Kind:       "config",
-		APIVersion: "v1",
-		Clusters: map[string]*clientcmdapi.Cluster{
-			"default-cluster": {
-				Server:                   restConfig.Host,
-				CertificateAuthorityData: restConfig.CAData,
-			},
+type KubeConfigWrapper struct {
+	Config clientcmdapi.Config
+}
+
+func NewKubeConfigWrapper() *KubeConfigWrapper {
+	return &KubeConfigWrapper{
+		Config: clientcmdapi.Config{
+			Kind:       "config",
+			APIVersion: "v1",
+			Clusters:   map[string]*clientcmdapi.Cluster{},
+			AuthInfos:  map[string]*clientcmdapi.AuthInfo{},
+			Contexts:   map[string]*clientcmdapi.Context{},
 		},
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			"default-user": {
-				ClientCertificateData: restConfig.CertData,
-				ClientKeyData:         restConfig.KeyData,
-			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			"default-context": {
-				Cluster:  "default-cluster",
-				AuthInfo: "default-user",
-			},
-		},
-		CurrentContext: "default-context",
 	}
-	return clientcmd.Write(cfg)
+}
+
+func (k *KubeConfigWrapper) Cluster(name, server string, caData []byte) *KubeConfigWrapper {
+	k.Config.Clusters[name] = &clientcmdapi.Cluster{
+		Server:                   server,
+		CertificateAuthorityData: caData,
+	}
+	return k
+}
+
+func (k *KubeConfigWrapper) User(name string, certData, keyData []byte) *KubeConfigWrapper {
+	k.Config.AuthInfos[name] = &clientcmdapi.AuthInfo{
+		ClientCertificateData: certData,
+		ClientKeyData:         keyData,
+	}
+	return k
+}
+
+func (k *KubeConfigWrapper) Context(name, clusterName, userName string) *KubeConfigWrapper {
+	k.Config.Contexts[name] = &clientcmdapi.Context{
+		Cluster:  clusterName,
+		AuthInfo: userName,
+	}
+	return k
+}
+
+func (k *KubeConfigWrapper) CurrentContext(name string) *KubeConfigWrapper {
+	k.Config.CurrentContext = name
+	return k
+}
+
+func (k *KubeConfigWrapper) TokenAuthInfo(name, token string) *KubeConfigWrapper {
+	k.Config.AuthInfos[name].Token = token
+	return k
+}
+
+func (k *KubeConfigWrapper) TokenFileAuthInfo(name, tokenFilePath string) *KubeConfigWrapper {
+	k.Config.AuthInfos[name].TokenFile = tokenFilePath
+	return k
+}
+
+func (k *KubeConfigWrapper) InsecureSkipTLSVerify(clusterName string, skip bool) *KubeConfigWrapper {
+	k.Config.Clusters[clusterName].InsecureSkipTLSVerify = skip
+	return k
+}
+
+func (k *KubeConfigWrapper) CAFileCluster(clusterName, caFilePath string) *KubeConfigWrapper {
+	k.Config.Clusters[clusterName].CertificateAuthority = caFilePath
+	return k
+}
+
+func (k *KubeConfigWrapper) Clone() *KubeConfigWrapper {
+	return &KubeConfigWrapper{Config: *k.Config.DeepCopy()}
+}
+
+func (k *KubeConfigWrapper) Obj() clientcmdapi.Config {
+	return k.Config
+}
+
+func (k *KubeConfigWrapper) Build() ([]byte, error) {
+	return clientcmd.Write(k.Config)
+}
+
+func RestConfigToKubeConfig(restConfig *rest.Config) ([]byte, error) {
+	return NewKubeConfigWrapper().Cluster("default-cluster", restConfig.Host, restConfig.CAData).
+		User("default-user", restConfig.CertData, restConfig.KeyData).
+		Context("default-context", "default-cluster", "default-user").
+		CurrentContext("default-context").Build()
 }
