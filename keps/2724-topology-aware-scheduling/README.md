@@ -38,6 +38,9 @@
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
   - [Computing the assignment](#computing-the-assignment)
     - [Example](#example)
+    - [Selecting the algorithm](#selecting-the-algorithm)
+      - [Until v0.14](#until-v014)
+      - [Since v0.15](#since-v015)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
   - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
@@ -1033,7 +1036,7 @@ For a given PodSet Kueue:
 
 Kueue places pods on domains with different algorithms, depending on the annotation and chosen profile:
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
-- `BestFit` algorithm (default) - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
+- `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
 However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
 
 #### Example
@@ -1046,19 +1049,36 @@ algorithm optimizes the choice of the last node (domain) and selects the node th
 The `LeastFreeCapacity` algorithm iterates over the nodes in reverse order.
 Consequently, it selects the nodes with 1, 2, 3, and 3 available pods, reserving capacity for only 1 pod on the last node.
 
-Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation:
+#### Selecting the algorithm
+Selection of the algorithm depends on TAS profiles expressed by feature gates, and PodSet's annotation. 
 
-| featuregate/annotation                   | preferred         | required          | unconstrained     |
+The `TASProfile...` feature gates are mutually exclusive.
+
+Eventually, we plan to introduce TAS configuration allowing the user to select the desired algorithm, and then to remove the feature gates.
+
+##### Until v0.14
+Until v0.14, the available feature gates are as follows:
+
+| feature gate / annotation                | preferred         | required          | unconstrained     |
 | ---------------------------------------- | ----------------- | ----------------- | ----------------- |
 | None                                     | BestFit           | BestFit           | BestFit           |
 | TASProfileMixed (deprecated)             | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileLeastFreeCapacity (deprecated) | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
-Feature gates: `TASProfileMixed` and `TASProfileLeastFreeCapacity` are mutually exclusive.
+These reflect our general recommendation of `BestFit` for the topology-aware cases; however, `LeastFreeCapacity` remains an available option, especially for the `unconstrained` topology requests.
 
-We recommend the BestFit algorithm for most of use cases, however we give more flexibility to users with those experimental feature gates.
-Based on the collected feedback we will introduce TAS configuration that would allow user to select the desired algorithm.
-Eventually we'll remove the feature as they will be no longer need when we implement API for TAS configuration.
+##### Since v0.15
+Since v0.15, the available feature gates are as follows:
+
+| feature gate / annotation                  | preferred         | required          | unconstrained     |
+| ------------------------------------------ | ----------------- | ----------------- | ----------------- |
+| None <br/> or TASProfileMixed (deprecated) | BestFit           | BestFit           | LeastFreeCapacity |
+| TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
+| TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+
+Based on the user feedback, we decided to make `TASProfileMixed` default. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
+
+For users still preferring the "always BestFit" profile, we introduce the `TASProfileBestFit` feature gate, marking it as deprecated. We will remove it in v0.17 if we see no report indicating a need for that configuration.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
@@ -1483,4 +1503,3 @@ becomes apparent:
 **Reasons for discarding/deferring**
 Due to code simplicity concerns and a lack of use cases for the algorithm,
 the decision was made to remove it in favor of `BestFit`.
-

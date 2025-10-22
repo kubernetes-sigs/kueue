@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,15 +50,15 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			defaultRf = testing.MakeResourceFlavor("default").Obj()
+			defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 			util.MustCreate(ctx, k8sClient, defaultRf)
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas(defaultRf.Name).
+					*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 						Resource(corev1.ResourceCPU, "2").
 						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -117,19 +118,19 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			onDemandRF = testing.MakeResourceFlavor("on-demand").
+			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand").
 				NodeLabel("instance-type", "on-demand").Obj()
 			util.MustCreate(ctx, k8sClient, onDemandRF)
-			spotRF = testing.MakeResourceFlavor("spot").
+			spotRF = utiltestingapi.MakeResourceFlavor("spot").
 				NodeLabel("instance-type", "spot").Obj()
 			util.MustCreate(ctx, k8sClient, spotRF)
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
-					*testing.MakeFlavorQuotas("spot").
+					*utiltestingapi.MakeFlavorQuotas("spot").
 						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
@@ -139,7 +140,7 @@ var _ = ginkgo.Describe("TrainJob", func() {
 				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {

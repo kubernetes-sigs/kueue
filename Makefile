@@ -87,7 +87,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.14.0
+RELEASE_VERSION=v0.14.1
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -144,7 +144,7 @@ generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto
 generate-mocks: mockgen ## Generate mockgen mocks
 	# Clean up previously generated mocks to keep generated mocks up-to-date.
 	rm -rf $(MOCKS_DIR)
-	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy
+	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

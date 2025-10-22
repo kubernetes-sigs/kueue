@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 )
@@ -194,7 +195,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			}
 
 			kTrainJob := (*TrainJob)(tc.trainJob)
-			err = kTrainJob.RunWithPodSetsInfo(tc.podsetsInfo)
+			err = kTrainJob.RunWithPodSetsInfo(ctx, tc.podsetsInfo)
 			if err != nil {
 				if !tc.wantErr {
 					t.Errorf("unexpected RunWithPodSetsInfo() error: %v", err)
@@ -332,9 +333,9 @@ func TestReconciler(t *testing.T) {
 			trainJob:     testTrainJob.Clone().Obj(),
 			wantTrainJob: testTrainJob.Clone().Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
+				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
-						*utiltesting.MakePodSet("node", 1).
+						*utiltestingapi.MakePodSet("node", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobsetapi.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).

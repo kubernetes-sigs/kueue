@@ -29,23 +29,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 func makePassThroughWorkload(ns string) client.Object {
-	return testing.MakeWorkload("pass-through-wl", ns).Obj()
+	return utiltestingapi.MakeWorkload("pass-through-wl", ns).Obj()
 }
 
 func makePassThroughLocalQueue(ns string) client.Object {
-	return testing.MakeLocalQueue("pass-through-lq", ns).Obj()
+	return utiltestingapi.MakeLocalQueue("pass-through-lq", ns).Obj()
 }
 
 func makePassThroughClusterQueue(_ string) client.Object {
-	return testing.MakeClusterQueue("pass-through-cq").Obj()
+	return utiltestingapi.MakeClusterQueue("pass-through-cq").Obj()
 }
 
 func makePassThroughResourceFlavor(_ string) client.Object {
-	return testing.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
+	return utiltestingapi.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
 }
 
 func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {

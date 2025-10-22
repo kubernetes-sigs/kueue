@@ -458,17 +458,19 @@ metadata:
 spec:
   flavorFungibility:
     whenCanBorrow: TryNextFlavor
-    whenCanPreempt: Preempt
+    whenCanPreempt: MayStopSearch
 ```
 
 上述字段如下：
 
 - `whenCanBorrow` 确定是否应该停止寻找更好的分配，如果工作负载可以通过借用当前 ResourceFlavor 获得足够的资源。可能的值是：
-  - `Borrow`（默认）：ClusterQueue 停止寻找更好的分配。
+  - `MayStopSearch`（默认）：ClusterQueue 停止寻找更好的分配。
   - `TryNextFlavor`：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否可以获得更好的分配。
+  - `Borrow`（已弃用）。
 - `whenCanPreempt` 确定是否应该尝试预留当前 ResourceFlavor 中的工作负载，然后再尝试下一个。可能的值是：
-  - `Preempt`：ClusterQueue 停止尝试预留当前 ResourceFlavor 并从下一个开始，如果预留失败。
+  - `MayStopSearch`：ClusterQueue 停止尝试预留当前 ResourceFlavor 并从下一个开始，如果预留失败。
   - `TryNextFlavor`（默认）：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否适合 ResourceFlavor。
+  - `Preempt`（已弃用）。
 
 默认情况下，新进入的工作负载停止尝试下一个风味，如果工作负载可以获得足够的借用资源。
 并且 Kueue 仅在 Kueue 确定剩余 ResourceFlavors 无法适应工作负载时触发预留。

@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 
@@ -89,7 +90,8 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			pod := FromObject(tc.pod)
-			got := pod.PodsReady()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got := pod.PodsReady(ctx)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -141,7 +143,7 @@ func TestPodSets(t *testing.T) {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						Obj(),
 				}
@@ -155,7 +157,7 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						RequiredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -171,7 +173,7 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -187,7 +189,7 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						Obj(),
 				}
@@ -201,7 +203,7 @@ func TestPodSets(t *testing.T) {
 			),
 			wantPodSets: func(pod *Pod) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						Obj(),
 				}
@@ -212,7 +214,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := tc.pod.PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := tc.pod.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -282,7 +285,7 @@ func TestReconciler(t *testing.T) {
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
+				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -299,12 +302,12 @@ func TestReconciler(t *testing.T) {
 				Annotation(kueue.WorkloadAnnotation, "unit-test").
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
-							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Obj()).
 							Obj(),
@@ -313,12 +316,12 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
-							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Obj()).
 							Obj(),
@@ -344,9 +347,9 @@ func TestReconciler(t *testing.T) {
 				Obj()},
 			wantPods: nil,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Obj(),
@@ -384,9 +387,9 @@ func TestReconciler(t *testing.T) {
 				Queue("test-queue").
 				Obj()},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -440,8 +443,8 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Condition(metav1.Condition{
@@ -454,8 +457,8 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Condition(metav1.Condition{
@@ -492,17 +495,17 @@ func TestReconciler(t *testing.T) {
 				StatusMessage("Job finished successfully").
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -546,17 +549,17 @@ func TestReconciler(t *testing.T) {
 				StatusMessage("Job finished successfully").
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -595,15 +598,15 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -640,7 +643,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl", "ns").
+				*utiltestingapi.MakeWorkload("wl", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
@@ -713,9 +716,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -769,9 +772,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -839,9 +842,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet("dc85db45", 2).
+						*utiltestingapi.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -890,9 +893,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet("dc85db45", 2).
+						*utiltestingapi.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -927,9 +930,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet("dc85db45", 2).
+						*utiltestingapi.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -993,9 +996,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -1007,9 +1010,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -1024,7 +1027,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"scheduling gate is removed for all pods in the group if workload is admitted": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
+				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -1069,13 +1072,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
-							PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								Obj()).
@@ -1085,17 +1088,17 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
-							PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								Obj()).
@@ -1159,28 +1162,28 @@ func TestReconciler(t *testing.T) {
 			},
 
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Admitted(true).
@@ -1227,28 +1230,28 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1286,15 +1289,15 @@ func TestReconciler(t *testing.T) {
 				GroupTotalCount("2").
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1305,15 +1308,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1369,8 +1372,8 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1384,8 +1387,8 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1422,15 +1425,15 @@ func TestReconciler(t *testing.T) {
 			},
 
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    "Finished",
@@ -1447,15 +1450,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    "Finished",
@@ -1552,14 +1555,14 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Queue("test-queue").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
-							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								Obj()).
@@ -1626,16 +1629,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1646,16 +1649,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1715,14 +1718,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1769,14 +1772,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj()).
 					ReclaimablePods(kueue.ReclaimablePod{
 						Name:  kueue.NewPodSetReference(podUID),
 						Count: 1,
@@ -1860,14 +1863,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1875,14 +1878,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1929,15 +1932,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -1956,14 +1959,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -2008,15 +2011,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -2035,15 +2038,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
@@ -2132,12 +2135,12 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("incorrect-role-name", 1).Request(corev1.ResourceCPU, "1").Obj()).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet("incorrect-role-name", 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
-							PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								Obj()).
@@ -2147,9 +2150,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").
 							NodeName("test-node").
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 							Obj(),
@@ -2212,16 +2215,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2232,16 +2235,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2275,17 +2278,17 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("absent-pod-role", 1).
+						*utiltestingapi.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -2297,17 +2300,17 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("absent-pod-role", 1).
+						*utiltestingapi.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -2402,9 +2405,9 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Request(corev1.ResourceCPU, "1").
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -2536,13 +2539,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("a119f908", 1).
+						*utiltestingapi.MakePodSet("a119f908", 1).
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2550,7 +2553,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2561,13 +2564,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("a119f908", 1).
+						*utiltestingapi.MakePodSet("a119f908", 1).
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2575,7 +2578,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2663,13 +2666,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("4ebdd4a6", 1).
+						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2677,7 +2680,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2688,18 +2691,18 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("4ebdd4a6", 1).
+						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -2781,13 +2784,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("4ebdd4a6", 1).
+						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2795,7 +2798,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2806,18 +2809,18 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("4ebdd4a6", 1).
+						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -2867,9 +2870,9 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -2951,9 +2954,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2964,9 +2967,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3020,17 +3023,17 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("aaf269e6", 1).
+						*utiltestingapi.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -3042,17 +3045,17 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("aaf269e6", 1).
+						*utiltestingapi.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -3141,26 +3144,26 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -3222,9 +3225,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3232,14 +3235,14 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3247,7 +3250,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -3310,9 +3313,9 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -3373,13 +3376,13 @@ func TestReconciler(t *testing.T) {
 		"finalize workload for non existent pod": {
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
 					Obj(),
 			},
@@ -3441,16 +3444,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3461,9 +3464,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3471,7 +3474,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement-for-pod1", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3559,9 +3562,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3586,9 +3589,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3656,9 +3659,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3680,9 +3683,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3842,9 +3845,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3853,7 +3856,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3864,9 +3867,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3877,7 +3880,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3965,30 +3968,30 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4078,16 +4081,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4098,9 +4101,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4108,7 +4111,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4143,9 +4146,9 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "keyAbsentInThePod"}),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -4202,9 +4205,9 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
@@ -4302,7 +4305,7 @@ func TestReconciler(t *testing.T) {
 				Obj()},
 			wantPods: nil,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
@@ -4319,7 +4322,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Test message.",
 					}).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -4327,12 +4330,12 @@ func TestReconciler(t *testing.T) {
 					Queue("user-queue").
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(false).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
@@ -4349,7 +4352,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Test message.",
 					}).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -4357,7 +4360,7 @@ func TestReconciler(t *testing.T) {
 					Queue("user-queue").
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(false).
 					Obj(),
 			},
@@ -4393,7 +4396,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
@@ -4405,7 +4408,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
 					}).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -4414,13 +4417,13 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(false).
 					Obj(),
 			},
 			wantPods: nil,
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
@@ -4432,7 +4435,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
 					}).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -4441,7 +4444,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					Admitted(false).
 					Obj(),
 			},
@@ -4500,9 +4503,9 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4510,7 +4513,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4539,9 +4542,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4550,7 +4553,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4594,16 +4597,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4630,16 +4633,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4669,16 +4672,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4705,16 +4708,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4751,16 +4754,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -4788,16 +4791,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4834,16 +4837,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -4877,16 +4880,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -4931,16 +4934,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -4979,16 +4982,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -5030,16 +5033,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5080,16 +5083,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5133,16 +5136,16 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5175,16 +5178,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5219,9 +5222,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Obj(),
 			},
@@ -5260,9 +5263,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -5314,9 +5317,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					Obj(),
@@ -5356,9 +5359,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -5410,9 +5413,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -5453,9 +5456,9 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -5503,15 +5506,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Active(false).
 					Condition(metav1.Condition{
@@ -5524,15 +5527,15 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 					PastAdmittedTime(1).
 					Active(false).
 					Condition(metav1.Condition{
@@ -5697,9 +5700,9 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		StatusMessage("Job finished successfully").
 		Obj()
 
-	wl := *utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+	wl := *utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 		Admitted(true).
 		Obj()
 
@@ -5780,9 +5783,9 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 
 	// Workload should be finished after the second reconcile
-	wantWl := *utiltesting.MakeWorkload("unit-test", "ns").
-		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-		ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+	wantWl := *utiltestingapi.MakeWorkload("unit-test", "ns").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 		Admitted(true).
 		Condition(
@@ -5915,9 +5918,9 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 			Obj(),
 	}
 
-	wl := *utiltesting.MakeWorkload("test-group", "ns").
+	wl := *utiltestingapi.MakeWorkload("test-group", "ns").
 		PodSets(
-			*utiltesting.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+			*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).
@@ -5925,7 +5928,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "excessPod", "test-uid").
-		ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
+		ReserveQuota(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj()).
 		Admitted(true).
 		Obj()
 

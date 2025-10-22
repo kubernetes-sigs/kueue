@@ -146,11 +146,6 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	return j
 }
 
-// QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
-func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
-	return j.SetAnnotation(constants.QueueAnnotation, queue)
-}
-
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	j.Annotations[key] = content
 	return j

@@ -1449,10 +1449,10 @@ before borrowing or preempting in current flavor.</p>
    <p>whenCanBorrow determines whether a workload should try the next flavor
 before borrowing in current flavor. The possible values are:</p>
 <ul>
-<li><code>Borrow</code> (default): allocate in current flavor if borrowing
-is possible.</li>
-<li><code>TryNextFlavor</code>: try next flavor even if the current
-flavor has enough resources to borrow.</li>
+<li><code>MayStopSearch</code> (default): stop the search for candidate flavors if workload
+fits or requires borrowing to fit.</li>
+<li><code>TryNextFlavor</code>: try next flavor if workload requires borrowing to fit.</li>
+<li><code>Borrow</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1463,9 +1463,11 @@ flavor has enough resources to borrow.</li>
    <p>whenCanPreempt determines whether a workload should try the next flavor
 before borrowing in current flavor. The possible values are:</p>
 <ul>
-<li><code>Preempt</code>: allocate in current flavor if it's possible to preempt some workloads.</li>
-<li><code>TryNextFlavor</code> (default): try next flavor even if there are enough
-candidates for preemption in the current flavor.</li>
+<li><code>MayStopSearch</code>: stop the search for candidate flavors if workload fits or requires
+preemption to fit.</li>
+<li><code>TryNextFlavor</code> (default): try next flavor if workload requires preemption
+to fit in current flavor.</li>
+<li><code>Preempt</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -3272,7 +3274,7 @@ succeeded.</li>
 </ul>
 </td>
 </tr>
-<tr><td><code>admission</code> <B>[Required]</B><br/>
+<tr><td><code>admission</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-Admission"><code>Admission</code></a>
 </td>
 <td>

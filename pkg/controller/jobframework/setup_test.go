@@ -42,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestSetupControllers(t *testing.T) {
@@ -228,10 +229,10 @@ func TestSetupIndexes(t *testing.T) {
 	}{
 		"proper indexes are set": {
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
+				*utiltestingapi.MakeWorkload("alpha-wl", testNamespace).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha", "job").
 					Obj(),
-				*utiltesting.MakeWorkload("beta-wl", testNamespace).
+				*utiltestingapi.MakeWorkload("beta-wl", testNamespace).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "beta", "job").
 					Obj(),
 			},
@@ -243,10 +244,10 @@ func TestSetupIndexes(t *testing.T) {
 		},
 		"kubeflow.org/mpijob is disabled in the configAPI": {
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
+				*utiltestingapi.MakeWorkload("alpha-wl", testNamespace).
 					ControllerReference(kfmpi.SchemeGroupVersionKind, "alpha", "mpijob").
 					Obj(),
-				*utiltesting.MakeWorkload("beta-wl", testNamespace).
+				*utiltestingapi.MakeWorkload("beta-wl", testNamespace).
 					ControllerReference(kfmpi.SchemeGroupVersionKind, "beta", "mpijob").
 					Obj(),
 			},

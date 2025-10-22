@@ -266,7 +266,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if jws, implements := job.(JobWithSkip); implements {
-		if jws.Skip() {
+		if jws.Skip(ctx) {
 			return ctrl.Result{}, nil
 		}
 	}
@@ -357,7 +357,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted.
 	if !isTopLevelJob {
-		_, _, finished := job.Finished()
+		_, _, finished := job.Finished(ctx)
 		if !finished && !job.IsSuspended() {
 			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
@@ -409,6 +409,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	if jobact, ok := job.(JobWithCustomWorkloadActivation); wl != nil && ok {
+		active := jobact.IsWorkloadActive()
+		if workload.IsActive(wl) != active {
+			wl.Spec.Active = ptr.To(active)
+			if err := r.client.Update(ctx, wl); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
@@ -433,7 +443,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 2. handle job is finished.
-	if message, success, finished := job.Finished(); finished {
+	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
 		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
@@ -477,7 +487,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 4. update reclaimable counts if implemented by the job
 	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable {
 		log.V(3).Info("update reclaimable counts if implemented by the job")
-		reclPods, err := jobRecl.ReclaimablePods()
+		reclPods, err := jobRecl.ReclaimablePods(ctx)
 		if err != nil {
 			log.Error(err, "Getting reclaimable pods")
 			return ctrl.Result{}, err
@@ -497,7 +507,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(log, job, wl, r.clock)
+		condition := generatePodsReadyCondition(ctx, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
 			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
@@ -588,8 +598,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 			return ctrl.Result{}, err
 		}
-		// update workload priority if job's label changed
-		if WorkloadPriorityClassName(object) != wl.Spec.PriorityClassName {
+		// Update workload priority if job's label changed.
+		if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && WorkloadPriorityClassName(object) != wl.Spec.PriorityClassName {
 			log.V(2).Info("Job changed priority, updating workload", "oldPriority", wl.Spec.PriorityClassName, "newPriority", WorkloadPriorityClassName(object))
 			if _, err = r.updateWorkloadToMatchJob(ctx, job, object, wl); err != nil {
 				log.Error(err, "Updating workload priority")
@@ -826,7 +836,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if workloadSliceEnabled(job) {
-		podSets, err := job.PodSets()
+		podSets, err := job.PodSets(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
 		}
@@ -880,7 +890,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			w = toDelete[0]
 		}
 
-		if _, _, finished := job.Finished(); !finished {
+		if _, _, finished := job.Finished(ctx); !finished {
 			var msg string
 			if w == nil {
 				msg = "Missing Workload; unable to restore pod templates"
@@ -1044,7 +1054,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
-	getPodSets, err := job.PodSets()
+	getPodSets, err := job.PodSets(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -1097,7 +1107,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}
 	} else {
 		if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
-			return object, true, job.RunWithPodSetsInfo(info)
+			return object, true, job.RunWithPodSetsInfo(ctx, info)
 		}); err != nil {
 			return err
 		}
@@ -1191,7 +1201,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
 
-	podSets, err := job.PodSets()
+	podSets, err := job.PodSets(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1381,7 +1391,8 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
+func generatePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
+	log := ctrl.LoggerFrom(ctx)
 	const (
 		notReadyMsg           = "Not all pods are ready or succeeded"
 		waitingForRecoveryMsg = "At least one pod has failed, waiting for recovery"
@@ -1397,7 +1408,7 @@ func generatePodsReadyCondition(log logr.Logger, job GenericJob, wl *kueue.Workl
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
-	podsReady := job.PodsReady()
+	podsReady := job.PodsReady(ctx)
 	log.V(3).Info("Generating PodsReady condition",
 		"Current PodsReady condition", podsReadyCond,
 		"Pods are ready", podsReady)

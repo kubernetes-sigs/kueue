@@ -43,7 +43,6 @@ import (
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/logging"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -444,36 +443,34 @@ func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Se
 	return resPerFlavor
 }
 
+func findCandidatesForPolicy(wl *kueue.Workload, workloadsToFilter map[workload.Reference]*workload.Info, policy kueue.PreemptionPolicy, frsNeedPreemption sets.Set[resources.FlavorResource], workloadOrdering workload.Ordering) []*workload.Info {
+	var candidates []*workload.Info
+	for _, candidateWl := range workloadsToFilter {
+		if !preemptioncommon.SatisfiesPreemptionPolicy(
+			wl,
+			candidateWl.Obj,
+			workloadOrdering,
+			policy) {
+			continue
+		}
+
+		if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
+			continue
+		}
+		candidates = append(candidates, candidateWl)
+	}
+	return candidates
+}
+
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
 func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) []*workload.Info {
 	var candidates []*workload.Info
-	wlPriority := priority.Priority(wl)
-	preemptorTS := p.workloadOrdering.GetQueueOrderTimestamp(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
-		for _, candidateWl := range cq.Workloads {
-			candidatePriority := priority.Priority(candidateWl.Obj)
-			switch cq.Preemption.WithinClusterQueue {
-			case kueue.PreemptionPolicyLowerPriority:
-				if candidatePriority >= wlPriority {
-					continue
-				}
-			case kueue.PreemptionPolicyLowerOrNewerEqualPriority:
-				if candidatePriority > wlPriority {
-					continue
-				}
-				if candidatePriority == wlPriority && !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
-					continue
-				}
-			}
-
-			if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
-				continue
-			}
-			candidates = append(candidates, candidateWl)
-		}
+		newCandidates := findCandidatesForPolicy(wl, cq.Workloads, cq.Preemption.WithinClusterQueue, frsNeedPreemption, p.workloadOrdering)
+		candidates = append(candidates, newCandidates...)
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
@@ -482,26 +479,8 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *schdcache.ClusterQueu
 				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
 			}
-			for _, candidateWl := range cohortCQ.Workloads {
-				candidatePriority := priority.Priority(candidateWl.Obj)
-				switch cq.Preemption.ReclaimWithinCohort {
-				case kueue.PreemptionPolicyLowerPriority:
-					if candidatePriority >= wlPriority {
-						continue
-					}
-				case kueue.PreemptionPolicyLowerOrNewerEqualPriority:
-					if candidatePriority > wlPriority {
-						continue
-					}
-					if candidatePriority == wlPriority && !preemptorTS.Before(p.workloadOrdering.GetQueueOrderTimestamp(candidateWl.Obj)) {
-						continue
-					}
-				}
-				if !classical.WorkloadUsesResources(candidateWl, frsNeedPreemption) {
-					continue
-				}
-				candidates = append(candidates, candidateWl)
-			}
+			newCandidates := findCandidatesForPolicy(wl, cohortCQ.Workloads, cq.Preemption.ReclaimWithinCohort, frsNeedPreemption, p.workloadOrdering)
+			candidates = append(candidates, newCandidates...)
 		}
 	}
 	return candidates

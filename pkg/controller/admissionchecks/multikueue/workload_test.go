@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
@@ -70,7 +71,7 @@ func TestWlReconcile(t *testing.T) {
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 
-	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false)
 	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
@@ -149,13 +150,13 @@ func TestWlReconcile(t *testing.T) {
 				baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
@@ -171,7 +172,7 @@ func TestWlReconcile(t *testing.T) {
 				baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 		},
@@ -328,7 +329,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			useSecondWorker:      true,
@@ -339,7 +340,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
@@ -357,7 +358,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
@@ -372,7 +373,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					NominatedClusterNames("worker1", "worker2").
 					Obj(),
 			},
@@ -394,7 +395,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -404,7 +405,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			useSecondWorker:      true,
@@ -418,7 +419,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -427,7 +428,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker2Workloads: []kueue.Workload{
@@ -443,7 +444,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -453,7 +454,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -471,7 +472,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -482,7 +483,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -507,7 +508,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -517,7 +518,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -535,7 +536,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -546,7 +547,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -572,7 +573,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -582,7 +583,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
@@ -600,7 +601,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -611,7 +612,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -641,7 +642,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -659,7 +660,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
@@ -670,7 +671,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -683,7 +684,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -712,7 +713,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -730,7 +731,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
@@ -741,7 +742,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -752,7 +753,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -781,7 +782,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -799,7 +800,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
@@ -811,7 +812,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
@@ -824,7 +825,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
@@ -845,7 +846,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
@@ -863,7 +864,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
@@ -875,7 +876,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
@@ -888,7 +889,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
@@ -909,7 +910,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
@@ -930,7 +931,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
@@ -942,7 +943,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
@@ -964,7 +965,7 @@ func TestWlReconcile(t *testing.T) {
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
@@ -976,7 +977,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 		},
@@ -992,7 +993,7 @@ func TestWlReconcile(t *testing.T) {
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
@@ -1004,7 +1005,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `Reserving remote lost`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 		},
@@ -1037,7 +1038,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
@@ -1058,7 +1059,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker2"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -1067,7 +1068,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
 					Obj(),
 			},
@@ -1080,7 +1081,7 @@ func TestWlReconcile(t *testing.T) {
 			worker2Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Minute)). // one minute ago
 					Obj(),
 			},
@@ -1097,7 +1098,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -1107,7 +1108,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -1138,7 +1139,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
 						Status: metav1.ConditionTrue,
@@ -1153,7 +1154,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
 					Obj(),
 			},
@@ -1173,7 +1174,7 @@ func TestWlReconcile(t *testing.T) {
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadFinished,
@@ -1188,7 +1189,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -1219,7 +1220,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
 					Obj(),
 			},
@@ -1272,7 +1273,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
 					Obj(),
 			},
@@ -1302,7 +1303,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -1322,13 +1323,13 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					PodSets(*utiltesting.MakePodSet("different-name", 1).Obj()).
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -1338,7 +1339,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
 					Obj(),
 			},
@@ -1353,13 +1354,13 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					PodSets(*utiltesting.MakePodSet("different-name", 1).Obj()).
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateRetry,
 						Message: "Reserving remote lost",
 					}).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -1383,7 +1384,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -1393,8 +1394,8 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(now.Add(-time.Hour)). // one hour ago
 					Obj(),
 			},
@@ -1414,7 +1415,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					ClusterName("worker1").
 					Obj(),
 			},
@@ -1424,7 +1425,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
@@ -1461,8 +1462,8 @@ func TestWlReconcile(t *testing.T) {
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
 			managerBuilder = managerBuilder.WithObjects(
-				utiltesting.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
-				utiltesting.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			)

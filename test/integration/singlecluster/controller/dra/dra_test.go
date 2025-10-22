@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -31,6 +30,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			resourceFlavor = utiltesting.MakeResourceFlavor("").Obj()
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
 			resourceFlavor.GenerateName = "rf-"
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
-			localQueue = utiltesting.MakeLocalQueue("test-lq", ns.Name).
+			localQueue = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
@@ -103,11 +103,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", func() {
 			ginkgo.By("Creating a ResourceClaim")
-			rc := makeResourceClaim("test-rc", ns.Name, "foo.example.com", 2)
+			rc := utiltesting.MakeResourceClaim("test-rc", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with DRA resource claim")
-			wl := utiltesting.MakeWorkload("test-wl", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -134,11 +136,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle workload with insufficient DRA quota", func() {
 			ginkgo.By("Creating a ResourceClaim that exceeds quota")
-			rc := makeResourceClaim("test-rc-large", ns.Name, "foo.example.com", 15)
+			rc := utiltesting.MakeResourceClaim("test-rc-large", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 15).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rc)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with large DRA resource claim")
-			wl := utiltesting.MakeWorkload("test-wl-large", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-large", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -159,52 +163,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle multiple workloads sharing DRA quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplates")
-			rct1 := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "quota-template-1",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           4,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct1 := utiltesting.MakeResourceClaimTemplate("quota-template-1", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 4).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct1)).To(gomega.Succeed())
 
-			rct2 := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "quota-template-2",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           4,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct2 := utiltesting.MakeResourceClaimTemplate("quota-template-2", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 4).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct2)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload")
-			wl1 := utiltesting.MakeWorkload("test-wl-1", ns.Name).
+			wl1 := utiltestingapi.MakeWorkload("test-wl-1", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -219,7 +189,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
 
 			ginkgo.By("Creating second workload")
-			wl2 := utiltesting.MakeWorkload("test-wl-2", ns.Name).
+			wl2 := utiltestingapi.MakeWorkload("test-wl-2", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -265,30 +235,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should admit workload with DRA resource claim templates", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "device-template",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           2,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct := utiltesting.MakeResourceClaimTemplate("device-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload that references the ResourceClaimTemplate")
-			wl := utiltesting.MakeWorkload("test-wl-template", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-template", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -318,52 +271,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle multiple workloads with ResourceClaimTemplates", func() {
 			ginkgo.By("Creating ResourceClaimTemplates")
-			rct1 := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "device-template-1",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           3,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct1 := utiltesting.MakeResourceClaimTemplate("device-template-1", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 3).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct1)).To(gomega.Succeed())
 
-			rct2 := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "device-template-2",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           3,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct2 := utiltesting.MakeResourceClaimTemplate("device-template-2", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 3).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct2)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload with ResourceClaimTemplate")
-			wl1 := utiltesting.MakeWorkload("test-wl-template-1", ns.Name).
+			wl1 := utiltestingapi.MakeWorkload("test-wl-template-1", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl1.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -378,7 +297,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
 
 			ginkgo.By("Creating second workload with ResourceClaimTemplate")
-			wl2 := utiltesting.MakeWorkload("test-wl-template-2", ns.Name).
+			wl2 := utiltestingapi.MakeWorkload("test-wl-template-2", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl2.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -424,30 +343,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle ResourceClaimTemplate with insufficient quota", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate that exceeds quota")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "device-template-large",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           12,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct := utiltesting.MakeResourceClaimTemplate("device-template-large", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 12).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload that references the large ResourceClaimTemplate")
-			wl := utiltesting.MakeWorkload("test-wl-template-large", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-template-large", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -471,30 +373,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle unmapped device classes with proper error", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with unmapped device class")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "unmapped-template",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "unmapped.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           2,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct := utiltesting.MakeResourceClaimTemplate("unmapped-template", ns.Name).
+				DeviceRequest("device-request", "unmapped.example.com", 2).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a workload with unmapped device class")
-			wl := utiltesting.MakeWorkload("test-wl-unmapped", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-unmapped", ns.Name).
 				Queue("test-lq").
 				Obj()
 			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -557,30 +442,13 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should handle multi-pod workloads with correct DRA resource calculation", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate")
-			rct := &resourcev1beta2.ResourceClaimTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "multi-pod-template",
-					Namespace: ns.Name,
-				},
-				Spec: resourcev1beta2.ResourceClaimTemplateSpec{
-					Spec: resourcev1beta2.ResourceClaimSpec{
-						Devices: resourcev1beta2.DeviceClaim{
-							Requests: []resourcev1beta2.DeviceRequest{{
-								Name: "device-request",
-								Exactly: &resourcev1beta2.ExactDeviceRequest{
-									DeviceClassName: "foo.example.com",
-									AllocationMode:  resourcev1beta2.DeviceAllocationModeExactCount,
-									Count:           1,
-								},
-							}},
-						},
-					},
-				},
-			}
+			rct := utiltesting.MakeResourceClaimTemplate("multi-pod-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 1).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
 
 			ginkgo.By("Creating a multi-pod workload (parallelism: 3)")
-			wl := utiltesting.MakeWorkload("test-wl-multi-pod", ns.Name).
+			wl := utiltestingapi.MakeWorkload("test-wl-multi-pod", ns.Name).
 				Queue("test-lq").
 				Obj()
 

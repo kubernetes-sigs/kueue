@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
 
@@ -106,7 +107,8 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			jobSet := (JobSet)(tc.jobSet)
-			got := jobSet.PodsReady()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got := jobSet.PodsReady(ctx)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -188,8 +190,9 @@ func TestReclaimablePods(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			jobSet := (*JobSet)(tc.jobSet)
-			got, err := jobSet.ReclaimablePods()
+			got, err := jobSet.ReclaimablePods(ctx)
 			if err != nil {
 				t.Fatalf("Unexpected error: %s", err)
 			}
@@ -217,10 +220,10 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
 				}
@@ -244,7 +247,7 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 						RequiredTopologyRequest("cloud.com/block").
@@ -252,7 +255,7 @@ func TestPodSets(t *testing.T) {
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 						SubGroupCount(ptr.To[int32](2)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
@@ -279,13 +282,13 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 						SubGroupCount(ptr.To[int32](2)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
@@ -323,14 +326,14 @@ func TestPodSets(t *testing.T) {
 				Obj()),
 			wantPodSets: func(jobSet *JobSet) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[0].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.DeepCopy()).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 2).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[1].Name), 2).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.DeepCopy()).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[2].Name), 6).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(jobSet.Spec.ReplicatedJobs[2].Name), 6).
 						PodSpec(*jobSet.Spec.ReplicatedJobs[2].Template.Spec.Template.Spec.DeepCopy()).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
@@ -342,7 +345,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := tc.jobSet.PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := tc.jobSet.PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %s", err)
 			}
@@ -369,7 +373,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
-	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
+	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
 	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
 		PriorityValue(200)
@@ -426,15 +430,15 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("jobset", "ns").
+				*utiltestingapi.MakeWorkload("jobset", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).
+						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
 							Obj(),
-						*utiltesting.MakePodSet("replicated-job-2", 4).
+						*utiltestingapi.MakePodSet("replicated-job-2", 4).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](2)).
@@ -468,12 +472,12 @@ func TestReconciler(t *testing.T) {
 				},
 			).WorkloadPriorityClass("test-wpc").Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("jobset", "ns").
+				*utiltestingapi.MakeWorkload("jobset", "ns").
 					PriorityClass("test-wpc").
 					Priority(100).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).
+						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
@@ -507,12 +511,12 @@ func TestReconciler(t *testing.T) {
 				},
 			).PriorityClass("test-pc").Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("jobset", "ns").
+				*utiltestingapi.MakeWorkload("jobset", "ns").
 					PriorityClass("test-pc").
 					Priority(200).
 					PriorityClassSource(constants.PodPriorityClassSource).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).
+						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).
@@ -546,12 +550,12 @@ func TestReconciler(t *testing.T) {
 				},
 			).PriorityClass("test-pc").WorkloadPriorityClass("test-wpc").Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("jobset", "ns").
+				*utiltestingapi.MakeWorkload("jobset", "ns").
 					PriorityClass("test-wpc").
 					Priority(100).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					PodSets(
-						*utiltesting.MakePodSet("replicated-job-1", 1).
+						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
 							SubGroupCount(ptr.To[int32](1)).

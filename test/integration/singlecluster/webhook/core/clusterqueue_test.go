@@ -31,9 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -45,7 +45,7 @@ const (
 var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+			managerSetup(ctx, mgr)
 		})
 	})
 	ginkgo.AfterAll(func() {
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 	})
 	var ns *corev1.Namespace
 	defaultFlavorFungibility := &kueue.FlavorFungibility{
-		WhenCanBorrow:  kueue.Borrow,
+		WhenCanBorrow:  kueue.MayStopSearch,
 		WhenCanPreempt: kueue.TryNextFlavor,
 	}
 
@@ -172,8 +172,8 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 
 		ginkgo.It("Should have qualified flavor names when updating", func() {
 			ginkgo.By("Creating a new clusterQueue")
-			cq := testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
+			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
 
@@ -191,9 +191,9 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 
 		ginkgo.It("Should allow to update queueingStrategy with different value", func() {
 			ginkgo.By("Creating a new clusterQueue")
-			cq := testing.MakeClusterQueue("cluster-queue").
+			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				QueueingStrategy(kueue.StrictFIFO).
-				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
 
@@ -228,155 +228,155 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 			}
 		},
 			ginkgo.Entry("Should have non-negative borrowing limit",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "2", "-1").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "2", "-1").Obj()).
 					Cohort("cohort").
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should have non-negative quota value",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should have at least one flavor",
-				testing.MakeClusterQueue("cluster-queue").ResourceGroup().Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").ResourceGroup().Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should have at least one resource",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("foo").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("foo").Obj()).
 					Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should have qualified flavor name",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("invalid_name").Resource(corev1.ResourceCPU, "5").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("invalid_name").Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should have qualified resource name",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource("@cpu", "5").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource("@cpu", "5").Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should have valid resources quantity",
 				func() *kueue.ClusterQueue {
-					flvQuotas := testing.MakeFlavorQuotas("flavor")
+					flvQuotas := utiltestingapi.MakeFlavorQuotas("flavor")
 					for i := range resourcesMaxItems + 1 {
 						flvQuotas = flvQuotas.Resource(corev1.ResourceName(fmt.Sprintf("r%d", i)))
 					}
-					return testing.MakeClusterQueue("cluster-queue").ResourceGroup(*flvQuotas.Obj()).Obj()
+					return utiltestingapi.MakeClusterQueue("cluster-queue").ResourceGroup(*flvQuotas.Obj()).Obj()
 				}(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should have valid flavors quantity",
 				func() *kueue.ClusterQueue {
 					flavors := make([]kueue.FlavorQuotas, flavorsMaxItems+1)
 					for i := range flavors {
-						flavors[i] = *testing.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+						flavors[i] = *utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
 							Resource(corev1.ResourceCPU).
 							Obj()
 					}
-					return testing.MakeClusterQueue("cluster-queue").ResourceGroup(flavors...).Obj()
+					return utiltestingapi.MakeClusterQueue("cluster-queue").ResourceGroup(flavors...).Obj()
 				}(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should forbid clusterQueue creation with unqualified labelSelector",
-				testing.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
+				utiltestingapi.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
 					MatchLabels: map[string]string{"nospecialchars^=@": "bar"},
 				}).Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with unknown clusterQueueingStrategy",
-				testing.MakeClusterQueue("cluster-queue").QueueingStrategy(kueue.QueueingStrategy("unknown")).Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy(kueue.QueueingStrategy("unknown")).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with empty clusterQueueingStrategy",
-				testing.MakeClusterQueue("cluster-queue").QueueingStrategy(kueue.QueueingStrategy("")).Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").QueueingStrategy(kueue.QueueingStrategy("")).Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with empty preemption",
-				testing.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{}).Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{}).Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with preemption policies",
-				testing.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{
+				utiltestingapi.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				}).FlavorFungibility(*defaultFlavorFungibility).Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with unknown preemption.withinCohort",
-				testing.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: "unknown"}).Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: "unknown"}).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with unknown preemption.withinClusterQueue",
-				testing.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: "unknown"}).Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: "unknown"}).Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with built-in resources with qualified names",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with invalid resource name",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("default").Resource("@cpu").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("@cpu").Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should allow to create clusterQueue with valid cohort",
-				testing.MakeClusterQueue("cluster-queue").Cohort("prod").Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").Cohort("prod").Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with invalid cohort",
-				testing.MakeClusterQueue("cluster-queue").Cohort("@prod").Obj(),
+				utiltestingapi.MakeClusterQueue("cluster-queue").Cohort("@prod").Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with extended resources with qualified names",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("default").Resource("example.com/gpu").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu").Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with flavor with qualified names",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU).Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU).Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor with unqualified names",
-				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("invalid_name").Obj()).
+				utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("invalid_name").Obj()).
 					Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor quota with negative value",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
+						*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should allow to create clusterQueue with flavor quota with zero values",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "0").Obj()).
+						*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "0").Obj()).
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with flavor quota with borrowingLimit 0",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "0").Obj()).
+						*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "0").Obj()).
 					Cohort("cohort").
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor quota with negative borrowingLimit",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "-1").Obj()).
+						*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "-1").Obj()).
 					Cohort("cohort").
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor quota with borrowingLimit and empty cohort",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "1").Obj()).
+						*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "1", "1").Obj()).
 					Obj(),
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with empty queueing strategy",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					QueueingStrategy("").
 					Obj(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with namespaceSelector with invalid labels",
-				testing.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
+				utiltestingapi.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
 					MatchLabels: map[string]string{"nospecialchars^=@": "bar"},
 				}).Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with namespaceSelector with invalid expressions",
-				testing.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
+				utiltestingapi.MakeClusterQueue("cluster-queue").NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
 							Key:      "key",
@@ -386,22 +386,22 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 				}).Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should allow to create clusterQueue with multiple resource groups",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("alpha").
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource(corev1.ResourceCPU, "0").
 							Resource(corev1.ResourceMemory, "0").
 							Obj(),
-						*testing.MakeFlavorQuotas("beta").
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource(corev1.ResourceCPU, "0").
 							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 					).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("gamma").
+						*utiltestingapi.MakeFlavorQuotas("gamma").
 							Resource("example.com/gpu", "0").
 							Obj(),
-						*testing.MakeFlavorQuotas("omega").
+						*utiltestingapi.MakeFlavorQuotas("omega").
 							Resource("example.com/gpu", "0").
 							Obj(),
 					).
@@ -417,11 +417,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 							{
 								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 								Flavors: []kueue.FlavorQuotas{
-									*testing.MakeFlavorQuotas("alpha").
+									*utiltestingapi.MakeFlavorQuotas("alpha").
 										Resource(corev1.ResourceCPU, "0").
 										Resource(corev1.ResourceMemory, "0").
 										Obj(),
-									*testing.MakeFlavorQuotas("beta").
+									*utiltestingapi.MakeFlavorQuotas("beta").
 										Resource(corev1.ResourceMemory, "0").
 										Resource(corev1.ResourceCPU, "0").
 										Obj(),
@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 							{
 								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
 								Flavors: []kueue.FlavorQuotas{
-									*testing.MakeFlavorQuotas("alpha").
+									*utiltestingapi.MakeFlavorQuotas("alpha").
 										Resource(corev1.ResourceCPU, "0").
 										Obj(),
 								},
@@ -460,7 +460,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 							{
 								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
 								Flavors: []kueue.FlavorQuotas{
-									*testing.MakeFlavorQuotas("alpha").
+									*utiltestingapi.MakeFlavorQuotas("alpha").
 										Resource(corev1.ResourceCPU, "0").
 										Resource(corev1.ResourceMemory, "0").
 										Obj(),
@@ -480,7 +480,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 							{
 								CoveredResources: []corev1.ResourceName{"blah"},
 								Flavors: []kueue.FlavorQuotas{
-									*testing.MakeFlavorQuotas("alpha").
+									*utiltestingapi.MakeFlavorQuotas("alpha").
 										Resource(corev1.ResourceCPU, "0").
 										Resource(corev1.ResourceMemory, "0").
 										Obj(),
@@ -491,28 +491,28 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", ginkgo.Ordered, func() {
 				},
 				testing.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resource in more than one resource group",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("alpha").
+						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource(corev1.ResourceCPU, "0").
 							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 					).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("beta").
+						*utiltestingapi.MakeFlavorQuotas("beta").
 							Resource(corev1.ResourceMemory, "0").
 							Obj(),
 					).
 					Obj(),
 				testing.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue with flavor in more than one resource group",
-				testing.MakeClusterQueue("cluster-queue").
+				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU).Obj(),
-						*testing.MakeFlavorQuotas("beta").Resource(corev1.ResourceCPU).Obj(),
+						*utiltestingapi.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU).Obj(),
+						*utiltestingapi.MakeFlavorQuotas("beta").Resource(corev1.ResourceCPU).Obj(),
 					).
 					ResourceGroup(
-						*testing.MakeFlavorQuotas("beta").Resource(corev1.ResourceMemory).Obj(),
+						*utiltestingapi.MakeFlavorQuotas("beta").Resource(corev1.ResourceMemory).Obj(),
 					).
 					Obj(),
 				testing.BeForbiddenError()),

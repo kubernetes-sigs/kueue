@@ -37,8 +37,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestNewInfo(t *testing.T) {
@@ -48,7 +50,7 @@ func TestNewInfo(t *testing.T) {
 		wantInfo    Info
 	}{
 		"pending": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				Request(corev1.ResourceCPU, "10m").
 				Request(corev1.ResourceMemory, "512Ki").
 				Obj(),
@@ -66,9 +68,9 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"pending with reclaim": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "512Ki").
 						Obj(),
@@ -94,19 +96,19 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"admitted": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet("driver", 1).
+					*utiltestingapi.MakePodSet("driver", 1).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "512Ki").
 						Obj(),
-					*utiltesting.MakePodSet("workers", 3).
+					*utiltestingapi.MakePodSet("workers", 3).
 						Request(corev1.ResourceCPU, "5m").
 						Request(corev1.ResourceMemory, "1Mi").
 						Request("ex.com/gpu", "1").
 						Obj(),
 				).
-				ReserveQuota(utiltesting.MakeAdmission("foo").
+				ReserveQuota(utiltestingapi.MakeAdmission("foo").
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: "driver",
@@ -158,16 +160,16 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"admitted with reclaim": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
 				ReserveQuota(
-					utiltesting.MakeAdmission("").
-						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					utiltestingapi.MakeAdmission("").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "f1", "30m").
 							Assignment(corev1.ResourceMemory, "f1", "30Ki").
 							Count(3).
@@ -199,16 +201,16 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"admitted with reclaim and increased reclaim": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
 				ReserveQuota(
-					utiltesting.MakeAdmission("").
-						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					utiltestingapi.MakeAdmission("").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "f1", "30m").
 							Assignment(corev1.ResourceMemory, "f1", "30Ki").
 							Count(3).
@@ -240,16 +242,16 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"partially admitted": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
-					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "10m").
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
 				ReserveQuota(
-					utiltesting.MakeAdmission("").
-						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+					utiltestingapi.MakeAdmission("").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "f1", "30m").
 							Assignment(corev1.ResourceMemory, "f1", "30Ki").
 							Count(3).
@@ -275,7 +277,7 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"filterResources": {
-			workload: *utiltesting.MakeWorkload("", "").
+			workload: *utiltestingapi.MakeWorkload("", "").
 				Request(corev1.ResourceCPU, "10m").
 				Request(corev1.ResourceMemory, "512Ki").
 				Request("networking.example.com/vpc1", "1").
@@ -295,14 +297,14 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"transformResources": {
-			workload: *utiltesting.MakeWorkload("transform", "").
+			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
-					*utiltesting.MakePodSet("a", 1).
+					*utiltestingapi.MakePodSet("a", 1).
 						Request("nvidia.com/mig-1g.5gb", "2").
 						Request("nvidia.com/mig-2g.10gb", "1").
 						Request(corev1.ResourceCPU, "1").
 						Obj(),
-					*utiltesting.MakePodSet("b", 2).
+					*utiltestingapi.MakePodSet("b", 2).
 						Request("nvidia.com/gpu", "1").
 						Request(corev1.ResourceCPU, "2").
 						Obj(),
@@ -426,7 +428,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			workload := utiltesting.MakeWorkload("foo", "bar").Generation(1).Obj()
+			workload := utiltestingapi.MakeWorkload("foo", "bar").Generation(1).Obj()
 			workload.Status = tc.oldStatus
 			cl := utiltesting.NewFakeClientSSAAsSM(workload)
 			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix", fakeClock)
@@ -462,7 +464,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 		want map[Ordering]metav1.Time
 	}{
 		"no condition": {
-			wl: utiltesting.MakeWorkload("name", "ns").
+			wl: utiltestingapi.MakeWorkload("name", "ns").
 				Creation(creationTime.Time).
 				Obj(),
 			want: map[Ordering]metav1.Time{
@@ -471,7 +473,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 			},
 		},
 		"evicted by preemption": {
-			wl: utiltesting.MakeWorkload("name", "ns").
+			wl: utiltestingapi.MakeWorkload("name", "ns").
 				Creation(creationTime.Time).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadEvicted,
@@ -486,7 +488,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 			},
 		},
 		"evicted by PodsReady timeout": {
-			wl: utiltesting.MakeWorkload("name", "ns").
+			wl: utiltestingapi.MakeWorkload("name", "ns").
 				Creation(creationTime.Time).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadEvicted,
@@ -501,7 +503,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 			},
 		},
 		"after eviction": {
-			wl: utiltesting.MakeWorkload("name", "ns").
+			wl: utiltestingapi.MakeWorkload("name", "ns").
 				Creation(creationTime.Time).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadEvicted,
@@ -639,10 +641,10 @@ func TestIsEvictedByDeactivation(t *testing.T) {
 		want     bool
 	}{
 		"evicted condition doesn't exist": {
-			workload: utiltesting.MakeWorkload("test", "test").Obj(),
+			workload: utiltestingapi.MakeWorkload("test", "test").Obj(),
 		},
 		"evicted condition with false status": {
-			workload: utiltesting.MakeWorkload("test", "test").
+			workload: utiltestingapi.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadDeactivated,
@@ -651,7 +653,7 @@ func TestIsEvictedByDeactivation(t *testing.T) {
 				Obj(),
 		},
 		"evicted condition with PodsReadyTimeout reason": {
-			workload: utiltesting.MakeWorkload("test", "test").
+			workload: utiltestingapi.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -660,7 +662,7 @@ func TestIsEvictedByDeactivation(t *testing.T) {
 				Obj(),
 		},
 		"evicted condition with Deactivated reason": {
-			workload: utiltesting.MakeWorkload("test", "test").
+			workload: utiltestingapi.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadDeactivated,
@@ -687,10 +689,10 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 		wantCondition        *metav1.Condition
 	}{
 		"evicted condition doesn't exist": {
-			workload: utiltesting.MakeWorkload("test", "test").Obj(),
+			workload: utiltestingapi.MakeWorkload("test", "test").Obj(),
 		},
 		"evicted condition with false status": {
-			workload: utiltesting.MakeWorkload("test", "test").
+			workload: utiltestingapi.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -699,7 +701,7 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 				Obj(),
 		},
 		"evicted condition with Preempted reason": {
-			workload: utiltesting.MakeWorkload("test", "test").
+			workload: utiltestingapi.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPreemption,
@@ -708,7 +710,7 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 				Obj(),
 		},
 		"evicted condition with PodsReadyTimeout reason": {
-			workload: utiltesting.MakeWorkload("test", "test").
+			workload: utiltestingapi.MakeWorkload("test", "test").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -836,66 +838,86 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 		wantAdmissionChecks sets.Set[kueue.AdmissionCheckReference]
 	}{
 		"AdmissionCheckStrategy with a flavor": {
-			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
-				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"AdmissionCheckStrategy with an unmatched flavor": {
-			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
-				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
 				Obj(),
 			wantAdmissionChecks: nil,
 		},
 		"AdmissionCheckStrategy without a flavor": {
-			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
-				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj()).
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1"),
 		},
 		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
-			wl: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("cq").
-					PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment("cpu", "flavor1", "1").
 						Obj()).
 					Obj()).
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
 				AdmissionCheckStrategy(
-					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
 				Obj(),
 			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference]("ac1", "ac2"),
 		},
-		"Workload has no QuotaReserved": {
-			wl: utiltesting.MakeWorkload("wl", "ns").
+		"AdmissionCheckStrategy with a non-existent flavor": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "flavor1", "1").
+						Obj()).
+					Obj()).
 				Obj(),
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionCheckStrategy(
-					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor-nonexistent").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New[kueue.AdmissionCheckReference](),
+		},
+		"Workload has no QuotaReserved": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(), *utiltestingapi.MakeFlavorQuotas("flavor2").Obj()).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac2").Obj()).
 				Obj(),
 			wantAdmissionChecks: nil,
 		},
@@ -903,7 +925,7 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq))
+			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, admissioncheck.NewAdmissionChecks(tc.cq), qutil.AllFlavors(tc.cq.Spec.ResourceGroups))
 
 			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
@@ -1109,25 +1131,25 @@ func TestPropagateResourceRequests(t *testing.T) {
 }
 
 func TestNeedsSecondPass(t *testing.T) {
-	defaultSingleLevelTopology := *utiltesting.MakeDefaultOneLevelTopology("tas-single-level")
+	defaultSingleLevelTopology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
 	cases := map[string]struct {
 		wl   *kueue.Workload
 		want bool
 	}{
 		"admitted workload with UnhealthyNode": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				UnhealthyNodes("x0").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
-						PodSets(utiltesting.MakePodSetAssignment("one").
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
 							Obj()).
 						Obj(),
@@ -1137,18 +1159,18 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: true,
 		},
 		"admitted workload without UnhealthyNode": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
-						PodSets(utiltesting.MakePodSetAssignment("one").
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
 							Obj()).
 						Obj(),
@@ -1158,19 +1180,19 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: false,
 		},
 		"admitted workload with UnhealthyNode, but no node in the assignment": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				UnhealthyNodes("x0").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
-						PodSets(utiltesting.MakePodSetAssignment("one").
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
 								Obj()).
 							Obj()).
 						Obj(),
@@ -1180,19 +1202,19 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: false,
 		},
 		"finished workload with UnhealthyNode": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				UnhealthyNodes("x0").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
-						PodSets(utiltesting.MakePodSetAssignment("one").
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
 							Obj()).
 						Obj(),
@@ -1203,19 +1225,19 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: false,
 		},
 		"evicted workload with UnhealthyNode": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				UnhealthyNodes("x0").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					PreferredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
-						PodSets(utiltesting.MakePodSetAssignment("one").
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-							TopologyAssignment(utiltesting.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-								Domains(utiltesting.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
 								Obj()).
 							Obj()).
 						Obj(),
@@ -1226,16 +1248,16 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: false,
 		},
 		"quotaReserved and admission checks Ready when workload delayedTopologyRequest=Pending": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
+					utiltestingapi.MakeAdmission("tas-main").
 						PodSets(
-							utiltesting.MakePodSetAssignment("one").
+							utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 								Obj(),
@@ -1250,16 +1272,16 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: true,
 		},
 		"quotaReserved and admission checks Pending": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				ReserveQuota(
-					utiltesting.MakeAdmission("tas-main").
+					utiltestingapi.MakeAdmission("tas-main").
 						PodSets(
-							utiltesting.MakePodSetAssignment("one").
+							utiltestingapi.MakePodSetAssignment("one").
 								Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 								DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
 								Obj(),
@@ -1274,9 +1296,9 @@ func TestNeedsSecondPass(t *testing.T) {
 			want: false,
 		},
 		"workload without quota": {
-			wl: utiltesting.MakeWorkload("foo", "default").
+			wl: utiltestingapi.MakeWorkload("foo", "default").
 				Queue("tas-main").
-				PodSets(*utiltesting.MakePodSet("one", 1).
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
@@ -1303,8 +1325,8 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 		wantInfo     Info
 	}{
 		"single podset with DRA resources": {
-			workload: *utiltesting.MakeWorkload("test-wl", "default").
-				PodSets(*utiltesting.MakePodSet("main", 1).
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "100m").
 					Obj()).
 				Obj(),
@@ -1327,12 +1349,12 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 			},
 		},
 		"multiple podsets with different DRA resources": {
-			workload: *utiltesting.MakeWorkload("test-wl", "default").
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
 				PodSets(
-					*utiltesting.MakePodSet("main", 1).
+					*utiltestingapi.MakePodSet("main", 1).
 						Request(corev1.ResourceCPU, "100m").
 						Obj(),
-					*utiltesting.MakePodSet("worker", 2).
+					*utiltestingapi.MakePodSet("worker", 2).
 						Request(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
@@ -1367,12 +1389,12 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 			},
 		},
 		"no DRA resources for podset": {
-			workload: *utiltesting.MakeWorkload("test-wl", "default").
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
 				PodSets(
-					*utiltesting.MakePodSet("main", 1).
+					*utiltestingapi.MakePodSet("main", 1).
 						Request(corev1.ResourceCPU, "100m").
 						Obj(),
-					*utiltesting.MakePodSet("worker", 1).
+					*utiltestingapi.MakePodSet("worker", 1).
 						Request(corev1.ResourceMemory, "512Mi").
 						Obj(),
 				).
@@ -1422,13 +1444,13 @@ func TestSetQuotaReservation(t *testing.T) {
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 
 	// admission "constants" values used in all test cases.
-	admission := utiltesting.MakeAdmission("test-queue").Obj()
+	admission := utiltestingapi.MakeAdmission("test-queue").Obj()
 	quotaReservedReason := "QuotaReserved"
 	quotaReservedMessage := fmt.Sprintf("Quota reserved in ClusterQueue %s", admission.ClusterQueue)
 
 	// newWorkload wrapper to reduce boilerplate in test cases.
-	newWorkload := func() *utiltesting.WorkloadWrapper {
-		return utiltesting.MakeWorkload("test", "default").Generation(1)
+	newWorkload := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("test", "default").Generation(1)
 	}
 
 	// newCondition helper.
@@ -1542,7 +1564,7 @@ func TestPatchAdmissionStatus(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, featureEnabled)
 				ctx, _ := utiltesting.ContextWithLog(t)
-				wl := utiltesting.MakeWorkload("foo", "default").Obj()
+				wl := utiltestingapi.MakeWorkload("foo", "default").Obj()
 				var cl client.Client
 				if !featureEnabled {
 					cl = utiltesting.NewFakeClientSSAAsSM(wl)

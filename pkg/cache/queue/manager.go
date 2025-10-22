@@ -492,7 +492,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(info, reason)
+	added := cq.RequeueIfNotPresent(ctx, info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
@@ -816,7 +816,7 @@ func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	if workload.NeedsSecondPass(w) {
 		iteration++
-		delay := nextDelay(iteration)
+		delay := m.secondPassQueue.nextDelay(iteration)
 		log := ctrl.LoggerFrom(ctx)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", workload.Key(w), "delay", delay)
 		m.secondPassQueue.prequeue(w)

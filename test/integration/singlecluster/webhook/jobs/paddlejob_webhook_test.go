@@ -22,7 +22,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -54,8 +54,8 @@ var _ = ginkgo.Describe("PaddleJob Webhook", ginkgo.Ordered, func() {
 						ReplicaType:  kftraining.PaddleJobReplicaTypeMaster,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 				).

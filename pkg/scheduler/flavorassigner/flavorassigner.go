@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -523,7 +524,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
-	groupedRequests := newPodSetGroups()
+	groupedRequests := orderedgroups.NewOrderedGroups[string, indexedPodSet]()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
@@ -559,10 +560,10 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			groupKey = *tr.PodSetGroupName
 		}
 
-		groupedRequests.insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
+		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
-	for _, podSets := range groupedRequests.orderedPodSetGroups() {
+	for _, podSets := range groupedRequests.InOrder {
 		requests := make(resources.Requests)
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
@@ -733,7 +734,8 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
-			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, val+assignmentUsage[fr], resQuota)
+
+			preemptionMode, borrow, s := a.fitsResourceQuota(log, fr, assignmentUsage[fr], val, resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
@@ -836,21 +838,20 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 func shouldTryNextFlavor(representativeMode granularMode, flavorFungibility kueue.FlavorFungibility) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
-	if representativeMode.isPreemptMode() && policyPreempt == kueue.Preempt {
-		if representativeMode.borrowingLevel.optimal() || policyBorrow == kueue.Borrow {
-			return false
-		}
+
+	if representativeMode.preemptionMode == noFit || representativeMode.preemptionMode == noPreemptionCandidates {
+		return true
 	}
 
-	if representativeMode.preemptionMode == fit && !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.Borrow {
-		return false
+	if representativeMode.isPreemptMode() && policyPreempt == kueue.TryNextFlavor {
+		return true
 	}
 
-	if representativeMode.preemptionMode == fit && representativeMode.borrowingLevel.optimal() {
-		return false
+	if !representativeMode.borrowingLevel.optimal() && policyBorrow == kueue.TryNextFlavor {
+		return true
 	}
 
-	return true
+	return false
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
@@ -905,16 +906,17 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota schdcache.ResourceQuota) (preemptionMode, int, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, assumedUsage int64, requestUsage int64, rQuota schdcache.ResourceQuota) (preemptionMode, int, *Status) {
 	var status Status
 
 	available := a.cq.Available(fr)
 	maxCapacity := a.cq.PotentialAvailable(fr)
+	val := assumedUsage + requestUsage
 
 	// No Fit
 	if val > maxCapacity {
-		status.appendf("insufficient quota for %s in flavor %s, request > maximum capacity (%s > %s)",
-			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, val), resources.ResourceQuantityString(fr.Resource, maxCapacity))
+		status.appendf("insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
+			fr.Resource, fr.Flavor, resources.ResourceQuantityString(fr.Resource, assumedUsage), resources.ResourceQuantityString(fr.Resource, requestUsage), resources.ResourceQuantityString(fr.Resource, maxCapacity))
 		return noFit, 0, &status
 	}
 

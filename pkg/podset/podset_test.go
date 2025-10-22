@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 )
 
 func TestFromAssignment(t *testing.T) {
@@ -50,14 +51,14 @@ func TestFromAssignment(t *testing.T) {
 		Effect:   corev1.TaintEffectPreferNoSchedule,
 	}
 
-	flavor1 := utiltesting.MakeResourceFlavor("flavor1").
+	flavor1 := utiltestingapi.MakeResourceFlavor("flavor1").
 		NodeLabel("f1l1", "f1v1").
 		NodeLabel("f1l2", "f1v2").
 		Toleration(*toleration1.DeepCopy()).
 		Toleration(*toleration2.DeepCopy()).
 		Obj()
 
-	flavor2 := utiltesting.MakeResourceFlavor("flavor2").
+	flavor2 := utiltestingapi.MakeResourceFlavor("flavor2").
 		NodeLabel("f2l1", "f2v1").
 		NodeLabel("f2l2", "f2v2").
 		Toleration(*toleration3.DeepCopy()).
@@ -257,7 +258,7 @@ func TestFromAssignment(t *testing.T) {
 }
 
 func TestMergeRestore(t *testing.T) {
-	basePodSet := utiltesting.MakePodSet("", 1).
+	basePodSet := utiltestingapi.MakePodSet("", 1).
 		NodeSelector(map[string]string{"ns0": "ns0v"}).
 		Labels(map[string]string{"l0": "l0v"}).
 		Annotations(map[string]string{"a0": "a0v"}).
@@ -301,7 +302,7 @@ func TestMergeRestore(t *testing.T) {
 					},
 				},
 			},
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
 				Labels(map[string]string{"l0": "l0v", "l1": "l1v"}).
 				Annotations(map[string]string{"a0": "a0v", "a1": "a1v"}).
@@ -341,7 +342,7 @@ func TestMergeRestore(t *testing.T) {
 					},
 				},
 			},
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
 				Labels(map[string]string{"l0": "l0v", "l1": "l1v"}).
 				Annotations(map[string]string{"a0": "a0v", "a1": "a1v"}).
@@ -382,19 +383,19 @@ func TestMergeRestore(t *testing.T) {
 			wantError: true,
 		},
 		"podset with scheduling gate; empty info": {
-			podSet: utiltesting.MakePodSet("", 1).
+			podSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
 					Name: "example.com/gate",
 				}).
 				Obj(),
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
 					Name: "example.com/gate",
 				}).
 				Obj(),
 		},
 		"podset with scheduling gate; info re-adds the same": {
-			podSet: utiltesting.MakePodSet("", 1).
+			podSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
 					Name: "example.com/gate",
 				}).
@@ -406,14 +407,14 @@ func TestMergeRestore(t *testing.T) {
 					},
 				},
 			},
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
 					Name: "example.com/gate",
 				}).
 				Obj(),
 		},
 		"podset with scheduling gate; info adds another": {
-			podSet: utiltesting.MakePodSet("", 1).
+			podSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
 					Name: "example.com/gate",
 				}).
@@ -425,7 +426,7 @@ func TestMergeRestore(t *testing.T) {
 					},
 				},
 			},
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
 					Name: "example.com/gate",
 				}, corev1.PodSchedulingGate{
@@ -435,21 +436,21 @@ func TestMergeRestore(t *testing.T) {
 			wantRestoreChanges: true,
 		},
 		"podset with tas label; empty info": {
-			podSet: utiltesting.MakePodSet("", 1).
+			podSet: utiltestingapi.MakePodSet("", 1).
 				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 		},
 		"podset with tas label; info re-adds the same": {
-			podSet: utiltesting.MakePodSet("", 1).
+			podSet: utiltestingapi.MakePodSet("", 1).
 				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 			info: PodSetInfo{
 				Labels: map[string]string{kueue.TASLabel: "true"},
 			},
-			wantPodSet: utiltesting.MakePodSet("", 1).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				Labels(map[string]string{kueue.TASLabel: "true"}).
 				Obj(),
 		},

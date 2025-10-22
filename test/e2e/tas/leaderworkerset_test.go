@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -46,22 +47,22 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", func() {
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-lws-")
 
-		topology = testing.MakeDefaultThreeLevelTopology("datacenter")
+		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		util.MustCreate(ctx, k8sClient, topology)
 
-		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(topology.Name).
 			Obj()
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*testing.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "1").Obj()).
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(extraResource, "8").Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-		localQueue = testing.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 	})

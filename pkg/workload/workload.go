@@ -30,7 +30,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
@@ -52,6 +51,7 @@ import (
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
 const (
@@ -617,16 +617,8 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 	// - "Rand" represents the random jitter.
 	// During this time, the workload is taken as an inadmissible and other
 	// workloads will have a chance to be admitted.
-	backoff := &wait.Backoff{
-		Duration: time.Duration(backoffBaseSeconds) * time.Second,
-		Factor:   2,
-		Jitter:   0.0001,
-		Steps:    int(requeuingCount),
-	}
-	var waitDuration time.Duration
-	for backoff.Steps > 0 {
-		waitDuration = min(backoff.Step(), time.Duration(backoffMaxSeconds)*time.Second)
-	}
+	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
+	waitDuration := backoff.WaitTime(int(requeuingCount))
 
 	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
 	wl.Status.RequeueState.Count = &requeuingCount
@@ -917,32 +909,39 @@ type PatchAdmissionStatusOption func(*PatchAdmissionStatusOptions)
 // are generated and applied.
 //
 // Fields:
-//   - Strict: Controls whether ResourceVersion should always be cleared
+//   - StrictPatch: Controls whether ResourceVersion should always be cleared
 //     from the "original" object to ensure its inclusion in the generated
-//     patch. Defaults to true. Setting Strict=false preserves the current
+//     patch. Defaults to true. Setting StrictPatch=false preserves the current
+//     ResourceVersion.
+//   - StrictApply: When using Patch Apply, controls whether ResourceVersion should always be cleared
+//     from the "original" object to ensure its inclusion in the generated
+//     patch. Defaults to true. Setting StrictPatch=false preserves the current
 //     ResourceVersion.
 //
 // Typically, PatchAdmissionStatusOptions are constructed via DefaultPatchAdmissionStatusOptions and
 // modified using PatchAdmissionStatusOption functions (e.g., WithLoose).
 type PatchAdmissionStatusOptions struct {
-	Strict bool
+	StrictPatch bool
+	StrictApply bool
 }
 
 // DefaultPatchAdmissionStatusOptions returns a new PatchAdmissionStatusOptions instance configured with
 // default settings.
 //
-// By default, Strict is set to true, meaning ResourceVersion is cleared
+// By default, StrictPatch and StrictApply is set to true, meaning ResourceVersion is cleared
 // from the original object so it will always be included in the generated
 // patch. This ensures stricter version handling during patch application.
 func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 	return &PatchAdmissionStatusOptions{
-		Strict: true, // default is strict
+		StrictPatch: true, // default is strict
+		StrictApply: true, // default is strict
 	}
 }
 
-// WithLoose returns a PatchAdmissionStatusOption that sets the Strict field on PatchAdmissionStatusOptions.
+// WithLoose returns a PatchAdmissionStatusOption that resets both the StrictPatch and StrictApply
+// fields on PatchAdmissionStatusOptions.
 //
-// By default, Strict is true. In strict mode, generated patches enforce stricter
+// By default, StrictPatch and StrictApply are true. In strict mode, generated patches enforce stricter
 // behavior by clearing the ResourceVersion field from the "original" object.
 // This ensures that the ResourceVersion is always included in the generated patch
 // and taken into account during patch application.
@@ -954,7 +953,26 @@ func DefaultPatchAdmissionStatusOptions() *PatchAdmissionStatusOptions {
 //	}, WithLoose()) // disables strict mode
 func WithLoose() PatchAdmissionStatusOption {
 	return func(o *PatchAdmissionStatusOptions) {
-		o.Strict = false
+		o.StrictPatch = false
+		o.StrictApply = false
+	}
+}
+
+// WithLooseOnApply returns a PatchAdmissionStatusOption that resets the StrictApply field on PatchAdmissionStatusOptions.
+//
+// When using Patch Apply, setting StrictApply to false enforces looser
+// version handling only for Patch Apply.
+// This is useful when the update function already handles version conflicts
+// and we want to avoid additional conflicts during Patch Apply.
+//
+// Example:
+//	patch := clientutil.Patch(ctx, c, w, clk, func() (bool, error) {
+//	    return updateFn(obj), nil
+//	}, WithLooseOnApply()) // disables strict mode for Patch Apply
+
+func WithLooseOnApply() PatchAdmissionStatusOption {
+	return func(o *PatchAdmissionStatusOptions) {
+		o.StrictApply = false
 	}
 }
 
@@ -969,7 +987,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 
 	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		var patchOptions []clientutil.PatchOption
-		if !opts.Strict {
+		if !opts.StrictPatch {
 			patchOptions = append(patchOptions, clientutil.WithLoose())
 		}
 		return clientutil.PatchStatus(ctx, c, w, func() (client.Object, bool, error) {
@@ -981,7 +999,7 @@ func PatchAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 		return err
 	}
 
-	return ApplyAdmissionStatus(ctx, c, wPatched, opts.Strict, clk)
+	return ApplyAdmissionStatus(ctx, c, wPatched, opts.StrictApply, clk)
 }
 
 type Ordering struct {
@@ -1176,17 +1194,17 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
 // ClusterQueue configuration and ResourceFlavors
-func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], allFlavors sets.Set[kueue.ResourceFlavorReference]) sets.Set[kueue.AdmissionCheckReference] {
 	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
 	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
 	// ClusterQueue.Spec.AdmissionCheckStrategy
-	allFlavors := true
+	hasAllFlavors := true
 	for _, flavors := range admissionChecks {
-		if len(flavors) != 0 {
-			allFlavors = false
+		if !flavors.Equal(allFlavors) {
+			hasAllFlavors = false
 		}
 	}
-	if allFlavors {
+	if hasAllFlavors {
 		return sets.New(slices.Collect(maps.Keys(admissionChecks))...)
 	}
 
@@ -1207,10 +1225,6 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 
 	acNames := sets.New[kueue.AdmissionCheckReference]()
 	for acName, flavors := range admissionChecks {
-		if len(flavors) == 0 {
-			acNames.Insert(acName)
-			continue
-		}
 		for _, fName := range assignedFlavors {
 			if flavors.Has(fName) {
 				acNames.Insert(acName)

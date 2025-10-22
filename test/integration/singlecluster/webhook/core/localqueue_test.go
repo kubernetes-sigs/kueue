@@ -24,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -35,7 +35,7 @@ const queueName = "queue-test"
 var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+			managerSetup(ctx, mgr)
 		})
 	})
 	ginkgo.AfterAll(func() {
@@ -44,12 +44,12 @@ var _ = ginkgo.Describe("Queue validating webhook", ginkgo.Ordered, func() {
 	ginkgo.When("Updating a Queue", func() {
 		ginkgo.It("Should reject bad value for spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
-			obj := testing.MakeLocalQueue(queueName, ns.Name).ClusterQueue("invalid_name").Obj()
+			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("invalid_name").Obj()
 			gomega.Expect(k8sClient.Create(ctx, obj)).Should(testing.BeInvalidError())
 		})
 		ginkgo.It("Should reject the change of spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
-			obj := testing.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
+			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
 			util.MustCreate(ctx, k8sClient, obj)
 
 			ginkgo.By("Updating the Queue")

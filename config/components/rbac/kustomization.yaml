@@ -9,6 +9,8 @@ resources:
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
+- manager_secrets_role.yaml
+- manager_secrets_role_binding.yaml
 # The following RBAC configurations are used to protect
 # the metrics endpoint with authn/authz. These configurations
 # ensure that only authorized users and service accounts
@@ -57,3 +59,5 @@ resources:
 - paddlejob_viewer_role.yaml
 - jaxjob_editor_role.yaml
 - jaxjob_viewer_role.yaml
+- trainjob_editor_role.yaml
+- trainjob_viewer_role.yaml

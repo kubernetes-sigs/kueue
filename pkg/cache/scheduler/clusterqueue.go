@@ -60,7 +60,6 @@ type clusterQueue struct {
 	FlavorFungibility kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
-	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
 	AdmissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	Status          metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
@@ -114,7 +113,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 	WithinClusterQueue:  kueue.PreemptionPolicyNever,
 }
 
-var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
+var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.TryNextFlavor}
 
 func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
@@ -372,7 +371,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
 				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multiKueueAdmissionChecks.Insert(acName)
-				if flavors.Len() != 0 {
+				if !flavors.Equal(AllFlavors(c.ResourceGroups)) {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
 				}
 			}
@@ -638,17 +637,7 @@ func (c *clusterQueue) isTASOnly() bool {
 func (c *clusterQueue) flavorsWithProvReqAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
 	flvs := sets.New[kueue.ResourceFlavorReference]()
 	for _, ac := range c.provisioningAdmissionChecks {
-		flvs.Insert(c.flavorsForAdmissionCheck(ac).UnsortedList()...)
-	}
-	return flvs
-}
-
-func (c *clusterQueue) flavorsForAdmissionCheck(ac kueue.AdmissionCheckReference) sets.Set[kueue.ResourceFlavorReference] {
-	flvs := sets.New(c.AdmissionChecks[ac].UnsortedList()...)
-	if len(c.AdmissionChecks[ac]) == 0 {
-		for _, rg := range c.ResourceGroups {
-			flvs.Insert(rg.Flavors...)
-		}
+		flvs.Insert(c.AdmissionChecks[ac].UnsortedList()...)
 	}
 	return flvs
 }

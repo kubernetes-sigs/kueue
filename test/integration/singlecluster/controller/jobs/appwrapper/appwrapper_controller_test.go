@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -87,18 +88,18 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		)
 
 		ginkgo.BeforeEach(func() {
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
-					*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 				).Obj()
 
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
-			onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+			onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-			spotFlavor = testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
+			spotFlavor = utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 			util.MustCreate(ctx, k8sClient, spotFlavor)
 		})
 
@@ -147,7 +148,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 			ginkgo.By("checking the workload is updated with queue name when the AppWrapper does")
 			awQueueName := "test-queue"
-			createdAppWrapper.Annotations = map[string]string{constants.QueueLabel: awQueueName}
+			createdAppWrapper.Labels = map[string]string{constants.QueueLabel: awQueueName}
 			gomega.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -175,7 +176,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 			ginkgo.By("checking the AppWrapper is unsuspended when workload is assigned")
 
-			admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+			admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
 				kueue.PodSetAssignment{
 					Name: createdWorkload.Spec.PodSets[0].Name,
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -250,7 +251,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				admission := testing.MakeAdmission(localQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(localQueue.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: createdWorkload.Spec.PodSets[0].Name,
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -330,17 +331,17 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		)
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
+			admissionCheck = utiltestingapi.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, admissionCheck)
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
-			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
+			clusterQueueAc = utiltestingapi.MakeClusterQueue("prod-cq-with-checks").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
 				).AdmissionChecks("check").Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueueAc)
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
-			testFlavor = testing.MakeResourceFlavor("test-flavor").NodeLabel(instanceKey, "test-flavor").Obj()
+			testFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").NodeLabel(instanceKey, "test-flavor").Obj()
 			util.MustCreate(ctx, k8sClient, testFlavor)
 
 			jobLookupKey = &types.NamespacedName{Name: awName, Namespace: ns.Name}
@@ -435,7 +436,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 			})
 
 			ginkgo.By("admit the workload", func() {
-				admission := testing.MakeAdmission(clusterQueueAc.Name).
+				admission := utiltestingapi.MakeAdmission(clusterQueueAc.Name).
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: createdWorkload.Spec.PodSets[0].Name,
@@ -573,7 +574,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 		wantCondition          *metav1.Condition
 	}
 
-	var defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
+	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
@@ -624,7 +625,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admit the workload created for the AppWrapper")
-			admission := testing.MakeAdmission("foo").PodSets(
+			admission := utiltestingapi.MakeAdmission("foo").PodSets(
 				kueue.PodSetAssignment{
 					Name: createdWorkload.Spec.PodSets[0].Name,
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -778,16 +779,16 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = utiltestingapi.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "1").Obj(),
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 	})
@@ -800,7 +801,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 
 	ginkgo.It("Should schedule AppWrappers as they fit in their ClusterQueue", func() {
 		ginkgo.By("creating localQueue")
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 
 		ginkgo.By("checking a dev job starts")
@@ -830,7 +831,7 @@ var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", gink
 		gomega.Expect(createdAppWrapper.Spec.Components[0].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdAppWrapper.Spec.Components[1].PodSetInfos[0].NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 	})
 })
 
@@ -874,21 +875,21 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 		}
 		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
-		topology = testing.MakeTopology("default").Levels(tasBlockLabel).Obj()
+		topology = utiltestingapi.MakeTopology("default").Levels(tasBlockLabel).Obj()
 		util.MustCreate(ctx, k8sClient, topology)
 
-		tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(nodeGroupLabel, "tas").
 			TopologyName("default").Obj()
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*testing.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
 		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 	})
 
@@ -937,7 +938,7 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 
 		ginkgo.By("verify the workload is admitted", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {

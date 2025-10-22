@@ -51,6 +51,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
@@ -142,7 +143,7 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	err = cmv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kueue.AddToScheme(scheme.Scheme)
+	err = kueuev1beta2.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = visibility.AddToScheme(scheme.Scheme)

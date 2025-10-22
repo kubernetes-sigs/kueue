@@ -82,9 +82,6 @@ type Scheduler struct {
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
-
-	// Stubs.
-	patchAdmission func(ctx context.Context, original, updated *kueue.Workload) error
 }
 
 type options struct {
@@ -150,7 +147,6 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
 	}
-	s.patchAdmission = s.patchAdmissionStatus
 	return s
 }
 
@@ -318,7 +314,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			wl := e.Obj.DeepCopy()
 			if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func() (*kueue.Workload, bool, error) {
 				return wl, workload.UnsetQuotaReservationWithCondition(wl, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-			}, workload.WithLoose()); err != nil {
+			}, workload.WithLooseOnApply()); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -623,7 +619,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	workload.SetQuotaReservation(newWorkload, admission, s.clock)
-	if workload.HasAllChecks(newWorkload, workload.AdmissionChecksForWorkload(log, newWorkload, cq.AdmissionChecks)) {
+	if workload.HasAllChecks(newWorkload, workload.AdmissionChecksForWorkload(log, newWorkload, cq.AdmissionChecks, schdcache.AllFlavors(cq.ResourceGroups))) {
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload, s.clock.Now())
 	}
@@ -646,7 +642,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchAdmission(ctx, origWorkload, newWorkload)
+		err := workload.PatchAdmissionStatus(ctx, s.client, origWorkload, s.clock, func() (*kueue.Workload, bool, error) {
+			return newWorkload, true, nil
+		}, workload.WithLooseOnApply())
 		if err == nil {
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission)
@@ -670,12 +668,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	})
 
 	return nil
-}
-
-func (s *Scheduler) patchAdmissionStatus(ctx context.Context, wOrig, w *kueue.Workload) error {
-	return workload.PatchAdmissionStatus(ctx, s.client, wOrig, s.clock, func() (*kueue.Workload, bool, error) {
-		return w, true, nil
-	}, workload.WithLoose())
 }
 
 type entryOrdering struct {
