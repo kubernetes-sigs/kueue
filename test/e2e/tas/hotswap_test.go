@@ -17,10 +17,10 @@ limitations under the License.
 package tase2e
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -28,8 +28,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -50,12 +50,13 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("Creating a Job", func() {
+	ginkgo.When("Creating a JobSet with slices", func() {
 		var (
-			topology     *kueue.Topology
-			tasFlavor    *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
+			topology      *kueue.Topology
+			tasFlavor     *kueue.ResourceFlavor
+			localQueue    *kueue.LocalQueue
+			clusterQueue  *kueue.ClusterQueue
+			nodeToRestore *corev1.Node
 		)
 		ginkgo.BeforeEach(func() {
 			topology = testing.MakeDefaultThreeLevelTopology("datacenter")
@@ -79,7 +80,22 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
+			if nodeToRestore != nil {
+				ginkgo.By(fmt.Sprintf("Re-creating node %s", nodeToRestore.Name))
+				nodeToRestore.ResourceVersion = ""
+				nodeToRestore.UID = ""
+				nodeToRestore.ManagedFields = nil
+				util.MustCreate(ctx, k8sClient, nodeToRestore)
+
+				util.SetNodeCondition(ctx, k8sClient, nodeToRestore, &corev1.NodeCondition{
+					Type:   corev1.NodeReady,
+					Status: corev1.ConditionTrue,
+				})
+				waitForDummyWorkloadToRunOnNode(nodeToRestore, localQueue)
+				nodeToRestore = nil
+			}
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
@@ -92,11 +108,13 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			replicas := 1
 			parallelism := 3
 			numPods := replicas * parallelism
-			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
+			jobName := "ranks-jobset"
+			replicatedJobName := "replicated-job-1"
+			sampleJob := testingjobset.MakeJobSet(jobName, ns.Name).
 				Queue(localQueue.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
+						Name:        replicatedJobName,
 						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorWaitForDeletion,
 						Replicas:    int32(replicas),
@@ -109,8 +127,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						},
 					},
 				).
-				RequestAndLimit("replicated-job-1", extraResource, "1").
-				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+				RequestAndLimit(replicatedJobName, extraResource, "1").
+				RequestAndLimit(replicatedJobName, corev1.ResourceCPU, "200m").
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -122,14 +140,15 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			})
 
 			pods := &corev1.PodList{}
-			wl := &kueue.Workload{}
-
 			ginkgo.By("ensure all pods are created, scheduled and running", func() {
 				listOpts := &client.ListOptions{
 					FieldSelector: fields.AndSelectors(
 						fields.OneTermNotEqualSelector("spec.nodeName", ""),
 						fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)),
 					),
+					LabelSelector: labels.SelectorFromSet(map[string]string{
+						"jobset.sigs.k8s.io/jobset-name": jobName,
+					}),
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed(), "listing running pods")
@@ -140,91 +159,35 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			wlName := pods.Items[0].Annotations[kueue.WorkloadAnnotation]
 			wlKey := client.ObjectKey{Name: wlName, Namespace: ns.Name}
 			ginkgo.By("Verify initial topology assignment of the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
-					g.Expect(topologyAssignment).NotTo(gomega.BeNil())
-					g.Expect(topologyAssignment.Levels).To(gomega.BeEquivalentTo([]string{corev1.LabelHostname}))
-					g.Expect(topologyAssignment.Domains).To(gomega.HaveLen(numPods))
-					chosenNodes := []string{}
-					for _, domain := range topologyAssignment.Domains {
-						g.Expect(domain.Count).To(gomega.Equal(int32(1)))
-						chosenNodes = append(chosenNodes, domain.Values...)
-					}
-					slices.SortFunc(chosenNodes, strings.Compare)
-					g.Expect(chosenNodes).To(
-						gomega.BeEquivalentTo([]string{
-							"kind-worker", "kind-worker2", "kind-worker3"}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, []string{
+					"kind-worker", "kind-worker2", "kind-worker3",
+				})
 			})
 			chosenPod := pods.Items[0]
 			node := &corev1.Node{}
-			ginkgo.By("Get node running the chosen pod and terminate the pod", func() {
-				var found bool
-				_, found = chosenPod.Annotations[kueue.WorkloadAnnotation]
-				gomega.Expect(found).Should(gomega.BeTrue())
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
-				chosenPod.Status.Phase = corev1.PodFailed
-				gomega.Expect(k8sClient.Status().Update(ctx, &chosenPod)).To(gomega.Succeed())
-			})
 
-			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
-				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(time.Now()),
-				})
+			ginkgo.By(fmt.Sprintf("Simulate failure of node hosting pod %s", chosenPod.Name), func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
+				nodeToRestore = node.DeepCopy()
+				gomega.Expect(k8sClient.Delete(ctx, node)).To(gomega.Succeed())
 			})
 			ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
-				gomega.Eventually(func(g gomega.Gomega) []string {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
-					g.Expect(topologyAssignment).NotTo(gomega.BeNil())
-					g.Expect(topologyAssignment.Levels).To(gomega.BeEquivalentTo([]string{corev1.LabelHostname}))
-					g.Expect(topologyAssignment.Domains).To(gomega.HaveLen(numPods))
-					chosenNodes := []string{}
-					for _, domain := range topologyAssignment.Domains {
-						g.Expect(domain.Count).To(gomega.Equal(int32(1)))
-						chosenNodes = append(chosenNodes, domain.Values...)
-					}
-					slices.SortFunc(chosenNodes, strings.Compare)
-					return chosenNodes
-				}, util.Timeout, util.Interval).Should(gomega.BeEquivalentTo([]string{
-					"kind-worker2", "kind-worker3", "kind-worker4"}))
-			})
-
-			ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name), func() {
-				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
-					Type:   corev1.NodeReady,
-					Status: corev1.ConditionTrue,
+				expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, []string{
+					"kind-worker2", "kind-worker3", "kind-worker4",
 				})
-			})
-			ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
-				dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					NodeSelector(corev1.LabelHostname, node.Name).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, dummyJob)).To(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					var createdDummyJob batchv1.Job
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dummyJob), &createdDummyJob)).To(gomega.Succeed())
-					g.Expect(createdDummyJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(batchv1.JobCondition{
-						Type:   batchv1.JobComplete,
-						Status: corev1.ConditionTrue,
-					}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 		ginkgo.It("Should evict the workload if replacement is not possible", func() {
-			replicas := 1
+			replicas := 2
 			parallelism := 4
 			numPods := replicas * parallelism
-			sampleJob := testingjobset.MakeJobSet("ranks-jobset", ns.Name).
+			jobName := "ranks-jobset"
+			replicatedJobName := "replicated-job-1"
+			sampleJob := testingjobset.MakeJobSet(jobName, ns.Name).
 				Queue(localQueue.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
+						Name:        replicatedJobName,
 						Image:       util.GetAgnHostImage(),
 						Args:        util.BehaviorWaitForDeletion,
 						Replicas:    int32(replicas),
@@ -237,8 +200,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						},
 					},
 				).
-				RequestAndLimit("replicated-job-1", extraResource, "1").
-				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+				RequestAndLimit(replicatedJobName, extraResource, "1").
+				RequestAndLimit(replicatedJobName, corev1.ResourceCPU, "200m").
 				Obj()
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -250,7 +213,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 			})
 
 			pods := &corev1.PodList{}
-			wl := &kueue.Workload{}
 
 			ginkgo.By("ensure all pods are created, scheduled and running", func() {
 				listOpts := &client.ListOptions{
@@ -258,63 +220,75 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						fields.OneTermNotEqualSelector("spec.nodeName", ""),
 						fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)),
 					),
+					LabelSelector: labels.SelectorFromSet(map[string]string{"jobset.sigs.k8s.io/jobset-name": jobName}),
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed(), "listing running pods")
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
+
 			wlName := pods.Items[0].Annotations[kueue.WorkloadAnnotation]
 			wlKey := client.ObjectKey{Name: wlName, Namespace: ns.Name}
-			chosenPod := pods.Items[0]
-			node := &corev1.Node{}
-			ginkgo.By("Get node running the chosen pod and fail the pod", func() {
-				var found bool
-				_, found = chosenPod.Annotations[kueue.WorkloadAnnotation]
-				gomega.Expect(found).Should(gomega.BeTrue())
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
-				chosenPod.Status.Phase = corev1.PodFailed
-				gomega.Expect(k8sClient.Status().Update(ctx, &chosenPod)).To(gomega.Succeed())
-			})
-
-			ginkgo.By(fmt.Sprintf("Simulate failure of node %s hosting pod %s", node.Name, chosenPod.Name), func() {
-				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
-					Type:               corev1.NodeReady,
-					Status:             corev1.ConditionFalse,
-					LastTransitionTime: metav1.NewTime(time.Now()),
+			ginkgo.By("Verify initial topology assignment of the workload", func() {
+				expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, []string{
+					"kind-worker", "kind-worker2", "kind-worker3", "kind-worker4", "kind-worker5", "kind-worker6", "kind-worker7", "kind-worker8",
 				})
 			})
+			chosenPod := pods.Items[0]
+			node := &corev1.Node{}
+			ginkgo.By(fmt.Sprintf("Simulate failure of node hosting pod %s", chosenPod.Name), func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: chosenPod.Spec.NodeName}, node)).To(gomega.Succeed())
+				nodeToRestore = node.DeepCopy()
+				gomega.Expect(k8sClient.Delete(ctx, node)).To(gomega.Succeed())
+			})
+			wl := &kueue.Workload{}
 			ginkgo.By("Check that the workload is evicted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					evictedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
-					g.Expect(evictedCondition).NotTo(gomega.BeNil())
-					g.Expect(evictedCondition.Status).To(gomega.Equal(metav1.ConditionTrue))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By(fmt.Sprintf("Restoring original Ready status of node %s", node.Name), func() {
-				util.SetNodeCondition(ctx, k8sClient, node, &corev1.NodeCondition{
-					Type:   corev1.NodeReady,
-					Status: corev1.ConditionTrue,
-				})
-			})
-			ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
-				dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					NodeSelector(corev1.LabelHostname, node.Name).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, dummyJob)).To(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					var createdDummyJob batchv1.Job
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dummyJob), &createdDummyJob)).To(gomega.Succeed())
-					g.Expect(createdDummyJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(batchv1.JobCondition{
-						Type:   batchv1.JobComplete,
-						Status: corev1.ConditionTrue,
-					}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+					g.Expect(wl.Status.Admission).To(gomega.BeNil())
+					g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
 })
+
+func waitForDummyWorkloadToRunOnNode(node *corev1.Node, lq *kueue.LocalQueue) {
+	ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
+		dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), lq.Namespace).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			NodeSelector(corev1.LabelHostname, node.Name).
+			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, dummyJob)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			var createdDummyJob batchv1.Job
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dummyJob), &createdDummyJob)).To(gomega.Succeed())
+			g.Expect(createdDummyJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(batchv1.JobCondition{
+				Type:   batchv1.JobComplete,
+				Status: corev1.ConditionTrue,
+			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+}
+
+func expectWorkloadTopologyAssignment(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, numPods int, expectedNodes []string) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
+		g.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+		topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+		g.Expect(topologyAssignment).NotTo(gomega.BeNil())
+		g.Expect(topologyAssignment.Levels).To(gomega.BeEquivalentTo([]string{corev1.LabelHostname}))
+		g.Expect(topologyAssignment.Domains).To(gomega.HaveLen(numPods))
+		chosenNodes := []string{}
+		for _, domain := range topologyAssignment.Domains {
+			g.Expect(domain.Count).To(gomega.Equal(int32(1)))
+			chosenNodes = append(chosenNodes, domain.Values...)
+		}
+		slices.SortFunc(chosenNodes, strings.Compare)
+		g.Expect(chosenNodes).To(gomega.BeEquivalentTo(expectedNodes))
+	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+}
