@@ -25,8 +25,6 @@ import (
 
 // LocalQueueFlavorStatusApplyConfiguration represents a declarative configuration of the LocalQueueFlavorStatus type for use
 // with apply.
-// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
-// Consequently, LocalQueueFlavorStatusApplyConfiguration is also deprecated, and this entire file will be removed.
 type LocalQueueFlavorStatusApplyConfiguration struct {
 	Name       *kueuev1beta1.ResourceFlavorReference `json:"name,omitempty"`
 	Resources  []v1.ResourceName                     `json:"resources,omitempty"`
