@@ -1,3 +1,41 @@
+## v0.14.2
+
+Changes since `v0.14.1`:
+
+## Changes by Kind
+
+### Feature
+
+- JobFramework: Introduce an optional interface for custom Jobs, called JobWithCustomWorkloadActivation, which can be used to deactivate or active a custom CRD workload. (#7286, @tg123)
+
+### Bug or Regression
+
+- Fix existing workloads not being re-evaluated when new clusters are added to MultiKueueConfig. Previously, only newly created workloads would see updated cluster lists. (#7349, @mimowo)
+- Fix handling of RayJobs which specify the spec.clusterSelector and the "queue-name" label for Kueue. These jobs should be ignored by kueue as they are being submitted to a RayCluster which is where the resources are being used and was likely already admitted by kueue. No need to double admit.
+  Fix on a panic on kueue managed jobs if spec.rayClusterSpec wasn't specified. (#7258, @laurafitzgerald)
+- Fixed a bug that Kueue would keep sending empty updates to a Workload, along with sending the "UpdatedWorkload" event, even if the Workload didn't change. This would happen for Workloads using any other mechanism for setting
+  the priority than the WorkloadPriorityClass, eg. for Workloads for PodGroups. (#7305, @mbobrovskyi)
+- MultiKueue x ElasticJobs: fix webhook validation bug which prevented scale up operation when any other
+  than the default "AllAtOnce" MultiKueue dispatcher was used. (#7332, @mszadkow)
+- TAS: Introduce missing validation against using incompatible `PodSet` grouping configuration in `JobSet, `MPIJob`, `LeaderWorkerSet`, `RayJob` and `RayCluster`. 
+  
+  Now, only groups of two `PodSet`s can be defined and one of the grouped `PodSet`s has to have only a single `Pod`.
+  The `PodSet`s within a group must specify the same topology request via one of the `kueue.x-k8s.io/podset-required-topology` and `kueue.x-k8s.io/podset-preferred-topology` annotations. (#7263, @kshalot)
+- Visibility API: Fix a bug that the Config clientConnection is not respected in the visibility server. (#7225, @tenzen-y)
+- WorkloadRequestUseMergePatch: use "strict" mode for admission patches during scheduling which
+  sends the ResourceVersion of the workload being admitted for comparing by kube-apiserver. 
+  This fixes the race-condition issue that Workload conditions added concurrently by other controllers
+  could be removed during scheduling. (#7279, @mszadkow)
+
+### Other (Cleanup or Flake)
+
+- Improve the messages presented to the user in scheduling events, by clarifying the reason for "insufficient quota"
+  in case of workloads with multiple PodSets. 
+  
+  Example:
+  - before: "insufficient quota for resource-type in flavor example-flavor, request > maximum capacity (24 > 16)"
+  - after: "insufficient quota for resource-type in flavor example-flavor, previously considered podsets requests (16) + current podset request (8) > maximum capacity (16)" (#7293, @iomarsayed)
+
 ## v0.14.1
 
 Changes since `v0.14.0`:
