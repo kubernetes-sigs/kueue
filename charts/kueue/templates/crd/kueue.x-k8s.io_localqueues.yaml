@@ -276,7 +276,9 @@ spec:
                     - name
                   x-kubernetes-list-type: map
                 flavors:
-                  description: flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+                  description: |-
+                    flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+                    Deprecated: flavors is deprecated and marked for removal in v1beta2.
                   items:
                     properties:
                       name:
@@ -665,7 +667,9 @@ spec:
                     - name
                   x-kubernetes-list-type: map
                 flavors:
-                  description: flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+                  description: |-
+                    flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+                    Deprecated: Flavors is deprecated and marked for removal in v1beta2.
                   items:
                     properties:
                       name:

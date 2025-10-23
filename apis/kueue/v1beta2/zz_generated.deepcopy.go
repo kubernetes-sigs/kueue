@@ -922,7 +922,7 @@ func (in *LocalQueueStatus) DeepCopyInto(out *LocalQueueStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
+	// Deprecated: Flavors is deprecated and marked for removal in v1beta2.
 	if in.Flavors != nil {
 		in, out := &in.Flavors, &out.Flavors
 		*out = make([]LocalQueueFlavorStatus, len(*in))

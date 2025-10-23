@@ -805,7 +805,7 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
-	// Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.
+	// Deprecated: Flavors is deprecated and marked for removal in v1beta2.
 	Flavors []kueue.LocalQueueFlavorStatus
 }
 
