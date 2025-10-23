@@ -18139,9 +18139,9 @@ spec:
           status:
             description: status is the status of the Workload.
             properties:
-              accumulatedPastExexcutionTimeSeconds:
+              accumulatedPastExecutionTimeSeconds:
                 description: |-
-                  accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
+                  accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
                   in Admitted state, in the previous `Admit` - `Evict` cycles.
                 format: int32
                 type: integer
@@ -18694,8 +18694,13 @@ spec:
             : true'
         - message: field is immutable
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
-            c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.priorityClassSource
-            == self.spec.priorityClassSource) : true'
+            c.type == ''QuotaReserved'' && c.status == ''True'')) ? ((!has(self.spec.priorityClassSource)
+            && !has(oldSelf.spec.priorityClassSource)) || (has(self.spec.priorityClassSource)
+            && has(oldSelf.spec.priorityClassSource) && self.spec.priorityClassSource
+            == oldSelf.spec.priorityClassSource) || (!has(self.spec.priorityClassSource)
+            && has(oldSelf.spec.priorityClassSource) && oldSelf.spec.priorityClassSource.size()
+            == 0) || (!has(oldSelf.spec.priorityClassSource) && has(self.spec.priorityClassSource)
+            && self.spec.priorityClassSource.size() == 0)) : true'
         - message: field is immutable
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == ''QuotaReserved'' && c.status == ''True'') && has(oldSelf.spec.priorityClassName)

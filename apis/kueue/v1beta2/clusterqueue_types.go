@@ -53,7 +53,7 @@ type ClusterQueueReference string
 type CohortReference string
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
-// +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
+// +kubebuilder:validation:XValidation:rule="!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
@@ -64,7 +64,7 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:MaxItems=16
 	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
-	// cohort that this ClusterQueue belongs to. CQs that belong to the
+	// cohortName that this ClusterQueue belongs to. CQs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
 	// A CQ can be a member of a single borrowing cohort. A workload submitted
@@ -76,7 +76,7 @@ type ClusterQueueSpec struct {
 	//
 	// A cohort is a name that links CQs together, but it doesn't reference any
 	// object.
-	Cohort CohortReference `json:"cohort,omitempty"`
+	CohortName CohortReference `json:"cohortName,omitempty"`
 
 	// queueingStrategy indicates the queueing strategy of the workloads
 	// across the queues in this ClusterQueue.
@@ -548,3 +548,5 @@ type ClusterQueueList struct {
 func init() {
 	SchemeBuilder.Register(&ClusterQueue{}, &ClusterQueueList{})
 }
+
+func (*ClusterQueue) Hub() {}
