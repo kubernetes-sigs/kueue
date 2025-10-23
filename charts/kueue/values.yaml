@@ -14,6 +14,8 @@ enableCertManager: false
 enableVisibilityAPF: false
 # -- Enable KueueViz dashboard
 enableKueueViz: false
+# -- Enable autoKueue for automated TAS deployment
+enaleAutoKueue: false
 # -- Kubernetes cluster's domain
 kubernetesClusterDomain: cluster.local
 controllerManager:
@@ -286,3 +288,9 @@ metrics:
     # -- ServiceMonitor's tlsConfig
     tlsConfig:
       insecureSkipVerify: true
+autoKueue:
+  clusterQueueName: cq
+  tasLevels:
+    - name: cloud.provider.com/topology-block
+  resourceFlavorNodeSelector:
+    cloud.provider.com/node-group: "tas-group"

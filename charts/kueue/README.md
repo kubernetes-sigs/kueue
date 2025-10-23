@@ -93,6 +93,9 @@ The following table lists the configurable parameters of the kueue chart and the
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| autoKueue.tasLevels | list | `[{name: cloud.provider.com/topology-block}]` | Defines the TAS levels |
+| autoKueue.nodeLabel | object | `{cloud.provider.com/node-group: "tas-group"}` | Sets the Resource flavor node label |
+| autoKueue.clusterQueueName | string | `cq` | The name of the cluster queue that will be created |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
 | controllerManager.imagePullSecrets | list | `[]` | ControllerManager's imagePullSecrets |
 | controllerManager.livenessProbe.failureThreshold | int | `3` | ControllerManager's livenessProbe failureThreshold |
@@ -119,6 +122,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.replicas | int | `1` | ControllerManager's replicas count |
 | controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
 | controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
+| enableAutoKueue | bool | `false` | Enable AutoKueue for automated TAS deployment |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
 | enablePrometheus | bool | `false` | Enable Prometheus |
