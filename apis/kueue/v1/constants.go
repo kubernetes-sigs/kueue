@@ -1,0 +1,66 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1
+
+const (
+	ResourceInUseFinalizerName                 = "kueue.x-k8s.io/resource-in-use"
+	DefaultPodSetName          PodSetReference = "main"
+
+	// ElasticJobSchedulingGate is the name of the scheduling gate applied to Pods
+	// to delay their scheduling until the associated workload slice has been admitted.
+	// This gate ensures that Pods do not begin scheduling prematurely, maintaining
+	// proper sequencing in workload processing.
+	ElasticJobSchedulingGate = "kueue.x-k8s.io/elastic-job"
+
+	// QueueLabel is the label key in the workload that holds the queue name.
+	QueueLabel = "kueue.x-k8s.io/queue-name"
+
+	// DefaultLocalQueueName is the name for default LocalQueue that is applied
+	// if the feature LocalQueueDefaulting is enabled and QueueLabel is not specified.
+	DefaultLocalQueueName LocalQueueName = "default"
+
+	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
+	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
+
+	// JobUIDLabel is the label key in the workload resource, that holds the UID of
+	// the owner job.
+	JobUIDLabel = "kueue.x-k8s.io/job-uid"
+
+	// WorkloadPriorityClassLabel is the label key in the workload that holds the
+	// workloadPriorityClass name.
+	// This label is always mutable because it might be useful for the preemption.
+	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
+
+	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
+	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
+
+	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
+	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
+
+	// PodSetLabel is a label set on the Job's PodTemplate to indicate the name
+	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
+	// The label is set when starting the Job, and removed on stopping the Job.
+	PodSetLabel = "kueue.x-k8s.io/podset"
+)
+
+type StopPolicy string
+
+const (
+	None         StopPolicy = "None"
+	HoldAndDrain StopPolicy = "HoldAndDrain"
+	Hold         StopPolicy = "Hold"
+)
