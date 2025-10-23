@@ -41,6 +41,10 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+const (
+	instanceType = "tas-node"
+)
+
 var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 	var (
 		managerNs *corev1.Namespace
@@ -102,7 +106,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 		util.MustCreate(ctx, k8sManagerClient, managerTopology)
 
 		managerFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
-			NodeLabel(corev1.LabelHostname, "").
+			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(managerTopology.Name).
 			Obj()
 		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
@@ -126,7 +130,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 		util.MustCreate(ctx, k8sWorker1Client, worker1Topology)
 
 		worker1Flavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
-			NodeLabel(corev1.LabelHostname, "").
+			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(worker1Topology.Name).
 			Obj()
 		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
@@ -149,7 +153,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 		util.MustCreate(ctx, k8sWorker2Client, worker2Topology)
 
 		worker2Flavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
-			NodeLabel(corev1.LabelHostname, "").
+			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(worker2Topology.Name).
 			Obj()
 		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
@@ -169,30 +173,29 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		// Cleanup commented out for debugging
-		// gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
-		// gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
-		// gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Topology, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Topology, true, util.LongTimeout)
 
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Topology, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Topology, true, util.LongTimeout)
 
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTopology, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.LongTimeout)
-		// util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTopology, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.LongTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.LongTimeout)
 
-		// util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
-		// util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
-		// util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
 	ginkgo.When("Creating a Job with TAS requirements", func() {
