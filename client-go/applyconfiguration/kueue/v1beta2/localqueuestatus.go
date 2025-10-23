@@ -29,7 +29,7 @@ type LocalQueueStatusApplyConfiguration struct {
 	ReservingWorkloads *int32                                     `json:"reservingWorkloads,omitempty"`
 	AdmittedWorkloads  *int32                                     `json:"admittedWorkloads,omitempty"`
 	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorsReservation,omitempty"`
-	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorUsage,omitempty"`
+	FlavorsUsage       []LocalQueueFlavorUsageApplyConfiguration  `json:"flavorsUsage,omitempty"`
 	Flavors            []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
 	FairSharing        *FairSharingStatusApplyConfiguration       `json:"fairSharing,omitempty"`
 }
@@ -90,15 +90,15 @@ func (b *LocalQueueStatusApplyConfiguration) WithFlavorsReservation(values ...*L
 	return b
 }
 
-// WithFlavorUsage adds the given value to the FlavorUsage field in the declarative configuration
+// WithFlavorsUsage adds the given value to the FlavorsUsage field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the FlavorUsage field.
-func (b *LocalQueueStatusApplyConfiguration) WithFlavorUsage(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the FlavorsUsage field.
+func (b *LocalQueueStatusApplyConfiguration) WithFlavorsUsage(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithFlavorUsage")
+			panic("nil value passed to WithFlavorsUsage")
 		}
-		b.FlavorUsage = append(b.FlavorUsage, *values[i])
+		b.FlavorsUsage = append(b.FlavorsUsage, *values[i])
 	}
 	return b
 }

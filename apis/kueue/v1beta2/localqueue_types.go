@@ -141,13 +141,13 @@ type LocalQueueStatus struct {
 	// +optional
 	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation"`
 
-	// flavorUsage are the used quotas, by flavor currently in use by the
+	// flavorsUsage are the used quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
+	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage"`
 
 	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
 	// +listType=map
@@ -218,3 +218,5 @@ type LocalQueueList struct {
 func init() {
 	SchemeBuilder.Register(&LocalQueue{}, &LocalQueueList{})
 }
+
+func (*LocalQueue) Hub() {}

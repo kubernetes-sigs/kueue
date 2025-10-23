@@ -68,7 +68,7 @@ test: gotestsum ## Run tests.
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
+test-integration: compile-crd-manifests gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
@@ -86,7 +86,7 @@ test-integration-extended: INTEGRATION_FILTERS= --label-filter="slow || redundan
 test-integration-extended: test-integration ## Run extended integration tests for singlecluster suites.
 
 .PHONY: test-multikueue-integration
-test-multikueue-integration: gomod-download envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
+test-multikueue-integration: compile-crd-manifests gomod-download envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
