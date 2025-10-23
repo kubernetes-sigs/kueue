@@ -222,7 +222,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
 			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy),
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+			Finalizers:  []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
 			Annotations: admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{

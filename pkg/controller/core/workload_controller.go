@@ -19,6 +19,7 @@ package core
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -158,17 +160,53 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx)
+	status := workload.Status(&wl)
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Reconcile Workload")
 
-	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
-		// manual deletion triggered by the user
-		err := workload.RemoveFinalizer(ctx, r.client, &wl)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if !wl.DeletionTimestamp.IsZero() {
+		// Deletion requested (some finalizers must be present). Try to finalize and remove.
+		hasInUseFinalizer := controllerutil.ContainsFinalizer(&wl, kueue.ResourceInUseFinalizerName)
+		hasSafeDeleteFinlaizer := controllerutil.ContainsFinalizer(&wl, kueue.SafeDeleteFinalizerName)
+		switch {
+		case hasInUseFinalizer && hasSafeDeleteFinlaizer:
+			{
+				// Manual delete request by a user.
+				if len(wl.OwnerReferences) == 0 {
+					// Delete legal - proceed.
+					err := r.cleanUp(ctx, &wl, log)
+					return ctrl.Result{}, err
+				} else {
+					// Delete illegal at this time, ignore and continue the reconciliation loop.
+					log.Info("Manual delete by user when workload still has owners. Delete request ignored.")
+				}
+			}
+		case !hasInUseFinalizer && hasSafeDeleteFinlaizer:
+			{
+				// Natural deleteion.
+				err := r.cleanUp(ctx, &wl, log)
+				return ctrl.Result{}, err
+			}
+		case hasInUseFinalizer && !hasSafeDeleteFinlaizer:
+			{
+				err := errors.New("Illegal finalizer configuration for workload")
+				log.Error(err, "Illegal finalizer configuration for workload")
+				return ctrl.Result{}, err
+			}
+		default:
+			{
+				// Unknown finalizer preventing deletion. Continuing the reconciliation loop.
+				log.Info("Unknown finalizers set for workload.")
+			}
+		}
 	}
+
+	// TODO: integrate cache and queue updates based on newObject status (make "oldObject status"-agnostic).
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
+		// (new) workload is in state FINISHED
+
 		if !features.Enabled(features.ObjectRetentionPolicies) || r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
 			return ctrl.Result{}, nil
 		}
@@ -470,6 +508,37 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
+func (r *WorkloadReconciler) cleanUp(ctx context.Context, wl *kueue.Workload, log logr.Logger) error {
+	log.Info("Cleaning up for workload deletion")
+	defer r.notifyWatchers(wl, nil)
+	var resultError error = nil
+
+	if workload.HasQuotaReservation(wl) {
+		var cleanupErrors []error
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+			if err := r.cache.DeleteWorkload(log, wl); err != nil {
+				append(cleanupErrors, err)
+				log.Error(err, "Failed to delete workload from cache")
+			}
+		})
+		if len(cleanupErrors) > 0 {
+			resultError = errors.Join(cleanupErrors...)
+		}
+	} else {
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+			if err := r.cache.DeleteWorkload(log, wl); err != nil {
+				log.Info("Failed to delete workload from cache. This may be indended behavior.", "error", err)
+			}
+		})
+	}
+
+	r.queues.DeleteWorkload(wl)
+	controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName)
+	controllerutil.RemoveFinalizer(wl, kueue.SafeDeleteFinalizerName)
+
+	return resultError
+}
+
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
 func isDisabledRequeuedByClusterQueueStopped(w *kueue.Workload) bool {
 	return isDisabledRequeuedByReason(w, kueue.WorkloadEvictedByClusterQueueStopped)
@@ -755,35 +824,37 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	defer r.notifyWatchers(e.Object, nil)
+	// TODO: delete commented
+
+	// defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
 	}
 	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
-	ctx := ctrl.LoggerInto(context.Background(), log)
+	// ctx := ctrl.LoggerInto(context.Background(), log)
 
-	// When assigning a clusterQueue to a workload, we assume it in the cache. If
-	// the state is unknown, the workload could have been assumed, and we need
-	// to clear it from the cache.
-	if workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
-		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.Object, func() {
-			// Delete the workload from cache while holding the queues lock
-			// to guarantee that requeued workloads are taken into account before
-			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, e.Object); err != nil {
-				if !e.DeleteStateUnknown {
-					log.Error(err, "Failed to delete workload from cache")
-				}
-			}
-		})
-	}
+	// // When assigning a clusterQueue to a workload, we assume it in the cache. If
+	// // the state is unknown, the workload could have been assumed, and we need
+	// // to clear it from the cache.
+	// if workload.HasQuotaReservation(e.Object) || e.DeleteStateUnknown {
+	// 	// trigger the move of associated inadmissibleWorkloads if required.
+	// 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, e.Object, func() {
+	// 		// Delete the workload from cache while holding the queues lock
+	// 		// to guarantee that requeued workloads are taken into account before
+	// 		// the next scheduling cycle.
+	// 		if err := r.cache.DeleteWorkload(log, e.Object); err != nil {
+	// 			if !e.DeleteStateUnknown {
+	// 				log.Error(err, "Failed to delete workload from cache")
+	// 			}
+	// 		}
+	// 	})
+	// }
 
-	// Even if the state is unknown, the last cached state tells us whether the
-	// workload was in the queues and should be cleared from them.
-	r.queues.DeleteWorkload(e.Object)
+	// // Even if the state is unknown, the last cached state tells us whether the
+	// // workload was in the queues and should be cleared from them.
+	// r.queues.DeleteWorkload(e.Object)
 
 	return true
 }
