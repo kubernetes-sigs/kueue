@@ -873,9 +873,9 @@ spec:
                   required:
                     - admissionMode
                   type: object
-                cohort:
+                cohortName:
                   description: |-
-                    cohort that this ClusterQueue belongs to. CQs that belong to the
+                    cohortName that this ClusterQueue belongs to. CQs that belong to the
                     same cohort can borrow unused resources from each other.
 
                     A CQ can be a member of a single borrowing cohort. A workload submitted
@@ -1251,7 +1251,7 @@ spec:
               type: object
               x-kubernetes-validations:
                 - message: borrowingLimit must be nil when cohort is empty
-                  rule: '!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
+                  rule: '!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
             status:
               description: status is the status of the ClusterQueue.
               properties:

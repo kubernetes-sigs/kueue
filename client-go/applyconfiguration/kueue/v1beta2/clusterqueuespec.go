@@ -26,7 +26,7 @@ import (
 // with apply.
 type ClusterQueueSpecApplyConfiguration struct {
 	ResourceGroups          []ResourceGroupApplyConfiguration          `json:"resourceGroups,omitempty"`
-	Cohort                  *kueuev1beta2.CohortReference              `json:"cohort,omitempty"`
+	CohortName              *kueuev1beta2.CohortReference              `json:"cohortName,omitempty"`
 	QueueingStrategy        *kueuev1beta2.QueueingStrategy             `json:"queueingStrategy,omitempty"`
 	NamespaceSelector       *v1.LabelSelectorApplyConfiguration        `json:"namespaceSelector,omitempty"`
 	FlavorFungibility       *FlavorFungibilityApplyConfiguration       `json:"flavorFungibility,omitempty"`
@@ -57,11 +57,11 @@ func (b *ClusterQueueSpecApplyConfiguration) WithResourceGroups(values ...*Resou
 	return b
 }
 
-// WithCohort sets the Cohort field in the declarative configuration to the given value
+// WithCohortName sets the CohortName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Cohort field is set to the value of the last call.
-func (b *ClusterQueueSpecApplyConfiguration) WithCohort(value kueuev1beta2.CohortReference) *ClusterQueueSpecApplyConfiguration {
-	b.Cohort = &value
+// If called multiple times, the CohortName field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithCohortName(value kueuev1beta2.CohortReference) *ClusterQueueSpecApplyConfiguration {
+	b.CohortName = &value
 	return b
 }
 

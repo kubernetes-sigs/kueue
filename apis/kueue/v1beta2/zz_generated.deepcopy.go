@@ -915,8 +915,8 @@ func (in *LocalQueueStatus) DeepCopyInto(out *LocalQueueStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.FlavorUsage != nil {
-		in, out := &in.FlavorUsage, &out.FlavorUsage
+	if in.FlavorsUsage != nil {
+		in, out := &in.FlavorsUsage, &out.FlavorsUsage
 		*out = make([]LocalQueueFlavorUsage, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
@@ -2092,8 +2092,8 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.AccumulatedPastExexcutionTimeSeconds != nil {
-		in, out := &in.AccumulatedPastExexcutionTimeSeconds, &out.AccumulatedPastExexcutionTimeSeconds
+	if in.AccumulatedPastExecutionTimeSeconds != nil {
+		in, out := &in.AccumulatedPastExecutionTimeSeconds, &out.AccumulatedPastExecutionTimeSeconds
 		*out = new(int32)
 		**out = **in
 	}
