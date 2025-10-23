@@ -29,7 +29,7 @@ type LocalQueueStatusApplyConfiguration struct {
 	ReservingWorkloads *int32                                    `json:"reservingWorkloads,omitempty"`
 	AdmittedWorkloads  *int32                                    `json:"admittedWorkloads,omitempty"`
 	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
-	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
+	FlavorsUsage       []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsUsage,omitempty"`
 	// Deprecated: Flavors is deprecated and marked for removal in v1beta2.
 	// Consequently, LocalQueueFlavorStatusApplyConfiguration is also deprecated, and will be removed.
 	Flavors     []LocalQueueFlavorStatusApplyConfiguration `json:"flavors,omitempty"`
