@@ -266,7 +266,6 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
 
 	var err error
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sManagerClient, managerCfg, err = util.CreateClientUsingCluster("kind-" + managerClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sWorker1Client, worker1Cfg, err = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
