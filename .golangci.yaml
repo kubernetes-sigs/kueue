@@ -95,7 +95,7 @@ linters:
         text: 'SA1019: kueue.LocalQueueFlavorStatus is deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.'
       - linters:
         - staticcheck
-        text: 'SA1019: status.Flavors is deprecated: Flavors is deprecated and marked for removal in v1beta2.'
+        text: 'SA1019: stats.Flavors is deprecated: Flavors is deprecated and marked for removal in v1beta2.'
       - linters:
           - fatcontext
         path: ^test/*

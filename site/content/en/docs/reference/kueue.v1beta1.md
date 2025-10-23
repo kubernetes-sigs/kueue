@@ -1590,6 +1590,8 @@ which the kueue controller manager is running. The config should be stored in th
 **Appears in:**
 
 - [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+
+
 <p>Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.</p>
 
 
@@ -1833,8 +1835,8 @@ workloads assigned to this LocalQueue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus"><code>[]LocalQueueFlavorStatus</code></a>
 </td>
 <td>
-   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
-   <p>Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.</p>
+   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>
