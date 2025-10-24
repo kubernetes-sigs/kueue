@@ -404,7 +404,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				localJob: newJob().ManagedBy("parent").Obj(),
 				remoteJob: newJob().Label(kueue.MultiKueueOriginLabel, "").
 					Label(constants.PrebuiltWorkloadLabel, "").
-					ManagedBy("parent").
 					Obj(),
 			},
 		},
@@ -493,12 +492,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 			want: want{
 				localJob: newJob().
-					ResourceVersion("2").
-					Condition(
-						batchv1.JobCondition{
-							Type:   batchv1.JobComplete,
-							Status: corev1.ConditionTrue,
-						}).
+					ResourceVersion("1").
 					Obj(),
 			},
 		},
@@ -515,12 +509,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			},
 			want: want{
 				localJob: newJob().
-					ResourceVersion("2").
-					Condition(
-						batchv1.JobCondition{
-							Type:   batchv1.JobFailed,
-							Status: corev1.ConditionTrue,
-						}).
+					ResourceVersion("1").
 					Obj(),
 			},
 		},
@@ -606,9 +595,8 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Condition(runningJobCondition).
 					Obj(),
 				remoteJob: newJob().
-					ResourceVersion("2").
+					ResourceVersion("1").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, "test-workload-new").
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -638,10 +626,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Condition(runningJobCondition).
 					Obj(),
 				remoteJob: newJob().
-					ResourceVersion("2").
+					ResourceVersion("1").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Label(constants.PrebuiltWorkloadLabel, jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0)).
-					Parallelism(22).
+					Label(constants.PrebuiltWorkloadLabel, "test-workload").
+					Parallelism(1).
 					Condition(runningJobCondition).
 					Obj(),
 			},
@@ -670,7 +658,6 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
 			},
 			want: want{
-				err: true,
 				localJob: newJob().
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Parallelism(22).

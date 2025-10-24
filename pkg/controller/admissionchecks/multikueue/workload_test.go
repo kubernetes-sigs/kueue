@@ -299,6 +299,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"wl without reservation, clears the workload objects (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
@@ -501,6 +502,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -565,6 +567,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy, MultiKueueDispatcherModeIncremental)": {
+			features:       map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor:   "wl1",
 			dispatcherName: ptr.To(config.MultiKueueDispatcherModeIncremental),
 			managersWorkloads: []kueue.Workload{
@@ -702,6 +705,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote job is changing status, the local job is not updated (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -835,6 +839,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl is finished, the local workload and Job are marked completed (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
