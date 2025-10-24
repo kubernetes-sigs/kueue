@@ -18,6 +18,8 @@ package webhooks
 
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // Setup sets up the webhooks for core controllers. It returns the name of the
@@ -37,6 +39,10 @@ func Setup(mgr ctrl.Manager) (string, error) {
 
 	if err := setupWebhookForCohort(mgr); err != nil {
 		return "Cohort", err
+	}
+
+	if err := ctrl.NewWebhookManagedBy(mgr).For(&kueue.LocalQueue{}).Complete(); err != nil {
+		return "LocalQueue", err
 	}
 
 	return "", nil

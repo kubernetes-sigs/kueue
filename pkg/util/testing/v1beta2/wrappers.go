@@ -391,7 +391,7 @@ func (w *WorkloadWrapper) MaximumExecutionTimeSeconds(v int32) *WorkloadWrapper 
 }
 
 func (w *WorkloadWrapper) PastAdmittedTime(v int32) *WorkloadWrapper {
-	w.Status.AccumulatedPastExexcutionTimeSeconds = &v
+	w.Status.AccumulatedPastExecutionTimeSeconds = &v
 	return w
 }
 
@@ -862,7 +862,7 @@ func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 
 // Cohort sets the borrowing cohort.
 func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueueWrapper {
-	c.Spec.Cohort = cohort
+	c.Spec.CohortName = cohort
 	return c
 }
 

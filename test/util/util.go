@@ -1042,6 +1042,16 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectAdmissionChecksToBeActive(ctx context.Context, c client.Client, acs ...*kueue.AdmissionCheck) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		readAc := &kueue.AdmissionCheck{}
+		for _, ac := range acs {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(ac), readAc)).To(gomega.Succeed())
+			g.Expect(readAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client, key types.NamespacedName, nodeSelector map[string]string) {
 	job := &batchv1.Job{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {

@@ -17,6 +17,7 @@ limitations under the License.
 package mke2e
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -256,17 +257,11 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
-	managerClusterName = os.Getenv("MANAGER_KIND_CLUSTER_NAME")
-	gomega.Expect(managerClusterName).NotTo(gomega.BeEmpty(), "MANAGER_KIND_CLUSTER_NAME should not be empty")
-
-	worker1ClusterName = os.Getenv("WORKER1_KIND_CLUSTER_NAME")
-	gomega.Expect(worker1ClusterName).NotTo(gomega.BeEmpty(), "WORKER1_KIND_CLUSTER_NAME should not be empty")
-
-	worker2ClusterName = os.Getenv("WORKER2_KIND_CLUSTER_NAME")
-	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
+	managerClusterName = cmp.Or(os.Getenv("MANAGER_KIND_CLUSTER_NAME"), "kind-manager")
+	worker1ClusterName = cmp.Or(os.Getenv("WORKER1_KIND_CLUSTER_NAME"), "kind-worker1")
+	worker2ClusterName = cmp.Or(os.Getenv("WORKER2_KIND_CLUSTER_NAME"), "kind-worker2")
 
 	var err error
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sManagerClient, managerCfg, err = util.CreateClientUsingCluster("kind-" + managerClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sWorker1Client, worker1Cfg, err = util.CreateClientUsingCluster("kind-" + worker1ClusterName)

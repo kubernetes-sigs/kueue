@@ -17,7 +17,6 @@ limitations under the License.
 package dra_test
 
 import (
-	"context"
 	"reflect"
 	"testing"
 
@@ -257,7 +256,8 @@ func Test_GetResourceRequests(t *testing.T) {
 				tc.modifyWL(wlCopy)
 			}
 
-			got, err := dra.GetResourceRequestsForResourceClaimTemplates(context.Background(), baseClient, wlCopy)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			got, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, wlCopy)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("unexpected error status: gotErr=%v wantErr=%v, err=%v", err != nil, tc.wantErr, err)
 			}

@@ -87,7 +87,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.14.1
+RELEASE_VERSION=v0.14.2
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -127,6 +127,12 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+	$(MAKE) compile-crd-manifests
+
+.PHONY: compile-crd-manifests
+compile-crd-manifests: kustomize
+	@mkdir -p config/components/crd/_output
+	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
 
 .PHONY: update-helm
 update-helm: manifests yq yaml-processor
