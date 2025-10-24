@@ -24,7 +24,7 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
 
    一种方法是仅对特定命名空间启用管理：
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    managedJobsNamespaceSelector:
      matchLabels:
@@ -35,7 +35,7 @@ Kueue 支持管理[单个 Pod](#running-a-single-pod-admitted-by-kueue)
    ```
    另一种方法是免除系统命名空间的管理：
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    managedJobsNamespaceSelector:
       matchExpressions:

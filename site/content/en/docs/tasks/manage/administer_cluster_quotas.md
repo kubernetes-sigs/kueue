@@ -394,7 +394,7 @@ Follow the [installation instructions for using a custom configuration](/docs/in
 and extend the configuration with fields similar to the following:
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   excludeResourcePrefixes:
@@ -422,7 +422,7 @@ Follow the [installation instructions for using a custom configuration](/docs/in
 and extend the Kueue configuration with fields similar to the following:
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   transformations:

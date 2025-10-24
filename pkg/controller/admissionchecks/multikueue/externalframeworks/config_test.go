@@ -22,7 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 func TestNewAdapters(t *testing.T) {

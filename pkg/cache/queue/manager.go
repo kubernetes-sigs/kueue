@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"

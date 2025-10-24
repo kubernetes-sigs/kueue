@@ -95,7 +95,7 @@ managerConfig:
   # ControllerManager utilizes this yaml via manager-config Configmap.
   # @default -- controllerManagerConfigYaml
   controllerManagerConfigYaml: |-
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     health:
       healthProbeBindAddress: :8081

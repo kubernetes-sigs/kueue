@@ -135,7 +135,7 @@ unsupported, and results in undefined behavior.
 To enable Fair Sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 fairSharing:
   enable: true

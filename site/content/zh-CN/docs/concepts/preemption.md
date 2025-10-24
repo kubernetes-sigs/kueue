@@ -101,7 +101,7 @@ Kueue 提供了两种抢占算法。它们的主要区别在于：当抢占 Clus
 要启用公平共享，[请使用如下 Kueue 配置](/docs/installation#install-a-custom-configured-release-version)：
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 fairSharing:
   enable: true
