@@ -7,6 +7,8 @@ metadata:
   {{- include "kueue.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-webhook-service'
   namespace: '{{ .Release.Namespace }}'
+  labels:
+    app: webhook-service
 spec:
   type: '{{ .Values.webhookService.type }}'
   {{- if .Values.webhookService.ipDualStack.enabled }}

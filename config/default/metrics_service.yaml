@@ -5,6 +5,7 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: kueue
     app.kubernetes.io/managed-by: kustomize
+    app: metrics-service
   name: controller-manager-metrics-service
   namespace: system
 spec:
