@@ -33,9 +33,9 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -105,7 +105,7 @@ type ClusterQueueOptions struct {
 	UserSpecifiedBorrowingLimit               []string
 	UserSpecifiedLendingLimit                 []string
 
-	Client kueuev1beta1.KueueV1beta1Interface
+	Client kueuev1beta2.KueueV1beta2Interface
 
 	PrintObj printers.ResourcePrinterFunc
 
@@ -214,7 +214,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
 	if err != nil {
@@ -269,7 +269,7 @@ func (o *ClusterQueueOptions) createClusterQueue() *kueue.ClusterQueue {
 		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
 		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
 		Spec: kueue.ClusterQueueSpec{
-			Cohort:            kueue.CohortReference(o.Cohort),
+			CohortName:        kueue.CohortReference(o.Cohort),
 			QueueingStrategy:  o.QueueingStrategy,
 			NamespaceSelector: &o.NamespaceSelector,
 			Preemption: &kueue.ClusterQueuePreemption{

@@ -31,11 +31,11 @@ import (
 	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	kubetesting "k8s.io/client-go/testing"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestWorkloadCmd(t *testing.T) {
@@ -354,7 +354,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			gotWorkloadList, err := clientset.KueueV1beta1().Workloads(tc.ns).List(ctx, metav1.ListOptions{})
+			gotWorkloadList, err := clientset.KueueV1beta2().Workloads(tc.ns).List(ctx, metav1.ListOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}

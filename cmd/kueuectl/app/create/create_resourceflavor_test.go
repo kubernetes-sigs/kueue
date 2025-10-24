@@ -26,7 +26,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -214,7 +214,7 @@ func TestResourceFlavorOptions_createResourceFlavor(t *testing.T) {
 				NodeTaints: []corev1.Taint{{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule}},
 			},
 			expected: &kueue.ResourceFlavor{
-				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta1", Kind: "ResourceFlavor"},
+				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ResourceFlavor"},
 				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
 				Spec: kueue.ResourceFlavorSpec{
 					NodeLabels: map[string]string{"key1": "value"},
@@ -359,7 +359,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotRf, err := clientset.KueueV1beta1().ResourceFlavors().Get(ctx, tc.rfName, metav1.GetOptions{})
+			gotRf, err := clientset.KueueV1beta2().ResourceFlavors().Get(ctx, tc.rfName, metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				t.Error(err)
 				return

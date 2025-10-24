@@ -28,20 +28,19 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/util"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
-var realClock = clock.RealClock{}
 
 func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
@@ -84,11 +83,16 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			wl.Spec.PriorityClassSource = constants.PodPriorityClassSource
 		}
 
-		if err := createWorkload(ctx, c, wl); err != nil {
+		wlv1beta1 := &kueue.Workload{}
+		if err := kueue.Convert_v1beta2_Workload_To_v1beta1_Workload(wl, wlv1beta1, nil); err != nil {
+			return false, fmt.Errorf("failed to convert workload: %w", err)
+		}
+
+		if err := createWorkload(ctx, c, wlv1beta1); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, cache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
+		if err := admitWorkload(ctx, c, wlv1beta1, cache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -170,13 +174,18 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
 	update := func() (*kueue.Workload, bool, error) {
 		// make its admission and update its status
-		info := workload.NewInfo(wl)
+		newWl := &kueuev1beta2.Workload{}
+		if err := kueue.Convert_v1beta1_Workload_To_v1beta2_Workload(wl, newWl, nil); err != nil {
+			return nil, false, fmt.Errorf("failed to convert workload: %w", err)
+		}
+
+		info := workload.NewInfo(newWl)
 
 		admission := kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{
 				{
-					Name:          info.TotalRequests[0].Name,
+					Name:          kueue.PodSetReference(info.TotalRequests[0].Name),
 					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
 					Count:         ptr.To[int32](1),
@@ -206,7 +215,9 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 		return wl, true, nil
 	}
 
-	err := workload.PatchAdmissionStatus(ctx, c, wl, realClock, update)
+	err := clientutil.PatchStatus(ctx, c, wl, func() (client.Object, bool, error) {
+		return update()
+	})
 	retry, _, timeout := checkError(err)
 	for retry {
 		if timeout >= 0 {
@@ -216,7 +227,9 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 			case <-time.After(timeout):
 			}
 		}
-		err = workload.PatchAdmissionStatus(ctx, c, wl, realClock, update)
+		err = clientutil.PatchStatus(ctx, c, wl, func() (client.Object, bool, error) {
+			return update()
+		})
 		retry, _, timeout = checkError(err)
 	}
 	return err

@@ -19,7 +19,7 @@ package hierarchy
 import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 //lint:ignore U1000 due to https://github.com/dominikh/go-tools/issues/1602.

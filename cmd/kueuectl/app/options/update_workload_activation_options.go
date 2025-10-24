@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -42,7 +42,7 @@ type UpdateWorkloadActivationOptions struct {
 	Namespace        string
 	EnforceNamespace bool
 
-	Client kueuev1beta1.KueueV1beta1Interface
+	Client kueuev1beta2.KueueV1beta2Interface
 
 	PrintObj printers.ResourcePrinterFunc
 
@@ -72,7 +72,7 @@ func (o *UpdateWorkloadActivationOptions) Complete(clientGetter util.ClientGette
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
 	if err != nil {

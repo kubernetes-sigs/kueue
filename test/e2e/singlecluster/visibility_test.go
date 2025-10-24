@@ -29,10 +29,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -224,7 +225,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
-						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueA.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -234,7 +235,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
-						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueB.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -244,7 +245,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
-						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueB.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -345,7 +346,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
-						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueA.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -365,7 +366,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
-						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueB.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -375,7 +376,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
-						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueB.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -438,7 +439,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
-						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueA.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -458,7 +459,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
-						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueB.Name),
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -468,7 +469,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
-						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
+						LocalQueueName:         kueuev1beta1.LocalQueueName(localQueueB.Name),
 					},
 				}
 				gomega.Eventually(func(g gomega.Gomega) {

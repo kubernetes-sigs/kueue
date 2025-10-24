@@ -35,7 +35,7 @@ import (
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -283,7 +283,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	for {
 		headers := totalCount == 0
 
-		list, err := o.ClientSet.KueueV1beta1().Workloads(namespace).List(ctx, opts)
+		list, err := o.ClientSet.KueueV1beta2().Workloads(namespace).List(ctx, opts)
 		if err != nil {
 			return err
 		}
@@ -417,7 +417,7 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadL
 			continue
 		}
 		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {
-			lq, err := o.ClientSet.KueueV1beta1().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
+			lq, err := o.ClientSet.KueueV1beta2().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
