@@ -113,8 +113,6 @@ func (m *MPI) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) er
 	if trainJob.Spec.Trainer != nil && trainJob.Spec.Trainer.NumNodes != nil {
 		if node := info.FindPodSetByName(constants.Node); node != nil && node.Count != nil {
 			if ptr.Deref(info.RuntimePolicy.MLPolicySource.MPI.RunLauncherAsNode, false) {
-				// TODO: We should implement more strong validations for the MPIRuntime with runLauncherAsNode.
-				// REF: https://github.com/kubeflow/trainer/issues/2550
 				// When runLauncherAsNode is enabled, 1 nodes should be allocated to launcher.
 				*node.Count = max(*trainJob.Spec.Trainer.NumNodes-1, 1)
 			} else {
@@ -125,6 +123,15 @@ func (m *MPI) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) er
 
 	if trainJob.Spec.Trainer != nil && trainJob.Spec.Trainer.NumProcPerNode != nil {
 		info.RuntimePolicy.MLPolicySource.MPI.NumProcPerNode = ptr.To(int32(trainJob.Spec.Trainer.NumProcPerNode.IntValue()))
+		// If numProcPerNode is set to 1 in runtime, we make it equal to number of GPUs.
+	} else if *info.RuntimePolicy.MLPolicySource.MPI.NumProcPerNode == 1 {
+		resourcesPerNode := ptr.Deref(runtime.ExtractResourcePerNodeFromRuntime(info), corev1.ResourceRequirements{})
+		if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil && jobTrainer.ResourcesPerNode != nil {
+			resourcesPerNode = ptr.Deref(jobTrainer.ResourcesPerNode, corev1.ResourceRequirements{})
+		}
+		if gpuQ := runtime.GetNumGPUPerNode(&resourcesPerNode); gpuQ > 1 {
+			info.RuntimePolicy.MLPolicySource.MPI.NumProcPerNode = ptr.To(int32(gpuQ))
+		}
 	}
 
 	// Add Secret and ConfigMap volumes to the Info object
