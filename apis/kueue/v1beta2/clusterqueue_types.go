@@ -111,7 +111,9 @@ type ClusterQueueSpec struct {
 
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
 	// Cannot be used along with AdmissionCheckStrategy.
+	// Admission checks are limited to at most 64 items.
 	// +optional
+	// +kubebuilder:validation:MaxItems=64
 	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"`
 
 	// admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
@@ -147,6 +149,7 @@ type ClusterQueueSpec struct {
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
+	// +kubebuilder:validation:MaxItems=64
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
 }
 
@@ -158,6 +161,7 @@ type AdmissionCheckStrategyRule struct {
 	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
 	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
 	// +optional
+	// +kubebuilder:validation:MaxItems=64
 	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
@@ -273,9 +277,11 @@ type ClusterQueueStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=64
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
+	// Conditions are limited to 64 elements.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
@@ -325,6 +331,7 @@ type ClusterQueuePendingWorkloadsStatus struct {
 	// clusterQueuePendingWorkload contains the list of top pending workloads.
 	// +listType=atomic
 	// +optional
+	// +kubebuilder:validation:MaxItems=64
 	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"`
 
 	// lastChangeTime indicates the time of the last change of the structure.
@@ -335,9 +342,11 @@ type ClusterQueuePendingWorkloadsStatus struct {
 // in the cluster queue.
 type ClusterQueuePendingWorkload struct {
 	// name indicates the name of the pending workload.
+	// +kubebuilder:validation:MaxLength=256
 	Name string `json:"name"`
 
 	// namespace indicates the name of the pending workload.
+	// +kubebuilder:validation:MaxLength=63
 	Namespace string `json:"namespace"`
 }
 
