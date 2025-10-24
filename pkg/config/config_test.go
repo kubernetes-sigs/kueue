@@ -42,7 +42,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -94,7 +94,7 @@ func TestLoad(t *testing.T) {
 
 	namespaceOverWriteConfig := filepath.Join(tmpDir, "namespace-overwrite.yaml")
 	if err := os.WriteFile(namespaceOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-tenant-a
 health:
@@ -112,7 +112,7 @@ webhook:
 
 	emptyConfig := filepath.Join(tmpDir, "empty-config.yaml")
 	if err := os.WriteFile(emptyConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ kind: Configuration
 
 	ctrlManagerConfigSpecOverWriteConfig := filepath.Join(tmpDir, "ctrl-manager-config-spec-overwrite.yaml")
 	if err := os.WriteFile(ctrlManagerConfigSpecOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 health:
@@ -138,7 +138,7 @@ webhook:
 
 	certOverWriteConfig := filepath.Join(tmpDir, "cert-overwrite.yaml")
 	if err := os.WriteFile(certOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 health:
@@ -160,7 +160,7 @@ internalCertManagement:
 
 	disableCertOverWriteConfig := filepath.Join(tmpDir, "disable-cert-overwrite.yaml")
 	if err := os.WriteFile(disableCertOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 health:
@@ -180,7 +180,7 @@ internalCertManagement:
 
 	leaderElectionDisabledConfig := filepath.Join(tmpDir, "leaderElection-disabled.yaml")
 	if err := os.WriteFile(leaderElectionDisabledConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 health:
@@ -197,7 +197,7 @@ webhook:
 
 	waitForPodsReadyEnabledConfig := filepath.Join(tmpDir, "waitForPodsReady-enabled.yaml")
 	if err := os.WriteFile(waitForPodsReadyEnabledConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 waitForPodsReady:
   enable: true
@@ -215,7 +215,7 @@ waitForPodsReady:
 
 	clientConnectionConfig := filepath.Join(tmpDir, "clientConnection.yaml")
 	if err := os.WriteFile(clientConnectionConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 health:
@@ -236,7 +236,7 @@ clientConnection:
 
 	fullControllerConfig := filepath.Join(tmpDir, "fullControllerConfig.yaml")
 	if err := os.WriteFile(fullControllerConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 health:
@@ -271,7 +271,7 @@ clientConnection:
 
 	integrationsConfig := filepath.Join(tmpDir, "integrations.yaml")
 	if err := os.WriteFile(integrationsConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 integrations:
   frameworks:
@@ -284,7 +284,7 @@ integrations:
 
 	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
 	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 integrations:
   frameworks:
@@ -306,7 +306,7 @@ integrations:
 
 	multiKueueConfig := filepath.Join(tmpDir, "multiKueue.yaml")
 	if err := os.WriteFile(multiKueueConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 multiKueue:
@@ -320,7 +320,7 @@ multiKueue:
 
 	resourceTransformConfig := filepath.Join(tmpDir, "resourceXForm.yaml")
 	if err := os.WriteFile(resourceTransformConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 resources:
@@ -345,7 +345,7 @@ resources:
 
 	invalidConfig := filepath.Join(tmpDir, "invalid-config.yaml")
 	if err := os.WriteFile(invalidConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespaces: kueue-system
 invalidField: invalidValue
@@ -363,7 +363,7 @@ webhook:
 	}
 
 	objectRetentionPoliciesConfig := filepath.Join(tmpDir, "objectRetentionPolicies.yaml")
-	if err := os.WriteFile(objectRetentionPoliciesConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta1
+	if err := os.WriteFile(objectRetentionPoliciesConfig, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 namespace: kueue-system
 objectRetentionPolicies:
@@ -1015,7 +1015,7 @@ func TestEncode(t *testing.T) {
 			scheme: testScheme,
 			cfg:    &configapi.Configuration{},
 			wantResult: map[string]any{
-				"apiVersion":                 "config.kueue.x-k8s.io/v1beta1",
+				"apiVersion":                 "config.kueue.x-k8s.io/v1beta2",
 				"kind":                       "Configuration",
 				"manageJobsWithoutQueueName": false,
 				"health":                     map[string]any{},
@@ -1028,7 +1028,7 @@ func TestEncode(t *testing.T) {
 			scheme: testScheme,
 			cfg:    defaultConfig,
 			wantResult: map[string]any{
-				"apiVersion": "config.kueue.x-k8s.io/v1beta1",
+				"apiVersion": "config.kueue.x-k8s.io/v1beta2",
 				"kind":       "Configuration",
 				"namespace":  configapi.DefaultNamespace,
 				"webhook": map[string]any{

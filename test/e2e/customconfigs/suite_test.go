@@ -28,7 +28,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -37,7 +37,7 @@ var (
 	cfg             *rest.Config
 	restClient      *rest.RESTClient
 	ctx             context.Context
-	defaultKueueCfg *v1beta1.Configuration
+	defaultKueueCfg *config.Configuration
 	kueueNS         = util.GetKueueNamespace()
 	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 )
