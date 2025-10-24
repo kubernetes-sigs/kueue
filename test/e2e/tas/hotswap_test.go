@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
@@ -256,13 +255,10 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 				nodeToRestore = node.DeepCopy()
 				gomega.Expect(k8sClient.Delete(ctx, node)).To(gomega.Succeed())
 			})
-			wl := &kueue.Workload{}
-			ginkgo.By("Check that the workload is evicted", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(wl.Status.Admission).To(gomega.BeNil())
-					g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Check that workload is rescheduled to a different rack", func() {
+				expectWorkloadTopologyAssignment(ctx, k8sClient, wlKey, numPods, []string{
+					"kind-worker3", "kind-worker4",
+				})
 			})
 		})
 	})
