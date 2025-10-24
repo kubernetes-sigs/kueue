@@ -26,13 +26,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestUpdateCqStatusIfChanged(t *testing.T) {
@@ -278,7 +278,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			Name: "name",
 		},
 		Spec: kueue.ClusterQueueSpec{
-			Cohort: "cohort",
+			CohortName: "cohort",
 			ResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
@@ -380,7 +380,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
-				ret.Spec.Cohort = "cohort2"
+				ret.Spec.CohortName = "cohort2"
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{

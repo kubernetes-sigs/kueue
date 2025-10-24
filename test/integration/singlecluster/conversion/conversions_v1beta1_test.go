@@ -28,10 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedCq kueue.ClusterQueue
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueues[0]), &updatedCq)).To(gomega.Succeed())
-			g.Expect(updatedCq.Spec.CohortName).Should(gomega.Equal(kueue.CohortReference("cohort")))
+			g.Expect(updatedCq.Spec.Cohort).Should(gomega.Equal(kueue.CohortReference("cohort")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("await for the LocalQueue to be ready")
@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 					},
 				},
 				FlavorsReservation: emptyUsage,
-				FlavorsUsage:       emptyUsage,
+				FlavorUsage:        emptyUsage,
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -191,7 +191,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 				AdmittedWorkloads:  1,
 				PendingWorkloads:   0,
 				FlavorsReservation: partUsage,
-				FlavorsUsage:       partUsage,
+				FlavorUsage:        partUsage,
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors", "Conditions")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -239,7 +239,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 					},
 				},
 				FlavorsReservation: fullUsage,
-				FlavorsUsage:       fullUsage,
+				FlavorUsage:        fullUsage,
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 						Message: "Can submit new workloads to localQueue",
 					},
 				},
-			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors", "FlavorsReservation", "FlavorsUsage")))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors", "FlavorsReservation", "FlavorUsage")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating workload1")
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 				ReservingWorkloads: 1,
 				AdmittedWorkloads:  1,
 				PendingWorkloads:   0,
-			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors", "FlavorsReservation", "FlavorsUsage", "Conditions")))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, cmpopts.IgnoreFields(kueue.LocalQueueStatus{}, "Flavors", "FlavorsReservation", "FlavorUsage", "Conditions")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating workload2")
@@ -329,7 +329,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", ginkgo.Ordered, ginkgo.ContinueOn
 			g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)).Should(gomega.BeFalse())
 			g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeTrue())
 			g.Expect(updatedWl.Spec.MaximumExecutionTimeSeconds).ShouldNot(gomega.BeNil())
-			g.Expect(updatedWl.Status.AccumulatedPastExecutionTimeSeconds).ShouldNot(gomega.BeNil())
+			g.Expect(updatedWl.Status.AccumulatedPastExexcutionTimeSeconds).ShouldNot(gomega.BeNil())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

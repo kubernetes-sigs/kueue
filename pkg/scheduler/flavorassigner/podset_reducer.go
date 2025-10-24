@@ -21,7 +21,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // PodSetReducer helper structure used to gradually walk down

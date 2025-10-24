@@ -26,8 +26,8 @@ TEST_LOG_LEVEL ?= -3
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
-INTEGRATION_NPROCS ?= 4
-INTEGRATION_NPROCS_MULTIKUEUE ?= 3
+INTEGRATION_NPROCS ?= 1
+INTEGRATION_NPROCS_MULTIKUEUE ?= 1
 # Folder where the integration tests are located.
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...

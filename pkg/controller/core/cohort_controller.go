@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -215,7 +215,7 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.GenericEvent, q w
 	ancestors, err := h.cache.ClusterQueueAncestors(cq)
 	if err != nil {
 		log := ctrl.LoggerFrom(ctx)
-		log.Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.Cohort)
+		log.Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.CohortName)
 	}
 	for _, ancestor := range ancestors {
 		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(ancestor)}})

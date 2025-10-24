@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestCreateClusterQueue(t *testing.T) {
@@ -56,10 +56,10 @@ func TestCreateClusterQueue(t *testing.T) {
 				},
 			},
 			expected: &kueue.ClusterQueue{
-				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta1", Kind: "ClusterQueue"},
+				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ClusterQueue"},
 				ObjectMeta: metav1.ObjectMeta{Name: "cq1"},
 				Spec: kueue.ClusterQueueSpec{
-					Cohort:           "cohort",
+					CohortName:       "cohort",
 					QueueingStrategy: kueue.StrictFIFO,
 					NamespaceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"foo": "bar"},

@@ -17,7 +17,7 @@ import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	field "k8s.io/apimachinery/pkg/util/validation/field"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
-	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	v1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	jobframework "sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podset "sigs.k8s.io/kueue/pkg/podset"
 )
@@ -119,10 +119,10 @@ func (mr *MockGenericJobMockRecorder) Object() *gomock.Call {
 }
 
 // PodSets mocks base method.
-func (m *MockGenericJob) PodSets(ctx context.Context) ([]v1beta1.PodSet, error) {
+func (m *MockGenericJob) PodSets(ctx context.Context) ([]v1beta2.PodSet, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PodSets", ctx)
-	ret0, _ := ret[0].([]v1beta1.PodSet)
+	ret0, _ := ret[0].([]v1beta2.PodSet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
