@@ -404,6 +404,7 @@ spec:
                       maxItems: 64
                       minItems: 1
                       type: array
+                      x-kubernetes-list-type: atomic
                     flavors:
                       description: |-
                         flavors is the list of flavors that provide the resources of this group.

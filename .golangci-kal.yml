@@ -30,7 +30,7 @@ linters:
                                  # having the `omitempty` value in their `json` tag where appropriate.
               # - "optionalorrequired" # Every field should be marked as `+optional` or `+required`.
               # - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`.
-              # - "ssatags" # Ensure array fields have the appropriate listType markers
+              - "ssatags" # Ensure array fields have the appropriate listType markers
               - "statusoptional" # Ensure all first children within status should be optional.
               - "statussubresource" # All root objects that have a `status` field should have a status subresource.
               - "uniquemarkers" # Ensure that types and fields do not contain more than a single definition of a marker that should only be present once.
@@ -57,12 +57,14 @@ linters:
             #    policy: SuggestFix # SuggestFix | Warn # The policy for pointers in optional fields. Defaults to `SuggestFix`.
             #  omitempty:
             #    policy: SuggestFix # SuggestFix | Warn | Ignore # The policy for omitempty in optional fields. Defaults to `SuggestFix`.
+            ssatags:
+              listTypeSetUsage: Ignore # The policy for listType=set usage on object arrays. Defaults to `Warn`.
 
   exclusions:
     generated: strict
     rules:
     ## KAL should only run on API folders.
-    - path-except: "apis/kueue/*"
+    - path-except: "apis/kueue/v1beta2/*"
       linters:
         - kubeapilinter
 
