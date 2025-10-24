@@ -23,7 +23,7 @@ For more information, see [Kueue's overview](/docs/overview).
 
 2. Ensure that you have the v1/statefulset integration enabled, for example:
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    integrations:
      frameworks:

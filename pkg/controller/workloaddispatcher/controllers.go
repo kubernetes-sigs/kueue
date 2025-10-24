@@ -19,7 +19,7 @@ package dispatcher
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 

@@ -383,7 +383,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
 操作，并在配置中添加如下字段：
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   excludeResourcePrefixes:
@@ -410,7 +410,7 @@ resources:
 操作，并在 Kueue 配置中添加如下字段：
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   transformations:

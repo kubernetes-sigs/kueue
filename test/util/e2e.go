@@ -49,7 +49,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 	"sigs.k8s.io/yaml"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"

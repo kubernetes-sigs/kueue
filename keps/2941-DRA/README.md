@@ -285,7 +285,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     namespace: kueue-system
     manageJobsWithoutQueueName: false
@@ -350,7 +350,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     resources:
       deviceClassMappings:
@@ -371,7 +371,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     resources:
       deviceClassMappings:
@@ -467,7 +467,7 @@ metadata:
   namespace: kueue-system
 data:
   config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     namespace: kueue-system
     resources:

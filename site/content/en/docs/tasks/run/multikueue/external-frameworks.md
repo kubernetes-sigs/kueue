@@ -60,7 +60,7 @@ To demonstrate how to configure the adapter, let's use Tekton `PipelineRun` as a
 First, update your Kueue configuration to include `PipelineRun` in the `externalFrameworks` list:
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 data:
   multikueue:
