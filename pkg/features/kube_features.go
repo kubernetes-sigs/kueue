@@ -198,6 +198,12 @@ const (
 	//
 	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
 	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
+
+	// owner: @kshalot
+	// kep: TODO
+	//
+	// Enable a controller that terminates pods stuck in the Pending/Running phase after a termination request, due to a node failure.
+	ZombiePodTermination featuregate.Feature = "ZombiePodTermination"
 )
 
 func init() {
@@ -310,6 +316,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	WorkloadRequestUseMergePatch: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ZombiePodTermination: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
