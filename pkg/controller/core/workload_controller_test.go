@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -415,6 +416,7 @@ func TestReconcile(t *testing.T) {
 		wantWorkload              *kueue.Workload
 		wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
 		wantError                 error
+		wantErrorMsg              string
 		wantEvents                []utiltesting.EventRecord
 		wantResult                reconcile.Result
 		reconcilerOpts            []Option
@@ -574,8 +576,8 @@ func TestReconcile(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantError:  dra.ErrDeviceClassNotMapped,
-			wantEvents: nil,
+			wantErrorMsg: "DeviceClass is not mapped in DRA configuration",
+			wantEvents:   nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			enableDRAFeature: true,
@@ -609,8 +611,8 @@ func TestReconcile(t *testing.T) {
 					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
 				}).
 				Obj(),
-			wantError:  dra.ErrClaimSpecNotFound,
-			wantEvents: nil,
+			wantErrorMsg: "failed to get claim spec",
+			wantEvents:   nil,
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2485,13 +2487,20 @@ func TestReconcile(t *testing.T) {
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
 
-				if tc.wantError != nil {
+				switch {
+				case tc.wantError != nil:
 					if gotError == nil {
 						t.Errorf("expected error %v, got nil", tc.wantError)
 					} else if !stderrors.Is(gotError, tc.wantError) {
 						t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
 					}
-				} else if gotError != nil {
+				case tc.wantErrorMsg != "":
+					if gotError == nil {
+						t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
+					} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
+						t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
+					}
+				case gotError != nil:
 					t.Errorf("unexpected error: %v", gotError)
 				}
 

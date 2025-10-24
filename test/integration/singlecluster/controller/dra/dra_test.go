@@ -486,5 +486,267 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					"DRA resource usage should be a multiple of pod count for webhook validation")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should reject workload with AllocationMode 'All'", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate with AllocationMode All")
+			rct := utiltesting.MakeResourceClaimTemplate("all-mode-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 0).
+				AllocationModeAll().
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with AllocationMode All")
+			wl := utiltestingapi.MakeWorkload("test-wl-all-mode", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("all-mode-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("AllocationMode 'All' is not supported")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject workload with CEL selectors", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate with CEL selectors")
+			rct := utiltesting.MakeResourceClaimTemplate("cel-selector-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				WithCELSelectors("device.driver == \"test-driver\"").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with CEL selectors")
+			wl := utiltestingapi.MakeWorkload("test-wl-cel-selector", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("cel-selector-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("CEL selectors are not supported")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject workload with device constraints", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate with device constraints")
+			rct := utiltesting.MakeResourceClaimTemplate("constraint-template", ns.Name).
+				DeviceRequest("gpu-1", "foo.example.com", 1).
+				DeviceRequest("gpu-2", "foo.example.com", 1).
+				WithDeviceConstraints([]string{"gpu-1", "gpu-2"}, "example.com/numa_node").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with device constraints")
+			wl := utiltestingapi.MakeWorkload("test-wl-constraint", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("constraint-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("device constraints (MatchAttribute) are not supported")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject workload with AdminAccess", func() {
+			ginkgo.By("Adding admin-access label to namespace")
+			var namespace corev1.Namespace
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: ns.Name}, &namespace)).To(gomega.Succeed())
+			if namespace.Labels == nil {
+				namespace.Labels = make(map[string]string)
+			}
+			namespace.Labels["resource.kubernetes.io/admin-access"] = "true"
+			gomega.Expect(k8sClient.Update(ctx, &namespace)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a ResourceClaimTemplate with AdminAccess")
+			rct := utiltesting.MakeResourceClaimTemplate("admin-access-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				WithAdminAccess(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with AdminAccess")
+			wl := utiltestingapi.MakeWorkload("test-wl-admin-access", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("admin-access-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("AdminAccess is not supported")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject workload with device config", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate with device config")
+			rct := utiltesting.MakeResourceClaimTemplate("device-config-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				WithDeviceConfig("device-request", "driver.example.com", []byte(`{"key":"value"}`)).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with device config")
+			wl := utiltestingapi.MakeWorkload("test-wl-device-config", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("device-config-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("device config is not supported")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject workload with FirstAvailable", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate with FirstAvailable")
+			rct := utiltesting.MakeResourceClaimTemplate("first-available-template", ns.Name).
+				FirstAvailableRequest("device-request", "foo.example.com").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload with FirstAvailable")
+			wl := utiltestingapi.MakeWorkload("test-wl-first-available", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("first-available-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("FirstAvailable device selection is not supported")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should admit workload with empty AllocationMode that defaults to ExactCount", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate with empty AllocationMode")
+			rct := utiltesting.MakeResourceClaimTemplate("empty-mode-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
+			// Set AllocationMode to empty string explicitly
+			rct.Spec.Spec.Devices.Requests[0].Exactly.AllocationMode = ""
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload that references the template with empty AllocationMode")
+			wl := utiltestingapi.MakeWorkload("test-wl-empty-mode", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: ptr.To("empty-mode-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+		})
 	})
 })
