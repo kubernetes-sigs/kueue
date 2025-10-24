@@ -1598,7 +1598,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
-				createdTrainJob.Status.JobsStatus = []kftrainer.JobStatus{{Name: "foo"}}
+				createdTrainJob.Status.JobsStatus = []kftrainer.JobStatus{
+					testingtrainjob.MakeJobStatusWrapper("foo").Obj(),
+				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTrainJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
