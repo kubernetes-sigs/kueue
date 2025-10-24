@@ -598,15 +598,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 			return ctrl.Result{}, err
 		}
-		// Update workload priority if job's label changed.
-		if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && WorkloadPriorityClassName(object) != wl.Spec.PriorityClassName {
-			log.V(2).Info("Job changed priority, updating workload", "oldPriority", wl.Spec.PriorityClassName, "newPriority", WorkloadPriorityClassName(object))
-			if _, err = r.updateWorkloadToMatchJob(ctx, job, object, wl); err != nil {
-				log.Error(err, "Updating workload priority")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, nil
-		}
 		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 		return ctrl.Result{}, nil
 	}
@@ -934,7 +925,30 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		return r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
 	}
 
+	if match != nil {
+		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
+			return nil, err
+		}
+	}
+
 	return match, nil
+}
+
+// UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
+func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
+	if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && WorkloadPriorityClassName(obj) != wl.Spec.PriorityClassName {
+		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
+			return fmt.Errorf("prepare workload priority: %w", err)
+		}
+		if err := c.Update(ctx, wl); err != nil {
+			return fmt.Errorf("updating existing workload: %w", err)
+		}
+		r.Eventf(obj,
+			corev1.EventTypeNormal, ReasonUpdatedWorkload,
+			"Updated workload priority class: %v", klog.KObj(wl),
+		)
+	}
+	return nil
 }
 
 func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob) (match *kueue.Workload, toDelete []*kueue.Workload, err error) {
@@ -1090,7 +1104,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 	r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload,
 		"Updated not matching Workload for suspended job: %v", klog.KObj(wl))
-	return newWl, nil
+	return wl, nil
 }
 
 // startJob will unsuspend the job, and also inject the node affinity.
@@ -1263,9 +1277,15 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 	}
 }
 
-// prepareWorkload adds the priority information for the constructed workload
-func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
-	priorityClassName, source, p, err := r.extractPriority(ctx, wl.Spec.PodSets, job)
+func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
+	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
+		return jobWithPriorityClass.PriorityClass
+	}
+	return nil
+}
+
+func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
+	priorityClassName, source, p, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
@@ -1273,6 +1293,16 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	wl.Spec.PriorityClassName = priorityClassName
 	wl.Spec.Priority = &p
 	wl.Spec.PriorityClassSource = source
+
+	return nil
+}
+
+// prepareWorkload adds the priority information for the constructed workload
+func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+	if err := PrepareWorkloadPriority(ctx, r.client, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
+		return err
+	}
+
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
 	if workloadSliceEnabled(job) {
@@ -1281,20 +1311,12 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, string, int32, error) {
-	var customPriorityFunc func() string
-	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
-		customPriorityFunc = jobWithPriorityClass.PriorityClass
-	}
-	return ExtractPriority(ctx, r.client, job.Object(), podSets, customPriorityFunc)
-}
-
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityFunc func() string) (string, string, int32, error) {
+func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (string, string, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 	}
-	if customPriorityFunc != nil {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityFunc())
+	if customPriorityClassFunc != nil {
+		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
 	}
 	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
 }
