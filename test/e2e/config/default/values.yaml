@@ -70,3 +70,4 @@ managerConfig:
       TopologyAwareScheduling: true
       LocalQueueMetrics: true
       TASFailedNodeReplacement: true
+      TASFailedNodeReplacementFailFast: true
