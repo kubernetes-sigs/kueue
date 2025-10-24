@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"iter"
+	"math"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -563,7 +564,11 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	})
 	if r.fairSharingEnabled {
 		if r.reportResourceMetrics {
-			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.Cohort), stats.PreciseWeightedShare)
+			weightedShare := stats.PreciseWeightedShare
+			if weightedShare == math.Inf(1) {
+				weightedShare = math.NaN()
+			}
+			metrics.ReportClusterQueueWeightedShare(cq.Name, string(cq.Spec.Cohort), weightedShare)
 		}
 		if cq.Status.FairSharing == nil {
 			cq.Status.FairSharing = &kueue.FairSharingStatus{}

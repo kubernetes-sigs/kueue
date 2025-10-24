@@ -17,6 +17,7 @@ limitations under the License.
 package fairsharing
 
 import (
+	"math"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -377,6 +378,22 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectPreemptedWorkloadsTotalMetric(cqB.Name, "InCohortFairSharing", 1)
 			util.ExpectEvictedWorkloadsTotalMetric(cqA.Name, kueue.WorkloadEvictedByPreemption, "", "", 1)
 			util.ExpectEvictedWorkloadsTotalMetric(cqB.Name, kueue.WorkloadEvictedByPreemption, "", "", 0)
+		})
+
+		ginkgo.It("should have NaN weighted share metric", func() {
+			ginkgo.By("Creating a workload in cqA")
+			wlA1 := createWorkloadWithPriority("best-effort-cq-a", "4", 100)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqA, "", 1)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 1)
+
+			ginkgo.By("checking the weighted share metric")
+			gomega.Eventually(func(g gomega.Gomega) {
+				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cqA.Name, string(cqA.Spec.Cohort))
+				v, err := testutil.GetGaugeMetricValue(metric)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
+				g.Expect(math.IsNaN(v)).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
