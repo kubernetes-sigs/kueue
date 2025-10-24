@@ -91,6 +91,12 @@ linters:
           - staticcheck
         text: 'SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.'
       - linters:
+          - staticcheck
+        text: 'SA1019: kueue.LocalQueueFlavorStatus is deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.'
+      - linters:
+        - staticcheck
+        text: 'SA1019: stats.Flavors is deprecated: Flavors is deprecated and marked for removal in v1beta2.'
+      - linters:
           - fatcontext
         path: ^test/*
       - linters:
