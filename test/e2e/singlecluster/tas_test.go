@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"fmt"
-	"strconv"
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/onsi/ginkgo/v2"
@@ -523,12 +522,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("verify the TrainJob has nodeSelector set", func() {
-				firstKueueOverride, exists := trainjob.Annotations["kueue.x-k8s.io/trainjob-override-idx"]
-				gomega.Expect(exists).Should(gomega.BeTrue())
-				firstKueueOverrideIdx, err := strconv.Atoi(firstKueueOverride)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-				gomega.Expect(trainjob.Spec.PodTemplateOverrides[firstKueueOverrideIdx].Spec.NodeSelector).To(gomega.Equal(
+				gomega.Expect(trainjob.Spec.PodTemplateOverrides).To(gomega.HaveLen(2))
+				gomega.Expect(trainjob.Spec.PodTemplateOverrides[1].Spec.NodeSelector).To(gomega.Equal(
 					map[string]string{
 						"instance-type": "on-demand",
 					},

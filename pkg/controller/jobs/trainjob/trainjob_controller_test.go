@@ -32,6 +32,7 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -91,24 +92,33 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			trainJob: testTrainJob.Clone().Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
-					Name:            "node",
-					Annotations:     map[string]string{"test-annotation": "test"},
-					Labels:          map[string]string{"test-label": "label"},
+					Name: "node",
+					Annotations: map[string]string{
+						"test-annotation": "test",
+					},
+					Labels: map[string]string{
+						controllerconsts.PodSetLabel: "node",
+						"test-label":                 "label",
+					},
 					NodeSelector:    map[string]string{"disktype": "ssd"},
 					Tolerations:     []corev1.Toleration{*toleration1.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-1"}},
 				},
 			},
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(firstOverrideIdx, "0").
 				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
 						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "node"},
 						},
 						Metadata: &metav1.ObjectMeta{
-							Annotations: map[string]string{"test-annotation": "test"},
-							Labels:      map[string]string{"test-label": "label"},
+							Annotations: map[string]string{
+								"test-annotation": "test",
+							},
+							Labels: map[string]string{
+								controllerconsts.PodSetLabel: "node",
+								"test-label":                 "label",
+							},
 						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
 							NodeSelector:    map[string]string{"disktype": "ssd"},
@@ -137,16 +147,20 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				}).Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
-					Name:            "node",
-					Annotations:     map[string]string{"test-annotation": "test"},
-					Labels:          map[string]string{"test-label": "label"},
+					Name: "node",
+					Annotations: map[string]string{
+						"test-annotation": "test",
+					},
+					Labels: map[string]string{
+						controllerconsts.PodSetLabel: "node",
+						"test-label":                 "label",
+					},
 					NodeSelector:    map[string]string{"gpu": "nvidia"},
 					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
 				},
 			},
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(firstOverrideIdx, "1").
 				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
 						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
@@ -163,8 +177,13 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 							{Name: "node"},
 						},
 						Metadata: &metav1.ObjectMeta{
-							Annotations: map[string]string{"test-annotation": "test"},
-							Labels:      map[string]string{"test-label": "label"},
+							Annotations: map[string]string{
+								"test-annotation": "test",
+							},
+							Labels: map[string]string{
+								controllerconsts.PodSetLabel: "node",
+								"test-label":                 "label",
+							},
 						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
 							NodeSelector:    map[string]string{"gpu": "nvidia"},
@@ -244,23 +263,8 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		wantTrainJob *kftrainerapi.TrainJob
 		wantReturn   bool
 	}{
-		"should not modify the trainjob if it doesn't have the first override index annotation": {
-			trainJob:     testTrainJob.Clone().Obj(),
-			wantTrainJob: testTrainJob.Clone().Obj(),
-			wantReturn:   true,
-		},
-		"should not modify the trainjob if it fails parsing the annotation": {
+		"should remove all the podTemplateOverrides added by kueue": {
 			trainJob: testTrainJob.Clone().
-				Annotation(firstOverrideIdx, "+").
-				Obj(),
-			wantTrainJob: testTrainJob.Clone().
-				Annotation(firstOverrideIdx, "+").
-				Obj(),
-			wantReturn: false,
-		},
-		"should remove all the podTemplateOverrides starting from the index specified in the annotation": {
-			trainJob: testTrainJob.Clone().
-				Annotation(firstOverrideIdx, "2").
 				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
 						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
@@ -282,6 +286,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "kueue-provided-1"},
 						},
+						Metadata: &metav1.ObjectMeta{
+							Labels: map[string]string{
+								controllerconsts.PodSetLabel: "kueue-provided-1",
+							},
+						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
 							NodeSelector: map[string]string{"disktype": "sdd"},
 						},
@@ -290,6 +299,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
 							{Name: "kueue-provided-2"},
 						},
+						Metadata: &metav1.ObjectMeta{
+							Labels: map[string]string{
+								controllerconsts.PodSetLabel: "kueue-provided-2",
+							},
+						},
 						Spec: &kftrainerapi.PodTemplateSpecOverride{
 							NodeSelector: map[string]string{"disktype": "sdd"},
 						},
@@ -297,7 +311,6 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
-				Annotation(firstOverrideIdx, "2").
 				PodTemplateOverrides([]kftrainerapi.PodTemplateOverride{
 					{
 						TargetJobs: []kftrainerapi.PodTemplateOverrideTargetJob{
