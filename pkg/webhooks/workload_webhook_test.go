@@ -17,6 +17,7 @@ limitations under the License.
 package webhooks
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -39,6 +41,303 @@ const (
 	testWorkloadName      = "test-workload"
 	testWorkloadNamespace = "test-ns"
 )
+
+func TestWorkloadWebhookDefault(t *testing.T) {
+	baseTime := time.Now()
+	fakeClock := testingclock.NewFakeClock(baseTime)
+	oldTransitionTime := metav1.NewTime(baseTime.Add(-1 * time.Hour))
+	newTransitionTime := metav1.NewTime(baseTime)
+
+	testCases := map[string]struct {
+		workload               *kueue.Workload
+		oldWorkload            *kueue.Workload
+		enablePartialAdmission bool
+		wantWorkload           *kueue.Workload
+	}{
+		"should drop minCount when PartialAdmission is disabled": {
+			enablePartialAdmission: false,
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(2).Obj(),
+					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 5).Obj(),
+					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
+				).
+				Obj(),
+		},
+		"should preserve minCount when PartialAdmission is enabled": {
+			enablePartialAdmission: true,
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(2).Obj(),
+					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 5).SetMinimumCount(2).Obj(),
+					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
+				).
+				Obj(),
+		},
+		"should update LastTransitionTime when admission check state changes": {
+			oldWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: &newTransitionTime,
+				}).
+				Obj(),
+		},
+		"should not update LastTransitionTime when admission check state does not change": {
+			oldWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					Message:            "old message",
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					Message:            "new message",
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					Message:            "new message",
+					State:              kueue.CheckStateReady,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+		},
+		"should increment RetryCount when transitioning to Retry state": {
+			oldWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: &oldTransitionTime,
+					RetryCount:         ptr.To(int32(2)),
+				}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStateRetry,
+					LastTransitionTime: &oldTransitionTime,
+					RetryCount:         ptr.To(int32(2)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStateRetry,
+					LastTransitionTime: &newTransitionTime,
+					RetryCount:         ptr.To(int32(3)),
+				}).
+				Obj(),
+		},
+		"should initialize RetryCount to 1 when first transitioning to Retry state": {
+			oldWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStateRetry,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStateRetry,
+					LastTransitionTime: &newTransitionTime,
+					RetryCount:         ptr.To(int32(1)),
+				}).
+				Obj(),
+		},
+		"should set RequeueAt based on max retry time": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:                "ac1",
+						State:               kueue.CheckStateRetry,
+						LastTransitionTime:  &newTransitionTime,
+						RetryCount:          ptr.To(int32(1)),
+						RequeueAfterSeconds: ptr.To(int32(60)),
+					},
+					kueue.AdmissionCheckState{
+						Name:                "ac2",
+						State:               kueue.CheckStateRetry,
+						LastTransitionTime:  &newTransitionTime,
+						RetryCount:          ptr.To(int32(1)),
+						RequeueAfterSeconds: ptr.To(int32(120)),
+					},
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:                "ac1",
+						State:               kueue.CheckStateRetry,
+						LastTransitionTime:  &newTransitionTime,
+						RetryCount:          ptr.To(int32(1)),
+						RequeueAfterSeconds: ptr.To(int32(60)),
+					},
+					kueue.AdmissionCheckState{
+						Name:                "ac2",
+						State:               kueue.CheckStateRetry,
+						LastTransitionTime:  &newTransitionTime,
+						RetryCount:          ptr.To(int32(1)),
+						RequeueAfterSeconds: ptr.To(int32(120)),
+					},
+				).
+				RequeueState(nil, ptr.To(metav1.NewTime(baseTime.Add(120*time.Second)))).
+				Obj(),
+		},
+		"should preserve existing RequeueAt if it's later than max retry time": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:                "ac1",
+						State:               kueue.CheckStateRetry,
+						LastTransitionTime:  &newTransitionTime,
+						RetryCount:          ptr.To(int32(1)),
+						RequeueAfterSeconds: ptr.To(int32(60)),
+					},
+				).
+				RequeueState(nil, ptr.To(metav1.NewTime(baseTime.Add(300*time.Second)))).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:                "ac1",
+						State:               kueue.CheckStateRetry,
+						LastTransitionTime:  &newTransitionTime,
+						RetryCount:          ptr.To(int32(1)),
+						RequeueAfterSeconds: ptr.To(int32(60)),
+					},
+				).
+				RequeueState(nil, ptr.To(metav1.NewTime(baseTime.Add(300*time.Second)))).
+				Obj(),
+		},
+		"should handle new workload with no old workload": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: &oldTransitionTime,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "ac1",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: &newTransitionTime,
+				}).
+				Obj(),
+		},
+		"should handle multiple admission checks with mixed state changes": {
+			oldWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStatePending,
+						LastTransitionTime: &oldTransitionTime,
+					},
+					kueue.AdmissionCheckState{
+						Name:               "ac2",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: &oldTransitionTime,
+					},
+				).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: &oldTransitionTime,
+					},
+					kueue.AdmissionCheckState{
+						Name:               "ac2",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: &oldTransitionTime,
+					},
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: &newTransitionTime,
+					},
+					kueue.AdmissionCheckState{
+						Name:               "ac2",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: &oldTransitionTime,
+					},
+				).
+				Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PartialAdmission, tc.enablePartialAdmission)
+
+			// Setup fake client with old workload if provided
+			clientBuilder := utiltesting.NewClientBuilder()
+			if tc.oldWorkload != nil {
+				clientBuilder = clientBuilder.WithObjects(tc.oldWorkload)
+			}
+			fakeClient := clientBuilder.Build()
+
+			webhook := &WorkloadWebhook{
+				client: fakeClient,
+				clock:  fakeClock,
+			}
+
+			ctx := context.Background()
+			err := webhook.Default(ctx, tc.workload)
+			if err != nil {
+				t.Fatalf("Default() returned error: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantWorkload, tc.workload, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
+				t.Errorf("Default() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestValidateWorkload(t *testing.T) {
 	specPath := field.NewPath("spec")
@@ -373,11 +672,10 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				*utiltestingapi.MakePodSet("first", 1).Obj(),
 				*utiltestingapi.MakePodSet("second", 1).Obj(),
 			).AdmissionChecks(kueue.AdmissionCheckState{
-				Name:               "ac1",
-				Message:            "new",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
-				State:              kueue.CheckStateReady,
+				Name:          "ac1",
+				Message:       "new",
+				PodSetUpdates: []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
+				State:         kueue.CheckStateReady,
 			}).Obj(),
 		},
 		"TopologyAssignment can be mutated": {

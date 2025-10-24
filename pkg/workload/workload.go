@@ -61,16 +61,14 @@ const (
 	StatusFinished      = "finished"
 )
 
-var (
-	admissionManagedConditions = []string{
-		kueue.WorkloadQuotaReserved,
-		kueue.WorkloadEvicted,
-		kueue.WorkloadAdmitted,
-		kueue.WorkloadPreempted,
-		kueue.WorkloadRequeued,
-		kueue.WorkloadDeactivationTarget,
-	}
-)
+var admissionManagedConditions = []string{
+	kueue.WorkloadQuotaReserved,
+	kueue.WorkloadEvicted,
+	kueue.WorkloadAdmitted,
+	kueue.WorkloadPreempted,
+	kueue.WorkloadRequeued,
+	kueue.WorkloadDeactivationTarget,
+}
 
 // Reference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
 type Reference string
@@ -564,7 +562,8 @@ func UpdateStatus(ctx context.Context,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
 	managerPrefix string,
-	clock clock.Clock) error {
+	clock clock.Clock,
+) error {
 	now := metav1.NewTime(clock.Now())
 	condition := metav1.Condition{
 		Type:               conditionType,
@@ -620,7 +619,13 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 	backoff := wait.NewBackoff(time.Duration(backoffBaseSeconds)*time.Second, time.Duration(backoffMaxSeconds)*time.Second, 2, 0.0001)
 	waitDuration := backoff.WaitTime(int(requeuingCount))
 
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
+	// The requeue state is shared between multiple components,
+	// so we have to ensure that we don't overwrite a future requeue.
+	currentRequeueAt := ptr.Deref(wl.Status.RequeueState.RequeueAt, metav1.NewTime(time.Time{}))
+	newRequeueAt := metav1.NewTime(clock.Now().Add(waitDuration))
+	if currentRequeueAt.Before(&newRequeueAt) {
+		wl.Status.RequeueState.RequeueAt = ptr.To(newRequeueAt)
+	}
 	wl.Status.RequeueState.Count = &requeuingCount
 }
 

@@ -337,10 +337,9 @@ func TestSyncCheckStates(t *testing.T) {
 		"preserve conditions data": {
 			states: []kueue.AdmissionCheckState{
 				{
-					Name:               "ac0",
-					State:              kueue.CheckStateReady,
-					Message:            "Message one",
-					LastTransitionTime: metav1.NewTime(now),
+					Name:    "ac0",
+					State:   kueue.CheckStateReady,
+					Message: "Message one",
 				},
 				{
 					Name:  "ac1",
@@ -351,10 +350,9 @@ func TestSyncCheckStates(t *testing.T) {
 			wantChange: false,
 			wantStates: []kueue.AdmissionCheckState{
 				{
-					Name:               "ac0",
-					State:              kueue.CheckStateReady,
-					Message:            "Message one",
-					LastTransitionTime: metav1.NewTime(now),
+					Name:    "ac0",
+					State:   kueue.CheckStateReady,
+					Message: "Message one",
 				},
 				{
 					Name:  "ac1",
@@ -383,18 +381,16 @@ func TestSyncCheckStates(t *testing.T) {
 	}
 }
 
-var (
-	workloadCmpOpts = cmp.Options{
-		cmpopts.EquateEmpty(),
-		cmpopts.IgnoreFields(
-			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
-		),
-		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
-		cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt"),
-		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
-	}
-)
+var workloadCmpOpts = cmp.Options{
+	cmpopts.EquateEmpty(),
+	cmpopts.IgnoreFields(
+		kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
+	),
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+	cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+	cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt"),
+	cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+}
 
 func TestReconcile(t *testing.T) {
 	// the clock is primarily used with second rounded times
@@ -1102,7 +1098,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				Admitted(true).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
@@ -1145,7 +1141,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				Admitted(true).
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
@@ -1310,7 +1306,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1320,7 +1315,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadBackoffFinished,
 					Message: "The workload backoff was finished",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 		},
 		"should keep the WorkloadRequeued condition until the AdmissionCheck backoff expires": {
@@ -1355,7 +1349,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1365,7 +1358,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadBackoffFinished,
 					Message: "The workload backoff was finished",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {

@@ -380,8 +380,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 func TestSetCheckState(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	t0 := metav1.NewTime(now.Add(-5 * time.Second))
-	t1 := metav1.NewTime(now)
 	ps1Updates := kueue.PodSetUpdate{
 		Name: "ps1",
 		Labels: map[string]string{
@@ -412,60 +410,53 @@ func TestSetCheckState(t *testing.T) {
 		"add new check": {
 			origStates: []kueue.AdmissionCheckState{},
 			state: kueue.AdmissionCheckState{
-				Name:               "check1",
-				State:              kueue.CheckStatePending,
-				LastTransitionTime: *t0.DeepCopy(),
-				Message:            "msg1",
-				PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
+				Name:          "check1",
+				State:         kueue.CheckStatePending,
+				Message:       "msg1",
+				PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
 			},
 			wantStates: []kueue.AdmissionCheckState{
 				{
-					Name:               "check1",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
+					Name:          "check1",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
 				},
 			},
 		},
 		"update check": {
 			origStates: []kueue.AdmissionCheckState{
 				{
-					Name:               "check1",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
+					Name:          "check1",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: nil,
 				},
 				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
+					Name:          "check2",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: nil,
 				},
 			},
 			state: kueue.AdmissionCheckState{
-				Name:               "check1",
-				State:              kueue.CheckStateReady,
-				LastTransitionTime: *t1.DeepCopy(),
-				Message:            "msg2",
-				PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
+				Name:          "check1",
+				State:         kueue.CheckStateReady,
+				Message:       "msg2",
+				PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
 			},
 			wantStates: []kueue.AdmissionCheckState{
 				{
-					Name:               "check1",
-					State:              kueue.CheckStateReady,
-					LastTransitionTime: *t1.DeepCopy(),
-					Message:            "msg2",
-					PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
+					Name:          "check1",
+					State:         kueue.CheckStateReady,
+					Message:       "msg2",
+					PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
 				},
 				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
+					Name:          "check2",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: nil,
 				},
 			},
 		},
@@ -489,18 +480,16 @@ func TestSetCheckState(t *testing.T) {
 		"update check, no transition time": {
 			origStates: []kueue.AdmissionCheckState{
 				{
-					Name:               "check1",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
+					Name:          "check1",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: nil,
 				},
 				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
+					Name:          "check2",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: nil,
 				},
 			},
 			state: kueue.AdmissionCheckState{
@@ -517,11 +506,10 @@ func TestSetCheckState(t *testing.T) {
 					PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
 				},
 				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
+					Name:          "check2",
+					State:         kueue.CheckStatePending,
+					Message:       "msg1",
+					PodSetUpdates: nil,
 				},
 			},
 		},
@@ -534,20 +522,138 @@ func TestSetCheckState(t *testing.T) {
 			SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
 
 			opts := cmp.Options{}
-			if tc.state.LastTransitionTime.IsZero() {
-				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"), cmpopts.EquateApproxTime(time.Second))
+			opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"), cmpopts.EquateApproxTime(time.Second))
 
-				if updatedCheck := admissioncheck.FindAdmissionCheck(gotStates, tc.state.Name); updatedCheck == nil {
-					t.Error("Cannot find the updated check state")
-				} else {
-					if diff := cmp.Diff(metav1.NewTime(now), updatedCheck.LastTransitionTime, opts...); diff != "" {
-						t.Errorf("Unexpected LastTransitionTime (- want/+ got):\n%s", diff)
-					}
-				}
+			if updatedCheck := admissioncheck.FindAdmissionCheck(gotStates, tc.state.Name); updatedCheck == nil {
+				t.Error("Cannot find the updated check state")
 			}
 
 			if diff := cmp.Diff(tc.wantStates, gotStates, opts...); diff != "" {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetMaxRetryTime(t *testing.T) {
+	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	cases := map[string]struct {
+		checkStates   []kueue.AdmissionCheckState
+		wantRetryTime metav1.Time
+	}{
+		"no admission checks": {
+			checkStates:   []kueue.AdmissionCheckState{},
+			wantRetryTime: metav1.NewTime(time.Time{}),
+		},
+		"admission check with nil RequeueAfterSeconds": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: nil,
+				},
+			},
+			wantRetryTime: metav1.NewTime(time.Time{}),
+		},
+		"admission check with nil LastTransitionTime": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  nil,
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+			},
+			wantRetryTime: metav1.NewTime(time.Time{}),
+		},
+		"single admission check with valid retry time": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(60 * time.Second)),
+		},
+		"multiple admission checks, returns max retry time": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+				{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: ptr.To[int32](120),
+				},
+				{
+					Name:                "check3",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: ptr.To[int32](30),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(120 * time.Second)),
+		},
+		"multiple checks with mixed nil and valid values": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: nil,
+				},
+				{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: ptr.To[int32](90),
+				},
+				{
+					Name:                "check3",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  nil,
+					RequeueAfterSeconds: ptr.To[int32](180),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
+		},
+		"checks with different base times": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime)),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+				{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					LastTransitionTime:  ptr.To(metav1.NewTime(baseTime.Add(30 * time.Second))),
+					RequeueAfterSeconds: ptr.To[int32](60),
+				},
+			},
+			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("foo", "bar").
+				AdmissionChecks(tc.checkStates...).
+				Obj()
+
+			gotRetryTime := GetMaxRetryTime(wl)
+
+			if !gotRetryTime.Equal(&tc.wantRetryTime) {
+				t.Errorf("GetMaxRetryTime() = %v, want %v", gotRetryTime, tc.wantRetryTime)
 			}
 		})
 	}

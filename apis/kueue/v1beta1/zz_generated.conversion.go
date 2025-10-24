@@ -948,8 +948,10 @@ func Convert_v1beta2_AdmissionCheckSpec_To_v1beta1_AdmissionCheckSpec(in *v1beta
 func autoConvert_v1beta1_AdmissionCheckState_To_v1beta2_AdmissionCheckState(in *AdmissionCheckState, out *v1beta2.AdmissionCheckState, s conversion.Scope) error {
 	out.Name = v1beta2.AdmissionCheckReference(in.Name)
 	out.State = v1beta2.CheckState(in.State)
-	out.LastTransitionTime = in.LastTransitionTime
+	out.LastTransitionTime = (*v1.Time)(unsafe.Pointer(in.LastTransitionTime))
 	out.Message = in.Message
+	out.RequeueAfterSeconds = (*int32)(unsafe.Pointer(in.RequeueAfterSeconds))
+	out.RetryCount = (*int32)(unsafe.Pointer(in.RetryCount))
 	out.PodSetUpdates = *(*[]v1beta2.PodSetUpdate)(unsafe.Pointer(&in.PodSetUpdates))
 	return nil
 }
@@ -962,8 +964,10 @@ func Convert_v1beta1_AdmissionCheckState_To_v1beta2_AdmissionCheckState(in *Admi
 func autoConvert_v1beta2_AdmissionCheckState_To_v1beta1_AdmissionCheckState(in *v1beta2.AdmissionCheckState, out *AdmissionCheckState, s conversion.Scope) error {
 	out.Name = AdmissionCheckReference(in.Name)
 	out.State = CheckState(in.State)
-	out.LastTransitionTime = in.LastTransitionTime
+	out.LastTransitionTime = (*v1.Time)(unsafe.Pointer(in.LastTransitionTime))
 	out.Message = in.Message
+	out.RequeueAfterSeconds = (*int32)(unsafe.Pointer(in.RequeueAfterSeconds))
+	out.RetryCount = (*int32)(unsafe.Pointer(in.RetryCount))
 	out.PodSetUpdates = *(*[]PodSetUpdate)(unsafe.Pointer(&in.PodSetUpdates))
 	return nil
 }

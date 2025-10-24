@@ -546,12 +546,12 @@ check.</p>
    <p>state of the admissionCheck, one of Pending, Ready, Retry, Rejected</p>
 </td>
 </tr>
-<tr><td><code>lastTransitionTime</code> <B>[Required]</B><br/>
+<tr><td><code>lastTransitionTime</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
 </td>
 <td>
    <p>lastTransitionTime is the last time the condition transitioned from one status to another.
-This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.</p>
+It will be set by kueue when the underlying condition changed</p>
 </td>
 </tr>
 <tr><td><code>message</code> <B>[Required]</B><br/>
@@ -560,6 +560,28 @@ This should be when the underlying condition changed.  If that is not known, the
 <td>
    <p>message is a human readable message indicating details about the transition.
 This may be an empty string.</p>
+</td>
+</tr>
+<tr><td><code>requeueAfterSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>requeueAfterSeconds indicates how long to wait at least before
+retrying to admit the workload.
+When State=Retry, admission check controllers can set this
+to implement delays between retry attempts.</p>
+<p>If nil when State=Retry, Kueue will retry immediately.
+If set, Kueue will add the workload back to the queue after
+lastTransitionTime + RequeueAfterSeconds is over.</p>
+</td>
+</tr>
+<tr><td><code>retryCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>retryCount tracks retry attempts for this admission check.
+Kueue automatically increments the counter whenever the
+state transitions to Retry.</p>
 </td>
 </tr>
 <tr><td><code>podSetUpdates</code><br/>

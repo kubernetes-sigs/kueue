@@ -17,15 +17,18 @@ limitations under the License.
 package webhooks
 
 import (
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
+var realClock = &clock.RealClock{}
+
 // Setup sets up the webhooks for core controllers. It returns the name of the
 // webhook that failed to create and an error, if any.
 func Setup(mgr ctrl.Manager) (string, error) {
-	if err := setupWebhookForWorkload(mgr); err != nil {
+	if err := setupWebhookForWorkload(mgr, realClock); err != nil {
 		return "Workload", err
 	}
 

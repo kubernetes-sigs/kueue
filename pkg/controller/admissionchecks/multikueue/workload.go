@@ -54,9 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-var (
-	realClock = clock.RealClock{}
-)
+var realClock = clock.RealClock{}
 
 type wlReconciler struct {
 	client            client.Client
@@ -249,7 +247,6 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
 	acs.State = status
 	acs.Message = message
-	acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 	wlPatch := workload.BaseSSAWorkload(wl, true)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
 	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
@@ -429,8 +426,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				}
 				// update the message
 				acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
-				// update the transition time since is used to detect the lost worker state.
-				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 				workload.SetAdmissionCheckState(&group.local.Status.AdmissionChecks, *acs, w.clock)
 				// Set the cluster name to the reserving remote and clear the nominated clusters.
@@ -447,14 +442,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	} else if acs.State == kueue.CheckStateReady {
 		// If there is no reserving and the AC is ready, the connection with the reserving remote might
 		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
-		remainingWaitTime := w.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
+		var remainingWaitTime time.Duration
+		if acs.LastTransitionTime != nil {
+			remainingWaitTime = w.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
+		}
 		if remainingWaitTime > 0 {
 			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
 			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 		} else {
 			acs.State = kueue.CheckStateRetry
 			acs.Message = "Reserving remote lost"
-			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local, true)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock)
 			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
