@@ -25,17 +25,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
-	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	var allErrs field.ErrorList
-	requiredValue, requiredFound := replicaMetadata.Annotations[kueuebeta.PodSetRequiredTopologyAnnotation]
-	preferredValue, preferredFound := replicaMetadata.Annotations[kueuebeta.PodSetPreferredTopologyAnnotation]
-	_, unconstrainedFound := replicaMetadata.Annotations[kueuebeta.PodSetUnconstrainedTopologyAnnotation]
-	sliceRequiredValue, sliceRequiredFound := replicaMetadata.Annotations[kueuebeta.PodSetSliceRequiredTopologyAnnotation]
-	_, sliceSizeFound := replicaMetadata.Annotations[kueuebeta.PodSetSliceSizeAnnotation]
+	requiredValue, requiredFound := replicaMetadata.Annotations[kueue.PodSetRequiredTopologyAnnotation]
+	preferredValue, preferredFound := replicaMetadata.Annotations[kueue.PodSetPreferredTopologyAnnotation]
+	_, unconstrainedFound := replicaMetadata.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]
+	sliceRequiredValue, sliceRequiredFound := replicaMetadata.Annotations[kueue.PodSetSliceRequiredTopologyAnnotation]
+	_, sliceSizeFound := replicaMetadata.Annotations[kueue.PodSetSliceSizeAnnotation]
 
 	// validate no more than 1 annotation
 	asInt := func(b bool) int {
@@ -49,38 +49,38 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	if annotationFoundCount > 1 {
 		allErrs = append(allErrs, field.Invalid(annotationsPath, field.OmitValueType{},
 			fmt.Sprintf("must not contain more than one topology annotation: [%q, %q, %q]",
-				kueuebeta.PodSetRequiredTopologyAnnotation,
-				kueuebeta.PodSetPreferredTopologyAnnotation,
-				kueuebeta.PodSetUnconstrainedTopologyAnnotation),
+				kueue.PodSetRequiredTopologyAnnotation,
+				kueue.PodSetPreferredTopologyAnnotation,
+				kueue.PodSetUnconstrainedTopologyAnnotation),
 		))
 	}
 
 	// validate labels
 	if requiredFound {
-		allErrs = append(allErrs, metavalidation.ValidateLabelName(requiredValue, annotationsPath.Key(kueuebeta.PodSetRequiredTopologyAnnotation))...)
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(requiredValue, annotationsPath.Key(kueue.PodSetRequiredTopologyAnnotation))...)
 	}
 	if preferredFound {
-		allErrs = append(allErrs, metavalidation.ValidateLabelName(preferredValue, annotationsPath.Key(kueuebeta.PodSetPreferredTopologyAnnotation))...)
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(preferredValue, annotationsPath.Key(kueue.PodSetPreferredTopologyAnnotation))...)
 	}
 	if sliceRequiredFound {
-		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueuebeta.PodSetSliceRequiredTopologyAnnotation))...)
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(sliceRequiredValue, annotationsPath.Key(kueue.PodSetSliceRequiredTopologyAnnotation))...)
 	}
 
 	// validate PodSetGroupName annotation
-	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueuebeta.PodSetGroupName]
+	podSetGroupNameValue, podSetGroupNameFound := replicaMetadata.Annotations[kueue.PodSetGroupName]
 	if podSetGroupNameFound {
-		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueuebeta.PodSetGroupName))...)
+		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueue.PodSetGroupName))...)
 
 		if sliceSizeFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueuebeta.PodSetSliceSizeAnnotation)))
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
 		}
 
 		if sliceRequiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
 		}
 
 		if !preferredFound && !requiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetGroupName), fmt.Sprintf("may not be set when neither '%s' nor '%s' is specified", kueuebeta.PodSetPreferredTopologyAnnotation, kueuebeta.PodSetRequiredTopologyAnnotation)))
+			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when neither '%s' nor '%s' is specified", kueue.PodSetPreferredTopologyAnnotation, kueue.PodSetRequiredTopologyAnnotation)))
 		}
 	}
 
@@ -92,21 +92,21 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 
 	// validate slice annotations
 	if sliceRequiredFound && !sliceSizeFound {
-		allErrs = append(allErrs, field.Required(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("must be set when '%s' is specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
+		allErrs = append(allErrs, field.Required(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("must be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
 	}
 	if !sliceRequiredFound && sliceSizeFound {
-		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueuebeta.PodSetSliceRequiredTopologyAnnotation)))
+		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("may not be set when '%s' is not specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
 	}
 
 	return allErrs
 }
 
 func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
-	if val, ok := replicaMetadata.Annotations[kueuebeta.PodSetUnconstrainedTopologyAnnotation]; ok {
+	if val, ok := replicaMetadata.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]; ok {
 		if _, err := strconv.ParseBool(val); err != nil {
 			return field.ErrorList{
 				field.Invalid(
-					annotationsPath.Key(kueuebeta.PodSetUnconstrainedTopologyAnnotation), val, "must be a boolean value",
+					annotationsPath.Key(kueue.PodSetUnconstrainedTopologyAnnotation), val, "must be a boolean value",
 				),
 			}
 		}
@@ -115,7 +115,7 @@ func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *meta
 }
 
 func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
-	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueuebeta.PodSetSliceSizeAnnotation]
+	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueue.PodSetSliceSizeAnnotation]
 	if !sliceSizeFound {
 		return nil
 	}
@@ -124,7 +124,7 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 	if err != nil {
 		return field.ErrorList{
 			field.Invalid(
-				annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
+				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
 			),
 		}
 	}
@@ -132,7 +132,7 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 	if int32(val) < 1 {
 		return field.ErrorList{
 			field.Invalid(
-				annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), sliceSizeValue,
+				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
 				"must be greater than or equal to 1",
 			),
 		}
@@ -153,8 +153,8 @@ func validatePodSetGroupNameAnnotation(groupName string, annotationPath *field.P
 	return nil
 }
 
-func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSet *kueuebeta.PodSet) field.ErrorList {
-	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueuebeta.PodSetSliceSizeAnnotation]
+func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSet *kueue.PodSet) field.ErrorList {
+	sliceSizeValue, sliceSizeFound := replicaMetadata.Annotations[kueue.PodSetSliceSizeAnnotation]
 	if !sliceSizeFound || podSet == nil {
 		return nil
 	}
@@ -165,7 +165,7 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 	if err != nil {
 		return field.ErrorList{
 			field.Invalid(
-				annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
+				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue, "must be a numeric value",
 			),
 		}
 	}
@@ -173,7 +173,7 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 	if int32(val) > podSet.Count {
 		return field.ErrorList{
 			field.Invalid(
-				annotationsPath.Key(kueuebeta.PodSetSliceSizeAnnotation), sliceSizeValue,
+				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
 				fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
 			),
 		}
@@ -182,8 +182,8 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 	return nil
 }
 
-func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotationsByName map[kueuebeta.PodSetReference]*field.Path) field.ErrorList {
-	podSetGroups := orderedgroups.NewOrderedGroups[string, kueuebeta.PodSet]()
+func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByName map[kueue.PodSetReference]*field.Path) field.ErrorList {
+	podSetGroups := orderedgroups.NewOrderedGroups[string, kueue.PodSet]()
 	for _, podSet := range podSets {
 		if podSet.TopologyRequest == nil || podSet.TopologyRequest.PodSetGroupName == nil {
 			continue
@@ -200,7 +200,7 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 				allErrs = append(
 					allErrs,
 					field.Invalid(
-						podSetAnnotationsByName[podSet.Name].Key(kueuebeta.PodSetGroupName),
+						podSetAnnotationsByName[podSet.Name].Key(kueue.PodSetGroupName),
 						groupName,
 						fmt.Sprintf("can only define groups of exactly 2 pod sets, got: %d pod set(s)", groupSize),
 					),
@@ -222,12 +222,12 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 			)
 			allErrs = append(allErrs,
 				field.Invalid(
-					annotationsPath1.Key(kueuebeta.PodSetGroupName),
+					annotationsPath1.Key(kueue.PodSetGroupName),
 					groupName,
 					sizeErrorMessage,
 				),
 				field.Invalid(
-					annotationsPath2.Key(kueuebeta.PodSetGroupName),
+					annotationsPath2.Key(kueue.PodSetGroupName),
 					groupName,
 					sizeErrorMessage,
 				),
@@ -237,8 +237,8 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 		if !topologyRequestsValid(podSet1.TopologyRequest, podSet2.TopologyRequest) {
 			errorMessageTemplate := fmt.Sprintf(
 				"must specify '%s' or '%s' topology consistent with '%%s' in group '%s'",
-				kueuebeta.PodSetRequiredTopologyAnnotation,
-				kueuebeta.PodSetPreferredTopologyAnnotation,
+				kueue.PodSetRequiredTopologyAnnotation,
+				kueue.PodSetPreferredTopologyAnnotation,
 				groupName,
 			)
 			allErrs = append(
@@ -260,7 +260,7 @@ func ValidatePodSetGroupingTopology(podSets []kueuebeta.PodSet, podSetAnnotation
 	return allErrs
 }
 
-func topologyRequestsValid(r1, r2 *kueuebeta.PodSetTopologyRequest) bool {
+func topologyRequestsValid(r1, r2 *kueue.PodSetTopologyRequest) bool {
 	// Check that the requests have exactly one of `Required` and `Preferred`.
 	if r1.Required == nil && r1.Preferred == nil {
 		return false
