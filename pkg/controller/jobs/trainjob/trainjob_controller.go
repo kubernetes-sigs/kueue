@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -43,6 +42,7 @@ import (
 	jobsetapplyapi "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -55,11 +55,6 @@ var (
 	gvk                    = kftrainer.GroupVersion.WithKind("TrainJob")
 	FrameworkName          = "trainer.kubeflow.org/trainjob"
 	TrainJobControllerName = "trainer.kubeflow.org/trainjob-controller"
-)
-
-const (
-	// This is alpha level annotation
-	firstOverrideIdx = "kueue.x-k8s.io/trainjob-override-idx"
 )
 
 func init() {
@@ -272,7 +267,6 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.
 	if t.Annotations == nil {
 		t.Annotations = map[string]string{}
 	}
-	t.Annotations[firstOverrideIdx] = strconv.Itoa(len(t.Spec.PodTemplateOverrides))
 	for _, info := range podSetsInfo {
 		// The trainjob controller merges each podSpecOverride sequentially, so any existing user provided override will be processed first
 		t.Spec.PodTemplateOverrides = append(t.Spec.PodTemplateOverrides, kftrainer.PodTemplateOverride{
@@ -316,7 +310,6 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		if !t.RestorePodSetsInfo(podSetsInfo) {
 			return t.Object(), false, errors.New("error restoring info to the trainjob")
 		}
-		delete(t.Annotations, firstOverrideIdx)
 		return t.Object(), true, nil
 	}); err != nil {
 		return false, err
@@ -325,16 +318,16 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
-	idx, ok := t.Annotations[firstOverrideIdx]
-	if !ok {
-		// Kueue didn't inject any config yet
-		return true
+	for i, o := range t.Spec.PodTemplateOverrides {
+		if o.Metadata != nil {
+			_, exists := o.Metadata.Labels[controllerconsts.PodSetLabel]
+			if exists {
+				t.Spec.PodTemplateOverrides = t.Spec.PodTemplateOverrides[:i]
+				break
+			}
+		}
 	}
-	idxInt, err := strconv.Atoi(idx)
-	if err != nil {
-		return false
-	}
-	t.Spec.PodTemplateOverrides = t.Spec.PodTemplateOverrides[:idxInt]
+
 	return true
 }
 
