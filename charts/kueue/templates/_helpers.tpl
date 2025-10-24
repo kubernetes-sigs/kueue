@@ -57,6 +57,7 @@ Labels for metrics service
 {{- define "kueue.metricsService.labels" -}}
 {{ include "kueue.labels" . }}
 app.kubernetes.io/component: metrics
+app: metrics-service
 {{- end }}
 
 {{/*

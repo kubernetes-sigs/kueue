@@ -3,6 +3,8 @@ kind: Service
 metadata:
   name: webhook-service
   namespace: system
+  labels:
+    app: webhook-service
 spec:
   ports:
     - port: 443
