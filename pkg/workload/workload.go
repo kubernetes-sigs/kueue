@@ -750,12 +750,13 @@ func HasTopologyAssignmentsPending(w *kueue.Workload) bool {
 	return false
 }
 
-func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
+func SetPreemptedCondition(w *kueue.Workload, now time.Time, reason string, message string) {
 	condition := metav1.Condition{
-		Type:    kueue.WorkloadPreempted,
-		Status:  metav1.ConditionTrue,
-		Reason:  reason,
-		Message: api.TruncateConditionMessage(message),
+		Type:               kueue.WorkloadPreempted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
@@ -771,10 +772,11 @@ func SetDeactivationTarget(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
+func SetEvictedCondition(w *kueue.Workload, now time.Time, reason string, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
@@ -1113,7 +1115,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 }
 
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
-	SetEvictedCondition(w, reason, message)
+	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
 }
