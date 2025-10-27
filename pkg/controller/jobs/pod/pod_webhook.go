@@ -73,7 +73,6 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
-	// Pod selection now handled by managedJobsNamespaceSelector
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
