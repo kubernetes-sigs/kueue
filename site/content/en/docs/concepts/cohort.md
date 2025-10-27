@@ -23,7 +23,7 @@ kind: ClusterQueue
 metadata:
   name: "my-cluster-queue"
 spec:
-  cohort: "hello-cohort"
+  cohortName: "hello-cohort"
 ```
 
 ## Configuring Quotas
@@ -63,7 +63,7 @@ kind: ClusterQueue
 metadata:
   name: "my-cluster-queue"
 spec:
-  cohort: "hello-cohort"
+  cohortName: "hello-cohort"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:

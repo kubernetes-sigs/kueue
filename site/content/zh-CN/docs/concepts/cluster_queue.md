@@ -237,7 +237,7 @@ metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # 匹配所有命名空间。
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -256,7 +256,7 @@ metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # 匹配所有命名空间。
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -294,7 +294,7 @@ metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # 匹配所有命名空间。
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -312,7 +312,7 @@ metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # 匹配所有命名空间。
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -353,7 +353,7 @@ metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # 匹配所有命名空间。
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -370,7 +370,7 @@ metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # 匹配所有命名空间。
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
