@@ -171,7 +171,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
-		cohort.Status.FairSharing.WeightedShare = stats.WeightedShare
+		cohort.Status.FairSharing.WeightedShare = WeightedShare(stats.WeightedShare)
 	} else {
 		cohort.Status.FairSharing = nil
 	}
