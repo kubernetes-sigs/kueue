@@ -37,20 +37,24 @@ func (dst *LocalQueue) ConvertFrom(srcRaw conversion.Hub) error {
 }
 
 func Convert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(in *v1beta2.LocalQueueStatus, out *LocalQueueStatus, s conversionapi.Scope) error {
-	out.FlavorUsage = make([]LocalQueueFlavorUsage, len(in.FlavorsUsage))
-	for i := range in.FlavorsUsage {
-		if err := autoConvert_v1beta2_LocalQueueFlavorUsage_To_v1beta1_LocalQueueFlavorUsage(&in.FlavorsUsage[i], &out.FlavorUsage[i], s); err != nil {
-			return err
+	if in.FlavorsUsage != nil {
+		out.FlavorUsage = make([]LocalQueueFlavorUsage, len(in.FlavorsUsage))
+		for i := range in.FlavorsUsage {
+			if err := autoConvert_v1beta2_LocalQueueFlavorUsage_To_v1beta1_LocalQueueFlavorUsage(&in.FlavorsUsage[i], &out.FlavorUsage[i], s); err != nil {
+				return err
+			}
 		}
 	}
 	return autoConvert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(in, out, s)
 }
 
 func Convert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQueueStatus, out *v1beta2.LocalQueueStatus, s conversionapi.Scope) error {
-	out.FlavorsUsage = make([]v1beta2.LocalQueueFlavorUsage, len(in.FlavorUsage))
-	for i := range in.FlavorUsage {
-		if err := autoConvert_v1beta1_LocalQueueFlavorUsage_To_v1beta2_LocalQueueFlavorUsage(&in.FlavorUsage[i], &out.FlavorsUsage[i], s); err != nil {
-			return err
+	if in.FlavorUsage != nil {
+		out.FlavorsUsage = make([]v1beta2.LocalQueueFlavorUsage, len(in.FlavorUsage))
+		for i := range in.FlavorUsage {
+			if err := autoConvert_v1beta1_LocalQueueFlavorUsage_To_v1beta2_LocalQueueFlavorUsage(&in.FlavorUsage[i], &out.FlavorsUsage[i], s); err != nil {
+				return err
+			}
 		}
 	}
 	return autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in, out, s)

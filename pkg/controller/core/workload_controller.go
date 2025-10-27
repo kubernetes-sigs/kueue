@@ -51,7 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -562,7 +562,7 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return 0, nil
 	}
 
-	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExexcutionTimeSeconds, 0))*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds-ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0))*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
 	if remainingTime > 0 {
 		return remainingTime, nil
 	}
@@ -570,8 +570,8 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
 			updated := workload.SetDeactivationTarget(wl, kueue.WorkloadMaximumExecutionTimeExceeded, "exceeding the maximum execution time")
-			if wl.Status.AccumulatedPastExexcutionTimeSeconds != nil {
-				wl.Status.AccumulatedPastExexcutionTimeSeconds = nil
+			if wl.Status.AccumulatedPastExecutionTimeSeconds != nil {
+				wl.Status.AccumulatedPastExecutionTimeSeconds = nil
 				updated = true
 			}
 			return wl, updated, nil

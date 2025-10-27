@@ -19,6 +19,7 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -42,7 +43,7 @@ func newPendingWorkload(wlInfo *workload.Info, positionInLq int32, positionInCq 
 		},
 		PositionInClusterQueue: int32(positionInCq),
 		Priority:               *wlInfo.Obj.Spec.Priority,
-		LocalQueueName:         wlInfo.Obj.Spec.QueueName,
+		LocalQueueName:         kueuev1beta1.LocalQueueName(wlInfo.Obj.Spec.QueueName),
 		PositionInLocalQueue:   positionInLq,
 	}
 }

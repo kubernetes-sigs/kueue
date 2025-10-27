@@ -37,13 +37,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -1750,7 +1750,7 @@ func TestClusterQueueUsage(t *testing.T) {
 		).
 		Cohort("one").Obj()
 	cqWithOutCohort := cq.DeepCopy()
-	cqWithOutCohort.Spec.Cohort = ""
+	cqWithOutCohort.Spec.CohortName = ""
 	workloads := []kueue.Workload{
 		*utiltestingapi.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
@@ -3656,7 +3656,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// Successfully updated to cohort without cycle
-		cq.Spec.Cohort = "cohort"
+		cq.Spec.CohortName = "cohort"
 		if err := cache.UpdateClusterQueue(log, cq); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3713,7 +3713,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// Updated to cycle
-		cq.Spec.Cohort = "cycle"
+		cq.Spec.CohortName = "cycle"
 		if err := cache.UpdateClusterQueue(log, cq); err == nil {
 			t.Fatal("Expected failure")
 		}

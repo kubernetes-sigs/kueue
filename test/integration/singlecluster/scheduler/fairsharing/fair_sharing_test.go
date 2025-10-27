@@ -30,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -396,7 +396,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 			ginkgo.By("checking the weighted share metric")
 			gomega.Eventually(func(g gomega.Gomega) {
-				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cqA.Name, string(cqA.Spec.Cohort))
+				metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cqA.Name, string(cqA.Spec.CohortName))
 				v, err := testutil.GetGaugeMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(math.IsNaN(v)).Should(gomega.BeTrue())

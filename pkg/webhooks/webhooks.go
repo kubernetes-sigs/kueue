@@ -19,7 +19,7 @@ package webhooks
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // Setup sets up the webhooks for core controllers. It returns the name of the

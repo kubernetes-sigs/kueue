@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -147,7 +147,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
 	}
 	c.hm.AddClusterQueue(cqImpl)
-	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
+	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
@@ -432,7 +432,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return ErrCqNotFound
 	}
 	oldParent := cqImpl.Parent()
-	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
+	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
@@ -742,11 +742,11 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	c.RLock()
 	defer c.RUnlock()
 
-	if cqObj.Spec.Cohort == "" {
+	if cqObj.Spec.CohortName == "" {
 		return nil, nil
 	}
 
-	cohort := c.hm.Cohort(cqObj.Spec.Cohort)
+	cohort := c.hm.Cohort(cqObj.Spec.CohortName)
 	if cohort == nil {
 		return nil, nil
 	}

@@ -66,7 +66,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -729,7 +729,7 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 }
 
 func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value float64) {
-	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.Cohort))
+	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.CohortName))
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -756,7 +756,7 @@ func ExpectLocalQueueResourceReservationsMetric(queue *kueue.LocalQueue, flavorN
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -765,7 +765,7 @@ func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource strin
 }
 
 func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -774,7 +774,7 @@ func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource str
 }
 
 func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())

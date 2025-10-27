@@ -25,8 +25,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )

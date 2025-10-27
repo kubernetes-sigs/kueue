@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type CohortWebhook struct{}
@@ -41,7 +41,7 @@ func (w *CohortWebhook) Default(context.Context, runtime.Object) error {
 	return nil
 }
 
-//+kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-cohort,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=cohorts,verbs=create;update,versions=v1beta1,name=vcohort.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-cohort,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=cohorts,verbs=create;update,versions=v1beta2,name=vcohort.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &CohortWebhook{}
 
