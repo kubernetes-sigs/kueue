@@ -22,9 +22,13 @@ package v1beta1
 
 import (
 	url "net/url"
+	unsafe "unsafe"
 
 	conversion "k8s.io/apimachinery/pkg/conversion"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	v1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 )
 
 func init() {
@@ -34,12 +38,228 @@ func init() {
 // RegisterConversions adds conversion functions to the given scheme.
 // Public to allow building arbitrary schemes.
 func RegisterConversions(s *runtime.Scheme) error {
+	if err := s.AddGeneratedConversionFunc((*ClusterQueue)(nil), (*v1beta2.ClusterQueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue(a.(*ClusterQueue), b.(*v1beta2.ClusterQueue), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.ClusterQueue)(nil), (*ClusterQueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_ClusterQueue_To_v1beta1_ClusterQueue(a.(*v1beta2.ClusterQueue), b.(*ClusterQueue), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*ClusterQueueList)(nil), (*v1beta2.ClusterQueueList)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_ClusterQueueList_To_v1beta2_ClusterQueueList(a.(*ClusterQueueList), b.(*v1beta2.ClusterQueueList), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.ClusterQueueList)(nil), (*ClusterQueueList)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_ClusterQueueList_To_v1beta1_ClusterQueueList(a.(*v1beta2.ClusterQueueList), b.(*ClusterQueueList), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*LocalQueue)(nil), (*v1beta2.LocalQueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_LocalQueue_To_v1beta2_LocalQueue(a.(*LocalQueue), b.(*v1beta2.LocalQueue), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.LocalQueue)(nil), (*LocalQueue)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_LocalQueue_To_v1beta1_LocalQueue(a.(*v1beta2.LocalQueue), b.(*LocalQueue), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*LocalQueueList)(nil), (*v1beta2.LocalQueueList)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_LocalQueueList_To_v1beta2_LocalQueueList(a.(*LocalQueueList), b.(*v1beta2.LocalQueueList), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.LocalQueueList)(nil), (*LocalQueueList)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList(a.(*v1beta2.LocalQueueList), b.(*LocalQueueList), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*PendingWorkload)(nil), (*v1beta2.PendingWorkload)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload(a.(*PendingWorkload), b.(*v1beta2.PendingWorkload), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.PendingWorkload)(nil), (*PendingWorkload)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_PendingWorkload_To_v1beta1_PendingWorkload(a.(*v1beta2.PendingWorkload), b.(*PendingWorkload), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*PendingWorkloadOptions)(nil), (*v1beta2.PendingWorkloadOptions)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_PendingWorkloadOptions_To_v1beta2_PendingWorkloadOptions(a.(*PendingWorkloadOptions), b.(*v1beta2.PendingWorkloadOptions), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.PendingWorkloadOptions)(nil), (*PendingWorkloadOptions)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_PendingWorkloadOptions_To_v1beta1_PendingWorkloadOptions(a.(*v1beta2.PendingWorkloadOptions), b.(*PendingWorkloadOptions), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*PendingWorkloadsSummary)(nil), (*v1beta2.PendingWorkloadsSummary)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary(a.(*PendingWorkloadsSummary), b.(*v1beta2.PendingWorkloadsSummary), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*v1beta2.PendingWorkloadsSummary)(nil), (*PendingWorkloadsSummary)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary(a.(*v1beta2.PendingWorkloadsSummary), b.(*PendingWorkloadsSummary), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddGeneratedConversionFunc((*url.Values)(nil), (*PendingWorkloadOptions)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_url_Values_To_v1beta1_PendingWorkloadOptions(a.(*url.Values), b.(*PendingWorkloadOptions), scope)
 	}); err != nil {
 		return err
 	}
 	return nil
+}
+
+func autoConvert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue(in *ClusterQueue, out *v1beta2.ClusterQueue, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	if err := Convert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary(&in.Summary, &out.Summary, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Convert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue is an autogenerated conversion function.
+func Convert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue(in *ClusterQueue, out *v1beta2.ClusterQueue, s conversion.Scope) error {
+	return autoConvert_v1beta1_ClusterQueue_To_v1beta2_ClusterQueue(in, out, s)
+}
+
+func autoConvert_v1beta2_ClusterQueue_To_v1beta1_ClusterQueue(in *v1beta2.ClusterQueue, out *ClusterQueue, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	if err := Convert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary(&in.Summary, &out.Summary, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Convert_v1beta2_ClusterQueue_To_v1beta1_ClusterQueue is an autogenerated conversion function.
+func Convert_v1beta2_ClusterQueue_To_v1beta1_ClusterQueue(in *v1beta2.ClusterQueue, out *ClusterQueue, s conversion.Scope) error {
+	return autoConvert_v1beta2_ClusterQueue_To_v1beta1_ClusterQueue(in, out, s)
+}
+
+func autoConvert_v1beta1_ClusterQueueList_To_v1beta2_ClusterQueueList(in *ClusterQueueList, out *v1beta2.ClusterQueueList, s conversion.Scope) error {
+	out.ListMeta = in.ListMeta
+	out.Items = *(*[]v1beta2.ClusterQueue)(unsafe.Pointer(&in.Items))
+	return nil
+}
+
+// Convert_v1beta1_ClusterQueueList_To_v1beta2_ClusterQueueList is an autogenerated conversion function.
+func Convert_v1beta1_ClusterQueueList_To_v1beta2_ClusterQueueList(in *ClusterQueueList, out *v1beta2.ClusterQueueList, s conversion.Scope) error {
+	return autoConvert_v1beta1_ClusterQueueList_To_v1beta2_ClusterQueueList(in, out, s)
+}
+
+func autoConvert_v1beta2_ClusterQueueList_To_v1beta1_ClusterQueueList(in *v1beta2.ClusterQueueList, out *ClusterQueueList, s conversion.Scope) error {
+	out.ListMeta = in.ListMeta
+	out.Items = *(*[]ClusterQueue)(unsafe.Pointer(&in.Items))
+	return nil
+}
+
+// Convert_v1beta2_ClusterQueueList_To_v1beta1_ClusterQueueList is an autogenerated conversion function.
+func Convert_v1beta2_ClusterQueueList_To_v1beta1_ClusterQueueList(in *v1beta2.ClusterQueueList, out *ClusterQueueList, s conversion.Scope) error {
+	return autoConvert_v1beta2_ClusterQueueList_To_v1beta1_ClusterQueueList(in, out, s)
+}
+
+func autoConvert_v1beta1_LocalQueue_To_v1beta2_LocalQueue(in *LocalQueue, out *v1beta2.LocalQueue, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	if err := Convert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary(&in.Summary, &out.Summary, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Convert_v1beta1_LocalQueue_To_v1beta2_LocalQueue is an autogenerated conversion function.
+func Convert_v1beta1_LocalQueue_To_v1beta2_LocalQueue(in *LocalQueue, out *v1beta2.LocalQueue, s conversion.Scope) error {
+	return autoConvert_v1beta1_LocalQueue_To_v1beta2_LocalQueue(in, out, s)
+}
+
+func autoConvert_v1beta2_LocalQueue_To_v1beta1_LocalQueue(in *v1beta2.LocalQueue, out *LocalQueue, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	if err := Convert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary(&in.Summary, &out.Summary, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Convert_v1beta2_LocalQueue_To_v1beta1_LocalQueue is an autogenerated conversion function.
+func Convert_v1beta2_LocalQueue_To_v1beta1_LocalQueue(in *v1beta2.LocalQueue, out *LocalQueue, s conversion.Scope) error {
+	return autoConvert_v1beta2_LocalQueue_To_v1beta1_LocalQueue(in, out, s)
+}
+
+func autoConvert_v1beta1_LocalQueueList_To_v1beta2_LocalQueueList(in *LocalQueueList, out *v1beta2.LocalQueueList, s conversion.Scope) error {
+	out.ListMeta = in.ListMeta
+	out.Items = *(*[]v1beta2.LocalQueue)(unsafe.Pointer(&in.Items))
+	return nil
+}
+
+// Convert_v1beta1_LocalQueueList_To_v1beta2_LocalQueueList is an autogenerated conversion function.
+func Convert_v1beta1_LocalQueueList_To_v1beta2_LocalQueueList(in *LocalQueueList, out *v1beta2.LocalQueueList, s conversion.Scope) error {
+	return autoConvert_v1beta1_LocalQueueList_To_v1beta2_LocalQueueList(in, out, s)
+}
+
+func autoConvert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList(in *v1beta2.LocalQueueList, out *LocalQueueList, s conversion.Scope) error {
+	out.ListMeta = in.ListMeta
+	out.Items = *(*[]LocalQueue)(unsafe.Pointer(&in.Items))
+	return nil
+}
+
+// Convert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList is an autogenerated conversion function.
+func Convert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList(in *v1beta2.LocalQueueList, out *LocalQueueList, s conversion.Scope) error {
+	return autoConvert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList(in, out, s)
+}
+
+func autoConvert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload(in *PendingWorkload, out *v1beta2.PendingWorkload, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	out.Priority = in.Priority
+	out.LocalQueueName = kueuev1beta2.LocalQueueName(in.LocalQueueName)
+	out.PositionInClusterQueue = in.PositionInClusterQueue
+	out.PositionInLocalQueue = in.PositionInLocalQueue
+	return nil
+}
+
+// Convert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload is an autogenerated conversion function.
+func Convert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload(in *PendingWorkload, out *v1beta2.PendingWorkload, s conversion.Scope) error {
+	return autoConvert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload(in, out, s)
+}
+
+func autoConvert_v1beta2_PendingWorkload_To_v1beta1_PendingWorkload(in *v1beta2.PendingWorkload, out *PendingWorkload, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	out.Priority = in.Priority
+	out.LocalQueueName = kueuev1beta1.LocalQueueName(in.LocalQueueName)
+	out.PositionInClusterQueue = in.PositionInClusterQueue
+	out.PositionInLocalQueue = in.PositionInLocalQueue
+	return nil
+}
+
+// Convert_v1beta2_PendingWorkload_To_v1beta1_PendingWorkload is an autogenerated conversion function.
+func Convert_v1beta2_PendingWorkload_To_v1beta1_PendingWorkload(in *v1beta2.PendingWorkload, out *PendingWorkload, s conversion.Scope) error {
+	return autoConvert_v1beta2_PendingWorkload_To_v1beta1_PendingWorkload(in, out, s)
+}
+
+func autoConvert_v1beta1_PendingWorkloadOptions_To_v1beta2_PendingWorkloadOptions(in *PendingWorkloadOptions, out *v1beta2.PendingWorkloadOptions, s conversion.Scope) error {
+	out.Offset = in.Offset
+	out.Limit = in.Limit
+	return nil
+}
+
+// Convert_v1beta1_PendingWorkloadOptions_To_v1beta2_PendingWorkloadOptions is an autogenerated conversion function.
+func Convert_v1beta1_PendingWorkloadOptions_To_v1beta2_PendingWorkloadOptions(in *PendingWorkloadOptions, out *v1beta2.PendingWorkloadOptions, s conversion.Scope) error {
+	return autoConvert_v1beta1_PendingWorkloadOptions_To_v1beta2_PendingWorkloadOptions(in, out, s)
+}
+
+func autoConvert_v1beta2_PendingWorkloadOptions_To_v1beta1_PendingWorkloadOptions(in *v1beta2.PendingWorkloadOptions, out *PendingWorkloadOptions, s conversion.Scope) error {
+	out.Offset = in.Offset
+	out.Limit = in.Limit
+	return nil
+}
+
+// Convert_v1beta2_PendingWorkloadOptions_To_v1beta1_PendingWorkloadOptions is an autogenerated conversion function.
+func Convert_v1beta2_PendingWorkloadOptions_To_v1beta1_PendingWorkloadOptions(in *v1beta2.PendingWorkloadOptions, out *PendingWorkloadOptions, s conversion.Scope) error {
+	return autoConvert_v1beta2_PendingWorkloadOptions_To_v1beta1_PendingWorkloadOptions(in, out, s)
 }
 
 func autoConvert_url_Values_To_v1beta1_PendingWorkloadOptions(in *url.Values, out *PendingWorkloadOptions, s conversion.Scope) error {
@@ -65,4 +285,26 @@ func autoConvert_url_Values_To_v1beta1_PendingWorkloadOptions(in *url.Values, ou
 // Convert_url_Values_To_v1beta1_PendingWorkloadOptions is an autogenerated conversion function.
 func Convert_url_Values_To_v1beta1_PendingWorkloadOptions(in *url.Values, out *PendingWorkloadOptions, s conversion.Scope) error {
 	return autoConvert_url_Values_To_v1beta1_PendingWorkloadOptions(in, out, s)
+}
+
+func autoConvert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary(in *PendingWorkloadsSummary, out *v1beta2.PendingWorkloadsSummary, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	out.Items = *(*[]v1beta2.PendingWorkload)(unsafe.Pointer(&in.Items))
+	return nil
+}
+
+// Convert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary is an autogenerated conversion function.
+func Convert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary(in *PendingWorkloadsSummary, out *v1beta2.PendingWorkloadsSummary, s conversion.Scope) error {
+	return autoConvert_v1beta1_PendingWorkloadsSummary_To_v1beta2_PendingWorkloadsSummary(in, out, s)
+}
+
+func autoConvert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary(in *v1beta2.PendingWorkloadsSummary, out *PendingWorkloadsSummary, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	out.Items = *(*[]PendingWorkload)(unsafe.Pointer(&in.Items))
+	return nil
+}
+
+// Convert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary is an autogenerated conversion function.
+func Convert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary(in *v1beta2.PendingWorkloadsSummary, out *PendingWorkloadsSummary, s conversion.Scope) error {
+	return autoConvert_v1beta2_PendingWorkloadsSummary_To_v1beta1_PendingWorkloadsSummary(in, out, s)
 }

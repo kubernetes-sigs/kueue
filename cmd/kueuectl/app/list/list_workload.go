@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -451,7 +451,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.Work
 		}
 		pendingWorkloadsSummary, ok := pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {
-			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta1().ClusterQueues().
+			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta2().ClusterQueues().
 				GetPendingWorkloadsSummary(ctx, string(clusterQueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err

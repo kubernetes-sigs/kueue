@@ -28,6 +28,7 @@ import (
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 )
 
 type Interface interface {
@@ -36,6 +37,7 @@ type Interface interface {
 	KueueV1beta1() kueuev1beta1.KueueV1beta1Interface
 	KueueV1beta2() kueuev1beta2.KueueV1beta2Interface
 	VisibilityV1beta1() visibilityv1beta1.VisibilityV1beta1Interface
+	VisibilityV1beta2() visibilityv1beta2.VisibilityV1beta2Interface
 }
 
 // Clientset contains the clients for groups.
@@ -45,6 +47,7 @@ type Clientset struct {
 	kueueV1beta1      *kueuev1beta1.KueueV1beta1Client
 	kueueV1beta2      *kueuev1beta2.KueueV1beta2Client
 	visibilityV1beta1 *visibilityv1beta1.VisibilityV1beta1Client
+	visibilityV1beta2 *visibilityv1beta2.VisibilityV1beta2Client
 }
 
 // KueueV1alpha1 retrieves the KueueV1alpha1Client
@@ -65,6 +68,11 @@ func (c *Clientset) KueueV1beta2() kueuev1beta2.KueueV1beta2Interface {
 // VisibilityV1beta1 retrieves the VisibilityV1beta1Client
 func (c *Clientset) VisibilityV1beta1() visibilityv1beta1.VisibilityV1beta1Interface {
 	return c.visibilityV1beta1
+}
+
+// VisibilityV1beta2 retrieves the VisibilityV1beta2Client
+func (c *Clientset) VisibilityV1beta2() visibilityv1beta2.VisibilityV1beta2Interface {
+	return c.visibilityV1beta2
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -127,6 +135,10 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 	if err != nil {
 		return nil, err
 	}
+	cs.visibilityV1beta2, err = visibilityv1beta2.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 
 	cs.DiscoveryClient, err = discovery.NewDiscoveryClientForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
@@ -152,6 +164,7 @@ func New(c rest.Interface) *Clientset {
 	cs.kueueV1beta1 = kueuev1beta1.New(c)
 	cs.kueueV1beta2 = kueuev1beta2.New(c)
 	cs.visibilityV1beta1 = visibilityv1beta1.New(c)
+	cs.visibilityV1beta2 = visibilityv1beta2.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

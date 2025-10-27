@@ -24,10 +24,12 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	v1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta2"
 	applyconfigurationvisibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
+	applyconfigurationvisibilityv1beta2 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta2"
 )
 
 // ForKind returns an apply configuration type for the given GroupVersionKind, or nil if no
@@ -315,6 +317,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationvisibilityv1beta1.PendingWorkloadApplyConfiguration{}
 	case visibilityv1beta1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
 		return &applyconfigurationvisibilityv1beta1.PendingWorkloadsSummaryApplyConfiguration{}
+
+		// Group=visibility.kueue.x-k8s.io, Version=v1beta2
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &applyconfigurationvisibilityv1beta2.ClusterQueueApplyConfiguration{}
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &applyconfigurationvisibilityv1beta2.LocalQueueApplyConfiguration{}
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("PendingWorkload"):
+		return &applyconfigurationvisibilityv1beta2.PendingWorkloadApplyConfiguration{}
+	case visibilityv1beta2.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
+		return &applyconfigurationvisibilityv1beta2.PendingWorkloadsSummaryApplyConfiguration{}
 
 	}
 	return nil

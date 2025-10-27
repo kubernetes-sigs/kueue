@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package storage
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
