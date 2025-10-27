@@ -232,7 +232,7 @@ metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -253,7 +253,7 @@ metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {}
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -295,7 +295,7 @@ metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -324,7 +324,7 @@ metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -353,7 +353,7 @@ metadata:
   name: "shared-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
