@@ -489,8 +489,7 @@ If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.
 quota to the lendable resources in the Cohort, among all the resources provided by
 the Cohort, and divided by the weight.
 If zero, it means that the usage of the Cohort is below the nominal quota.
-If the Cohort has a weight of zero and is borrowing, this will return 9223372036854775807,
-the maximum possible share value.`,
+If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, []string{"cohort"},
 	)
 )
@@ -688,8 +687,8 @@ func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64) {
 	ClusterQueueWeightedShare.WithLabelValues(cq, cohort).Set(weightedShare)
 }
 
-func ReportCohortWeightedShare(cohort string, weightedShare int64) {
-	CohortWeightedShare.WithLabelValues(cohort).Set(float64(weightedShare))
+func ReportCohortWeightedShare(cohort string, weightedShare float64) {
+	CohortWeightedShare.WithLabelValues(cohort).Set(weightedShare)
 }
 
 func ClearClusterQueueResourceMetrics(cqName string) {

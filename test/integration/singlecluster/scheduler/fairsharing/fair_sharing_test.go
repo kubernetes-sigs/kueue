@@ -31,6 +31,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
@@ -236,28 +237,34 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj())
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj())
 
 			cqB = createQueue(utiltestingapi.MakeClusterQueue("b").
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj())
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj())
 
 			cqC = createQueue(utiltestingapi.MakeClusterQueue("c").
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj())
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj())
 		})
 
 		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
@@ -415,20 +422,20 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
 				).Obj())
 
-			cqSecondLeft := createQueue(utiltestingapi.MakeClusterQueue("second-left").
+			cqSL := createQueue(utiltestingapi.MakeClusterQueue("second-left").
 				Cohort("second-left").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj(),
 				).Obj())
 
-			cqSecondRight := createQueue(utiltestingapi.MakeClusterQueue("second-right").
+			cqSR := createQueue(utiltestingapi.MakeClusterQueue("second-right").
 				Cohort("second-right").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj(),
 				).Obj())
-			expectCohortWeightedShare(cohortFirstLeft.Name, 0)
-			expectCohortWeightedShare(cohortFirstRight.Name, 0)
-			expectCohortWeightedShare(cohortBank.Name, 0)
+			expectCohortWeightedShare(cohortFirstLeft.Name, 0.0)
+			expectCohortWeightedShare(cohortFirstRight.Name, 0.0)
+			expectCohortWeightedShare(cohortBank.Name, 0.0)
 
 			ginkgo.By("Adding workloads to cqSecondLeft and cqSecondRight in round-robin fashion")
 			for range 5 {
@@ -436,15 +443,15 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkload("second-right", "1")
 			}
 
-			util.ExpectAdmittedWorkloadsTotalMetric(cqSecondLeft, "", 5)
-			util.ExpectReservingActiveWorkloadsMetric(cqSecondLeft, 5)
-			util.ExpectAdmittedWorkloadsTotalMetric(cqSecondRight, "", 5)
-			util.ExpectReservingActiveWorkloadsMetric(cqSecondRight, 5)
-			expectCohortWeightedShare(cohortFirstLeft.Name, 429)
-			expectCohortWeightedShare(cohortFirstRight.Name, 0)
-			expectCohortWeightedShare(cohortSecondLeft.Name, 215)
-			expectCohortWeightedShare(cohortSecondRight.Name, 215)
-			expectCohortWeightedShare(cohortBank.Name, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqSL, "", 5)
+			util.ExpectReservingActiveWorkloadsMetric(cqSL, 5)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqSR, "", 5)
+			util.ExpectReservingActiveWorkloadsMetric(cqSR, 5)
+			expectCohortWeightedShare(cohortFirstLeft.Name, 6.0*1000.0/14.0)
+			expectCohortWeightedShare(cohortFirstRight.Name, 0.0)
+			expectCohortWeightedShare(cohortSecondLeft.Name, 3.0*1000.0/14.0)
+			expectCohortWeightedShare(cohortSecondRight.Name, 3.0*1000.0/14.0)
+			expectCohortWeightedShare(cohortBank.Name, 0.0)
 		})
 		ginkgo.It("preempts workloads to enforce fair share", func() {
 			// below are Cohorts and their fair
@@ -479,8 +486,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				createWorkloadWithPriority(kueue.LocalQueueName(bestEffortQueue.GetName()), "1", -1)
 				createWorkloadWithPriority(kueue.LocalQueueName(physicsQueue.GetName()), "1", -1)
 			}
-			expectCohortWeightedShare("best-effort", 1000)
-			expectCohortWeightedShare("physics", 500)
+			expectCohortWeightedShare("best-effort", 1000.0)
+			expectCohortWeightedShare("physics", 500.0)
 			util.ExpectAdmittedWorkloadsTotalMetric(bestEffortQueue, "", 6)
 			util.ExpectReservingActiveWorkloadsMetric(bestEffortQueue, 6)
 			util.ExpectAdmittedWorkloadsTotalMetric(physicsQueue, "", 6)
@@ -499,12 +506,12 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 			ginkgo.By("share is fair with respect to each parent")
 			// parent root
-			expectCohortWeightedShare("best-effort", 667)
-			expectCohortWeightedShare("research", 667)
+			expectCohortWeightedShare("best-effort", 4.0*1000.0/12.0/0.5)
+			expectCohortWeightedShare("research", 8.0*1000.0/12.0)
 			// parent research
-			expectCohortWeightedShare("chemistry", 167)
-			expectCohortWeightedShare("physics", 167)
-			expectCohortWeightedShare("llm", 167)
+			expectCohortWeightedShare("chemistry", 2.0*1000.0/12.0)
+			expectCohortWeightedShare("physics", 2.0*1000.0/12.0)
+			expectCohortWeightedShare("llm", 4.0*1000.0/12.0/2.0)
 
 			ginkgo.By("number workloads admitted proportional to share at each level")
 			util.ExpectReservingActiveWorkloadsMetric(bestEffortQueue, 4)
@@ -626,7 +633,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 			ginkgo.By("Expected Weighted Shares")
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
-			expectCohortWeightedShare("cohort-a", 0)
+			expectCohortWeightedShare("cohort-a", 0.0)
 		})
 		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (FlavorFungibilityImplicitPreferenceDefault=true)", func() {
 			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
@@ -639,7 +646,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 			ginkgo.By("Expected Weighted Shares")
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
-			expectCohortWeightedShare("cohort-a", 0)
+			expectCohortWeightedShare("cohort-a", 0.0)
 		})
 
 		// scenario from Kueue#7015
@@ -655,7 +662,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			}
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 20)
 			util.ExpectReservingActiveWorkloadsMetric(cqp1, 20)
-			expectCohortWeightedShare("cohort-a", 100)
+			expectCohortWeightedShare("cohort-a", 100.0)
 
 			ginkgo.By("Create workloads in CohortB which will preempt CohortA")
 			createWorkload("cq-p5", "1")
@@ -671,8 +678,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			ginkgo.By("Expected Weighted Shares")
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
 			util.ExpectClusterQueueWeightedShareMetric(cqp5, 100.0)
-			expectCohortWeightedShare("cohort-a", 0)
-			expectCohortWeightedShare("cohort-b", 0)
+			expectCohortWeightedShare("cohort-a", 0.0)
+			expectCohortWeightedShare("cohort-b", 0.0)
 		})
 	})
 
@@ -858,7 +865,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "3").Obj(),
-				).Obj())
+				).
+				Obj())
 
 			cq1 = createQueue(utiltestingapi.MakeClusterQueue("cq1").
 				Cohort("cohort-a").
@@ -1152,19 +1160,23 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				Cohort("all").FairWeight(resource.MustParse("300")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj())
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj())
 
 			cqB = createQueue(utiltestingapi.MakeClusterQueue("b").
 				Cohort("all").FairWeight(resource.MustParse("300")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "600").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj())
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj())
 		})
 
 		ginkgo.It("Queue can reclaim its nominal quota", framework.SlowSpec, func() {
@@ -1192,20 +1204,23 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
-				).Obj())
+				).
+				Obj())
 
 			bestEffortCQB = createQueue(utiltestingapi.MakeClusterQueue("best-effort-b").
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
-				).Obj())
+				).
+				Obj())
 
 			createQueue(utiltestingapi.MakeClusterQueue("guaranteed").
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny}).
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny}).
 				Obj())
 
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharing, false)
@@ -1235,13 +1250,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 	})
 })
 
-func expectCohortWeightedShare(cohortName string, weightedShare int64) {
+func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 	// check Status
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		cohort := &kueue.Cohort{}
 		g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKey{Name: cohortName}, cohort)).Should(gomega.Succeed())
 		g.ExpectWithOffset(1, cohort.Status.FairSharing).ShouldNot(gomega.BeNil())
-		g.ExpectWithOffset(1, cohort.Status.FairSharing.WeightedShare).Should(gomega.Equal(weightedShare))
+		g.ExpectWithOffset(1, cohort.Status.FairSharing.WeightedShare).Should(gomega.Equal(core.WeightedShare(weightedShare)))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 	// check Metric
@@ -1249,7 +1264,7 @@ func expectCohortWeightedShare(cohortName string, weightedShare int64) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
-		g.ExpectWithOffset(1, int64(v)).Should(gomega.Equal(weightedShare))
+		g.ExpectWithOffset(1, v).Should(gomega.Equal(weightedShare))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
@@ -1345,10 +1360,12 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				Cohort("all").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "16").Obj(),
-				).Preemption(kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-			}).Obj()
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
 			util.MustCreate(ctx, k8sClient, cq2)
 			cqs = append(cqs, cq2)
 
