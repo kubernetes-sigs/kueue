@@ -16,7 +16,7 @@ limitations under the License.
 
 package constants
 
-import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
 const (
 	// QueueLabel is the label key in the workload that holds the queue name.

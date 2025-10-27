@@ -26,7 +26,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type listClusterQueuePrinter struct {
@@ -89,7 +89,7 @@ func (p *listClusterQueuePrinter) printClusterQueue(clusterQueue *kueue.ClusterQ
 	}
 	row.Cells = []any{
 		clusterQueue.Name,
-		clusterQueue.Spec.Cohort,
+		clusterQueue.Spec.CohortName,
 		clusterQueue.Status.PendingWorkloads,
 		clusterQueue.Status.AdmittedWorkloads,
 		isActiveStatus(clusterQueue),

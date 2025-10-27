@@ -34,9 +34,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
@@ -65,7 +65,7 @@ type WorkloadOptions struct {
 
 	DryRunStrategy util.DryRunStrategy
 
-	Client        kueuev1beta1.KueueV1beta1Interface
+	Client        kueuev1beta2.KueueV1beta2Interface
 	DynamicClient dynamic.Interface
 	RestMapper    meta.RESTMapper
 
@@ -158,7 +158,7 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	o.DynamicClient, err = clientGetter.DynamicClient()
 	if err != nil {

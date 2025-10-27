@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 )
 
@@ -451,7 +451,7 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 		Time:      time.Now(),
 		Name:      kueue.ClusterQueueReference(cq.Name),
 		ClassName: cq.Labels[generator.ClassLabel],
-		Cohort:    cq.Spec.Cohort,
+		Cohort:    cq.Spec.CohortName,
 		UID:       cq.UID,
 
 		CPUReservation:     cpuReserved,

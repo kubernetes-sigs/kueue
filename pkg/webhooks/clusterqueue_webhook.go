@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -51,7 +51,7 @@ func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1beta1,name=mclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1beta2,name=mclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 
@@ -66,7 +66,7 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1beta1,name=vclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1beta2,name=vclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 
@@ -99,7 +99,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 
 	var allErrs field.ErrorList
 	config := validationConfig{
-		hasParent:                        cq.Spec.Cohort != "",
+		hasParent:                        cq.Spec.CohortName != "",
 		enforceNominalGreaterThanLending: true,
 	}
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)

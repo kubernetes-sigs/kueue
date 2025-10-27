@@ -29,7 +29,7 @@ import (
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -48,7 +48,7 @@ type ResourceFlavorOptions struct {
 	FieldSelector string
 	LabelSelector string
 
-	Client kueuev1beta1.KueueV1beta1Interface
+	Client kueuev1beta2.KueueV1beta2Interface
 
 	genericiooptions.IOStreams
 }
@@ -102,7 +102,7 @@ func (o *ResourceFlavorOptions) Complete(clientGetter util.ClientGetter) error {
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	return nil
 }
