@@ -81,7 +81,6 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-// getPodOptions function removed - PodIntegrationOptions no longer exists in v1beta2
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
