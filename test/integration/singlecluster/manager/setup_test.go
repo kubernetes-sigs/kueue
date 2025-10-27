@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+
 	"sigs.k8s.io/kueue/pkg/manager"
 )
 
@@ -45,7 +46,7 @@ var _ = ginkgo.Describe("SetupManager", func() {
 		configFile, err = os.CreateTemp(ginkgo.GinkgoT().TempDir(), "kueue-config-*.yaml")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		configContent := `apiVersion: config.kueue.x-k8s.io/v1beta1
+		configContent := `apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 leaderElection:
   leaderElect: false
@@ -123,7 +124,7 @@ var _ = ginkgo.Describe("SetupIndexes", func() {
 		configFile, err = os.CreateTemp(ginkgo.GinkgoT().TempDir(), "kueue-config-*.yaml")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		configContent := `apiVersion: config.kueue.x-k8s.io/v1beta1
+		configContent := `apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 leaderElection:
   leaderElect: false
@@ -185,7 +186,7 @@ var _ = ginkgo.Describe("SetupServerVersionFetcher", func() {
 		configFile, err = os.CreateTemp(ginkgo.GinkgoT().TempDir(), "kueue-config-*.yaml")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		configContent := `apiVersion: config.kueue.x-k8s.io/v1beta1
+		configContent := `apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 leaderElection:
   leaderElect: false
