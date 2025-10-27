@@ -686,7 +686,7 @@ type ClusterQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.FlavorUsage
 	AdmittedWorkloads  int
-	WeightedShare      int64
+	WeightedShare      float64
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
@@ -708,14 +708,13 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 
 	if c.fairSharingEnabled {
 		drs := dominantResourceShare(cq, nil)
-		weightedShare, _ := drs.roundedWeightedShare()
-		stats.WeightedShare = weightedShare
+		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
 	return stats, nil
 }
 
 type CohortUsageStats struct {
-	WeightedShare int64
+	WeightedShare float64
 }
 
 func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) {
@@ -730,8 +729,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
 		drs := dominantResourceShare(cohort, nil)
-		weightedShare, _ := drs.roundedWeightedShare()
-		stats.WeightedShare = weightedShare
+		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
 
 	return stats, nil
