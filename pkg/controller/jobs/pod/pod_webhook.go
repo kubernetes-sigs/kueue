@@ -67,7 +67,6 @@ type PodWebhook struct {
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	// PodOptions integration removed - functionality replaced by ManagedJobsNamespaceSelector
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
