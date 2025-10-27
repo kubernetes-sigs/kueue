@@ -662,9 +662,6 @@ func TestProcessOptions(t *testing.T) {
 				WithManageJobsWithoutQueueName(true),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
-				WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{},
-				}),
 				WithLabelKeysToCopy([]string{"toCopyKey"}),
 				WithClock(t, fakeClock),
 			},
@@ -672,13 +669,9 @@ func TestProcessOptions(t *testing.T) {
 				ManageJobsWithoutQueueName: true,
 				WaitForPodsReady:           true,
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
-				IntegrationOptions: map[string]any{
-					corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.PodIntegrationOptions{
-						PodSelector: &metav1.LabelSelector{},
-					},
-				},
-				LabelKeysToCopy: []string{"toCopyKey"},
-				Clock:           fakeClock,
+				IntegrationOptions:         map[string]any{},
+				LabelKeysToCopy:            []string{"toCopyKey"},
+				Clock:                      fakeClock,
 			},
 		},
 		"a single option is passed": {
