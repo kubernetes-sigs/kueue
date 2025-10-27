@@ -21,7 +21,7 @@ Workload 对象。Kueue 自动为每个 Job 对象创建一个 Workload，并同
 Workload 的清单如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: sample-job

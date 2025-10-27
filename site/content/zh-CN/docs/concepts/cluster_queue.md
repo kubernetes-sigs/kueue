@@ -16,7 +16,7 @@ ClusterQueue 是一个集群范围的对象，用于管理一组资源池，如 
 一个示例 ClusterQueue 如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -79,7 +79,7 @@ Kueue 会自动计算一个 Workload 需要的 Pod 数量。
 一个包含多个资源组的 ClusterQueue 示例如下：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -231,7 +231,7 @@ ClusterQueue 借用配额。
 假设你创建了以下两个 ClusterQueues：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -250,7 +250,7 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -288,7 +288,7 @@ ClusterQueue `team-a-cq` 可以根据以下情况接纳工作负载：
 例如，假设你创建了以下两个 ClusterQueues：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -306,7 +306,7 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -347,7 +347,7 @@ ClusterQueue 可以借用所有名义配额从 cohort 中的所有 ClusterQueues
 例如，假设你创建了以下两个 ClusterQueues：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -364,7 +364,7 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -398,7 +398,7 @@ ClusterQueue 的策略。
 一个配置 ClusterQueue 以启用预留的示例如下：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -451,7 +451,7 @@ Kueue 按顺序评估 ClusterQueue 中的规格。你可以影响是否优先
 一个配置 ClusterQueue 以配置此行为的示例如下：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -482,7 +482,7 @@ spec:
 StopPolicy 允许集群管理员通过在 [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) 中设置其值来临时停止 ClusterQueue 中工作负载的接纳，如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"

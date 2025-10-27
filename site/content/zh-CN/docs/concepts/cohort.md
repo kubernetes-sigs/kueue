@@ -13,7 +13,7 @@ Cohort 使你能够组织你的配额。同一个 Cohort（或对于[分层 Coho
 最简单的 Cohort 如下：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Cohort
 metadata:
   name: "hello-cohort"
@@ -22,7 +22,7 @@ metadata:
 ClusterQueue 可以通过引用来加入此 Cohort：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "my-cluster-queue"
@@ -40,7 +40,7 @@ spec:
 ClusterQueue 的共享池。此外，此配额也可能根据 LendingLimit 借给父 Cohort。
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Cohort
 metadata:
   name: "hello-cohort"
@@ -59,7 +59,7 @@ spec:
 Flavor 定义 nominal 配额 - 即使该值为 0。
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "my-cluster-queue"
@@ -90,12 +90,12 @@ Cohort 的组合称为 **CohortTree**。
 这是一个简单的 CohortTree，包含三个 Cohort：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Cohort
 metadata:
   name: "root-cohort"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Cohort
 metadata:
   name: "important-org"
@@ -104,7 +104,7 @@ spec:
   fairSharing:
     weight: "0.75"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Cohort
 metadata:
   name: "regular-org"

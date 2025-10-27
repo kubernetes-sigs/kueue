@@ -38,7 +38,7 @@ kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -79,7 +79,7 @@ ClusterQueue 目前还不能使用，因为 `default` 风味尚未定义。
 
 ```yaml
 # default-flavor.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
@@ -106,7 +106,7 @@ kubectl apply -f default-flavor.yaml
 
 ```yaml
 # default-user-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: "default"
@@ -135,7 +135,7 @@ kubectl apply -f default-user-queue.yaml
 
 ```yaml
 # flavor-x86.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "x86"
@@ -146,7 +146,7 @@ spec:
 
 ```yaml
 # flavor-arm.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "arm"
@@ -171,7 +171,7 @@ ResourceFlavor 中设置的标签应与你的节点标签一致。
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -218,7 +218,7 @@ kubectl apply -f cluster-queue.yaml
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -239,7 +239,7 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -280,7 +280,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -309,7 +309,7 @@ spec:
 
 ```yaml
 # team-b-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -338,7 +338,7 @@ spec:
 
 ```yaml
 # shared-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "shared-cq"
