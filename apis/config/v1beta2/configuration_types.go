@@ -82,13 +82,6 @@ type Configuration struct {
 	// integrations (including K8S job).
 	Integrations *Integrations `json:"integrations,omitempty"`
 
-	// QueueVisibility is configuration to expose the information about the top
-	// pending workloads.
-	// Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
-	// (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-	// instead.
-	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
-
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
 
@@ -435,27 +428,6 @@ type PodIntegrationOptions struct {
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	// PodSelector can be used to choose what pods to reconcile
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
-}
-
-type QueueVisibility struct {
-	// ClusterQueues is configuration to expose the information
-	// about the top pending workloads in the cluster queue.
-	ClusterQueues *ClusterQueueVisibility `json:"clusterQueues,omitempty"`
-
-	// UpdateIntervalSeconds specifies the time interval for updates to the structure
-	// of the top pending workloads in the queues.
-	// The minimum value is 1.
-	// Defaults to 5.
-	UpdateIntervalSeconds int32 `json:"updateIntervalSeconds,omitempty"`
-}
-
-type ClusterQueueVisibility struct {
-	// MaxCount indicates the maximal number of pending workloads exposed in the
-	// cluster queue status.  When the value is set to 0, then ClusterQueue
-	// visibility updates are disabled.
-	// The maximal value is 4000.
-	// Defaults to 10.
-	MaxCount int32 `json:"maxCount,omitempty"`
 }
 
 type Resources struct {
