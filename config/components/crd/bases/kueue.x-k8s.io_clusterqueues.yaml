@@ -907,6 +907,8 @@ spec:
 
                   Example: ["ephemeral-storage", "hugepages-", "example.com"]
                 items:
+                  maxLength: 256
+                  minLength: 1
                   type: string
                 maxItems: 64
                 type: array

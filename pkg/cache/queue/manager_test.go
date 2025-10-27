@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1349,6 +1350,145 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestMergeExclusions(t *testing.T) {
+	cases := map[string]struct {
+		global []string
+		cq     []string
+		want   []string
+	}{
+		"both empty": {
+			global: []string{},
+			cq:     []string{},
+			want:   []string{},
+		},
+		"only global": {
+			global: []string{"example.com/"},
+			cq:     []string{},
+			want:   []string{"example.com/"},
+		},
+		"only cq": {
+			global: []string{},
+			cq:     []string{"foo.io/"},
+			want:   []string{"foo.io/"},
+		},
+		"no overlap": {
+			global: []string{"example.com/", "bar.io/"},
+			cq:     []string{"foo.io/", "baz.io/"},
+			want:   []string{"example.com/", "bar.io/", "foo.io/", "baz.io/"},
+		},
+		"with overlap": {
+			global: []string{"example.com/", "bar.io/"},
+			cq:     []string{"example.com/", "baz.io/"},
+			want:   []string{"example.com/", "bar.io/", "baz.io/"},
+		},
+		"all same": {
+			global: []string{"example.com/"},
+			cq:     []string{"example.com/"},
+			want:   []string{"example.com/"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := mergeExclusions(tc.global, tc.cq)
+			if diff := cmp.Diff(tc.want, got, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("Unexpected merged exclusions (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWorkloadInfoOptionsWithCQExclusions(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cases := map[string]struct {
+		globalExclusions []string
+		cqExclusions     []string
+		featureEnabled   bool
+		wantExclusions   []string
+	}{
+		"feature disabled, only global": {
+			globalExclusions: []string{"example.com/"},
+			cqExclusions:     []string{"foo.io/"},
+			featureEnabled:   false,
+			wantExclusions:   []string{"example.com/"},
+		},
+		"feature enabled, only global": {
+			globalExclusions: []string{"example.com/"},
+			cqExclusions:     []string{},
+			featureEnabled:   true,
+			wantExclusions:   []string{"example.com/"},
+		},
+		"feature enabled, both present": {
+			globalExclusions: []string{"example.com/"},
+			cqExclusions:     []string{"foo.io/"},
+			featureEnabled:   true,
+			wantExclusions:   []string{"example.com/", "foo.io/"},
+		},
+		"feature enabled, with overlap": {
+			globalExclusions: []string{"example.com/", "bar.io/"},
+			cqExclusions:     []string{"example.com/", "baz.io/"},
+			featureEnabled:   true,
+			wantExclusions:   []string{"example.com/", "bar.io/", "baz.io/"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ClusterQueueExcludeResources, tc.featureEnabled)
+
+			manager := NewManager(utiltesting.NewFakeClient(), nil, WithExcludedResourcePrefixes(tc.globalExclusions))
+
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
+			apiCQ := utiltestingapi.MakeClusterQueue("test-cq").
+				ExcludeResourcePrefixes(tc.cqExclusions).
+				Obj()
+			err := cq.Update(apiCQ)
+			if err != nil {
+				t.Fatalf("Failed to update ClusterQueue: %v", err)
+			}
+
+			opts := manager.workloadInfoOptionsWithCQExclusions(cq)
+
+			// Create a workload with resources that should be excluded
+			wl := utiltestingapi.MakeWorkload("test-wl", "default").
+				Request("example.com/gpu", "1").
+				Request("foo.io/special", "2").
+				Request("bar.io/resource", "3").
+				Request("baz.io/resource", "4").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			wInfo := workload.NewInfo(wl, opts...)
+
+			// Check which resources were excluded
+			for _, prefix := range tc.wantExclusions {
+				for _, podSetRes := range wInfo.TotalRequests {
+					for resourceName := range podSetRes.Requests {
+						if strings.HasPrefix(string(resourceName), prefix) {
+							t.Errorf("Resource %s with prefix %s should have been excluded but was found in TotalRequests", resourceName, prefix)
+						}
+					}
+				}
+			}
+
+			// CPU should never be excluded
+			cpuFound := false
+			for _, podSetRes := range wInfo.TotalRequests {
+				for resourceName := range podSetRes.Requests {
+					if resourceName == corev1.ResourceCPU {
+						cpuFound = true
+						break
+					}
+				}
+			}
+			if !cpuFound {
+				t.Error("CPU resource should not be excluded")
 			}
 		})
 	}
