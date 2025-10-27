@@ -564,7 +564,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	})
 	if r.fairSharingEnabled {
 		if r.reportResourceMetrics {
-			weightedShare := stats.PreciseWeightedShare
+			weightedShare := stats.WeightedShare
 			if weightedShare == math.Inf(1) {
 				weightedShare = math.NaN()
 			}
@@ -573,7 +573,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		if cq.Status.FairSharing == nil {
 			cq.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
-		cq.Status.FairSharing.WeightedShare = WeightedShare(stats.PreciseWeightedShare)
+		cq.Status.FairSharing.WeightedShare = WeightedShare(stats.WeightedShare)
 	} else {
 		cq.Status.FairSharing = nil
 	}
