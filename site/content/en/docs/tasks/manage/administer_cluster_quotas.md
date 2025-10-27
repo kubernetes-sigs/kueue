@@ -41,7 +41,7 @@ Write the manifest for the ClusterQueue. It should look similar to the following
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -83,7 +83,7 @@ Write the manifest for the ResourceFlavor. It should look similar to the followi
 
 ```yaml
 # default-flavor.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
@@ -110,7 +110,7 @@ Write the manifest for the LocalQueue. It should look similar to the following:
 
 ```yaml
 # default-user-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: "default"
@@ -140,7 +140,7 @@ following:
 
 ```yaml
 # flavor-x86.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "x86"
@@ -151,7 +151,7 @@ spec:
 
 ```yaml
 # flavor-arm.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "arm"
@@ -178,7 +178,7 @@ look similar to the following:
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -226,7 +226,7 @@ ClusterQueues `team-a-cq` and `team-b-cq`.
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -247,7 +247,7 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -289,7 +289,7 @@ tenants look like the following:
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -318,7 +318,7 @@ spec:
 
 ```yaml
 # team-b-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
@@ -347,7 +347,7 @@ spec:
 
 ```yaml
 # shared-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "shared-cq"

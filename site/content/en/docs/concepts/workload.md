@@ -23,7 +23,7 @@ the decisions and statuses.
 The manifest for a Workload looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: sample-job
