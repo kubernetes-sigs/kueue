@@ -138,7 +138,7 @@ type Topology struct {
 	Spec TopologySpec `json:"spec,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // TopologyList contains a list of Topology
 type TopologyList struct {
