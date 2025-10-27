@@ -114,10 +114,22 @@ type ClusterQueue struct {
 	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
 
 	sw *stickyWorkload
+
+	// excludeResourcePrefixes contains the resource prefixes to exclude from quota management
+	// at the ClusterQueue level. These are merged with global exclusions.
+	excludeResourcePrefixes []string
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.name
+}
+
+// GetExcludeResourcePrefixes returns the ClusterQueue-specific resource exclusion prefixes.
+// These should be merged with global exclusions when creating workload Info.
+func (c *ClusterQueue) GetExcludeResourcePrefixes() []string {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return slices.Clone(c.excludeResourcePrefixes)
 }
 
 func workloadKey(i *workload.Info) workload.Reference {
@@ -162,6 +174,7 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	}
 	c.namespaceSelector = nsSelector
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
+	c.excludeResourcePrefixes = slices.Clone(apiCQ.Spec.ExcludeResourcePrefixes)
 	return nil
 }
 
