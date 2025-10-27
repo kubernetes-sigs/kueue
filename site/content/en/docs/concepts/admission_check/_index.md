@@ -23,7 +23,7 @@ AdmissionCheck is a non-namespaced API object used to define details about an ad
 
 An AdmissionCheck object looks like the following:
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: AdmissionCheck
 metadata:
   name: prov-test
@@ -53,7 +53,7 @@ Only one of the above-mentioned fields can be specified at the time.
 ##### Using `.spec.admissionChecks`
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -66,7 +66,7 @@ spec:
 ##### Using `.spec.admissionCheckStrategy`
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"

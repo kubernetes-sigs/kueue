@@ -83,7 +83,7 @@ kubectl describe workload -n my-namespace job-my-job-19797
 输出应该类似于以下内容：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 ...
 status:
@@ -135,7 +135,7 @@ kubectl get workload -n my-namespace my-workload -o yaml
 如果你的 Job 被准入，Workload 应该有类似以下的状态：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 ...
 status:
@@ -200,7 +200,7 @@ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0
 定义 `cpu` 配额的 ClusterQueue 如下所示：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"

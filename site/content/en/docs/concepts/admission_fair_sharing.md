@@ -63,7 +63,7 @@ admissionFairSharing:
 Enable Admission Fair Sharing by adding an AdmissionScope to your ClusterQueue:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: sample-queue
@@ -79,7 +79,7 @@ spec:
 You can define a `fairSharing` section in your LocalQueue to adjust its weight in the fair sharing calculation (defaults to `1`):
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: team-a-queue

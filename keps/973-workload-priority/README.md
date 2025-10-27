@@ -156,7 +156,7 @@ This label is always mutable because it might be useful for the preemption.
 
 ```yaml
 # sample-priority-class.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
@@ -190,7 +190,7 @@ To distinguish, when using `WorkloadPriorityClass`, a `priorityClassSource` fiel
 When using `PriorityClass`, a `priorityClassSource` field has the `scheduling.k8s.io/priorityclass` value.
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: job-sample-job-7f173

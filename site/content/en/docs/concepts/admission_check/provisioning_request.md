@@ -68,7 +68,7 @@ It enables you to set `provisioningClassName`, `managedResources`, and `paramete
 A `ProvisioningRequestConfig` looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ProvisioningRequestConfig
 metadata:
   name: prov-test-config

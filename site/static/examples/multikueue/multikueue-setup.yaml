@@ -1,9 +1,9 @@
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -21,7 +21,7 @@ spec:
   admissionChecks:
   - sample-multikueue
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: "default"
@@ -29,7 +29,7 @@ metadata:
 spec:
   clusterQueue: "cluster-queue"
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: AdmissionCheck
 metadata:
   name: sample-multikueue
@@ -40,7 +40,7 @@ spec:
     kind: MultiKueueConfig
     name: multikueue-test
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: MultiKueueConfig
 metadata:
   name: multikueue-test
@@ -48,7 +48,7 @@ spec:
   clusters:
   - multikueue-test-worker1
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: MultiKueueCluster
 metadata:
   name: multikueue-test-worker1
