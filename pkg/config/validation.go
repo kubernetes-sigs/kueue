@@ -262,10 +262,7 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
 		hasNamespaceSelector = true
 	}
-	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-		allErrs = validateNamespaceSelectorForPodIntegration(c, c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
+	// PodOptions validation removed - field no longer exists in v1beta2
 
 	if !hasNamespaceSelector {
 		allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))

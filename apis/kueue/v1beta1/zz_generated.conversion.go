@@ -923,7 +923,7 @@ func Convert_v1beta2_AdmissionCheckParametersReference_To_v1beta1_AdmissionCheck
 
 func autoConvert_v1beta1_AdmissionCheckSpec_To_v1beta2_AdmissionCheckSpec(in *AdmissionCheckSpec, out *v1beta2.AdmissionCheckSpec, s conversion.Scope) error {
 	out.ControllerName = in.ControllerName
-	out.RetryDelayMinutes = (*int64)(unsafe.Pointer(in.RetryDelayMinutes))
+	// RetryDelayMinutes field is removed in v1beta2 - intentionally not copied
 	out.Parameters = (*v1beta2.AdmissionCheckParametersReference)(unsafe.Pointer(in.Parameters))
 	return nil
 }
@@ -935,7 +935,8 @@ func Convert_v1beta1_AdmissionCheckSpec_To_v1beta2_AdmissionCheckSpec(in *Admiss
 
 func autoConvert_v1beta2_AdmissionCheckSpec_To_v1beta1_AdmissionCheckSpec(in *v1beta2.AdmissionCheckSpec, out *AdmissionCheckSpec, s conversion.Scope) error {
 	out.ControllerName = in.ControllerName
-	out.RetryDelayMinutes = (*int64)(unsafe.Pointer(in.RetryDelayMinutes))
+	// RetryDelayMinutes field doesn't exist in v1beta2 - set to nil
+	out.RetryDelayMinutes = nil
 	out.Parameters = (*AdmissionCheckParametersReference)(unsafe.Pointer(in.Parameters))
 	return nil
 }

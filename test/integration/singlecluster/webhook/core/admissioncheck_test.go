@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -67,8 +66,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", ginkgo.Ordered, func() {
 						Name: "foo",
 					},
 					Spec: kueue.AdmissionCheckSpec{
-						ControllerName:    "ac-controller",
-						RetryDelayMinutes: ptr.To[int64](15),
+						ControllerName: "ac-controller",
 					},
 				},
 			),

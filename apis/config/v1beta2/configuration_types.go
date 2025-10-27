@@ -82,13 +82,6 @@ type Configuration struct {
 	// integrations (including K8S job).
 	Integrations *Integrations `json:"integrations,omitempty"`
 
-	// QueueVisibility is configuration to expose the information about the top
-	// pending workloads.
-	// Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
-	// (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-	// instead.
-	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
-
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
 
@@ -412,11 +405,6 @@ type Integrations struct {
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
-	// PodOptions defines kueue controller behaviour for pod objects
-	// Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
-	// (https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
-	// instead.
-	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 
 	// labelKeysToCopy is a list of label keys that should be copied from the job into the
 	// workload object. It is not required for the job to have all the labels from this
@@ -428,34 +416,6 @@ type Integrations struct {
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
-}
-
-type PodIntegrationOptions struct {
-	// NamespaceSelector can be used to omit some namespaces from pod reconciliation
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	// PodSelector can be used to choose what pods to reconcile
-	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
-}
-
-type QueueVisibility struct {
-	// ClusterQueues is configuration to expose the information
-	// about the top pending workloads in the cluster queue.
-	ClusterQueues *ClusterQueueVisibility `json:"clusterQueues,omitempty"`
-
-	// UpdateIntervalSeconds specifies the time interval for updates to the structure
-	// of the top pending workloads in the queues.
-	// The minimum value is 1.
-	// Defaults to 5.
-	UpdateIntervalSeconds int32 `json:"updateIntervalSeconds,omitempty"`
-}
-
-type ClusterQueueVisibility struct {
-	// MaxCount indicates the maximal number of pending workloads exposed in the
-	// cluster queue status.  When the value is set to 0, then ClusterQueue
-	// visibility updates are disabled.
-	// The maximal value is 4000.
-	// Defaults to 10.
-	MaxCount int32 `json:"maxCount,omitempty"`
 }
 
 type Resources struct {

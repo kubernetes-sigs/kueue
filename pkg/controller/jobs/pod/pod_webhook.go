@@ -18,7 +18,6 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -54,7 +52,7 @@ var (
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
 
-	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
+	// errPodOptsTypeAssertion removed - PodIntegrationOptions no longer exists
 )
 
 type PodWebhook struct {
@@ -69,20 +67,14 @@ type PodWebhook struct {
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	podOpts, err := getPodOptions(options.IntegrationOptions)
-	if err != nil {
-		return err
-	}
+	// PodOptions integration removed - functionality replaced by ManagedJobsNamespaceSelector
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 	}
-	if podOpts != nil {
-		wh.namespaceSelector = podOpts.NamespaceSelector
-		wh.podSelector = podOpts.PodSelector
-	}
+	// Pod selection now handled by managedJobsNamespaceSelector
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
@@ -91,17 +83,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOptions, error) {
-	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
-	if !ok {
-		return nil, nil
-	}
-	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
-	if !ok {
-		return nil, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
-	}
-	return podOpts, nil
-}
+// getPodOptions function removed - PodIntegrationOptions no longer exists in v1beta2
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
