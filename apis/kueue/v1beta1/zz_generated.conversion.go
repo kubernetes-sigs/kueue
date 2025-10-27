@@ -1268,6 +1268,7 @@ func autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
 	out.AdmissionScope = (*AdmissionScope)(unsafe.Pointer(in.AdmissionScope))
+	// WARNING: in.ExcludeResourcePrefixes requires manual conversion: does not exist in peer-type
 	return nil
 }
 

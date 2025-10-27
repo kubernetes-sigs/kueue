@@ -198,6 +198,12 @@ const (
 	//
 	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
 	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
+
+	// owner: @kehannon
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/5800-clusterqueue-exclude-resources
+	//
+	// Enable ClusterQueue-level resource exclusion via excludeResourcePrefixes field.
+	ClusterQueueExcludeResources featuregate.Feature = "ClusterQueueExcludeResources"
 )
 
 func init() {
@@ -311,6 +317,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ClusterQueueExcludeResources: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

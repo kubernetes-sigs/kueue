@@ -894,6 +894,23 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              excludeResourcePrefixes:
+                description: |-
+                  excludeResourcePrefixes defines which resources should be ignored by
+                  Kueue for quota management in this ClusterQueue. Resources matching any
+                  of the prefixes will be excluded from quota calculations.
+                  When specified, this list is combined (union) with the global
+                  excludeResourcePrefixes from the Kueue Configuration.
+                  The prefix matching follows the same semantics as the global configuration:
+                  - An exact match of the resource name
+                  - A prefix match followed by a slash (e.g., "example.com" matches "example.com/gpu")
+
+                  Example: ["ephemeral-storage", "hugepages-", "example.com"]
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: set
               fairSharing:
                 description: |-
                   fairSharing defines the properties of the ClusterQueue when
