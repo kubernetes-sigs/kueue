@@ -984,4 +984,3 @@ func TestValidateUpdate(t *testing.T) {
 	}
 }
 
-// TestGetPodOptions removed - getPodOptions function and PodIntegrationOptions no longer exist in v1beta2
