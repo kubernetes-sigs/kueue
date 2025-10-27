@@ -18,22 +18,30 @@ package manager
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
@@ -43,12 +51,184 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/debugger"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 )
+
+// getConfig returns the Kubernetes REST config. Defined as a var to allow tests to override.
+var getConfig = ctrl.GetConfigOrDie
+
+// ManagerSetup holds all the components needed to run the Kueue manager
+type ManagerSetup struct {
+	Mgr                  ctrl.Manager
+	CCache               *schdcache.Cache
+	Queues               *qcache.Manager
+	CertsReady           chan struct{}
+	ServerVersionFetcher *kubeversion.ServerVersionFetcher
+	Config               *Config
+}
+
+// SetupManager initializes and configures all components needed for the Kueue manager.
+// This function extracts the setup logic from main() to make it more testable.
+func SetupManager(ctx context.Context, configFile string, featureGates string) (*ManagerSetup, error) {
+	managerConfig := NewConfig()
+
+	err := managerConfig.Apply(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load the configuration: %w", err)
+	}
+
+	if err := config.ValidateFeatureGates(featureGates, managerConfig.Apiconf.FeatureGates); err != nil {
+		return nil, fmt.Errorf("conflicting feature gates detected: %w", err)
+	}
+
+	if featureGates != "" {
+		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
+			return nil, fmt.Errorf("unable to set flag gates for known features: %w", err)
+		}
+		managerConfig.SetupLog.V(2).Info("Feature gates configured from command line", "gates", featureGates)
+	} else if len(managerConfig.Apiconf.FeatureGates) > 0 {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(managerConfig.Apiconf.FeatureGates); err != nil {
+			return nil, fmt.Errorf("unable to set flag gates for known features: %w", err)
+		}
+		managerConfig.SetupLog.V(2).Info("Feature gates configured from config file", "gates", managerConfig.Apiconf.FeatureGates)
+	}
+
+	// Setup metrics server options
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:    managerConfig.Apiconf.Metrics.BindAddress,
+		SecureServing:  true,
+		FilterProvider: filters.WithAuthenticationAndAuthorization,
+	}
+
+	if managerConfig.Apiconf.InternalCertManagement == nil || !*managerConfig.Apiconf.InternalCertManagement.Enable {
+		metricsCertPath := "/etc/kueue/metrics/certs"
+		managerConfig.SetupLog.Info("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", metricsCertPath)
+
+		var err error
+		metricsCertWatcher, err := certwatcher.New(
+			filepath.Join(metricsCertPath, "tls.crt"),
+			filepath.Join(metricsCertPath, "tls.key"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to initialize metrics certificate watcher: %w", err)
+		}
+
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
+			config.GetCertificate = metricsCertWatcher.GetCertificate
+		})
+	}
+	managerConfig.Options.Metrics = metricsServerOptions
+
+	metrics.Register()
+
+	kubeConfig := getConfig()
+	if kubeConfig.UserAgent == "" {
+		kubeConfig.UserAgent = useragent.Default()
+	}
+
+	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
+	// for each API type.
+	// When the controller-runtime > 0.21, the client-side ratelimiting will be disabled by default.
+	// The following QPS negative value check allows us to disable the client-side ratelimiting.
+	if *managerConfig.Apiconf.ClientConnection.QPS >= 0.0 {
+		kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*managerConfig.Apiconf.ClientConnection.QPS, int(*managerConfig.Apiconf.ClientConnection.Burst))
+	}
+	managerConfig.SetupLog.V(2).Info("K8S Client", "qps", *managerConfig.Apiconf.ClientConnection.QPS, "burst", *managerConfig.Apiconf.ClientConnection.Burst)
+
+	mgr, err := ctrl.NewManager(kubeConfig, managerConfig.Options)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start manager: %w", err)
+	}
+
+	certsReady := make(chan struct{})
+	if managerConfig.Apiconf.InternalCertManagement != nil && *managerConfig.Apiconf.InternalCertManagement.Enable {
+		managerConfig.SetupLog.Info("Using internal certificate management")
+		if err = cert.ManageCerts(mgr, managerConfig.Apiconf, certsReady); err != nil {
+			return nil, fmt.Errorf("unable to set up cert rotation: %w", err)
+		}
+	} else {
+		managerConfig.SetupLog.Info("Using external certificate management")
+		close(certsReady)
+	}
+
+	// Setup cache and queue options
+	cacheOptions := []schdcache.Option{schdcache.WithPodsReadyTracking(managerConfig.BlockForPodsReady())}
+	queueOptions := []qcache.Option{qcache.WithPodsReadyRequeuingTimestamp(managerConfig.PodsReadyRequeuingTimestamp())}
+
+	if managerConfig.Apiconf.Resources != nil && len(managerConfig.Apiconf.Resources.ExcludeResourcePrefixes) > 0 {
+		cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(managerConfig.Apiconf.Resources.ExcludeResourcePrefixes))
+		queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(managerConfig.Apiconf.Resources.ExcludeResourcePrefixes))
+	}
+
+	if features.Enabled(features.ConfigurableResourceTransformations) && managerConfig.Apiconf.Resources != nil && len(managerConfig.Apiconf.Resources.Transformations) > 0 {
+		cacheOptions = append(cacheOptions, schdcache.WithResourceTransformations(managerConfig.Apiconf.Resources.Transformations))
+		queueOptions = append(queueOptions, qcache.WithResourceTransformations(managerConfig.Apiconf.Resources.Transformations))
+	}
+
+	if features.Enabled(features.DynamicResourceAllocation) && managerConfig.Apiconf.Resources != nil && len(managerConfig.Apiconf.Resources.DeviceClassMappings) > 0 {
+		if err := dra.CreateMapperFromConfiguration(managerConfig.Apiconf.Resources.DeviceClassMappings); err != nil {
+			return nil, fmt.Errorf("failed to initialize DRA mapper from configuration: %w", err)
+		}
+		managerConfig.SetupLog.Info("DRA mapper initialized from configuration")
+	}
+
+	if managerConfig.Apiconf.FairSharing != nil {
+		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(managerConfig.Apiconf.FairSharing.Enable))
+	}
+
+	if managerConfig.Apiconf.AdmissionFairSharing != nil {
+		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(managerConfig.Apiconf.AdmissionFairSharing))
+		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(managerConfig.Apiconf.AdmissionFairSharing))
+	}
+
+	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+	queues := qcache.NewManager(mgr.GetClient(), cCache, queueOptions...)
+	managerConfig.SetupLog.V(2).Info("Scheduler cache and queue manager initialized")
+
+	if err := managerConfig.SetupIndexes(ctx, mgr); err != nil {
+		return nil, fmt.Errorf("unable to setup indexes: %w", err)
+	}
+	managerConfig.SetupLog.Info("Field indexes configured")
+
+	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
+
+	serverVersionFetcher, err := managerConfig.SetupServerVersionFetcher(mgr, kubeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup server version fetcher: %w", err)
+	}
+	managerConfig.SetupLog.Info("Server version fetched", "version", serverVersionFetcher.GetServerVersion())
+
+	if err := managerConfig.SetupProbeEndpoints(mgr, certsReady); err != nil {
+		return nil, fmt.Errorf("unable to setup probe endpoints: %w", err)
+	}
+
+	if err := managerConfig.SetupScheduler(mgr, cCache, queues); err != nil {
+		return nil, fmt.Errorf("could not setup scheduler: %w", err)
+	}
+	managerConfig.SetupLog.Info("Scheduler configured")
+
+	managerConfig.SetupLog.Info("Manager setup completed successfully",
+		"namespace", *managerConfig.Apiconf.Namespace,
+		"leaderElection", managerConfig.Options.LeaderElection)
+
+	return &ManagerSetup{
+		Mgr:                  mgr,
+		CCache:               cCache,
+		Queues:               queues,
+		CertsReady:           certsReady,
+		ServerVersionFetcher: serverVersionFetcher,
+		Config:               managerConfig,
+	}, nil
+}
 
 // SetupIndexes sets up all the necessary field indexes for the manager
 func (c *Config) SetupIndexes(ctx context.Context, mgr ctrl.Manager) error {
