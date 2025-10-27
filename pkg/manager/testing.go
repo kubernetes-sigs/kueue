@@ -17,35 +17,13 @@ limitations under the License.
 package manager
 
 import (
-	"context"
-	"testing"
-
-	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
-var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
-)
-
-func TestAPIs(t *testing.T) {
-	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "Manager SetupIndexes Suite")
+// SetGetConfigForTest allows tests to override the kube config provider.
+// This function is intended for testing purposes only and should not be used in release code.
+func SetGetConfigForTest(fn func() *rest.Config) (prev func() *rest.Config) {
+	prev = getConfig
+	getConfig = fn
+	return prev
 }
-
-var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{}
-	cfg = fwk.Init()
-	ctx, k8sClient = fwk.SetupClient(cfg)
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	fwk.Teardown()
-})
