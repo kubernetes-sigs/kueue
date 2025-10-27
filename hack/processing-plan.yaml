@@ -8,6 +8,7 @@ files:
     operations:
       - type: INSERT_OBJECT
         key: .spec
+        onFileCondition: '{"Workload": true, "LocalQueue": true, "ClusterQueue": true}[.spec.names.kind]'
         value: |
           conversion:
               strategy: Webhook
