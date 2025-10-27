@@ -56,7 +56,31 @@ Labels for metrics service
 */}}
 {{- define "kueue.metricsService.labels" -}}
 {{ include "kueue.labels" . }}
-app.kubernetes.io/component: metrics
+app.kubernetes.io/component: metrics-service
+{{- end }}
+
+{{/*
+Labels for webhook service
+*/}}
+{{- define "kueue.webhookService.labels" -}}
+{{ include "kueue.labels" . }}
+app.kubernetes.io/component: webhook-service
+{{- end }}
+
+{{/*
+Labels for visibility service
+*/}}
+{{- define "kueue.visibilityService.labels" -}}
+{{ include "kueue.labels" . }}
+app.kubernetes.io/component: visibility-service
+{{- end }}
+
+{{/*
+Labels for controller-manager
+*/}}
+{{- define "kueue.controllerManager.labels" -}}
+{{ include "kueue.labels" . }}
+app.kubernetes.io/component: controller
 {{- end }}
 
 {{/*

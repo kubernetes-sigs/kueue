@@ -104,7 +104,7 @@ files:
         key: .metadata
         value: |
           labels:
-          {{- include "kueue.labels" . | nindent 4 }}
+          {{- include "kueue.visibilityService.labels" . | nindent 4 }}
         indentation: 2
       - type: INSERT_TEXT
         key: .spec
@@ -191,7 +191,7 @@ files:
         key: .metadata
         value: |
           labels:
-          {{- include "kueue.labels" . | nindent 4 }}
+          {{- include "kueue.webhookService.labels" . | nindent 4 }}
         indentation: 2
       - type: INSERT_TEXT
         key: .spec.type
