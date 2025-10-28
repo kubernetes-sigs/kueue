@@ -302,6 +302,23 @@ func TestValidateUpdate(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
 		},
+		"set priority-class when replicas ready": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
+				},
+			}.ToAggregate(),
+		},
 		"update priority-class when replicas ready": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
@@ -312,6 +329,54 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete priority-class when replicas ready": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
+				},
+			}.ToAggregate(),
+		},
+		"set priority-class when replicas not ready": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"update priority-class when replicas not ready": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				Obj(),
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete priority-class when replicas not ready": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
