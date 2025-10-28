@@ -18289,6 +18289,7 @@ spec:
                                 - values
                                 type: object
                               type: array
+                              x-kubernetes-list-type: atomic
                             levels:
                               description: |-
                                 levels is an ordered list of keys denoting the levels of the assigned
@@ -18408,6 +18409,7 @@ spec:
                               type: object
                             maxItems: 8
                             type: array
+                            x-kubernetes-list-type: atomic
                             x-kubernetes-validations:
                             - message: operator must be Exists when 'key' is empty,
                                 which means 'match all values and all keys'
@@ -18678,6 +18680,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
             x-kubernetes-validations:
             - message: clusterName is immutable once set
