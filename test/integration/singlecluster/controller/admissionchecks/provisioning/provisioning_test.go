@@ -922,8 +922,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking the AdmissionCheck is set to Retry, and the workload has requeueState set", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1020,7 +1023,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1093,7 +1099,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 							Message:    "Reset to Pending after eviction. Previously: Rejected",
 							RetryCount: ptr.To(int32(1)),
 						},
-						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "RequeueAfterSeconds"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -1139,7 +1145,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1305,7 +1314,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1351,7 +1363,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(updatedWl.Status.RequeueState).NotTo(gomega.BeNil())
-					g.Expect(*updatedWl.Status.RequeueState.Count).To(gomega.Equal(int32(2)))
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check.RequeueAfterSeconds).ToNot(gomega.BeNil())
+					g.Expect(check.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*check.RetryCount).To(gomega.Equal(int32(2)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
