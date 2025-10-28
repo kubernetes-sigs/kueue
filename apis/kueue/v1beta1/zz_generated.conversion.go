@@ -1253,6 +1253,7 @@ func autoConvert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *Cluste
 	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
 	out.AdmissionScope = (*v1beta2.AdmissionScope)(unsafe.Pointer(in.AdmissionScope))
+	out.ExcludeResourcePrefixes = *(*[]string)(unsafe.Pointer(&in.ExcludeResourcePrefixes))
 	return nil
 }
 
@@ -1268,7 +1269,7 @@ func autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
 	out.AdmissionScope = (*AdmissionScope)(unsafe.Pointer(in.AdmissionScope))
-	// WARNING: in.ExcludeResourcePrefixes requires manual conversion: does not exist in peer-type
+	out.ExcludeResourcePrefixes = *(*[]string)(unsafe.Pointer(&in.ExcludeResourcePrefixes))
 	return nil
 }
 
