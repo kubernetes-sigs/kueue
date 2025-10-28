@@ -66,10 +66,8 @@ var _ = ginkgo.Describe("ClusterQueue ExcludeResourcePrefixes", func() {
 
 			ginkgo.By("Verifying test object was created with prefixes")
 			gomega.Expect(cq.Spec.ExcludeResourcePrefixes).To(gomega.ConsistOf(excludedPrefix1, excludedPrefix2))
-			ginkgo.GinkgoWriter.Printf("Before create - CQ prefixes: %v\n", cq.Spec.ExcludeResourcePrefixes)
 
 			util.MustCreate(ctx, k8sClient, cq)
-			ginkgo.GinkgoWriter.Printf("After create - CQ prefixes: %v\n", cq.Spec.ExcludeResourcePrefixes)
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
