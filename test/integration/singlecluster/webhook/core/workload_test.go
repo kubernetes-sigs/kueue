@@ -802,7 +802,19 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				},
 				testing.BeInvalidError(),
 			),
-			ginkgo.Entry("can set workload priority class when quota reserved (workload priority class source)",
+			ginkgo.Entry("can set workload priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't set workload priority class when QuotaReserved=true",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
@@ -812,9 +824,24 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					newWL.Spec.PriorityClassName = "low"
 					newWL.Spec.Priority = ptr.To[int32](100)
 				},
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("can update workload priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
 				gomega.Succeed(),
 			),
-			ginkgo.Entry("can update workload priority class when quota reserved (workload priority class source)",
+			ginkgo.Entry("can update workload priority class when QuotaReserved=true",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PriorityClassSource(constants.WorkloadPriorityClassSource).
@@ -829,7 +856,23 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				},
 				gomega.Succeed(),
 			),
-			ginkgo.Entry("can delete workload priority class when quota reserved (workload priority class source)",
+			ginkgo.Entry("can delete workload priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't delete workload priority class when quota reserved when QuotaReserved=true",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PriorityClassSource(constants.WorkloadPriorityClassSource).
@@ -843,9 +886,21 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					newWL.Spec.PriorityClassName = ""
 					newWL.Spec.Priority = nil
 				},
+				testing.BeInvalidError(),
+			),
+			ginkgo.Entry("can set pod priority class QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.PodPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
 				gomega.Succeed(),
 			),
-			ginkgo.Entry("can not set priority class when quota reserved (pod priority class source)",
+			ginkgo.Entry("can't set pod priority class when QuotaReserved=true",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
@@ -857,7 +912,22 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				},
 				testing.BeInvalidError(),
 			),
-			ginkgo.Entry("can not update priority class when quota reserved (pod priority class source)",
+			ginkgo.Entry("can update pod priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't update pod priority class when QuotaReserved=true",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PriorityClassSource(constants.PodPriorityClassSource).
@@ -872,7 +942,23 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				},
 				testing.BeInvalidError(),
 			),
-			ginkgo.Entry("can not delete priority class when quota reserved (pod priority class source)",
+			ginkgo.Entry("can delete pod priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't delete pod priority class when QuotaReserved=true",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PriorityClassSource(constants.PodPriorityClassSource).

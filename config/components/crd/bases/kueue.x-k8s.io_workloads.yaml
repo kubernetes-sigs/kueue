@@ -9341,16 +9341,12 @@ spec:
             c.type == ''QuotaReserved'' && c.status == ''True'') && has(self.status.admission)
             ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments)
             : true'
-        - message: priorityClassSource is immutable while the workload quota is reserved,
-            except for kueue.x-k8s.io/workloadpriorityclass
+        - message: priorityClassSource is immutable while workload quota reserved
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.priorityClassSource
-            == self.spec.priorityClassSource) || (oldSelf.spec.priorityClassSource
-            == ''kueue.x-k8s.io/workloadpriorityclass'' && self.spec.priorityClassSource.size()
-            == 0) || (oldSelf.spec.priorityClassSource.size() == 0 && self.spec.priorityClassSource
-            == ''kueue.x-k8s.io/workloadpriorityclass'') : true'
-        - message: priorityClassName is immutable while the workload quota is reserved
-            and priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass
+            == self.spec.priorityClassSource) : true'
+        - message: priorityClassName is immutable while workload quota reserved and
+            priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == ''QuotaReserved'' && c.status == ''True'') && (self.spec.priorityClassSource
             != ''kueue.x-k8s.io/workloadpriorityclass'') && has(oldSelf.spec.priorityClassName)
@@ -18698,22 +18694,17 @@ spec:
             c.type == ''QuotaReserved'' && c.status == ''True'') && has(self.status.admission)
             ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments)
             : true'
-        - message: priorityClassSource is immutable while the workload quota is reserved,
-            except for kueue.x-k8s.io/workloadpriorityclass
+        - message: priorityClassSource is immutable while workload quota reserved
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
-            c.type == ''QuotaReserved'' && c.status == ''True'')) ? (!has(self.spec.priorityClassSource)
-            && !has(oldSelf.spec.priorityClassSource) || (has(self.spec.priorityClassSource)
+            c.type == ''QuotaReserved'' && c.status == ''True'')) ? ((!has(self.spec.priorityClassSource)
+            && !has(oldSelf.spec.priorityClassSource)) || (has(self.spec.priorityClassSource)
             && has(oldSelf.spec.priorityClassSource) && self.spec.priorityClassSource
-            == oldSelf.spec.priorityClassSource) || (oldSelf.spec.priorityClassSource
-            == ''kueue.x-k8s.io/workloadpriorityclass'' && (!has(oldSelf.spec.priorityClassSource)
-            || self.spec.priorityClassSource.size() == 0)) || ((!has(oldSelf.spec.priorityClassSource)
-            || oldSelf.spec.priorityClassSource.size() == 0) && self.spec.priorityClassSource
-            == ''kueue.x-k8s.io/workloadpriorityclass'') || (!has(self.spec.priorityClassSource)
+            == oldSelf.spec.priorityClassSource) || (!has(self.spec.priorityClassSource)
             && has(oldSelf.spec.priorityClassSource) && oldSelf.spec.priorityClassSource.size()
             == 0) || (!has(oldSelf.spec.priorityClassSource) && has(self.spec.priorityClassSource)
             && self.spec.priorityClassSource.size() == 0)) : true'
-        - message: priorityClassName is immutable while the workload quota is reserved
-            and priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass
+        - message: priorityClassName is immutable while workload quota reserved and
+            priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == ''QuotaReserved'' && c.status == ''True'') && (self.spec.priorityClassSource
             != ''kueue.x-k8s.io/workloadpriorityclass'') && has(oldSelf.spec.priorityClassName)

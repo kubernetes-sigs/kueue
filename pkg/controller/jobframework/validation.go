@@ -44,11 +44,12 @@ import (
 )
 
 var (
-	annotationsPath            = field.NewPath("metadata", "annotations")
-	labelsPath                 = field.NewPath("metadata", "labels")
-	queueNameLabelPath         = labelsPath.Key(constants.QueueLabel)
-	maxExecTimeLabelPath       = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	supportedPrebuiltWlJobGVKs = sets.New(
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	supportedPrebuiltWlJobGVKs    = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		jobset.SchemeGroupVersion.WithKind("JobSet").String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind).String(),
@@ -77,6 +78,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
+	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
 	return allErrs
 }
@@ -145,6 +147,10 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 	return apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))
 }
 
+func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+	return ValidateUpdateForWorkloadPriorityClassName(newJob.IsSuspended(), oldJob.Object(), newJob.Object())
+}
+
 // validatedUpdateForEnabledWorkloadSlice validates that the workload-slicing toggle remains immutable on update.
 //
 // It compares the boolean returned by workloadslicing.Enabled for the old and new Job objects.
@@ -154,6 +160,13 @@ func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorLis
 func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.ErrorList {
 	if oldEnabled, newEnabled := workloadslicing.Enabled(oldJob.Object()), workloadslicing.Enabled(newJob.Object()); oldEnabled != newEnabled {
 		return field.ErrorList{field.Invalid(labelsPath.Key(workloadslicing.EnabledAnnotationKey), newEnabled, apivalidation.FieldImmutableErrorMsg)}
+	}
+	return nil
+}
+
+func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
+	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) || IsWorkloadPriorityClassNameEmpty(newObj) {
+		return apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
 	}
 	return nil
 }

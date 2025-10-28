@@ -117,12 +117,13 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warn
 }
 
 var (
-	labelsPath         = field.NewPath("metadata", "labels")
-	queueNameLabelPath = labelsPath.Key(controllerconstants.QueueLabel)
-	specPath           = field.NewPath("spec")
-	replicasPath       = specPath.Child("replicas")
-	specTemplatePath   = specPath.Child("template")
-	podSpecPath        = specTemplatePath.Child("spec")
+	labelsPath                 = field.NewPath("metadata", "labels")
+	queueNameLabelPath         = labelsPath.Key(controllerconstants.QueueLabel)
+	priorityClassNameLabelPath = labelsPath.Key(controllerconstants.WorkloadPriorityClassLabel)
+	specPath                   = field.NewPath("spec")
+	replicasPath               = specPath.Child("replicas")
+	specTemplatePath           = specPath.Child("template")
+	podSpecPath                = specTemplatePath.Child("spec")
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
@@ -143,6 +144,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		isSuspended,
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
+	)...)
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {

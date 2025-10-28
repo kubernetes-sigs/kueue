@@ -923,9 +923,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 }
 
 func workloadPriorityClassChanged(old, new *kueue.Workload) bool {
-	return (old.Spec.PriorityClassSource == "" && new.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource ||
-		old.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && new.Spec.PriorityClassSource == "" ||
-		old.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && new.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource) &&
+	return old.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource &&
+		new.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource &&
+		old.Spec.PriorityClassName != "" && new.Spec.PriorityClassName != "" &&
 		old.Spec.PriorityClassName != new.Spec.PriorityClassName
 }
 
