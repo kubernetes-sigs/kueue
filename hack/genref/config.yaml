@@ -18,6 +18,11 @@ apis:
     package: sigs.k8s.io/kueue
     path: apis/config/v1beta1
 
+  - name: kueue-config
+    title: Kueue Configuration API
+    package: sigs.k8s.io/kueue
+    path: apis/config/v1beta2
+
   # code fails if there are no types in alpha apis
   # leave in in case alpha apis are added
   #- name: kueue-alpha
