@@ -77,7 +77,8 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsAdmissionChecks); err != nil {
+	// WorkloadsWithAdmissionCheckKey may already be registered by provisioning controller
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsAdmissionChecks); err != nil && !admissioncheck.IsIndexerConflict(err) {
 		return fmt.Errorf("setting index on workloads admission checks: %w", err)
 	}
 	return nil

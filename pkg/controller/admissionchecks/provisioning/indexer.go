@@ -61,7 +61,8 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &autoscaling.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); err != nil {
 		return fmt.Errorf("setting index on provisionRequest owner: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil {
+	// WorkloadsWithAdmissionCheckKey may already be registered by multikueue controller
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil && !admissioncheck.IsIndexerConflict(err) {
 		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
 
