@@ -295,6 +295,7 @@ spec:
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  |       |
 | `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  |       |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
+| `RemoveFinalizersWithStrictPatch`             | `true`  | Beta  | 0.14  |       |
 
 ### Feature gates for graduated or deprecated features
 
