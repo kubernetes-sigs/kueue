@@ -376,6 +376,35 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			},
 		},
+		"set in priority class label when replicas ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: priorityClassNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
 		"change in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
 				ObjectMeta: metav1.ObjectMeta{
@@ -397,6 +426,90 @@ func TestValidateUpdate(t *testing.T) {
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
+				},
+			},
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete in priority class label when replicas ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					ReadyReplicas: int32(1),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: priorityClassNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"set in priority class label when replicas not ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"change in priority class label when replicas not ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete in priority class label when replicas not ready": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel:                 "queue1",
+						constants.WorkloadPriorityClassLabel: "priority1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
 				},
 			},
 			wantErr: field.ErrorList{
