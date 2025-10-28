@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -420,6 +421,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
+		needsTopologySync := needsTopologySyncFromRemote(group.local, group.remotes[reservingRemote])
+		if needsTopologySync {
+			log.V(2).Info("Syncing topology from remote to manager", "workload", klog.KObj(group.local), "remote", reservingRemote)
+			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
+				syncTopologyFromRemote(group.local, group.remotes[reservingRemote])
+				return group.local, true, nil
+			}); err != nil {
+				log.V(2).Error(err, "Failed to sync topology from remote", "workload", klog.KObj(group.local))
+				return reconcile.Result{}, err
+			}
+		}
+
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
 			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func() (*kueue.Workload, bool, error) {
 				if group.jobAdapter.KeepAdmissionCheckPending() {
@@ -436,6 +449,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				// Set the cluster name to the reserving remote and clear the nominated clusters.
 				group.local.Status.ClusterName = &reservingRemote
 				group.local.Status.NominatedClusterNames = nil
+
 				return group.local, true, nil
 			}); err != nil {
 				log.V(2).Error(err, "Failed to patch workload", "workload", klog.KObj(group.local))
@@ -635,6 +649,54 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
 		Complete(w)
+}
+
+func needsTopologySyncFromRemote(local, remote *kueue.Workload) bool {
+	if remote == nil || remote.Status.Admission == nil || local == nil || local.Status.Admission == nil {
+		return false
+	}
+
+	for _, remotePSA := range remote.Status.Admission.PodSetAssignments {
+		for _, localPSA := range local.Status.Admission.PodSetAssignments {
+			if localPSA.Name != remotePSA.Name {
+				continue
+			}
+
+			if remotePSA.TopologyAssignment != nil && localPSA.TopologyAssignment == nil {
+				return true
+			}
+
+			if localPSA.DelayedTopologyRequest != nil &&
+				*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending &&
+				remotePSA.TopologyAssignment != nil {
+				return true
+			}
+			break
+		}
+	}
+	return false
+}
+
+// syncTopologyFromRemote copies topology assignments from the remote workload to the local workload.
+// This allows the manager to track topology information even though TAS runs on the worker cluster.
+func syncTopologyFromRemote(local, remote *kueue.Workload) {
+	if remote == nil || remote.Status.Admission == nil || local == nil || local.Status.Admission == nil {
+		return
+	}
+
+	for _, remotePSA := range remote.Status.Admission.PodSetAssignments {
+		for j := range local.Status.Admission.PodSetAssignments {
+			if local.Status.Admission.PodSetAssignments[j].Name != remotePSA.Name {
+				continue
+			}
+
+			local.Status.Admission.PodSetAssignments[j].TopologyAssignment = remotePSA.TopologyAssignment
+			if remotePSA.TopologyAssignment != nil && local.Status.Admission.PodSetAssignments[j].DelayedTopologyRequest != nil {
+				local.Status.Admission.PodSetAssignments[j].DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
+			}
+			break
+		}
+	}
 }
 
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {

@@ -50,6 +50,12 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+const (
+	tasNodeGroupLabel         = "cloud.provider.com/node-group"
+	tasNodeGroupLabelValue    = "tas-node"
+	nodeRoleControlPlaneLabel = "node-role.kubernetes.io/control-plane"
+)
+
 var (
 	managerK8SVersion  *versionutil.Version
 	managerClusterName string
@@ -243,6 +249,35 @@ func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace strin
 	return client.IgnoreNotFound(c.Delete(ctx, secret))
 }
 
+func labelNodesForTAS(ctx context.Context, c client.Client, clusterName string) {
+	nodes := &corev1.NodeList{}
+	err := c.List(ctx, nodes)
+	if err != nil {
+		ginkgo.GinkgoLogr.Info("Failed to list nodes for TAS labeling", "cluster", clusterName, "error", err)
+		return
+	}
+
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		if _, hasControlPlane := node.Labels[nodeRoleControlPlaneLabel]; hasControlPlane {
+			continue
+		}
+
+		if node.Labels == nil {
+			node.Labels = make(map[string]string)
+		}
+		if _, exists := node.Labels[tasNodeGroupLabel]; !exists {
+			node.Labels[tasNodeGroupLabel] = tasNodeGroupLabelValue
+			err := c.Update(ctx, node)
+			if err != nil {
+				ginkgo.GinkgoLogr.Info("Failed to label node for TAS", "cluster", clusterName, "node", node.Name, "error", err)
+			} else {
+				ginkgo.GinkgoLogr.Info("Labeled node for TAS", "cluster", clusterName, "node", node.Name)
+			}
+		}
+	}
+}
+
 func TestAPIs(t *testing.T) {
 	suiteName := "End To End MultiKueue Suite"
 	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
@@ -315,6 +350,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	labelNodesForTAS(ctx, k8sManagerClient, "manager")
+	labelNodesForTAS(ctx, k8sWorker1Client, "worker1")
+	labelNodesForTAS(ctx, k8sWorker2Client, "worker2")
 })
 
 var _ = ginkgo.AfterSuite(func() {
