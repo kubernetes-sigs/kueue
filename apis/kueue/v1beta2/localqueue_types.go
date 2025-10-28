@@ -105,7 +105,7 @@ type TopologyInfo struct {
 	// +listType=atomic
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=16
 	Levels []string `json:"levels"`
 }
 
