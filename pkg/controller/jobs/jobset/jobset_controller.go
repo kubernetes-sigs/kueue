@@ -197,13 +197,11 @@ func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, e
 
 	for i := range j.Spec.ReplicatedJobs {
 		spec := &j.Spec.ReplicatedJobs[i]
-		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
-			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
-				ret = append(ret, kueue.ReclaimablePod{
-					Name:  kueue.NewPodSetReference(spec.Name),
-					Count: status.Succeeded * PodsCountPerReplica(spec),
-				})
-			}
+		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
+			ret = append(ret, kueue.ReclaimablePod{
+				Name:  kueue.NewPodSetReference(spec.Name),
+				Count: status.Succeeded * PodsCountPerReplica(spec),
+			})
 		}
 	}
 	return ret, nil
