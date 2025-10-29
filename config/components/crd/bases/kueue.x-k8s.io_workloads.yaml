@@ -8927,7 +8927,7 @@ spec:
                                       the highest to the lowest.
                                     items:
                                       type: string
-                                    maxItems: 8
+                                    maxItems: 16
                                     minItems: 1
                                     type: array
                                     x-kubernetes-list-type: atomic
@@ -8943,7 +8943,7 @@ spec:
                                 the topology.
                               items:
                                 type: string
-                              maxItems: 8
+                              maxItems: 16
                               minItems: 1
                               type: array
                               x-kubernetes-list-type: atomic
@@ -18280,7 +18280,7 @@ spec:
                                       the highest to the lowest.
                                     items:
                                       type: string
-                                    maxItems: 8
+                                    maxItems: 16
                                     minItems: 1
                                     type: array
                                     x-kubernetes-list-type: atomic
@@ -18297,7 +18297,7 @@ spec:
                                 the topology.
                               items:
                                 type: string
-                              maxItems: 8
+                              maxItems: 16
                               minItems: 1
                               type: array
                               x-kubernetes-list-type: atomic
