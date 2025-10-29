@@ -291,8 +291,8 @@ spec:
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13     |          |
 | `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13     |          |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14     |          |
-| `SanitizePodSets`                             | `true`  | Beta   | 0.13     |          |
-| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.14     | 0.17     |
+| `SanitizePodSets`                             | `true`  | Beta  | 0.13     |          |
+| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.14     |          |
 
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
