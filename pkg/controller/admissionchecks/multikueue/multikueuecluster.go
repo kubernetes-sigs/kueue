@@ -55,6 +55,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -417,13 +418,17 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
 	}
 
-	err = validateKubeconfig(kubeConfig)
-	if err != nil {
-		log.Error(err, "validating kubeconfig failed")
-		if updateErr := c.updateStatus(ctx, cluster, false, "InsecureKubeConfig", fmt.Sprintf("insecure kubeconfig: %v", err)); updateErr != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after detecting insecure kubeconfig: %w", updateErr, err)
+	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
+		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
+	} else {
+		err = validateKubeconfig(kubeConfig)
+		if err != nil {
+			log.Error(err, "validating kubeconfig failed")
+			if updateErr := c.updateStatus(ctx, cluster, false, "InsecureKubeConfig", fmt.Sprintf("insecure kubeconfig: %v", err)); updateErr != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after detecting insecure kubeconfig: %w", updateErr, err)
+			}
+			return reconcile.Result{}, fmt.Errorf("validating kubeconfig failed: %w", err)
 		}
-		return reconcile.Result{}, fmt.Errorf("validating kubeconfig failed: %w", err)
 	}
 
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig, c.origin); err != nil {
