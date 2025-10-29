@@ -826,7 +826,7 @@ type PodSetAssignment struct {
   TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
 ```
 
-The format of `TopologyAssignment` depends on the API version; see details [below]().
+The format of `TopologyAssignment` depends on the API version; see details [below](#topology-assignment-representation).
 
 Kueue uses the `kueue.x-k8s.io/topology` scheduling gate to delay the
 `nodeSelector` assignment, because different pods in the same PodSet may have
