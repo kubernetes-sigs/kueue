@@ -296,7 +296,7 @@ spec:
 | `TASFailedNodeReplacementFailFast`    | `false` | Alpha | 0.12  |       |
 | `TASReplaceNodeOnPodTermination`      | `false` | Alpha | 0.13  |       |
 | `SanitizePodSets`                     | `true`  | Beta  | 0.13  |       |
-| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13  | 0.17  |
+| `MultiKueueAllowInsecureKubeconfigs`  | `false` | Alpha | 0.13  |       |
 
 ### Feature gates for graduated or deprecated features
 
