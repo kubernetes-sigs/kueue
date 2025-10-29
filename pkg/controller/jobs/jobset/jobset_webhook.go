@@ -142,7 +142,7 @@ func (w *JobSetWebhook) validateCreate(jobSet *JobSet) (field.ErrorList, error) 
 func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobSet.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(jobSet)
 
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)

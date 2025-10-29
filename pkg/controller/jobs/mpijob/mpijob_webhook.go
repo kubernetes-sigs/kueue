@@ -155,7 +155,7 @@ func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) 
 func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := mpiJob.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(mpiJob)
 
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)

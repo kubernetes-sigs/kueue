@@ -195,17 +195,23 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
+func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec) kueue.PodSet {
+	podSet := kueue.PodSet{
+		Name:  name,
+		Count: count,
+		Template: corev1.PodTemplateSpec{
+			Spec: *template.Spec.DeepCopy(),
+		},
+	}
+	jobframework.SanitizePodSet(&podSet)
+	return podSet
+}
+
 func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0, 2)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		podSet := kueue.PodSet{
-			Name:  leaderPodSetName,
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: *lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.DeepCopy(),
-			},
-		}
+		podSet := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
@@ -227,14 +233,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		defaultPodSetCount--
 	}
 
-	podSet := kueue.PodSet{
-		Name:  defaultPodSetName,
-		Count: defaultPodSetCount,
-		Template: corev1.PodTemplateSpec{
-			Spec: *lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.DeepCopy(),
-		},
-	}
-
+	podSet := newPodSet(defaultPodSetName, defaultPodSetCount, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(
