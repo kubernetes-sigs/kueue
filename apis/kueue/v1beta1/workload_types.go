@@ -268,7 +268,7 @@ type TopologyAssignment struct {
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=16
 	Levels []string `json:"levels"`
 
 	// domains is a list of topology assignments split by topology domains at
@@ -286,7 +286,7 @@ type TopologyDomainAssignment struct {
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=16
 	Values []string `json:"values"`
 
 	// count indicates the number of Pods to be scheduled in the topology
