@@ -350,6 +350,60 @@ type granularMode struct {
 	borrowingLevel borrowingLevel
 }
 
+func effectiveAssignmentPreference(cfg kueue.FlavorFungibility) kueue.FlavorFungibilityPreference {
+	if cfg.WhenCanBorrow == kueue.TryNextFlavor && cfg.WhenCanPreempt == kueue.TryNextFlavor {
+		if cfg.Preference != nil {
+			return *cfg.Preference
+		}
+		return kueue.PreferenceBorrowing
+	}
+	if cfg.WhenCanBorrow == kueue.TryNextFlavor && cfg.WhenCanPreempt != kueue.TryNextFlavor {
+		return kueue.PreferencePreempting
+	}
+	return kueue.PreferenceBorrowing
+}
+
+// preferenceCategory maps a granularMode into one of four categories
+// Interpreting those buckets:
+// Category 0 – Fits without preemption and without borrowing.
+// This is the best possible outcome in every preference mode.
+// Category 1
+// With PreferenceBorrowing: fits without needing to preempt, but does require borrowing.
+// With PreferencePreempting: requires preemption but can do so without borrowing (i.e., reclaiming local quota).
+// Category 2
+// With PreferenceBorrowing: requires preemption, but no borrowing is necessary.
+// With PreferencePreempting: fits without preemption but does need borrowing.
+// Category 3 – Requires both preemption and borrowing; it is the least desirable outcome in either mode.
+func preferenceCategory(mode granularMode, pref kueue.FlavorFungibilityPreference) int {
+	borrowOptimal := mode.borrowingLevel.optimal()
+	requiresPreemption := mode.preemptionMode != fit
+	switch pref {
+	case kueue.PreferencePreempting:
+		switch {
+		case !requiresPreemption && borrowOptimal:
+			return 0
+		case requiresPreemption && borrowOptimal:
+			return 1
+		case !requiresPreemption:
+			return 2
+		default:
+			return 3
+		}
+	// kueue.PreferenceBorrowing
+	default:
+		switch {
+		case !requiresPreemption && borrowOptimal:
+			return 0
+		case !requiresPreemption:
+			return 1
+		case requiresPreemption && borrowOptimal:
+			return 2
+		default:
+			return 3
+		}
+	}
+}
+
 func worstGranularMode() granularMode {
 	return granularMode{preemptionMode: noFit, borrowingLevel: math.MaxInt}
 }
@@ -371,6 +425,9 @@ const (
 )
 
 // isPreferred returns true if mode a is better than b according to the selected policy
+// Preference is driven solely by ClusterQueue's flavorFungibility configuration.
+// If WhenCanBorrow is TryNextFlavor, we prioritize assignments that avoid borrowing,
+// otherwise we prioritize assignments that avoid preemption.
 func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
 		return false
@@ -379,25 +436,19 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		return true
 	}
 
-	if !features.Enabled(features.FlavorFungibilityImplicitPreferenceDefault) {
-		if a.preemptionMode != b.preemptionMode {
-			return a.preemptionMode > b.preemptionMode
-		} else {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
+	pref := effectiveAssignmentPreference(fungibilityConfig)
+	catA := preferenceCategory(a, pref)
+	catB := preferenceCategory(b, pref)
+	if catA != catB {
+		return catA < catB
 	}
-
-	if fungibilityConfig.WhenCanBorrow == kueue.TryNextFlavor {
-		if a.borrowingLevel != b.borrowingLevel {
-			return a.borrowingLevel.betterThan(b.borrowingLevel)
-		}
+	if a.preemptionMode != b.preemptionMode {
 		return a.preemptionMode > b.preemptionMode
-	} else {
-		if a.preemptionMode != b.preemptionMode {
-			return a.preemptionMode > b.preemptionMode
-		}
+	}
+	if a.borrowingLevel != b.borrowingLevel {
 		return a.borrowingLevel.betterThan(b.borrowingLevel)
 	}
+	return false
 }
 
 func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) preemptionMode {

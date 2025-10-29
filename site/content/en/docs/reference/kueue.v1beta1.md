@@ -1425,6 +1425,18 @@ weight of zero and is borrowing, this will return
 </tbody>
 </table>
 
+## `FlavorFungibilityPreference`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FlavorFungibility](#kueue-x-k8s-io-v1beta1-FlavorFungibility)
+
+
+
+
+
 ## `FlavorFungibility`     {#kueue-x-k8s-io-v1beta1-FlavorFungibility}
     
 
@@ -1469,6 +1481,16 @@ preemption to fit.</li>
 to fit in current flavor.</li>
 <li><code>Preempt</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>preference</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference"><code>FlavorFungibilityPreference</code></a>
+</td>
+<td>
+   <p>preference selects the order between borrowing-first and preemption-first
+when both WhenCanBorrow and WhenCanPreempt are set to <code>TryNextFlavor</code>.
+If unset, the default preference is borrowing-first.
+Preference must be unset when either WhenCanBorrow or WhenCanPreempt is not <code>TryNextFlavor</code>.</p>
 </td>
 </tr>
 </tbody>

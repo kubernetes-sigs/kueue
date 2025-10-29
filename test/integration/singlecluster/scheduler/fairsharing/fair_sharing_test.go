@@ -548,6 +548,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			fungibility := kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreferencePreempting),
 			}
 			preemption := kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -609,9 +610,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				Preemption(preemption).
 				Obj())
 		})
-		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
-		})
+		ginkgo.AfterEach(func() {})
 
 		// Since CohortA has 18CPU quota, we expect that
 		// all 18 CPUs scheduled are within this guarantee.
@@ -621,8 +620,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		//
 		// WeightedShare(CohortA) = 0/20 * 1000 = 0
 		// WeightedShare(cq-p1)  = 12/20 * 1000 = 600
-		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (FlavorFungibilityImplicitPreferenceDefault=false)", func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
+		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (API default)", func() {
 			ginkgo.By("Creating workloads")
 			for range 18 {
 				createWorkload("cq-p1", "1")
@@ -635,8 +633,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectClusterQueueWeightedShareMetric(cqp1, 600.0)
 			expectCohortWeightedShare("cohort-a", 0.0)
 		})
-		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (FlavorFungibilityImplicitPreferenceDefault=true)", func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
+		ginkgo.It("Prefers flavor with remaining guarantees at Cohort level (prefer no borrowing via API)", func() {
 			for range 18 {
 				createWorkload("cq-p1", "1")
 			}
@@ -655,7 +652,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 		// WeightedShare(CohortB) = 0/20 * 1000 = 0
 		// WeightedShare(cq-p5)   = 2/20 * 1000 = 100
 		ginkgo.It("CohortB preempts and schedules in flavor which has guarantees", func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
 			ginkgo.By("Create workload which saturate all cohort resources")
 			for range 20 {
 				createWorkload("cq-p1", "1")
@@ -702,6 +698,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
 			}
+			fungibility.Preference = ptr.To(kueue.PreferencePreempting)
 			preemption := kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -726,10 +723,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				FlavorFungibility(fungibility).
 				Preemption(preemption).
 				Obj())
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, true)
-		})
-		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.FlavorFungibilityImplicitPreferenceDefault, false)
 		})
 
 		// The first workload preempted satisfies

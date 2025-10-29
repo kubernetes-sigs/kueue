@@ -2619,10 +2619,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}
 			})
 		})
-		ginkgo.When("FlavorFungibilityImplicitPreferenceDefault is enabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityImplicitPreferenceDefault, true)
-			})
+		ginkgo.When("Prefer preemption over borrowing via API", func() {
 			ginkgo.It("chooses a correct flavor when preemption is preferred", func() {
 				fungibility := kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,

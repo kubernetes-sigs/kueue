@@ -458,7 +458,8 @@ metadata:
 spec:
   flavorFungibility:
     whenCanBorrow: TryNextFlavor
-    whenCanPreempt: MayStopSearch
+    whenCanPreempt: TryNextFlavor
+    preference: Preempting
 ```
 
 上述字段如下：
@@ -472,10 +473,10 @@ spec:
   - `TryNextFlavor`（默认）：ClusterQueue 尝试下一个 ResourceFlavor 以查看工作负载是否适合 ResourceFlavor。
   - `Preempt`（已弃用）。
 
-默认情况下，新进入的工作负载停止尝试下一个风味，如果工作负载可以获得足够的借用资源。
-并且 Kueue 仅在 Kueue 确定剩余 ResourceFlavors 无法适应工作负载时触发预留。
-
-请注意，每当时机允许且配置策略允许时，Kueue 避免预留，如果它可以借用 Workload 以适应。
+默认情况下，如果工作负载可以通过借用适配某个 ResourceFlavor，Kueue 会优先选择借用并避免预留。
+当 `whenCanBorrow` 和 `whenCanPreempt` 都设置为 `TryNextFlavor` 时，可以通过可选的
+`preference` 字段决定是更偏好借用 (`Borrowing`) 还是更偏好预留 (`Preempting`)。
+该字段只能在两个策略都为 `TryNextFlavor` 时设置，并不会改变“无须借用时永远优先”的原则。
 
 ## 停止策略 {#stoppolicy}
 

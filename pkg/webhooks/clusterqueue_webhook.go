@@ -113,6 +113,9 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	if cq.Spec.FlavorFungibility != nil {
+		allErrs = append(allErrs, validateFlavorFungibility(cq.Spec.FlavorFungibility, path.Child("flavorFungibility"))...)
+	}
 	return allErrs
 }
 
@@ -170,6 +173,14 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 		preemption.BorrowWithinCohort != nil &&
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
+	}
+	return allErrs
+}
+
+func validateFlavorFungibility(fungibility *kueue.FlavorFungibility, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if fungibility.Preference != nil && (fungibility.WhenCanBorrow != kueue.TryNextFlavor || fungibility.WhenCanPreempt != kueue.TryNextFlavor) {
+		allErrs = append(allErrs, field.Invalid(path.Child("preference"), *fungibility.Preference, "preference must be unset unless whenCanBorrow and whenCanPreempt are both TryNextFlavor"))
 	}
 	return allErrs
 }

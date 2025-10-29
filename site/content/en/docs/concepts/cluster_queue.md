@@ -513,27 +513,28 @@ preempting in current ResourceFlavor. The possible values are:
 If during the search, Kueue finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected,
 regardless of the above configuration. Otherwise, out of the considered
-ResourceFlavors, Kueue selects a one that fits the workload using borrowing
+ResourceFlavors, Kueue selects one that fits the workload using borrowing
 (without preemptions). If there is no such ResourceFlavor, Kueue selects a Flavor
 that uses preemption and is preferably not borrowing.
 
 By default Kueue avoids preemptions and prefers borrowing when assigning Flavors.
 Borrowing is not disruptive to other workloads but a
-workload that borrows risks being prempted (since it is using nominal quota
-from some other Cluster Queue). If you prefer to preempt rather than borrow when possible,
-you can enable the feature gate `FlavorFungibilityImplicitPreferenceDefault`, which
-changes the default preference as follows: If `.spec.flavorFungibility.whenCanBorrow` is `TryNextFlavor`,
-it assumes that preemption is preferred over borrowing and otherwise it assumes
-that borrowing is preferred over preemption.
+workload that borrows risks being preempted (since it is using nominal quota
+from some other Cluster Queue). When both `whenCanBorrow` and `whenCanPreempt`
+are set to `TryNextFlavor`, you can choose between borrowing-first and
+preemption-first behaviors by setting the optional `preference` field.
 
-{{% alert title="Note" color="primary" %}}
-`FlavorFungibilityImplicitPreferenceDefault` is currently an alpha feature,
-introduced to Kueue in version 0.13 and it is not enabled by default.
+```yaml
+spec:
+  flavorFungibility:
+    whenCanBorrow: TryNextFlavor
+    whenCanPreempt: TryNextFlavor
+    preference: Preempting   # prefer preempting over borrowing when both are possible
+```
 
-To enable the feature, you have to set the `FlavorFungibilityImplicitPreferenceDefault`
-feature gate to `true`. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration)
-guide for details on feature gate configuration.
-{{% /alert %}}
+The `preference` field must be unset unless both policies are `TryNextFlavor`.
+Setting `preference` does not override the guarantee that fits without borrowing
+are always preferred.
 
 
 ## StopPolicy
