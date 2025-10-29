@@ -268,7 +268,8 @@ spec:
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5   |       |
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
-| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   |       |
+| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   | 0.15  |
+| `MultiKueueBatchJobWithManagedBy`             | `true`  | Beta  | 0.15    |       |
 | `PartialAdmission`                            | `false` | Alpha | 0.4   | 0.4   |
 | `PartialAdmission`                            | `true`  | Beta  | 0.5   |       |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6   | 0.8   |

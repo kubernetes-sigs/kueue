@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 					Reason:  "MultiKueue",
@@ -1694,7 +1694,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			localWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 			acs := admissioncheck.FindAdmissionCheck(localWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 			g.Expect(acs).NotTo(gomega.BeNil())
-			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 			ok, err := utiltesting.HasEventAppeared(manager.ctx, manager.client, corev1.Event{
 				Reason:  "MultiKueue",
@@ -1724,9 +1724,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(list.Items).To(gomega.BeEmpty())
 		})
 
-		ginkgo.By("observe: job is still suspended in the manager cluster", func() {
+		ginkgo.By("observe: job is no longer suspended in the manager cluster", func() {
 			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(true)))
+			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
 		})
 
 		/*
@@ -1809,7 +1809,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			workload := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			acs := admissioncheck.FindAdmissionCheck(workload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 			g.Expect(acs).NotTo(gomega.BeNil())
-			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 			ok, err := utiltesting.HasEventAppeared(manager.ctx, manager.client, corev1.Event{
 				Reason:  "MultiKueue",
@@ -1825,7 +1825,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
 				g.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
-				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(2))))
+				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
