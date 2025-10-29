@@ -106,21 +106,25 @@ func makeTestSecret(name string, kubeconfig string) corev1.Secret {
 	}
 }
 
-func testKubeconfig(user string) string {
-	kubeconfig, _ := utiltesting.NewKubeConfigWrapper().Cluster("test", "https://10.10.10.10", []byte{0x2d, 0x2d, 0x2d, 0x2d, 0x2d}).
+func kubeconfigBase(user string) *utiltesting.TestKubeconfigWrapper {
+	return utiltesting.NewTestKubeConfigWrapper().
+		Cluster("test", "https://10.10.10.10", []byte{'-', '-', '-', '-', '-'}).
 		User(user, nil, nil).
 		Context("test-context", "test", user).
-		CurrentContext("test-context").
-		TokenAuthInfo(user, "FAKE-TOKEN-123456").Build()
+		CurrentContext("test-context")
+}
+
+func testKubeconfig(user string) string {
+	kubeconfig, _ := kubeconfigBase(user).
+		TokenAuthInfo(user, "FAKE-TOKEN-123456").
+		Build()
 	return string(kubeconfig)
 }
 
 func testKubeconfigInsecure(user string, tokenFile *string) string {
-	kubeconfig, _ := utiltesting.NewKubeConfigWrapper().Cluster("test", "https://10.10.10.10", []byte{0x2d, 0x2d, 0x2d, 0x2d, 0x2d}).
-		User(user, nil, nil).
-		Context("test-context", "test", user).
-		CurrentContext("test-context").
-		TokenFileAuthInfo(user, *tokenFile).Build()
+	kubeconfig, _ := kubeconfigBase(user).
+		TokenFileAuthInfo(user, *tokenFile).
+		Build()
 	return string(kubeconfig)
 }
 
@@ -666,7 +670,7 @@ func TestRemoteClientGC(t *testing.T) {
 }
 
 func TestValidateKubeconfig(t *testing.T) {
-	kubeconfigBase := utiltesting.NewKubeConfigWrapper().Cluster("test", "https://10.10.10.10", []byte{0x2d, 0x2d, 0x2d, 0x2d, 0x2d}).
+	kubeconfigBase := utiltesting.NewTestKubeConfigWrapper().Cluster("test", "https://10.10.10.10", []byte{0x2d, 0x2d, 0x2d, 0x2d, 0x2d}).
 		User("u", nil, nil).
 		Context("test-context", "test", "u").
 		CurrentContext("test-context")
