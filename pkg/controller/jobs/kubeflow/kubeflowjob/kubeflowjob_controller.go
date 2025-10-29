@@ -187,7 +187,7 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 		return nil, nil
 	}
 
-	podSets, podSetsErr := j.PodSets(ctx)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, j)
 
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()
