@@ -995,8 +995,7 @@ type TopologyAssignmentSlice struct {
   UniversalCount *int32 `json:"omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="has(self.roots) != has(self.universalValue)", message="Exactly one of roots, universalValue must be set"
-type TopologyLevelAssignment struct {
+type TopologyAssignmentSliceLevelValues struct {
   // commonPrefix and commonSuffix specify a common prefix & suffix for all values in this assignment.
   // +optional
   CommonPrefix *string `json:"omitempty"`
