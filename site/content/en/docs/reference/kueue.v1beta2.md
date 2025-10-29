@@ -1103,6 +1103,13 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
+<tr><td><code>testString</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>testString is a simple test field for demonstration purposes</p>
+</td>
+</tr>
 </tbody>
 </table>
 

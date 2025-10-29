@@ -928,4 +928,26 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 	})
+
+	ginkgo.When("Creating clusterQueue with TestString field", func() {
+		ginkgo.It("Should create ClusterQueue with testString field and retrieve it", func() {
+			testValue := "test-value"
+
+			ginkgo.By("Creating a ClusterQueue with testString field")
+			cq := utiltestingapi.MakeClusterQueue("test-string-cq").Obj()
+			cq.Spec.TestString = ptr.To(testValue)
+			util.MustCreate(ctx, k8sClient, cq)
+
+			ginkgo.By("Getting the ClusterQueue and verifying testString field")
+			var retrievedCQ kueue.ClusterQueue
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &retrievedCQ)).To(gomega.Succeed())
+				g.Expect(retrievedCQ.Spec.TestString).ToNot(gomega.BeNil())
+				g.Expect(*retrievedCQ.Spec.TestString).To(gomega.Equal(testValue))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Cleaning up")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+	})
 })

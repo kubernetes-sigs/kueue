@@ -1262,6 +1262,9 @@ spec:
                 - Hold
                 - HoldAndDrain
                 type: string
+              testString:
+                description: testString is a simple test field for demonstration purposes
+                type: string
             type: object
             x-kubernetes-validations:
             - message: borrowingLimit must be nil when cohort is empty

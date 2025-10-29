@@ -142,6 +142,10 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
+	// testString is a simple test field for demonstration purposes
+	// +optional
+	TestString *string `json:"testString,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
