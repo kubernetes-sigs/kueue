@@ -344,7 +344,7 @@ spec:
                             description: levels define the levels of topology.
                             items:
                               type: string
-                            maxItems: 8
+                            maxItems: 16
                             minItems: 1
                             type: array
                             x-kubernetes-list-type: atomic
