@@ -43,6 +43,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -134,11 +135,12 @@ func TestUpdateConfig(t *testing.T) {
 		clusters      []kueue.MultiKueueCluster
 		secrets       []corev1.Secret
 
-		wantRemoteClients map[string]*remoteClient
-		wantClusters      []kueue.MultiKueueCluster
-		wantRequeueAfter  time.Duration
-		wantCancelCalled  int
-		wantErr           error
+		wantRemoteClients      map[string]*remoteClient
+		wantClusters           []kueue.MultiKueueCluster
+		wantRequeueAfter       time.Duration
+		wantCancelCalled       int
+		wantErr                error
+		skipInsecureKubeconfig bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -406,7 +408,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("valid_user", ptr.To("/path/to/tokenfile"))),
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
@@ -416,6 +418,31 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			wantErr: fmt.Errorf("validating kubeconfig failed: %w", errors.New("tokenFile is not allowed")),
+		},
+		"skip insecure kubeconfig validation": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Active(metav1.ConditionTrue, "Active", "Connected", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {
+					kubeconfig: []byte(testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+				},
+			},
+			skipInsecureKubeconfig: true,
 		},
 	}
 
@@ -437,6 +464,10 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.remoteClients = tc.remoteClients
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
+
+			if tc.skipInsecureKubeconfig {
+				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
+			}
 
 			// Create test kubeconfig file for path location type
 			if tc.clusters != nil && tc.clusters[0].Spec.KubeConfig.LocationType == kueue.PathLocationType && tc.clusters[0].Spec.KubeConfig.Location != "" {

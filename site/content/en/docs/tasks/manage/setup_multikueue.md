@@ -49,6 +49,14 @@ chmod +x create-multikueue-kubeconfig.sh
 
 To create a Kubeconfig that can be used in the manager cluster to delegate Jobs in the current worker.
 
+{{% alert title="Security Notice" color="primary" %}}
+
+MultiKueue validates kubeconfig files to protect against known arbitrary code execution vulnerabilities.
+For your security, it is strongly recommended not to use the MultiKueueAllowInsecureKubeconfigs flag.
+This flag was introduced in Kueue v0.15.0 solely for backward compatibility and will be deprecated in Kueue v0.17.0.
+
+{{% /alert %}}
+
 ### Kubeflow Installation
 
 Install Kubeflow Trainer in the Worker cluster (see [Kubeflow Trainer Installation](https://www.kubeflow.org/docs/components/training/installation/)
