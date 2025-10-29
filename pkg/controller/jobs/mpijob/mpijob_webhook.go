@@ -148,7 +148,7 @@ func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) 
 func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := mpiJob.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(mpiJob)
 
 	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
 		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")

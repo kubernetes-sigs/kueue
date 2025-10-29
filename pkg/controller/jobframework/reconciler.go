@@ -1041,7 +1041,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
-	getPodSets, err := job.PodSets()
+	getPodSets, err := JobPodSets(job)
 	if err != nil {
 		return false, err
 	}
@@ -1188,7 +1188,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
 
-	podSets, err := job.PodSets()
+	podSets, err := JobPodSets(job)
 	if err != nil {
 		return nil, err
 	}
