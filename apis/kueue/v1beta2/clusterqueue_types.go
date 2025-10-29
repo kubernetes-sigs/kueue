@@ -142,6 +142,24 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
+	// excludeResourcePrefixes defines which resources should be ignored by
+	// Kueue for quota management in this ClusterQueue. Resources matching any
+	// of the prefixes will be excluded from quota calculations.
+	// When specified, this list is combined (union) with the global
+	// excludeResourcePrefixes from the Kueue Configuration.
+	// The prefix matching follows the same semantics as the global configuration:
+	// - An exact match of the resource name
+	// - A prefix match followed by a slash (e.g., "example.com" matches "example.com/gpu")
+	//
+	// Example: ["ephemeral-storage", "hugepages-", "example.com"]
+	//
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=256
+	// +kubebuilder:validation:items:MinLength=1
+	// +optional
+	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.

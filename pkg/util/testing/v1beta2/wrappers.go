@@ -866,6 +866,12 @@ func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueue
 	return c
 }
 
+// ExcludeResourcePrefixes sets the resource prefixes to exclude from quota management.
+func (c *ClusterQueueWrapper) ExcludeResourcePrefixes(prefixes []string) *ClusterQueueWrapper {
+	c.Spec.ExcludeResourcePrefixes = prefixes
+	return c
+}
+
 func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheckStrategyRule) *ClusterQueueWrapper {
 	if c.Spec.AdmissionChecksStrategy == nil {
 		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}

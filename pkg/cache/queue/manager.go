@@ -77,6 +77,7 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 // WithExcludedResourcePrefixes sets the list of excluded resource prefixes
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	return func(m *Manager) {
+		m.globalExcludedResourcePrefixes = excludedPrefixes
 		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
 	}
 }
@@ -86,6 +87,65 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	return func(m *Manager) {
 		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithResourceTransformations(transforms))
 	}
+}
+
+// workloadInfoOptionsWithCQExclusions creates workload info options by merging
+// global excludeResourcePrefixes with ClusterQueue-specific ones.
+// Returns a new slice with merged exclusions when the feature gate is enabled.
+func (m *Manager) workloadInfoOptionsWithCQExclusions(cq *ClusterQueue, additionalOpts ...workload.InfoOption) []workload.InfoOption {
+	if !features.Enabled(features.ClusterQueueExcludeResources) {
+		// Feature gate disabled, use only global exclusions
+		return append(m.workloadInfoOptions, additionalOpts...)
+	}
+
+	cqExclusions := cq.GetExcludeResourcePrefixes()
+	if len(cqExclusions) == 0 {
+		// No CQ-specific exclusions, use only global ones
+		return append(m.workloadInfoOptions, additionalOpts...)
+	}
+
+	// Merge global and CQ-specific exclusions
+	globalExclusions := m.extractGlobalExclusions()
+	mergedExclusions := mergeExclusions(globalExclusions, cqExclusions)
+
+	// Build new options: first add non-exclusion global options, then merged exclusions, then additional opts
+	// We start with global options (which includes global exclusions)
+	// Then we override with merged exclusions
+	// The last WithExcludedResourcePrefixes call will take precedence in workload.NewInfo
+	newOptions := make([]workload.InfoOption, 0, len(m.workloadInfoOptions)+len(additionalOpts)+1)
+	newOptions = append(newOptions, m.workloadInfoOptions...)
+	newOptions = append(newOptions, workload.WithExcludedResourcePrefixes(mergedExclusions))
+	newOptions = append(newOptions, additionalOpts...)
+
+	return newOptions
+}
+
+// extractGlobalExclusions returns the global excluded resource prefixes.
+func (m *Manager) extractGlobalExclusions() []string {
+	return m.globalExcludedResourcePrefixes
+}
+
+// mergeExclusions combines global and ClusterQueue-specific exclusions.
+// Returns a deduplicated list containing all unique prefixes from both sources.
+func mergeExclusions(global, cq []string) []string {
+	seen := make(map[string]bool, len(global)+len(cq))
+	result := make([]string, 0, len(global)+len(cq))
+
+	for _, prefix := range global {
+		if !seen[prefix] {
+			seen[prefix] = true
+			result = append(result, prefix)
+		}
+	}
+
+	for _, prefix := range cq {
+		if !seen[prefix] {
+			seen[prefix] = true
+			result = append(result, prefix)
+		}
+	}
+
+	return result
 }
 
 // SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
@@ -115,6 +175,9 @@ type Manager struct {
 	workloadOrdering workload.Ordering
 
 	workloadInfoOptions []workload.InfoOption
+	// globalExcludedResourcePrefixes stores the global excluded resource prefixes
+	// for easier merging with ClusterQueue-specific exclusions
+	globalExcludedResourcePrefixes []string
 
 	hm hierarchy.Manager[*ClusterQueue, *cohort]
 
@@ -335,7 +398,14 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
+		// Get ClusterQueue to merge exclusions
+		cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
+		if cq != nil {
+			options := m.workloadInfoOptionsWithCQExclusions(cq)
+			qImpl.AddOrUpdate(workload.NewInfo(&w, options...))
+		} else {
+			qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
+		}
 	}
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -450,13 +520,17 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...work
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-	allOptions := append(m.workloadInfoOptions, opts...)
-	wInfo := workload.NewInfo(w, allOptions...)
-	q.AddOrUpdate(wInfo)
+
+	// Get ClusterQueue to access its exclude resource prefixes
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
 		return ErrClusterQueueDoesNotExist
 	}
+
+	// Merge global and ClusterQueue-specific exclusions
+	allOptions := m.workloadInfoOptionsWithCQExclusions(cq, opts...)
+	wInfo := workload.NewInfo(w, allOptions...)
+	q.AddOrUpdate(wInfo)
 	cq.PushOrUpdate(wInfo)
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
@@ -833,7 +907,20 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
-	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+
+	// Get ClusterQueue for merged exclusions
+	var wInfo *workload.Info
+	qKey := queue.KeyFromWorkload(w)
+	if q, ok := m.localQueues[qKey]; ok {
+		if cq := m.hm.ClusterQueue(q.ClusterQueue); cq != nil {
+			options := m.workloadInfoOptionsWithCQExclusions(cq)
+			wInfo = workload.NewInfo(w, options...)
+		}
+	}
+	if wInfo == nil {
+		wInfo = workload.NewInfo(w, m.workloadInfoOptions...)
+	}
+
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))

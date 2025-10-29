@@ -36,6 +36,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	StopPolicy              *kueuev1beta2.StopPolicy                   `json:"stopPolicy,omitempty"`
 	FairSharing             *FairSharingApplyConfiguration             `json:"fairSharing,omitempty"`
 	AdmissionScope          *AdmissionScopeApplyConfiguration          `json:"admissionScope,omitempty"`
+	ExcludeResourcePrefixes []string                                   `json:"excludeResourcePrefixes,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs a declarative configuration of the ClusterQueueSpec type for use with
@@ -136,5 +137,15 @@ func (b *ClusterQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingA
 // If called multiple times, the AdmissionScope field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionScope(value *AdmissionScopeApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
 	b.AdmissionScope = value
+	return b
+}
+
+// WithExcludeResourcePrefixes adds the given value to the ExcludeResourcePrefixes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ExcludeResourcePrefixes field.
+func (b *ClusterQueueSpecApplyConfiguration) WithExcludeResourcePrefixes(values ...string) *ClusterQueueSpecApplyConfiguration {
+	for i := range values {
+		b.ExcludeResourcePrefixes = append(b.ExcludeResourcePrefixes, values[i])
+	}
 	return b
 }

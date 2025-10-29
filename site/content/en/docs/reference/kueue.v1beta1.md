@@ -1103,6 +1103,23 @@ if FairSharing is enabled in the Kueue configuration.</p>
    <p>admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing</p>
 </td>
 </tr>
+<tr><td><code>excludeResourcePrefixes</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>excludeResourcePrefixes defines which resources should be ignored by
+Kueue for quota management in this ClusterQueue. Resources matching any
+of the prefixes will be excluded from quota calculations.
+When specified, this list is combined (union) with the global
+excludeResourcePrefixes from the Kueue Configuration.
+The prefix matching follows the same semantics as the global configuration:</p>
+<ul>
+<li>An exact match of the resource name</li>
+<li>A prefix match followed by a slash (e.g., &quot;example.com&quot; matches &quot;example.com/gpu&quot;)</li>
+</ul>
+<p>Example: [&quot;ephemeral-storage&quot;, &quot;hugepages-&quot;, &quot;example.com&quot;]</p>
+</td>
+</tr>
 </tbody>
 </table>
 

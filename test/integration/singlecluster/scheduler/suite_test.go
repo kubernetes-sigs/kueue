@@ -81,8 +81,10 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 			Outputs:  corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("2")},
 		},
 	}
-	cCache := schdcache.New(mgr.GetClient())
-	queues := qcache.NewManager(mgr.GetClient(), cCache, qcache.WithResourceTransformations(transformations))
+
+	excludedPrefixes := []string{"example.com/", "foo.io/", "bar.io/"}
+	cCache := schdcache.New(mgr.GetClient(), schdcache.WithExcludedResourcePrefixes(excludedPrefixes))
+	queues := qcache.NewManager(mgr.GetClient(), cCache, qcache.WithResourceTransformations(transformations), qcache.WithExcludedResourcePrefixes((excludedPrefixes)))
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)

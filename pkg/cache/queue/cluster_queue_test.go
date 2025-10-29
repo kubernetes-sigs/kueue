@@ -1138,3 +1138,111 @@ func TestFsAdmission(t *testing.T) {
 		})
 	}
 }
+
+func TestClusterQueueGetExcludeResourcePrefixes(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cases := map[string]struct {
+		cqExclusions []string
+		want         []string
+	}{
+		"no exclusions": {
+			cqExclusions: []string{},
+			want:         []string{},
+		},
+		"single exclusion": {
+			cqExclusions: []string{"example.com/"},
+			want:         []string{"example.com/"},
+		},
+		"multiple exclusions": {
+			cqExclusions: []string{"example.com/", "foo.io/", "bar.io/"},
+			want:         []string{"example.com/", "foo.io/", "bar.io/"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
+			apiCQ := utiltestingapi.MakeClusterQueue("test-cq").
+				ExcludeResourcePrefixes(tc.cqExclusions).
+				Obj()
+
+			err := cq.Update(apiCQ)
+			if err != nil {
+				t.Fatalf("Failed to update ClusterQueue: %v", err)
+			}
+
+			got := cq.GetExcludeResourcePrefixes()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected exclude resource prefixes (-want,+got):\n%s", diff)
+			}
+
+			// Verify that the returned slice is a copy (not the original)
+			if len(got) > 0 {
+				got[0] = "modified/"
+				unmodified := cq.GetExcludeResourcePrefixes()
+				if diff := cmp.Diff(tc.want, unmodified); diff != "" {
+					t.Errorf("Modifying returned slice affected internal state (-want,+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestClusterQueueUpdateExclusions(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cases := map[string]struct {
+		initialExclusions []string
+		updatedExclusions []string
+	}{
+		"empty to non-empty": {
+			initialExclusions: []string{},
+			updatedExclusions: []string{"example.com/"},
+		},
+		"non-empty to empty": {
+			initialExclusions: []string{"example.com/"},
+			updatedExclusions: []string{},
+		},
+		"update existing": {
+			initialExclusions: []string{"example.com/"},
+			updatedExclusions: []string{"foo.io/", "bar.io/"},
+		},
+		"no change": {
+			initialExclusions: []string{"example.com/"},
+			updatedExclusions: []string{"example.com/"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()), nil, false, nil)
+
+			// Set initial exclusions
+			apiCQ := utiltestingapi.MakeClusterQueue("test-cq").
+				ExcludeResourcePrefixes(tc.initialExclusions).
+				Obj()
+			err := cq.Update(apiCQ)
+			if err != nil {
+				t.Fatalf("Failed initial update: %v", err)
+			}
+
+			got := cq.GetExcludeResourcePrefixes()
+			if diff := cmp.Diff(tc.initialExclusions, got); diff != "" {
+				t.Errorf("Initial exclusions incorrect (-want,+got):\n%s", diff)
+			}
+
+			// Update exclusions
+			apiCQ.Spec.ExcludeResourcePrefixes = tc.updatedExclusions
+			err = cq.Update(apiCQ)
+			if err != nil {
+				t.Fatalf("Failed to update ClusterQueue: %v", err)
+			}
+
+			got = cq.GetExcludeResourcePrefixes()
+			if diff := cmp.Diff(tc.updatedExclusions, got); diff != "" {
+				t.Errorf("Updated exclusions incorrect (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
