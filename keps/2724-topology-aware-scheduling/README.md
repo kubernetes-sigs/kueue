@@ -75,6 +75,7 @@
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
     - [Example](#example-3)
+  - [TopologyAssignmentSlices as separate CRD instances](#topologyassignmentslices-as-separate-crd-instances)
 <!-- /toc -->
 
 ## Summary
@@ -964,6 +965,7 @@ type TopologyAssignment struct {
   // +required
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=30000
   Slices []TopologyAssignmentSlice
 }
 
@@ -979,6 +981,7 @@ type TopologyAssignmentSlice struct {
   // +required
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=16
   ValuesPerLevel []TopologyAssignmentSliceLevelValues
 
   // counts specifies the number of pods allocated per each domain.
@@ -987,6 +990,8 @@ type TopologyAssignmentSlice struct {
   // Exactly one of count, universalCount must be set.
   // +optional
   // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=30000
   Counts []int32 `json:"omitempty"`
 
   // universalCount, if set, specifies the number of pods allocated in every domain in this slice.
@@ -996,9 +1001,10 @@ type TopologyAssignmentSlice struct {
 }
 
 type TopologyAssignmentSliceLevelValues struct {
-  // commonPrefix and commonSuffix specify a common prefix & suffix for all values in this assignment.
+  // commonPrefix specifies a common prefix for all values in this slice assignment.
   // +optional
   CommonPrefix *string `json:"omitempty"`
+  // commonSuffix specifies a common suffix for all values in this slice assignment.
   // +optional
   CommonSuffix *string `json:"omitempty"`
 
@@ -1007,6 +1013,8 @@ type TopologyAssignmentSliceLevelValues struct {
   // If set, its length must be equal to the "size" field of the TopologyAssignmentSlice.
   // +optional
   // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=100000
   Roots []string
 
   // universalCount, if set, specifies the topology assignment value (on the current topology level)
@@ -1059,14 +1067,14 @@ The main motivation behind the new format is the etcd size limit of 1.5MiB per s
 
 - In the short term, it increases the number of nodes which can fit into 1 etcd entry.
 
-  - By just using a single slice, with extracting common prefix and suffix of all node names, we reach around 60k.
+  - By just using a single slice, with extracting common prefix and suffix of all node names, our simulations (for some real-life node naming schemes) suggested a limit of around 60k nodes.
   
   - Multiple slices allow optimizing even further, if desired. \
     Our simulations of more complex algorithms (e.g. heuristic pruning of prefix tree) allowed fitting over 100k nodes. \
     (However, at that point we reached a tradeoff between bytesize, encoding time, and conceptual simplicity. Resolving that tradeoff is out of scope of this design; the important thing is that the proposed data format supports various specific algorithms).
 
 - In the long term, as the number of nodes grows, at some point we'll inevitably hit the 1.5MiB limit anyway. \
-  When this happens, we foresee a need to extract "chunks" of the whole assignment into separate instances of a dedicated CRD (analogously to how [EndpointSlice](https://github.com/kubernetes/kubernetes/blob/3b632270e9b866ee8bf62e89377ae95987671b49/pkg/apis/discovery/types.go#L24-L29) has been introduced in K8s core). \
+  When this happens, we foresee a need to store the slices as separate CRD instances (see [description] in the "Alternatives" section). \
   While the v1beta2 format does not yet do that, by introducing `Slices` we come much closer to this. \
   Once there is a need, we can promote (some of) `Slices` to instances of a standalone CRD - but the appropriate type system is already there.
 
@@ -1707,3 +1715,16 @@ becomes apparent:
 **Reasons for discarding/deferring**
 Due to code simplicity concerns and a lack of use cases for the algorithm,
 the decision was made to remove it in favor of `BestFit`.
+
+### TopologyAssignmentSlices as separate CRD instances
+
+In the [v1beta2 format](#since-v1beta2) for TopologyAssignment, we introduce TopologyAssignmentSlices embedded in the WorkloadStatus. This helps fitting larger workloads within a single etcd entry, but still hits a scalability limit.
+
+One way of going beyond that limit would be to extract the slices into separate instances of a dedicated CRD (analogously to how [EndpointSlice](https://github.com/kubernetes/kubernetes/blob/3b632270e9b866ee8bf62e89377ae95987671b49/pkg/apis/discovery/types.go#L24-L29) has been introduced in K8s core). This would, in practice, allow storing arbitrarily many nodes, though at some cost. (See "Reasons for deferring" below).
+
+For these reasons, if we choose to do it, we would likely extract only "excess" slices, so that the TAS assignment for smaller workloads can be still kept inside WorkloadStatus.
+
+**Reasons for discarding/deferring**
+
+- Decreased readability of the API (some info delegated to other objects).
+- Decreased performance of Kueue scheduler (need to do more etcd reads and writes).
