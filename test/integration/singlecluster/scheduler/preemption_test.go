@@ -1095,13 +1095,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Cohort("gpu-cohort").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("alpha").
-						Resource(corev1.ResourceCPU, "10", "100"). // nominal=10, can borrow up to 100
+						Resource(corev1.ResourceCPU, "10", "100").        // nominal=10, can borrow up to 100
 						Resource(corev1.ResourceMemory, "20Gi", "200Gi"). // nominal=20Gi, can borrow up to 200Gi
 						Obj(),
 				).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("beta").
-						Resource("vcuda-core", "100", "0"). // nominal=100, no borrowing
+						Resource("vcuda-core", "100", "0").    // nominal=100, no borrowing
 						Resource("vcuda-memory", "1000", "0"). // nominal=1000, no borrowing
 						Obj(),
 				).
@@ -1126,7 +1126,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("beta").
-						Resource("vcuda-core", "10", "100"). // nominal=10, can borrow up to 100
+						Resource("vcuda-core", "10", "100").     // nominal=10, can borrow up to 100
 						Resource("vcuda-memory", "100", "1000"). // nominal=100, can borrow up to 1000
 						Obj(),
 				).
@@ -1170,7 +1170,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, betaWl1)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, betaCQ.Name, betaWl1)
 
-			ginkgo.By("Creating a high priority workload in alpha-cq that uses vcuda resources and borrows CPU/Memory")
+			ginkgo.By("Creating a workload in alpha-cq that uses vcuda resources and borrows CPU/Memory")
 			// This workload:
 			// - Uses 20 CPU (borrows 20 from betaCQ, as alphaCQ already used 20)
 			// - Uses 40Gi memory (borrows 40Gi from betaCQ, as alphaCQ already used 40Gi)
@@ -1185,16 +1185,16 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			util.MustCreate(ctx, k8sClient, alphaWlPreempting)
 
-			// The alphaWlPreempting workload should trigger preemption of the betaWl1 workload
+			ginkgo.By("The alphaWlPreempting workload should trigger preemption of the betaWl1 workload.")
 			// CPU and memory can be borrowed from beta-cq and should not block the reclamation of vCUDA resources from beta-cq.
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, betaWl1)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, betaWl1)
 
-			// Verify the high priority workload is admitted
+			ginkgo.By("Verifying the workload requiring preemption has been admitted.")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaWlPreempting)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, betaWl1)
 
-			// The workload that was borrowing should still be admitted
+			ginkgo.By("The alphaWl1 workload that was borrowing should still be admitted.")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaWl1)
 		})
 	})
