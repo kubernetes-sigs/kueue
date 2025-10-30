@@ -27,11 +27,13 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -402,6 +404,207 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",
 						Message: "The admission check is active",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.It("Should properly detect insecure kubeconfig of MultiKueueClusters, kubeconfig provided by secret", func() {
+		var w1KubeconfigInvalidBytes []byte
+		ginkgo.By("Create a kubeconfig with an invalid certificate authority path", func() {
+			cfg, err := worker1TestCluster.kubeConfigBytes()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			w1KubeconfigInvalid, err := clientcmd.Load(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(w1KubeconfigInvalid).NotTo(gomega.BeNil())
+
+			w1KubeconfigInvalid.Clusters["default-cluster"].CertificateAuthority = "/some/random/path"
+			w1KubeconfigInvalidBytes, err = clientcmd.Write(*w1KubeconfigInvalid)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testing-secret",
+				Namespace: managersConfigNamespace.Name,
+			},
+			Data: map[string][]byte{
+				kueue.MultiKueueConfigSecretKey: w1KubeconfigInvalidBytes,
+			},
+		}
+
+		ginkgo.By("creating the secret, the kubeconfig is insecure", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, secret)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
+		})
+
+		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.SecretLocationType, "testing-secret").Obj()
+		ginkgo.By("creating the cluster, its Active state is updated", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+			ginkgo.By("wait for the cluster's active state update", func() {
+				updatedCluster := kueue.MultiKueueCluster{}
+				clusterKey := client.ObjectKeyFromObject(cluster)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "InsecureKubeConfig",
+						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("updating the secret with a valid kubeconfig", func() {
+			updatedSecret := &corev1.Secret{}
+			secretKey := client.ObjectKeyFromObject(secret)
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, secretKey, updatedSecret)).To(gomega.Succeed())
+			updatedSecret.Data[kueue.MultiKueueConfigSecretKey] = w1Kubeconfig
+			gomega.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, updatedSecret)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("the cluster become active", func() {
+			ginkgo.By("wait for the cluster's active state update", func() {
+				updatedCluster := kueue.MultiKueueCluster{}
+				clusterKey := client.ObjectKeyFromObject(cluster)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "Connected",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.It("Should properly detect insecure kubeconfig of MultiKueueClusters, kubeconfig provided by file", func() {
+		var w1KubeconfigInvalidBytes []byte
+		ginkgo.By("Create a kubeconfig with disallowed tokenFile", func() {
+			cfg, err := worker1TestCluster.kubeConfigBytes()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			w1KubeconfigInvalid, err := clientcmd.Load(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(w1KubeconfigInvalid).NotTo(gomega.BeNil())
+
+			w1KubeconfigInvalid.AuthInfos["default-user"].TokenFile = "/some/random/path"
+			w1KubeconfigInvalidBytes, err = clientcmd.Write(*w1KubeconfigInvalid)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
+		tempDir := ginkgo.GinkgoT().TempDir()
+		fsKubeConfig := filepath.Join(tempDir, "testing.kubeconfig")
+
+		ginkgo.By("creating the kubeconfig file, the kubeconfig is insecure", func() {
+			gomega.Expect(os.WriteFile(fsKubeConfig, w1KubeconfigInvalidBytes, 0666)).Should(gomega.Succeed())
+		})
+
+		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.PathLocationType, fsKubeConfig).Obj()
+		ginkgo.By("creating the cluster, its Active state is updated", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+			ginkgo.By("wait for the cluster's active state update", func() {
+				updatedCluster := kueue.MultiKueueCluster{}
+				clusterKey := client.ObjectKeyFromObject(cluster)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "InsecureKubeConfig",
+						Message: "insecure kubeconfig: tokenFile is not allowed",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("creating the kubeconfig file, the cluster become active", func() {
+			gomega.Expect(os.WriteFile(fsKubeConfig, w1Kubeconfig, 0666)).Should(gomega.Succeed())
+			ginkgo.By("wait for the cluster's active state update", func() {
+				updatedCluster := kueue.MultiKueueCluster{}
+				clusterKey := client.ObjectKeyFromObject(cluster)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "Connected",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.It("Should allow insecure kubeconfig of MultiKueueClusters, kubeconfig provided by secret, when MultiKueueAllowInsecureKubeconfigs enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueAllowInsecureKubeconfigs, true)
+
+		tempDir := ginkgo.GinkgoT().TempDir()
+		tokenFile := filepath.Join(tempDir, "testing.tokenfile")
+
+		ginkgo.By("creating the tokenFile file", func() {
+			gomega.Expect(os.WriteFile(tokenFile, []byte("FAKE-TOKEN-123456"), 0666)).Should(gomega.Succeed())
+		})
+
+		var w1KubeconfigInvalidBytes []byte
+		ginkgo.By("Create a kubeconfig with disallowed tokenFile", func() {
+			cfg, err := worker1TestCluster.kubeConfigBytes()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			w1KubeconfigInvalid, err := clientcmd.Load(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(w1KubeconfigInvalid).NotTo(gomega.BeNil())
+
+			w1KubeconfigInvalid.AuthInfos["default-user"].TokenFile = tokenFile
+			w1KubeconfigInvalidBytes, err = clientcmd.Write(*w1KubeconfigInvalid)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testing-secret",
+				Namespace: managersConfigNamespace.Name,
+			},
+			Data: map[string][]byte{
+				kueue.MultiKueueConfigSecretKey: w1KubeconfigInvalidBytes,
+			},
+		}
+
+		ginkgo.By("creating the secret, the kubeconfig is insecure", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, secret)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
+		})
+
+		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.SecretLocationType, "testing-secret").Obj()
+		ginkgo.By("creating the cluster, its Active state is updated", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+			ginkgo.By("wait for the cluster's active state update", func() {
+				updatedCluster := kueue.MultiKueueCluster{}
+				clusterKey := client.ObjectKeyFromObject(cluster)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "Connected",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
