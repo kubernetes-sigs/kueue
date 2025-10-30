@@ -301,6 +301,7 @@ spec:
 {{% alert title="Note" color="primary" %}}
 The SanitizePodSets feature is available starting from versions 0.13.8 and 0.14.3.
 {{% /alert %}}
+| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.15  |       |
 
 ### Feature gates for graduated or deprecated features
 
