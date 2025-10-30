@@ -34,3 +34,5 @@ In the following table:
 | `WorkloadResourceRequestsSummary` | `true`  | GA         | 0.11 | 0.13 |
 | `QueueVisibility`                 | `false` | Alpha      | 0.5  | 0.9  |
 | `QueueVisibility`                 | `false` | Deprecated | 0.9  | 0.14 |
+| `ManagedJobsNamespaceSelector`    | `true`  | Beta       | 0.10 | 0.13 |
+| `ManagedJobsNamespaceSelector`    | `true`  | GA         | 0.13 | 0.15 |

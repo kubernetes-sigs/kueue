@@ -96,12 +96,6 @@ const (
 	// all currently available ResourceFlavors for the LocalQueue.
 	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 
-	// owner: @dgrove-oss
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
-	//
-	// Enable namespace-based control of manageJobsWithoutQueueNames for all Job integrations
-	ManagedJobsNamespaceSelector featuregate.Feature = "ManagedJobsNamespaceSelector"
-
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
 	//
@@ -269,10 +263,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ExposeFlavorsInLocalQueue: {
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ManagedJobsNamespaceSelector: {
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.15
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},

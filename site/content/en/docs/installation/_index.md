@@ -307,8 +307,6 @@ The SanitizePodSets feature is available starting from versions 0.13.8 and 0.14.
 
 | Feature                               | Default | Stage      | Since | Until |
 |---------------------------------------| ------- | ---------- | ----- | ----- |
-| `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10  | 0.13  |
-| `ManagedJobsNamespaceSelector`        | `true`  | GA         | 0.13  |       |
 | `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
 | `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
 | `ProvisioningACC`                     | `true`  | GA         | 0.14  |       |
