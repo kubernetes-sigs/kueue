@@ -59,7 +59,6 @@ func SanitizePodSet(podSet *kueue.PodSet) {
 			for _, envVars := range envVarGroups.InOrder {
 				container.Env = append(container.Env, envVars[len(envVars)-1])
 			}
-
 		}
 	}
 }
