@@ -1,3 +1,5 @@
+globalOptions:
+  boilerplatePath: ./hack/boilerplate.go.txt
 files:
   - path: ./config/components/crd/bases/*.yaml
     outputDir: ./charts/kueue/templates/crd/
