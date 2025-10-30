@@ -836,7 +836,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if workloadSliceEnabled(job) {
-		podSets, err := job.PodSets()
+		podSets, err := JobPodSets(job)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
 		}
@@ -1054,7 +1054,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
-	getPodSets, err := job.PodSets()
+	getPodSets, err := JobPodSets(job)
 	if err != nil {
 		return false, err
 	}
@@ -1201,7 +1201,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
 
-	podSets, err := job.PodSets()
+	podSets, err := JobPodSets(job)
 	if err != nil {
 		return nil, err
 	}

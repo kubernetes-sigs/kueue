@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -491,6 +492,104 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should deduplicate env variables", func() {
+			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, highPriorityClass)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
+			})
+
+			lowJob := testingjob.MakeJob("low", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Parallelism(1).
+				NodeSelector("instance-type", "on-demand").
+				Containers(
+					*testing.MakeContainer().
+						Name("c").
+						Image("sleep").
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithEnvVar(corev1.EnvVar{Name: "TEST_ENV", Value: "test1"}).
+						WithEnvVar(corev1.EnvVar{Name: "TEST_ENV", Value: "test2"}).
+						Obj(),
+				).
+				Obj()
+
+			ginkgo.By("Creating a low-priority job with duplicated environment variables", func() {
+				util.MustCreate(ctx, k8sClient, lowJob)
+			})
+
+			lowCreatedWorkload := &kueue.Workload{}
+			lowWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
+
+			ginkgo.By("Checking that the low-priority workload is created with deduplicated environment variables", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, lowCreatedWorkload)).Should(gomega.Succeed())
+					g.Expect(lowCreatedWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+					g.Expect(lowCreatedWorkload.Spec.PodSets[0].Template.Spec.Containers).Should(gomega.HaveLen(1))
+					g.Expect(lowCreatedWorkload.Spec.PodSets[0].Template.Spec.Containers[0].Env).Should(gomega.BeComparableTo(
+						[]corev1.EnvVar{{Name: "TEST_ENV", Value: "test2"}},
+					))
+					g.Expect(workload.IsAdmitted(lowCreatedWorkload)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			highJob := testingjob.MakeJob("high", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Parallelism(1).
+				PriorityClass(highPriorityClass.Name).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector("instance-type", "on-demand").
+				Obj()
+
+			ginkgo.By("Creating a high-priority job", func() {
+				util.MustCreate(ctx, k8sClient, highJob)
+			})
+
+			highCreatedWorkload := &kueue.Workload{}
+			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
+
+			ginkgo.By("Checking that the high-priority workload is created and admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, highWlLookupKey, highCreatedWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(highCreatedWorkload)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority workload is successfully preempted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, lowCreatedWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.IsEvicted(lowCreatedWorkload)).Should(gomega.BeTrue())
+					g.Expect(lowCreatedWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the low-priority job still has duplication of environment variables", func() {
+				createdLowJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowJob), createdLowJob)).Should(gomega.Succeed())
+					g.Expect(createdLowJob.Spec.Template.Spec.Containers).Should(gomega.HaveLen(1))
+					g.Expect(createdLowJob.Spec.Template.Spec.Containers[0].Env).Should(gomega.BeComparableTo(
+						[]corev1.EnvVar{
+							{Name: "TEST_ENV", Value: "test1"},
+							{Name: "TEST_ENV", Value: "test2"},
+						},
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// Verify that the workload is not being continuously reconciled and updated
+			// due to a misbehaving EquivalentToWorkload implementation.
+			ginkgo.By("Use events to observe the workload is not updated", func() {
+				eventList := &corev1.EventList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, eventList, &client.ListOptions{Namespace: ns.Name})).To(gomega.Succeed())
+					for _, event := range eventList.Items {
+						g.Expect(event.Reason).ShouldNot(gomega.Equal(jobframework.ReasonUpdatedWorkload))
+					}
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 
