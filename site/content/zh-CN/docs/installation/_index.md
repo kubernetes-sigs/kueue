@@ -263,8 +263,8 @@ spec:
 
 ### Alpha 和 Beta 级别特性的特性门控 {#feature-gates-for-alpha-and-beta-features}
 
-| 功能                                          | 默认值  | 阶段  | 起始版本 | 截止版本 |
-| --------------------------------------------- | ------- | ----- | -------- | -------- |
+| 功能                                          | 默认值  | 阶段  | 起始版本     | 截止版本 |
+| --------------------------------------------- | ------- | ----- |----------| -------- |
 | `FlavorFungibility`                           | `true`  | Beta  | 0.5      |          |
 | `MultiKueue`                                  | `false` | Alpha | 0.6      | 0.8      |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9      |          |
@@ -291,7 +291,7 @@ spec:
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13     |          |
 | `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13     |          |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14     |          |
-| `SanitizePodSets`                             | `true`  | Beta | 0.15     |          |
+| `SanitizePodSets`                             | `true`  | Beta  | 0.13     |          |
 
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 

@@ -269,7 +269,7 @@ spec:
 | `MultiKueue`                                  | `false` | Alpha | 0.6   | 0.8   |
 | `MultiKueue`                                  | `true`  | Beta  | 0.9   |       |
 | `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8   | 0.15  |
-| `MultiKueueBatchJobWithManagedBy`             | `true`  | Beta  | 0.15    |       |
+| `MultiKueueBatchJobWithManagedBy`             | `true`  | Beta  | 0.15  |       |
 | `PartialAdmission`                            | `false` | Alpha | 0.4   | 0.4   |
 | `PartialAdmission`                            | `true`  | Beta  | 0.5   |       |
 | `VisibilityOnDemand`                          | `false` | Alpha | 0.6   | 0.8   |
@@ -296,7 +296,11 @@ spec:
 | `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  |       |
 | `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  |       |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
-| `SanitizePodSets`                             | `true`  | Beta  | 0.15  |       |
+| `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
+
+{{% alert title="Note" color="primary" %}}
+The SanitizePodSets feature is available starting from versions 0.13.8 and 0.14.3.
+{{% /alert %}}
 
 ### Feature gates for graduated or deprecated features
 
