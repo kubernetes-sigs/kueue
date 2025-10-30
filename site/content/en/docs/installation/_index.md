@@ -288,6 +288,7 @@ spec:
 | `TASFailedNodeReplacement`                    | `false` | Alpha | 0.12  | 0.13  |
 | `TASFailedNodeReplacement`                    | `true`  | Beta  | 0.14  |       |
 | `AdmissionFairSharing`                        | `false` | Alpha | 0.12  |       |
+| `AdmissionFairSharing`                        | `true`  | Beta  | 0.15  |       |
 | `TASFailedNodeReplacementFailFast`            | `false` | Alpha | 0.12  | 0.13  |
 | `TASFailedNodeReplacementFailFast`            | `true`  | Beta  | 0.14  |       |
 | `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13  | 0.13  |

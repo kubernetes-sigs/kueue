@@ -518,9 +518,7 @@ func TestScheduleForAFS(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				if tc.enableFairSharing {
-					features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
-				}
+				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.enableFairSharing)
 
 				for i, q := range queues {
 					if resList, found := tc.initialUsage[q.Name]; found {
