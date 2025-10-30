@@ -17,8 +17,6 @@ limitations under the License.
 package preemption
 
 import (
-	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -27,25 +25,29 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestHierarchicalPreemptions(t *testing.T) {
-	now := time.Now()
+	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 	}
+	baseIncomingWl := utiltesting.MakeWorkload("in", "").
+		UID("wl-in").
+		Label(controllerconstants.JobUIDLabel, "job-in")
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
 		cohorts       []*kueue.Cohort
@@ -53,7 +55,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 		incoming      *kueue.Workload
 		targetCQ      kueue.ClusterQueueReference
 		assignment    flavorassigner.Assignment
-		wantPreempted sets.Set[string]
+		wantPreempted int
+		wantWorkloads []kueue.Workload
 	}{
 		//
 		//            R
@@ -90,12 +93,12 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "2").
 				Obj(),
@@ -106,7 +109,31 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(targetKeyReason("/admitted2", kueue.InCohortReclamationReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted2", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//             R
@@ -151,19 +178,19 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted1", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_nominal").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_nominal").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted2", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "2").
 				Obj(),
@@ -174,7 +201,38 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(targetKeyReason("/admitted2", kueue.InCohortReclamationReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted1", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_nominal").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted2", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//            R(0)
@@ -211,19 +269,19 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted1", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted2", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "2").
 				Obj(),
@@ -234,9 +292,53 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted1", kueue.InCohortReclamationReason),
-				targetKeyReason("/admitted2", kueue.InCohortReclamationReason)),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted1", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted2", "").
+					Priority(2).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//        R(0)
@@ -277,26 +379,26 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_not_preemptible", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_preemptible", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_own_queue", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(1).
 				Request(corev1.ResourceCPU, "2").
 				Obj(),
@@ -307,9 +409,60 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_preemptible", kueue.InCohortReclaimWhileBorrowingReason),
-				targetKeyReason("/admitted_own_queue", kueue.InClusterQueueReason)),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_not_preemptible", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_own_queue", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_preemptible", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclaimWhileBorrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//            R(0)
@@ -346,19 +499,19 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_queue", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
@@ -369,8 +522,38 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing", kueue.InCohortReclamationReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_queue", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+			},
 		},
 		//
 		//           R(0)
@@ -420,19 +603,19 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_nominal", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_nominal").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_nominal").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "2").
 				Obj(),
@@ -443,8 +626,38 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_same_cohort", kueue.InCohortReclaimWhileBorrowingReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_nominal", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_nominal").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_cohort", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclaimWhileBorrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//           R(0)
@@ -489,19 +702,19 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing", "").
 					Priority(10).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(10).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "4").
 				Obj(),
@@ -512,9 +725,53 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing", kueue.InCohortReclamationReason),
-				targetKeyReason("/admitted_same_cohort", kueue.InCohortReclamationReason)),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(10).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_cohort", "").
+					Priority(10).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//           R(1)
@@ -565,26 +822,26 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort_preemptible", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_not_preemptible", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "3").
 				Obj(),
@@ -595,9 +852,60 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing", kueue.InCohortReclamationReason),
-				targetKeyReason("/admitted_same_cohort_preemptible", kueue.InCohortReclaimWhileBorrowingReason)),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_not_preemptible", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_cohort_preemptible", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclaimWhileBorrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//           R(1)
@@ -648,26 +956,26 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_queue_preemptible", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_not_preemptible", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "3").
 				Obj(),
@@ -678,9 +986,60 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing", kueue.InCohortReclamationReason),
-				targetKeyReason("/admitted_same_queue_preemptible", kueue.InClusterQueueReason)),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_not_preemptible", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_queue_preemptible", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//
 		//            R(0)
@@ -725,33 +1084,33 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing_prio_8", "").
 					Priority(8).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_prio_9", "").
 					Priority(9).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_prio_10", "").
 					Priority(9).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_nominal", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_nominal").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_nominal").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
@@ -762,8 +1121,52 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing_prio_8", kueue.InCohortReclamationReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing_prio_10", "").
+					Priority(9).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_prio_8", "").
+					Priority(8).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_prio_9", "").
+					Priority(9).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_nominal", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_nominal").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+			},
 		},
 		//
 		//                  R
@@ -812,26 +1215,26 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_other_1", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_other").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_other").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_other_2", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_other").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_other").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "2").
 				Obj(),
@@ -842,7 +1245,29 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New[string](),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_other_1", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_other").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_other_2", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_other").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_cohort", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+			},
 		},
 		//
 		//          R(3CPU, 0Gi)
@@ -891,22 +1316,22 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Priority(0).
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "1Gi").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").
-							Assignment(corev1.ResourceMemory, "default", "1Gi").Obj()).Obj()).
+							Assignment(corev1.ResourceMemory, "default", "1Gi").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_same_cohort", "").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "3Gi").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "1").
-							Assignment(corev1.ResourceMemory, "default", "3Gi").Obj()).Obj()).
+							Assignment(corev1.ResourceMemory, "default", "3Gi").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(-2).
 				Request(corev1.ResourceCPU, "2").
 				Request(corev1.ResourceMemory, "1Gi").
@@ -922,7 +1347,42 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(targetKeyReason("/admitted_borrowing", kueue.InCohortReclamationReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "3").
+					Request(corev1.ResourceMemory, "1Gi").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").
+							Assignment(corev1.ResourceMemory, "default", "1Gi").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_same_cohort", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "3Gi").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").
+							Assignment(corev1.ResourceMemory, "default", "3Gi").Obj()).Obj(), now).
+					Obj(),
+			},
 		},
 		//
 		//           R(0)
@@ -971,16 +1431,16 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("evicted_same_cohort", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					ReserveQuota(utiltesting.MakeAdmission("q_same_cohort").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -988,7 +1448,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					}).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(0).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
@@ -999,7 +1459,28 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New[string](),
+			wantPreempted: 1, // preemption on going
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("evicted_same_cohort", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_same_cohort").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
 		},
 		//
 		//           R(0)
@@ -1038,12 +1519,12 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("q_borrowing").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(-2).
 				Request(corev1.ResourceCPU, "5").
 				Obj(),
@@ -1054,8 +1535,31 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing", kueue.InCohortReclamationReason)),
+			wantPreempted: 1,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q_borrowing").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
 		},
 		//                                r
 		//                             /      \
@@ -1149,61 +1653,61 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("admitted_borrowing_1", "").
 					Priority(-6).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("q1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q1").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_2", "").
 					Priority(-5).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("q1").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q1").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_3", "").
 					Priority(-9).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("q2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q2").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_4", "").
 					Priority(-10).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("q2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q2").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_5", "").
 					Priority(-4).
 					Request(corev1.ResourceCPU, "4").
-					ReserveQuota(utiltesting.MakeAdmission("q3").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q3").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_6", "").
 					Priority(-3).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("q3").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q3").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_7", "").
 					Priority(4).
 					Request(corev1.ResourceCPU, "2").
-					ReserveQuota(utiltesting.MakeAdmission("q4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q4").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
 					Obj(),
 				*utiltesting.MakeWorkload("admitted_borrowing_8", "").
 					Priority(2).
 					Request(corev1.ResourceCPU, "3").
-					ReserveQuota(utiltesting.MakeAdmission("q4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q4").
 						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj()).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
 					Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("incoming", "").
+			incoming: baseIncomingWl.Clone().
 				Priority(-2).
 				Request(corev1.ResourceCPU, "7").
 				Obj(),
@@ -1217,9 +1721,95 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			// only one of workloads from q2 will be preempted because
 			// after preempting the first one, the usage of cohort
 			// c23 will be back within nominal quota
-			wantPreempted: sets.New(
-				targetKeyReason("/admitted_borrowing_1", kueue.InCohortReclamationReason),
-				targetKeyReason("/admitted_borrowing_4", kueue.InCohortReclamationReason)),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("admitted_borrowing_1", "").
+					Priority(-6).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q1").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_2", "").
+					Priority(-5).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q1").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_3", "").
+					Priority(-9).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q2").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_4", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q2").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_5", "").
+					Priority(-4).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q3").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_6", "").
+					Priority(-3).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q3").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_7", "").
+					Priority(4).
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q4").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_borrowing_8", "").
+					Priority(2).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltesting.MakeAdmission("q4").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -1227,6 +1817,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 				Build()
 
 			cqCache := schdcache.New(cl)
@@ -1244,8 +1836,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				}
 			}
 
-			var lock sync.Mutex
-			gotPreempted := sets.New[string]()
 			broadcaster := record.NewBroadcaster()
 			scheme := runtime.NewScheme()
 			if err := kueue.AddToScheme(scheme); err != nil {
@@ -1253,12 +1843,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			}
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{}, false, clocktesting.NewFakeClock(now))
-			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, reason, _ string) error {
-				lock.Lock()
-				gotPreempted.Insert(targetKeyReason(workload.Key(w), reason))
-				lock.Unlock()
-				return nil
-			}
+
 			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
@@ -1271,13 +1856,28 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
-			_, err = preemptor.IssuePreemptions(ctx, wlInfo, targets)
+			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
-			if diff := cmp.Diff(tc.wantPreempted, gotPreempted, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
+			if preempted != tc.wantPreempted {
+				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
 			}
+
+			workloads := &kueue.WorkloadList{}
+			err = cl.List(ctx, workloads)
+			if err != nil {
+				t.Fatalf("Failed to List workloads: %v", err)
+			}
+
+			defaultCmpOpts := cmp.Options{
+				cmpopts.EquateEmpty(),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+			}
+			if diff := cmp.Diff(tc.wantWorkloads, workloads.Items, defaultCmpOpts); diff != "" {
+				t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
+			}
+
 			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
