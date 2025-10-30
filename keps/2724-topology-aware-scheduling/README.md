@@ -991,7 +991,7 @@ type TopologyAssignmentSlice struct {
   // +optional
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=30000
+  // +kubebuilder:validation:MaxItems=100000
   Counts []int32 `json:"omitempty"`
 
   // universalCount, if set, specifies the number of pods allocated in every domain in this slice.
@@ -1074,7 +1074,7 @@ The main motivation behind the new format is the etcd size limit of 1.5MiB per s
     (However, at that point we reached a tradeoff between bytesize, encoding time, and conceptual simplicity. Resolving that tradeoff is out of scope of this design; the important thing is that the proposed data format supports various specific algorithms).
 
 - In the long term, as the number of nodes grows, at some point we'll inevitably hit the 1.5MiB limit anyway. \
-  When this happens, we foresee a need to store the slices as separate CRD instances (see [description] in the "Alternatives" section). \
+  When this happens, we foresee a need to store the slices as separate CRD instances (see [description](#topologyassignmentslices-as-separate-crd-instances) in the "Alternatives" section). \
   While the v1beta2 format does not yet do that, by introducing `Slices` we come much closer to this. \
   Once there is a need, we can promote (some of) `Slices` to instances of a standalone CRD - but the appropriate type system is already there.
 
