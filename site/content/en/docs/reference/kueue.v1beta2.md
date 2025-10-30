@@ -806,71 +806,6 @@ policy can be preempted by the borrowing workload.</p>
 
 
 
-## `ClusterQueuePendingWorkload`     {#kueue-x-k8s-io-v1beta2-ClusterQueuePendingWorkload}
-    
-
-**Appears in:**
-
-- [ClusterQueuePendingWorkloadsStatus](#kueue-x-k8s-io-v1beta2-ClusterQueuePendingWorkloadsStatus)
-
-
-<p>ClusterQueuePendingWorkload contains the information identifying a pending workload
-in the cluster queue.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
-</td>
-<td>
-   <p>name indicates the name of the pending workload.</p>
-</td>
-</tr>
-<tr><td><code>namespace</code> <B>[Required]</B><br/>
-<code>string</code>
-</td>
-<td>
-   <p>namespace indicates the name of the pending workload.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `ClusterQueuePendingWorkloadsStatus`     {#kueue-x-k8s-io-v1beta2-ClusterQueuePendingWorkloadsStatus}
-    
-
-**Appears in:**
-
-- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta2-ClusterQueueStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>clusterQueuePendingWorkload</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-ClusterQueuePendingWorkload"><code>[]ClusterQueuePendingWorkload</code></a>
-</td>
-<td>
-   <p>clusterQueuePendingWorkload contains the list of top pending workloads.</p>
-</td>
-</tr>
-<tr><td><code>lastChangeTime</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
-</td>
-<td>
-   <p>lastChangeTime indicates the time of the last change of the structure.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `ClusterQueuePreemption`     {#kueue-x-k8s-io-v1beta2-ClusterQueuePreemption}
     
 
@@ -1173,18 +1108,6 @@ clusterQueue.</p>
 <td>
    <p>admittedWorkloads is the number of workloads currently admitted to this
 clusterQueue and haven't finished yet.</p>
-</td>
-</tr>
-<tr><td><code>pendingWorkloadsStatus</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-ClusterQueuePendingWorkloadsStatus"><code>ClusterQueuePendingWorkloadsStatus</code></a>
-</td>
-<td>
-   <p>pendingWorkloadsStatus contains the information exposed about the current
-status of the pending workloads in the cluster queue.
-Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
-You can migrate to VisibilityOnDemand
-(https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-instead.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>

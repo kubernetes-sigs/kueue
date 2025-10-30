@@ -312,7 +312,6 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
 	r.cache.DeleteClusterQueue(e.Object)
 	r.qManager.DeleteClusterQueue(e.Object)
-	r.qManager.DeleteSnapshot(e.Object)
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
 	r.log.V(2).Info("Cleared resource metrics for deleted ClusterQueue.", "clusterQueue", klog.KObj(e.Object))

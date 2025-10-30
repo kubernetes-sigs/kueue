@@ -315,42 +315,11 @@ type ClusterQueueStatus struct {
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 
-	// pendingWorkloadsStatus contains the information exposed about the current
-	// status of the pending workloads in the cluster queue.
-	// Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
-	// You can migrate to VisibilityOnDemand
-	// (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-	// instead.
-	// +optional
-	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatus `json:"pendingWorkloadsStatus"`
-
 	// fairSharing contains the current state for this ClusterQueue
 	// when participating in Fair Sharing.
 	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
-}
-
-type ClusterQueuePendingWorkloadsStatus struct {
-	// clusterQueuePendingWorkload contains the list of top pending workloads.
-	// +listType=atomic
-	// +optional
-	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"` //nolint:kubeapilinter // field is being removed
-
-	// lastChangeTime indicates the time of the last change of the structure.
-	LastChangeTime metav1.Time `json:"lastChangeTime"`
-}
-
-// ClusterQueuePendingWorkload contains the information identifying a pending workload
-// in the cluster queue.
-type ClusterQueuePendingWorkload struct {
-	// name indicates the name of the pending workload.
-	// +kubebuilder:validation:MaxLength=256
-	Name string `json:"name"`
-
-	// namespace indicates the name of the pending workload.
-	// +kubebuilder:validation:MaxLength=63
-	Namespace string `json:"namespace"`
 }
 
 type FlavorUsage struct {

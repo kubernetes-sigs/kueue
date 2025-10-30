@@ -23,7 +23,6 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -109,9 +108,6 @@ type Manager struct {
 	statusChecker StatusChecker
 	localQueues   map[queue.LocalQueueReference]*LocalQueue
 
-	snapshotsMutex sync.RWMutex
-	snapshots      map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload
-
 	workloadOrdering workload.Ordering
 
 	workloadInfoOptions []workload.InfoOption
@@ -131,12 +127,10 @@ type Manager struct {
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
-		clock:          realClock,
-		client:         client,
-		statusChecker:  checker,
-		localQueues:    make(map[queue.LocalQueueReference]*LocalQueue),
-		snapshotsMutex: sync.RWMutex{},
-		snapshots:      make(map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload, 0),
+		clock:         realClock,
+		client:        client,
+		statusChecker: checker,
+		localQueues:   make(map[queue.LocalQueueReference]*LocalQueue),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
@@ -757,52 +751,6 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 		return lq.ClusterQueue, true
 	}
 	return "", false
-}
-
-// UpdateSnapshot computes the new snapshot and replaces if it differs from the
-// previous version. It returns true if the snapshot was actually updated.
-func (m *Manager) UpdateSnapshot(cqName kueue.ClusterQueueReference, maxCount int32) bool {
-	cq := m.getClusterQueue(cqName)
-	if cq == nil {
-		return false
-	}
-	newSnapshot := make([]kueue.ClusterQueuePendingWorkload, 0)
-	for index, info := range cq.Snapshot() {
-		if int32(index) >= maxCount {
-			break
-		}
-		if info == nil {
-			continue
-		}
-		newSnapshot = append(newSnapshot, kueue.ClusterQueuePendingWorkload{
-			Name:      info.Obj.Name,
-			Namespace: info.Obj.Namespace,
-		})
-	}
-	prevSnapshot := m.GetSnapshot(cqName)
-	if !equality.Semantic.DeepEqual(prevSnapshot, newSnapshot) {
-		m.setSnapshot(cqName, newSnapshot)
-		return true
-	}
-	return false
-}
-
-func (m *Manager) setSnapshot(cqName kueue.ClusterQueueReference, workloads []kueue.ClusterQueuePendingWorkload) {
-	m.snapshotsMutex.Lock()
-	defer m.snapshotsMutex.Unlock()
-	m.snapshots[cqName] = workloads
-}
-
-func (m *Manager) GetSnapshot(cqName kueue.ClusterQueueReference) []kueue.ClusterQueuePendingWorkload {
-	m.snapshotsMutex.RLock()
-	defer m.snapshotsMutex.RUnlock()
-	return m.snapshots[cqName]
-}
-
-func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
-	m.snapshotsMutex.Lock()
-	defer m.snapshotsMutex.Unlock()
-	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
 }
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
