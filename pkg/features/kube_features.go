@@ -187,6 +187,15 @@ const (
 	// In flavor fungiblity, the preference whether to preempt or borrow is inferred from flavor fungiblity policy
 	// This feature gate is going to be replaced by an API before graduation or deprecation.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @mbobrovskyi
+	//
+	// SanitizePodSets enables automatic sanitization of PodSets when creating the Workload object.
+	// The main use case it deduplication of environment variables
+	// in PodSet templates within Workload objects. When enabled, duplicate env var entries
+	// are resolved by keeping only the last occurrence, allowing workload creation to succeed
+	// even when duplicates are present in the spec.
+	SanitizePodSets featuregate.Feature = "SanitizePodSets"
 )
 
 func init() {
@@ -288,6 +297,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SanitizePodSets: {
+		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

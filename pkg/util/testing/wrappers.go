@@ -1403,6 +1403,12 @@ func (c *ContainerWrapper) Name(name string) *ContainerWrapper {
 	return c
 }
 
+// Image sets the image of the container.
+func (c *ContainerWrapper) Image(image string) *ContainerWrapper {
+	c.Container.Image = image
+	return c
+}
+
 // WithResourceReq appends a resource request to the container.
 func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
 	requests := utilResource.MergeResourceListKeepFirst(c.Resources.Requests, corev1.ResourceList{
@@ -1420,6 +1426,12 @@ func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, q
 	})
 	c.Resources.Limits = limits
 
+	return c
+}
+
+// WithEnvVar appends a env variable to the container.
+func (c *ContainerWrapper) WithEnvVar(envVar corev1.EnvVar) *ContainerWrapper {
+	c.Env = append(c.Env, envVar)
 	return c
 }
 
