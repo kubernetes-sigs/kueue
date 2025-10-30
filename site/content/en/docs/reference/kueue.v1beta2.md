@@ -1589,64 +1589,6 @@ which the kueue controller manager is running. The config should be stored in th
 </tbody>
 </table>
 
-## `LocalQueueFlavorStatus`     {#kueue-x-k8s-io-v1beta2-LocalQueueFlavorStatus}
-    
-
-**Appears in:**
-
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta2-LocalQueueStatus)
-
-
-<p>Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
-</td>
-<td>
-   <p>name of the flavor.</p>
-</td>
-</tr>
-<tr><td><code>resources</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
-</td>
-<td>
-   <p>resources used in the flavor.</p>
-</td>
-</tr>
-<tr><td><code>nodeLabels</code><br/>
-<code>map[string]string</code>
-</td>
-<td>
-   <p>nodeLabels are labels that associate the ResourceFlavor with Nodes that
-have the same labels.</p>
-</td>
-</tr>
-<tr><td><code>nodeTaints</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#taint-v1-core"><code>[]k8s.io/api/core/v1.Taint</code></a>
-</td>
-<td>
-   <p>nodeTaints are taints that the nodes associated with this ResourceFlavor
-have.</p>
-</td>
-</tr>
-<tr><td><code>topology</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-TopologyInfo"><code>TopologyInfo</code></a>
-</td>
-<td>
-   <p>topology is the topology that associated with this ResourceFlavor.</p>
-<p>This is a beta field and requires enabling the TopologyAwareScheduling
-feature gate.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `LocalQueueFlavorUsage`     {#kueue-x-k8s-io-v1beta2-LocalQueueFlavorUsage}
     
 
@@ -1835,14 +1777,6 @@ workloads assigned to this LocalQueue.</p>
 <td>
    <p>flavorsUsage are the used quotas, by flavor currently in use by the
 workloads assigned to this LocalQueue.</p>
-</td>
-</tr>
-<tr><td><code>flavors</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-LocalQueueFlavorStatus"><code>[]LocalQueueFlavorStatus</code></a>
-</td>
-<td>
-   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.
-Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>
@@ -2653,8 +2587,6 @@ this time would be reset to null.</p>
 
 - [FlavorUsage](#kueue-x-k8s-io-v1beta2-FlavorUsage)
 
-- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta2-LocalQueueFlavorStatus)
-
 - [LocalQueueFlavorUsage](#kueue-x-k8s-io-v1beta2-LocalQueueFlavorUsage)
 
 - [PodSetAssignment](#kueue-x-k8s-io-v1beta2-PodSetAssignment)
@@ -2997,37 +2929,6 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
-## `TopologyInfo`     {#kueue-x-k8s-io-v1beta2-TopologyInfo}
-    
-
-**Appears in:**
-
-- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta2-LocalQueueFlavorStatus)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>name</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-TopologyReference"><code>TopologyReference</code></a>
-</td>
-<td>
-   <p>name is the name of the topology.</p>
-</td>
-</tr>
-<tr><td><code>levels</code> <B>[Required]</B><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>levels define the levels of topology.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `TopologyLevel`     {#kueue-x-k8s-io-v1beta2-TopologyLevel}
     
 
@@ -3068,7 +2969,6 @@ level.</p>
 
 - [ResourceFlavorSpec](#kueue-x-k8s-io-v1beta2-ResourceFlavorSpec)
 
-- [TopologyInfo](#kueue-x-k8s-io-v1beta2-TopologyInfo)
 
 
 <p>TopologyReference is the name of the Topology.</p>
