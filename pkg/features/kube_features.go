@@ -207,6 +207,13 @@ const (
 	// are resolved by keeping only the last occurrence, allowing workload creation to succeed
 	// even when duplicates are present in the spec.
 	SanitizePodSets featuregate.Feature = "SanitizePodSets"
+
+	// owner: @mszadkow
+	//
+	// Allow insecure kubeconfigs in MultiKueue setup.
+	// Requires careful consideration as it may lead to security issues.
+	// Deprecated: planned to be removed in 0.17
+	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 )
 
 func init() {
@@ -323,6 +330,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SanitizePodSets: {
 		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueAllowInsecureKubeconfigs: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
