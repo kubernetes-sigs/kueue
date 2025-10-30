@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,6 +53,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	}))
 
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
+	_ = indexer.Setup(ctx, utiltesting.AsIndexer(builder))
 	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace)
 	return builder
 }

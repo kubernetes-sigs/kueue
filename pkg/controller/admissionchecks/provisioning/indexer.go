@@ -49,20 +49,9 @@ func indexRequestsOwner(obj client.Object) []string {
 	return slices.Map(refs, func(r *metav1.OwnerReference) string { return r.Name })
 }
 
-func indexWorkloadsChecks(obj client.Object) []string {
-	wl, isWl := obj.(*kueue.Workload)
-	if !isWl || len(wl.Status.AdmissionChecks) == 0 {
-		return nil
-	}
-	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return string(c.Name) })
-}
-
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &autoscaling.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); err != nil {
 		return fmt.Errorf("setting index on provisionRequest owner: %w", err)
-	}
-	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil {
-		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
 
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.ProvisioningRequestControllerName, configGVK)); err != nil {
