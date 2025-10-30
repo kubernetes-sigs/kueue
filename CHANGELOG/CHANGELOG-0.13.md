@@ -1,3 +1,32 @@
+## v0.13.8
+
+Changes since `v0.13.7`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- MultiKueue: validate remote client kubeconfigs and reject insecure kubeconfigs by default; add feature gate MultiKueueAllowInsecureKubeconfigs to temporarily allow insecure kubeconfigs until v0.17.0.
+
+  if you are using MultiKueue kubeconfigs which are not passing the new validation please
+  enable the `MultiKueueAllowInsecureKubeconfigs` feature gate and let us know so that we can re-consider
+  the deprecation plans for the feature gate. (#7453, @mszadkow)
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix a bug where a workload would not get requeued after eviction due to failed hotswap. (#7380, @pajakd)
+- Fix the kueue-controller-manager startup failures.
+
+  This fixed the Kueue CrashLoopBackOff due to the log message: "Unable to setup indexes","error":"could not setup multikueue indexer: setting index on workloads admission checks: indexer conflict. (#7441, @IrvingMg)
+- Fixed the bug that prevented managing workloads with duplicated environment variable names in containers. This issue manifested when creating the Workload via the API. (#7442, @mbobrovskyi)
+- Services: fix the setting of the `app.kubernetes.io/component` label to discriminate between different service components within Kueue as follows:
+    - controller-manager-metrics-service for kueue-controller-manager-metrics-service
+    - visibility-service for kueue-visibility-server
+    - webhook-service for kueue-webhook-service (#7451, @rphillips)
+- TAS: Increase the number of Topology levels limitations for localqueue and workloads to 16 (#7428, @kannon92)
+
 ## v0.13.7
 
 Changes since `v0.13.6`:
