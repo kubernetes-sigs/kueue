@@ -198,6 +198,15 @@ const (
 	//
 	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
 	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
+
+	// owner: @mbobrovskyi
+	//
+	// SanitizePodSets enables automatic sanitization of PodSets when creating the Workload object.
+	// The main use case it deduplication of environment variables
+	// in PodSet templates within Workload objects. When enabled, duplicate env var entries
+	// are resolved by keeping only the last occurrence, allowing workload creation to succeed
+	// even when duplicates are present in the spec.
+	SanitizePodSets featuregate.Feature = "SanitizePodSets"
 )
 
 func init() {
@@ -312,6 +321,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SanitizePodSets: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
