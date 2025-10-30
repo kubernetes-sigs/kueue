@@ -4,7 +4,7 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager
   namespace: '{{ .Release.Namespace }}'
   labels:
-  {{- include "kueue.labels" . | nindent 4 }}
+  {{- include "kueue.controllerManager.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controllerManager.replicas }}
   selector:
