@@ -4,7 +4,7 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-  {{- include "kueue.labels" . | nindent 4 }}
+  {{- include "kueue.visibilityService.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-visibility-server'
   namespace: '{{ .Release.Namespace }}'
 spec:

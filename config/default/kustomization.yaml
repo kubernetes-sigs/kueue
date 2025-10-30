@@ -11,7 +11,6 @@ namePrefix: kueue-
 labels:
   - pairs:
       app.kubernetes.io/name: kueue
-      app.kubernetes.io/component: controller
     includeTemplates: true
   - pairs:
       control-plane: controller-manager
@@ -51,6 +50,40 @@ patches:
 
 # Expose port used by the metrics service
 - path: manager_metrics_patch.yaml
+
+# Add component labels to services
+- patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: webhook-service
+      namespace: system
+      labels:
+        app.kubernetes.io/component: webhook-service
+- patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: visibility-server
+      namespace: kueue-system
+      labels:
+        app.kubernetes.io/component: visibility-service
+- patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: controller-manager-metrics-service
+      namespace: system
+      labels:
+        app.kubernetes.io/component: metrics-service
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: controller-manager
+      namespace: system
+      labels:
+        app.kubernetes.io/component: controller
 
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
