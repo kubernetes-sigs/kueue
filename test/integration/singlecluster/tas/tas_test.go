@@ -212,57 +212,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 	})
 
-	ginkgo.When("Negative scenarios for ClusterQueue configuration", func() {
-		var (
-			topology       *kueue.Topology
-			tasFlavor      *kueue.ResourceFlavor
-			clusterQueue   *kueue.ClusterQueue
-			admissionCheck *kueue.AdmissionCheck
-		)
-
-		ginkgo.BeforeEach(func() {
-			topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
-			util.MustCreate(ctx, k8sClient, topology)
-
-			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
-				NodeLabel("node-group", "tas").
-				TopologyName("default").Obj()
-			util.MustCreate(ctx, k8sClient, tasFlavor)
-		})
-
-		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
-		})
-
-		ginkgo.It("should mark TAS ClusterQueue as inactive if used with MultiKueue", func() {
-			admissionCheck = utiltestingapi.MakeAdmissionCheck("multikueue").ControllerName(kueue.MultiKueueControllerName).Obj()
-			util.MustCreate(ctx, k8sClient, admissionCheck)
-			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
-
-			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-				).AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
-					{
-						Type:    kueue.ClusterQueueActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "NotSupportedWithTopologyAwareScheduling",
-						Message: `Can't admit new workloads: TAS is not supported with MultiKueue admission check.`,
-					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
-
 	ginkgo.When("Single TAS Resource Flavor", func() {
 		var (
 			tasFlavor    *kueue.ResourceFlavor
