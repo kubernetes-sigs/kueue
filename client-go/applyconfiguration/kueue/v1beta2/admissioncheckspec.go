@@ -20,9 +20,8 @@ package v1beta2
 // AdmissionCheckSpecApplyConfiguration represents a declarative configuration of the AdmissionCheckSpec type for use
 // with apply.
 type AdmissionCheckSpecApplyConfiguration struct {
-	ControllerName    *string                                              `json:"controllerName,omitempty"`
-	RetryDelayMinutes *int64                                               `json:"retryDelayMinutes,omitempty"`
-	Parameters        *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
+	ControllerName *string                                              `json:"controllerName,omitempty"`
+	Parameters     *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
 }
 
 // AdmissionCheckSpecApplyConfiguration constructs a declarative configuration of the AdmissionCheckSpec type for use with
@@ -36,14 +35,6 @@ func AdmissionCheckSpec() *AdmissionCheckSpecApplyConfiguration {
 // If called multiple times, the ControllerName field is set to the value of the last call.
 func (b *AdmissionCheckSpecApplyConfiguration) WithControllerName(value string) *AdmissionCheckSpecApplyConfiguration {
 	b.ControllerName = &value
-	return b
-}
-
-// WithRetryDelayMinutes sets the RetryDelayMinutes field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RetryDelayMinutes field is set to the value of the last call.
-func (b *AdmissionCheckSpecApplyConfiguration) WithRetryDelayMinutes(value int64) *AdmissionCheckSpecApplyConfiguration {
-	b.RetryDelayMinutes = &value
 	return b
 }
 

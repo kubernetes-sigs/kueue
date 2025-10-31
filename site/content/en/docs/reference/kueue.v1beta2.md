@@ -498,16 +498,6 @@ The description is limited to a maximum of 2048 characters.</p>
 not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 </td>
 </tr>
-<tr><td><code>retryDelayMinutes</code><br/>
-<code>int64</code>
-</td>
-<td>
-   <p>retryDelayMinutes specifies how long to keep the workload suspended after
-a failed check (after it transitioned to False). When the delay period has passed, the check
-state goes to &quot;Unknown&quot;. The default is 15 min.
-Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
-</td>
-</tr>
 <tr><td><code>parameters</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-AdmissionCheckParametersReference"><code>AdmissionCheckParametersReference</code></a>
 </td>
