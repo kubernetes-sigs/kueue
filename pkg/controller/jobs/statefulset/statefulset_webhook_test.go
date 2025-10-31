@@ -666,6 +666,37 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"scale up from zero blocked by existing workload": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-statefulset"), "test-ns").Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				Queue("test-queue").
+				Replicas(0).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-statefulset", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: replicasPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"scale up from zero allowed when workload does not exist": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-sts-uid").
+				Queue("test-queue").
+				Replicas(0).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-sts-uid").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
