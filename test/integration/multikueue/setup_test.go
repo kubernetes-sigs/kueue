@@ -27,15 +27,18 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -611,4 +614,164 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			})
 		})
 	})
+
+	ginkgo.It("Should properly detect insecure kubeconfig of MultiKueueClusters and remove remote client", func() {
+		var w1KubeconfigInvalidBytes []byte
+		ginkgo.By("Create a kubeconfig with an invalid certificate authority path", func() {
+			cfg, err := worker1TestCluster.kubeConfigBytes()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			w1KubeconfigInvalid, err := clientcmd.Load(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(w1KubeconfigInvalid).NotTo(gomega.BeNil())
+
+			w1KubeconfigInvalid.Clusters["default-cluster"].CertificateAuthority = "/some/random/path"
+			w1KubeconfigInvalidBytes, err = clientcmd.Write(*w1KubeconfigInvalid)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testing-secret",
+				Namespace: managersConfigNamespace.Name,
+			},
+			Data: map[string][]byte{
+				kueue.MultiKueueConfigSecretKey: w1KubeconfigInvalidBytes,
+			},
+		}
+
+		ginkgo.By("creating the secret, with insecure kubeconfig", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, secret)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
+		})
+
+		secretKey := client.ObjectKeyFromObject(secret)
+		clusterKey := client.ObjectKeyFromObject(workerCluster1)
+		acKey := client.ObjectKeyFromObject(multiKueueAC)
+		cqKey := client.ObjectKeyFromObject(managerCq)
+
+		ginkgo.By("updating the cluster, the worker1 cluster becomes inactive", func() {
+			updatedCluster := kueue.MultiKueueCluster{}
+			ginkgo.By("updating the cluster spec", func() {
+				gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+				updatedCluster.Spec.KubeConfig.LocationType = kueue.SecretLocationType
+				updatedCluster.Spec.KubeConfig.Location = secret.Name
+				gomega.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, &updatedCluster)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("wait for the status update", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "InsecureKubeConfig",
+						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, multiKueueAC)).To(gomega.Succeed())
+					g.Expect(multiKueueAC.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "SomeActiveClusters",
+						Message: "Inactive clusters: [worker1]",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, managerCq)).To(gomega.Succeed())
+					g.Expect(managerCq.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Ready",
+						Message: "Can admit new workloads",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.By("verify workload creation in all worker clusters is not possible", func() {
+			checkWorkloadCreationInWorkers("job1", managerNs.Name, managerLq.Name, managerCq.Name, utiltesting.BeNotFoundError(), gomega.Succeed())
+		})
+
+		ginkgo.By("updating the secret with a valid kubeconfig", func() {
+			w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			updatedSecret := &corev1.Secret{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, secretKey, updatedSecret)).To(gomega.Succeed())
+			updatedSecret.Data[kueue.MultiKueueConfigSecretKey] = w1Kubeconfig
+			gomega.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, updatedSecret)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("the worker1 cluster becomes active", func() {
+			cluster := kueue.MultiKueueCluster{}
+			gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &cluster)).To(gomega.Succeed())
+				g.Expect(cluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.MultiKueueClusterActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Active",
+					Message: "Connected",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ac := kueue.AdmissionCheck{}
+			gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &ac)).To(gomega.Succeed())
+				g.Expect(ac.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.AdmissionCheckActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Active",
+					Message: "The admission check is active",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			cq := &kueue.ClusterQueue{}
+			gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
+				g.Expect(cq.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can admit new workloads",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify workload creation in all worker clusters is possible", func() {
+			checkWorkloadCreationInWorkers("job2", managerNs.Name, managerLq.Name, managerCq.Name, gomega.Succeed(), gomega.Succeed())
+		})
+	})
 })
+
+func checkWorkloadCreationInWorkers(jobName, managerNsName, managerLqName, managerCqName string, worker1Matcher, worker2Matcher gomega.OmegaMatcher) {
+	ginkgo.GinkgoHelper()
+	job := testingjob.MakeJob(jobName, managerNsName).
+		Queue(kueue.LocalQueueName(managerLqName)).
+		Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+	wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNsName}
+	ginkgo.By("setting workload reservation in the management cluster", func() {
+		admission := utiltestingapi.MakeAdmission(managerCqName).Obj()
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+	})
+
+	ginkgo.By("checking the workload creation in both workers", func() {
+		managerWl := &kueue.Workload{}
+		createdWorkload := &kueue.Workload{}
+		gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(worker1Matcher)
+			if worker1Matcher == gomega.Succeed() {
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+			}
+			g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(worker2Matcher)
+			if worker2Matcher == gomega.Succeed() {
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+			}
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+}
