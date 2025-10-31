@@ -310,7 +310,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASBalancedPlacement: {
-		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},

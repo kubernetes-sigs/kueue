@@ -47,6 +47,7 @@
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Balanced placement](#balanced-placement)
+    - [Example](#example-2)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
     - [Determining the need for second pass](#determining-the-need-for-second-pass)
     - [Targeting the newly provisioned nodes](#targeting-the-newly-provisioned-nodes)
@@ -70,7 +71,7 @@
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
   - [Drop dedicated TAS label](#drop-dedicated-tas-label)
   - [MostFreeCapacity algorithm](#mostfreecapacity-algorithm)
-    - [Example](#example-2)
+    - [Example](#example-3)
 <!-- /toc -->
 
 ## Summary
@@ -1039,6 +1040,10 @@ Kueue places pods on domains with different algorithms, depending on the annotat
 - `LeastFreeCapacity` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the least free capacity;
 - `BestFit` algorithm - Kueue selects as many domains as needed (if it meets user's requirement) starting from the one with the most free capacity.
 However, it optimizes the selection of the last domain at each level to minimize the remaining free resources.
+- `BalancedPlacement` algorithm - Kueue selects as many domains as needed (if it meets user's requirement)
+and places pods evenly on the selected domains. The balanced placement is performed only at two consecutive
+levels, where the higher of these two levels is indicated by the `preferred` annotation
+(for more details see [Balanced placement](#balanced-placement)).
 
 #### Example
 Consider a rack with four nodes that can accommodate 3, 3, 2, and 1 pod, respectively. A PodSet consists of 7 pods.
@@ -1076,6 +1081,7 @@ Since v0.15, the available feature gates are as follows:
 | None <br/> or TASProfileMixed (deprecated) | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
 | TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
+| TASBalancedPlacement                       | BalancedPlacement | BestFit           | LeastFreeCapacity |
 
 Based on the user feedback, we decided to make `TASProfileMixed` default. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
 
@@ -1178,7 +1184,7 @@ within the PodSet.
 The balanced placement algorithm provides an alternative to the greedy packing strategies. Instead of iterating over the domains sorted from largest to smallest available space (or based on some other criteria) and trying to pack as many pods as possible to each domain until the request fits, it first finds the optimal set of domains that fit the request and then distributes the pods as evenly as possible across these domains. 
 
 Greedy placement strategies (such as `BestFit` and `LeastFreeCapacity`) might result in a placement with a small
-number of pods assinged to the last considered domain (even though the existing algorithms choose the best possible
+number of pods assigned to the last considered domain (even though the existing algorithms choose the best possible
 last domain). For example 12 pods distributed among domains with capacities (10,10) will be placed (10,2). However,
 in some applications, a more balanced placement (6,6) would be more efficient. Some examples of such cases would be
 all-to-all communication procedures (e.g. Allgather) since more balanced placement leads to more efficient
@@ -1188,7 +1194,7 @@ In the first implemetation, we propose to perform the balanced algorithm only on
 by the user with the `preferred` flag. Let L be the level indicated by the `preferred` flag. We assume that the
 request must fit within a single domain on level L-1 and otherwise we fallback to the standard algorithm. The above
 assumptions are motivated by the application of the balanced placement algorithm to all-to-all communication
-on the specific networking for GPUs, but if the concept of balanced placement would be useful in other contexts it
+on the specific networking for GPUs. If the concept of balanced placement would be useful in other contexts it
 would be possible to lift these assumptions. This balancing algorithm is enabled by the `TASBalancedPlacement` feature gate.
 
 The algorithm could be summarized as follows:
@@ -1198,19 +1204,38 @@ The algorithm could be summarized as follows:
  - check if the entire request fits on this domain
  - calculate T, the maximum possible minimum number of pods that would be placed on a domain on level L+1 if the request is placed on this domain.
 2. If no domain on level L-1 fits the entire request, fallback to the standard algorithm.
-3. Otherwise, pick a domain D on level L-1 that maximizes the value of T.
+3. Otherwise, pick a domain D on level L-1 that 
+- first maximizes the value of T
+- secondly minimizes the number of domains that need to be used on level L to fit the request 
 4. Prune every descendant of D with capacity below T.
-5. On levels L and L+1 find an optimal subset of ancestors of D that fit the request:
-- first optmize the size of the subset
-- secondly optimize the total capacity of the subset
-6. For the subset on L+1, place the pods by first placing T pods on each domain, and then distribute the rest abritrarily.
+5. On level L find an optimal subset of children of D that fit the request:
+- first minimize the size of the subset
+- secondly minimize the total capacity of the subset
+- thirdly maximize entropies of children capacities of the subset
+6. On level L+1 find an optimal subset of children of domains from step 5 that fit the request:
+- first minimize the size of the subset
+- secondly minimize the total capacity of the subset
+7. For the subset found in step 6, place the pods by first placing T pods on each domain, and then distribute the rest abritrarily.
 ```
 
-The balancing algorithm will support the following features of TAS:
+The balancing algorithm will support all the job types currently supported by TAS including:
 
- - Slices. Instead of assigning pods, the balancing algorithm will assign slices.
- - Leader-worker set.
+ - JobSet. Instead of assigning pods, the balancing algorithm will assign slices.
+ - LeaderWorkerSet. Will co-locate leader with workers while keeping the overall
+ assignment per node balanced.
 
+#### Example
+For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user specifies `preferred = rack`. Then the balanced placement will find the following assignments:
+
+| Capacities |Request | SliceSize | Assignment | Comment|
+| --- | --- | --- | ----------- | --- |
+| [[15], [15]] | 25| 1 | [[13], [12]] |
+| [[15, 13, 10]] | 23| 1 | [[12, 11, 0]] |
+| [[20, 10], [15, 15]] | 22| 1 | [[0, 0], [11, 11]] | prefer rack that leads to higher value of T
+| [[20, 10], [15, 15]] | 20| 1 | [[20, 0], [0, 0]] |
+| [[10, 5], [5, 5, 5]] | 15|1 |  [[0, 0], [5, 5, 5]] | prefer more balanced rack
+| [[15],[15]] [[15, 15]] | 25 | 1 | [[0],[0]] [[13, 12]] | prefer block where the request fits in a single rack
+| [[15], [15], [15, 15]] | 25|5 |  [[0], [0], [15, 10]] | `podset-slice-required-topology = hostname`
 ### Support for ProvisioningRequests
 
 We are going to support autoscaling via ProvisioningRequest AdmissionCheck.
