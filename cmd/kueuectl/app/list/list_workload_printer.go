@@ -31,7 +31,7 @@ import (
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 

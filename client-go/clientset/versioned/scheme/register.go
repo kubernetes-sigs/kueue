@@ -27,6 +27,7 @@ import (
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 )
 
 var Scheme = runtime.NewScheme()
@@ -37,6 +38,7 @@ var localSchemeBuilder = runtime.SchemeBuilder{
 	kueuev1beta1.AddToScheme,
 	kueuev1beta2.AddToScheme,
 	visibilityv1beta1.AddToScheme,
+	visibilityv1beta2.AddToScheme,
 }
 
 // AddToScheme adds all types of this clientset into the given scheme. This allows composition

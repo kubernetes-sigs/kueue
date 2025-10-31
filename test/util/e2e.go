@@ -52,9 +52,9 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -188,23 +188,22 @@ func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
 	return restClient
 }
 
-func CreateVisibilityClient(user string) (visibilityv1beta1.VisibilityV1beta1Interface, error) {
+func CreateKueueClientset(user string) kueueclientset.Interface {
+	ginkgo.GinkgoHelper()
 	cfg, err := config.GetConfigWithContext("")
-	if err != nil {
-		return nil, fmt.Errorf("unable to get kubeconfig: %w", err)
-	}
-	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
-
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(cfg).NotTo(gomega.BeNil())
 	if user != "" {
 		cfg.Impersonate.UserName = user
 	}
-
 	kueueClient, err := kueueclientset.NewForConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create kueue clientset: %w", err)
-	}
-	visibilityClient := kueueClient.VisibilityV1beta1()
-	return visibilityClient, nil
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return kueueClient
+}
+
+func CreateVisibilityClient(user string) visibilityv1beta2.VisibilityV1beta2Interface {
+	kueueClientset := CreateKueueClientset(user)
+	return kueueClientset.VisibilityV1beta2()
 }
 
 func rolloutOperatorDeployment(ctx context.Context, k8sClient client.Client, key types.NamespacedName, kindClusterName string) {

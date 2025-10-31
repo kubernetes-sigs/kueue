@@ -28,7 +28,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -38,7 +38,7 @@ var (
 	cfg              *rest.Config
 	restClient       *rest.RESTClient
 	kueueNS          = util.GetKueueNamespace()
-	visibilityClient visibilityv1beta1.VisibilityV1beta1Interface
+	visibilityClient visibility.VisibilityV1beta2Interface
 )
 
 func TestAPIs(t *testing.T) {
@@ -59,8 +59,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, cfg, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	restClient = util.CreateRestClient(cfg)
-	visibilityClient, err = util.CreateVisibilityClient("")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	visibilityClient = util.CreateVisibilityClient("")
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()

@@ -14,42 +14,42 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package storage
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/rest"
 
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 )
 
-// LqREST type is used only to install localqueues/ resource, so we can install localqueues/pending_workloads subresource.
+// CqREST type is used only to install clusterqueues/ resource, so we can install clusterqueues/pending_workloads subresource.
 // It implements the necessary interfaces for genericapiserver but does not provide any actual functionalities.
-type LqREST struct{}
+type CqREST struct{}
 
 // Those interfaces are necessary for genericapiserver to work properly
-var _ rest.Storage = &LqREST{}
-var _ rest.Scoper = &LqREST{}
-var _ rest.SingularNameProvider = &LqREST{}
+var _ rest.Storage = &CqREST{}
+var _ rest.Scoper = &CqREST{}
+var _ rest.SingularNameProvider = &CqREST{}
 
-func NewLqREST() *LqREST {
-	return &LqREST{}
+func NewCqREST() *CqREST {
+	return &CqREST{}
 }
 
 // New implements rest.Storage interface
-func (m *LqREST) New() runtime.Object {
+func (m *CqREST) New() runtime.Object {
 	return &visibility.PendingWorkloadsSummary{}
 }
 
 // Destroy implements rest.Storage interface
-func (m *LqREST) Destroy() {}
+func (m *CqREST) Destroy() {}
 
 // NamespaceScoped implements rest.Scoper interface
-func (m *LqREST) NamespaceScoped() bool {
-	return true
+func (m *CqREST) NamespaceScoped() bool {
+	return false
 }
 
 // GetSingularName implements rest.SingularNameProvider interface
-func (m *LqREST) GetSingularName() string {
-	return "localqueue"
+func (m *CqREST) GetSingularName() string {
+	return "clusterqueue"
 }

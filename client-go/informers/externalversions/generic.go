@@ -25,6 +25,7 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	v1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 )
 
 // GenericInformer is type of SharedIndexInformer which will locate and delegate to other
@@ -106,6 +107,12 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Visibility().V1beta1().ClusterQueues().Informer()}, nil
 	case visibilityv1beta1.SchemeGroupVersion.WithResource("localqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Visibility().V1beta1().LocalQueues().Informer()}, nil
+
+		// Group=visibility.kueue.x-k8s.io, Version=v1beta2
+	case visibilityv1beta2.SchemeGroupVersion.WithResource("clusterqueues"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Visibility().V1beta2().ClusterQueues().Informer()}, nil
+	case visibilityv1beta2.SchemeGroupVersion.WithResource("localqueues"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Visibility().V1beta2().LocalQueues().Informer()}, nil
 
 	}
 

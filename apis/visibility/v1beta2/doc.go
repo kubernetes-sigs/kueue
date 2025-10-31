@@ -14,19 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+// +kubebuilder:object:generate=true
+// +kubebuilder:skip
+// +groupName=visibility.kueue.x-k8s.io
+// +k8s:openapi-gen=true
+// +k8s:conversion-gen=false
 
-import (
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
-)
-
-type req struct {
-	nsName      string
-	queueName   string
-	queryParams *visibility.PendingWorkloadOptions
-}
-
-type resp struct {
-	wantErr              error
-	wantPendingWorkloads []visibility.PendingWorkload
-}
+package v1beta2
