@@ -25,8 +25,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -4335,5 +4337,482 @@ func TestPreemptionMessage(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("preemptionMessage(preemptor=kueue.Workload{UID:%v, Labels:%v}, reason=%q) returned %q, want %q", tc.preemptor.UID, tc.preemptor.Labels, tc.reason, got, tc.want)
 		}
+	}
+}
+
+// TestWorkloadFits provides comprehensive unit tests for the workloadFits function
+// covering all possible scenarios including basic fitting, borrowing, preemption, and resource constraints.
+func TestWorkloadFits(t *testing.T) {
+	cpu := corev1.ResourceCPU
+	memory := corev1.ResourceMemory
+
+	flavors := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("default").Obj(),
+		utiltestingapi.MakeResourceFlavor("alternate").Obj(),
+	}
+
+	tests := map[string]struct {
+		clusterQueues     []*kueue.ClusterQueue
+		admitted          []kueue.Workload
+		incomingResources map[corev1.ResourceName]string
+		targetCQ          string
+		frsNeedPreemption sets.Set[resources.FlavorResource]
+		allowBorrowing    bool
+		wantFits          bool
+	}{
+		"workload fits within quota": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10").
+						Resource(memory, "10Gi").
+						Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "3").
+					Request(memory, "3Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "3").
+							Assignment(memory, "default", "3Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "5",
+				memory: "5Gi",
+			},
+			frsNeedPreemption: sets.New[resources.FlavorResource](),
+			allowBorrowing:    false,
+			wantFits:          true,
+		},
+		"workload exceeds available quota": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10").
+						Resource(memory, "10Gi").
+						Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "8").
+					Request(memory, "8Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "8").
+							Assignment(memory, "default", "8Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "5",
+				memory: "5Gi",
+			},
+			frsNeedPreemption: sets.New[resources.FlavorResource](),
+			allowBorrowing:    false,
+			wantFits:          false,
+		},
+		"workload needs borrowing and borrowing is allowed": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					Cohort("test-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "10"). // nominal: 10, borrowingLimit: 10
+						Resource(memory, "10Gi", "10Gi").
+						Obj(),
+					).
+					Obj(),
+				// Add another CQ in cohort to provide resources to borrow
+				utiltestingapi.MakeClusterQueue("other-cq").
+					Cohort("test-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "10").
+						Resource(memory, "10Gi", "10Gi").
+						Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "8").
+					Request(memory, "8Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "8").
+							Assignment(memory, "default", "8Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "5",
+				memory: "5Gi",
+			},
+			frsNeedPreemption: sets.New[resources.FlavorResource](),
+			allowBorrowing:    true,
+			wantFits:          true,
+		},
+		"workload needs borrowing but borrowing is not allowed": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					Cohort("test-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "10").
+						Resource(memory, "10Gi", "10Gi").
+						Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "8").
+					Request(memory, "8Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "8").
+							Assignment(memory, "default", "8Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "5",
+				memory: "5Gi",
+			},
+			frsNeedPreemption: sets.New[resources.FlavorResource](),
+			allowBorrowing:    false,
+			wantFits:          false,
+		},
+		"resource needs preemption, no borrowing, fits within nominal": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					Cohort("test-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "10").
+						Resource(memory, "10Gi", "10Gi").
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "3").
+					Request(memory, "3Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "3").
+							Assignment(memory, "default", "3Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "4",
+				memory: "4Gi",
+			},
+			frsNeedPreemption: sets.New(
+				resources.FlavorResource{Flavor: "default", Resource: memory},
+			),
+			allowBorrowing: false,
+			wantFits:       true,
+		},
+		"resource needs preemption, requires borrowing, borrowing not allowed": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					Cohort("test-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "0"). // nominal: 10, borrowingLimit: 0 (cannot borrow)
+						Resource(memory, "10Gi", "10Gi").
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "8").
+					Request(memory, "3Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "8").
+							Assignment(memory, "default", "3Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "4",
+				memory: "4Gi",
+			},
+			frsNeedPreemption: sets.New(
+				resources.FlavorResource{Flavor: "default", Resource: cpu},
+			),
+			allowBorrowing: false,
+			wantFits:       false,
+		},
+		"mixed resources: one needs preemption and borrowing, one does not": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("test-cq").
+					Cohort("test-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "0").         // cannot borrow
+						Resource(memory, "10Gi", "10Gi"). // can borrow
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-wl", "").
+					Queue("test-queue").
+					Request(cpu, "8").
+					Request(memory, "8Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("test-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "8").
+							Assignment(memory, "default", "8Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "test-cq",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "5",   // needs to borrow but cannot (borrowingLimit: 0)
+				memory: "5Gi", // needs preemption but can borrow
+			},
+			frsNeedPreemption: sets.New(
+				resources.FlavorResource{Flavor: "default", Resource: memory},
+			),
+			allowBorrowing: false,
+			// Should fail because CPU needs borrowing but cannot borrow
+			wantFits: false,
+		},
+		"preemption scenario: CPU needs borrowing but not preemption, memory needs preemption": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("queue-no-borrow").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "0").     // nominal: 10, borrowingLimit: 0 (cannot borrow CPU)
+						Resource(memory, "5Gi", "0"). // nominal: 5Gi, borrowingLimit: 0 (cannot borrow memory)
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("queue-can-borrow").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10", "10").      // nominal: 10, borrowingLimit: 10
+						Resource(memory, "5Gi", "5Gi"). // nominal: 5Gi, borrowingLimit: 5Gi
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				// Workload in queue-can-borrow using memory resources that can be preempted
+				*utiltestingapi.MakeWorkload("memory-user", "").
+					Queue("q-can-borrow").
+					Request(memory, "3Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("queue-can-borrow").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(memory, "default", "3Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "queue-no-borrow",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "8",   // Will need borrowing from cohort (queue-can-borrow has spare CPU)
+				memory: "2Gi", // Needs preemption to get resources from queue-can-borrow
+			},
+			// Only memory needs preemption (will reclaim from queue-can-borrow)
+			// CPU will borrow from cohort but doesn't need preemption
+			frsNeedPreemption: sets.New(
+				resources.FlavorResource{Flavor: "default", Resource: memory},
+			),
+			allowBorrowing: false,
+			wantFits:       true,
+		},
+		"preemption scenario: CPU needs borrowing(been borrowed from the cohort) but not preemption, memory needs preemption": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("queue-cpu-borrowed").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "1").       // nominal: 1
+						Resource(memory, "10Gi"). // nominal: 10Gi
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("queue-memory-borrowed").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(cpu, "10").     // nominal: 10
+						Resource(memory, "1Gi"). // nominal: 1Gi
+						Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("cpu-borrowed-user", "").
+					Queue("queue-cpu-borrowed").
+					Request(cpu, "6").
+					Request(memory, "3Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("queue-cpu-borrowed").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "6").
+							Assignment(memory, "default", "3Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("memory-borrowed-user", "").
+					Queue("queue-memory-borrowed").
+					Request(cpu, "3").
+					Request(memory, "2Gi").
+					ReserveQuota(utiltestingapi.MakeAdmission("queue-memory-borrowed").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(cpu, "default", "3").
+							Assignment(memory, "default", "2Gi").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			targetCQ: "queue-cpu-borrowed",
+			incomingResources: map[corev1.ResourceName]string{
+				cpu:    "1",   // Will need borrowing from cohort (queue-memory-borrowed has spare CPU)
+				memory: "5Gi", // Needs preemption to get resources from queue-memory-borrowed
+			},
+			// Only memory needs preemption (will reclaim from queue-memory-borrowed)
+			// CPU will borrow from cohort but doesn't need preemption
+			frsNeedPreemption: sets.New(
+				resources.FlavorResource{Flavor: "default", Resource: memory},
+			),
+			allowBorrowing: false,
+			// Should fit because:
+			// - Memory can be obtained via preemption (it's in frsNeedPreemption)
+			// - CPU needs borrowing BUT it's NOT in frsNeedPreemption, so borrowing check is skipped for CPU
+			// This is the key fix: only resources that need preemption should have their borrowing checked
+			wantFits: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add kueue to scheme: %v", err)
+			}
+
+			cl := utiltesting.NewClientBuilder().
+				WithScheme(scheme).
+				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
+				Build()
+
+			cqCache := schdcache.New(cl)
+			for _, flv := range flavors {
+				cqCache.AddOrUpdateResourceFlavor(log, flv)
+			}
+			for _, cq := range tc.clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+				}
+			}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			// Get the target ClusterQueue
+			cq := snapshot.ClusterQueues()[kueue.ClusterQueueReference(tc.targetCQ)]
+			if cq == nil {
+				t.Fatalf("ClusterQueue %s not found", tc.targetCQ)
+			}
+
+			// Create incoming workload
+			wlBuilder := utiltestingapi.MakeWorkload("incoming-wl", "")
+			for res, qty := range tc.incomingResources {
+				wlBuilder = wlBuilder.Request(res, qty)
+			}
+			incoming := wlBuilder.Obj()
+
+			// Create workload usage from incoming workload
+			workloadUsage := workload.Usage{
+				Quota: make(resources.FlavorResourceQuantities),
+				TAS:   make(workload.TASUsage),
+			}
+
+			for res, qtyStr := range tc.incomingResources {
+				qty := resource.MustParse(qtyStr)
+				// Use default flavor for all resources in these tests
+				flavor := "default"
+				fr := resources.FlavorResource{Flavor: kueue.ResourceFlavorReference(flavor), Resource: res}
+				workloadUsage.Quota[fr] = resources.ResourceValue(res, qty)
+			}
+
+			// Create preemption context
+			preemptionCtx := &preemptionCtx{
+				preemptor:         *workload.NewInfo(incoming),
+				preemptorCQ:       cq,
+				snapshot:          snapshot,
+				workloadUsage:     workloadUsage,
+				frsNeedPreemption: tc.frsNeedPreemption,
+			}
+
+			// Test workloadFits
+			gotFits := workloadFits(preemptionCtx, tc.allowBorrowing)
+
+			if gotFits != tc.wantFits {
+				t.Errorf("workloadFits() = %v, want %v", gotFits, tc.wantFits)
+				t.Logf("ClusterQueue: %s", tc.targetCQ)
+				t.Logf("Incoming resources: %v", tc.incomingResources)
+				t.Logf("Allow borrowing: %v", tc.allowBorrowing)
+				t.Logf("Resources needing preemption: %v", tc.frsNeedPreemption)
+				t.Logf("Workload usage: %v", workloadUsage.Quota)
+			}
+		})
 	}
 }
