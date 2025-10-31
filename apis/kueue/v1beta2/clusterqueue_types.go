@@ -111,6 +111,7 @@ type ClusterQueueSpec struct {
 
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
 	// Cannot be used along with AdmissionCheckStrategy.
+	// Admission checks are limited to at most 64 items.
 	// +optional
 	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"` //nolint:kubeapilinter // field is being removed
 
@@ -149,6 +150,7 @@ type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
 }
 
@@ -161,6 +163,7 @@ type AdmissionCheckStrategyRule struct {
 	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=64
 	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
@@ -272,14 +275,17 @@ type ResourceFlavorReference string
 type ClusterQueueStatus struct {
 	// conditions hold the latest available observations of the ClusterQueue
 	// current state.
+	// conditions are limited to 16 elements.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
+	// flavorsReservation are limited to 64 elements.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
@@ -329,7 +335,7 @@ type ClusterQueuePendingWorkloadsStatus struct {
 	// clusterQueuePendingWorkload contains the list of top pending workloads.
 	// +listType=atomic
 	// +optional
-	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"`
+	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"` //nolint:kubeapilinter // field is being removed
 
 	// lastChangeTime indicates the time of the last change of the structure.
 	LastChangeTime metav1.Time `json:"lastChangeTime"`
@@ -339,9 +345,11 @@ type ClusterQueuePendingWorkloadsStatus struct {
 // in the cluster queue.
 type ClusterQueuePendingWorkload struct {
 	// name indicates the name of the pending workload.
+	// +kubebuilder:validation:MaxLength=256
 	Name string `json:"name"`
 
 	// namespace indicates the name of the pending workload.
+	// +kubebuilder:validation:MaxLength=63
 	Namespace string `json:"namespace"`
 }
 

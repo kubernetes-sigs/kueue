@@ -526,6 +526,7 @@ spec:
                 description: |-
                   conditions hold the latest available observations of the LocalQueue
                   current state.
+                  conditions are limited to 16 items.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -580,6 +581,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 16
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
@@ -703,6 +705,7 @@ spec:
                         levels:
                           description: levels define the levels of topology.
                           items:
+                            maxLength: 317
                             type: string
                           maxItems: 16
                           minItems: 1
