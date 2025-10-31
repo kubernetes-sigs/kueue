@@ -800,7 +800,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("checking that the Pods get a deletion timestamp when the workload is evicted", func() {
 					gomega.Expect(func() error {
 						w := createdWorkload.DeepCopy()
-						workload.SetEvictedCondition(w, "ByTest", "by test")
+						workload.SetEvictedCondition(w, realClock.Now(), "ByTest", "by test")
 						return workload.ApplyAdmissionStatus(ctx, k8sClient, w, false, realClock)
 					}()).Should(gomega.Succeed())
 
@@ -1390,7 +1390,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("setting evicted condition to true", func() {
-					workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPreemption, "By test")
+					workload.SetEvictedCondition(wl, realClock.Now(), kueue.WorkloadEvictedByPreemption, "By test")
 					gomega.Expect(
 						workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false, realClock),
 					).Should(gomega.Succeed())
