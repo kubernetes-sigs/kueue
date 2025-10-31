@@ -355,16 +355,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 			})
 
-			ginkgo.It("should expose the TopologyName in LocalQueue status", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdLocalQueue := &kueue.LocalQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), createdLocalQueue)).Should(gomega.Succeed())
-					g.Expect(createdLocalQueue.Status.Flavors).Should(gomega.HaveLen(1))
-					g.Expect(createdLocalQueue.Status.Flavors[0].Topology).ShouldNot(gomega.BeNil())
-					g.Expect(createdLocalQueue.Status.Flavors[0].Topology.Levels).Should(gomega.Equal(utiltas.Levels(topology)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.It("should not admit workload which does not fit to the required topology domain", func() {
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
 					wl1 := utiltestingapi.MakeWorkload("wl1-inadmissible", ns.Name).
@@ -2799,18 +2789,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
-			})
-
-			ginkgo.It("should expose the TopologyName in LocalQueue status", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdLocalQueue := &kueue.LocalQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), createdLocalQueue)).Should(gomega.Succeed())
-					g.Expect(createdLocalQueue.Status.Flavors).Should(gomega.HaveLen(2))
-					for _, flavor := range createdLocalQueue.Status.Flavors {
-						g.Expect(flavor.Topology).ShouldNot(gomega.BeNil())
-						g.Expect(flavor.Topology.Levels).Should(gomega.Equal(utiltas.Levels(topology)))
-					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("should admit workload which fits in a required topology domain", func() {

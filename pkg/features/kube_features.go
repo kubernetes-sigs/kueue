@@ -84,12 +84,6 @@ const (
 	// the resource requests of a Workload
 	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
 
-	// owner: @mbobrovskyi
-	//
-	// Enable the Flavors status field in the LocalQueue, allowing users to view
-	// all currently available ResourceFlavors for the LocalQueue.
-	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
-
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
 	//
@@ -250,9 +244,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
-	},
-	ExposeFlavorsInLocalQueue: {
-		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
