@@ -144,6 +144,151 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
 		})
 
+		ginkgo.It("Should emit eviction duration metric for preemption", func() {
+			ginkgo.By("Creating a low priority workload that uses all available quota")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+
+			// Wait for the low priority workload to be admitted
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Updating the low priority workload with PodsReady=True")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), lowWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&lowWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadStarted,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, lowWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKeyFromObject(lowWl))
+
+			ginkgo.By("Creating a high priority workload that requires preemption")
+			highWl := utiltestingapi.MakeWorkload("high-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, highWl)
+
+			ginkgo.By("Waiting for the low priority workload to be evicted")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+
+			ginkgo.By("Debugging workload state before checking metrics")
+			var debugWl kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), &debugWl)).Should(gomega.Succeed())
+			evictedCond := apimeta.FindStatusCondition(debugWl.Status.Conditions, kueue.WorkloadEvicted)
+			podsReadyCond := apimeta.FindStatusCondition(debugWl.Status.Conditions, kueue.WorkloadPodsReady)
+			quotaReservedCond := apimeta.FindStatusCondition(debugWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+			ginkgo.By(fmt.Sprintf("Workload conditions: Evicted=%v, PodsReady=%v, QuotaReserved=%v",
+				evictedCond != nil && evictedCond.Status == metav1.ConditionTrue,
+				podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue,
+				quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionTrue))
+
+			ginkgo.By("Verifying the high priority workload gets admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+
+			ginkgo.By("Checking eviction metrics")
+			util.ExpectEvictionDurationMetric(string(lowWl.Status.Admission.ClusterQueue), "QuotaReservedFalse", 1)
+		})
+
+		ginkgo.It("Should emit eviction duration metric for deactivation", func() {
+			ginkgo.By("Creating a workload that uses all available quota")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+
+			// Wait for the workload to be admitted
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Updating the low priority workload with PodsReady=True")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), lowWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&lowWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadStarted,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, lowWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectPodsReadyCondition(ctx, k8sClient, client.ObjectKeyFromObject(lowWl))
+
+			ginkgo.By("suspending the workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), lowWl)).Should(gomega.Succeed())
+				lowWl.Spec.Active = ptr.To(false) // Set active to false
+				g.Expect(k8sClient.Update(ctx, lowWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectEvictedCondition(ctx, k8sClient, client.ObjectKeyFromObject(lowWl))
+
+			ginkgo.By("Checking eviction metrics")
+			util.ExpectEvictionDurationMetric(string(lowWl.Status.Admission.ClusterQueue), kueue.WorkloadDeactivated, 1)
+		})
+
+		ginkgo.It("Should emit eviction duration metric for finished", func() {
+			ginkgo.By("Creating a workload that uses all available quota")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+
+			// Wait for the workload to be admitted
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Updating the workload with PodsReady=True and Evicted=True to simulate preemption")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), lowWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&lowWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadStarted,
+				})
+				apimeta.SetStatusCondition(&lowWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByPreemption,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, lowWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating the workload with Finished=True to trigger metric emission")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), lowWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&lowWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadFinishedReasonSucceeded,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, lowWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating the workload with Finished=True to trigger metric emission twice")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), lowWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&lowWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadFinishedReasonSucceeded,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, lowWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking eviction duration metric for finished workload emitted only once")
+			util.ExpectEvictionDurationMetric(string(lowWl.Status.Admission.ClusterQueue), kueue.WorkloadFinished, 1)
+		})
+
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
 			ginkgo.By("Creating initial Workloads")
 			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).

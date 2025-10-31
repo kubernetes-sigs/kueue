@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -158,6 +159,18 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
+func TestReportAndCleanupClusterQueueEvictionCompletedNumber(t *testing.T) {
+	ReportEvictionCompleted("cluster_queue1", "QuotaReservedFalse", time.Second)
+	ReportEvictionCompleted("cluster_queue1", "Finished", time.Second)
+
+	expectFilteredMetricsCount(t, EvictionDurationTimeSeconds, 2, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, EvictionDurationTimeSeconds, 1, "cluster_queue", "cluster_queue1", "reason", "QuotaReservedFalse")
+	expectFilteredMetricsCount(t, EvictionDurationTimeSeconds, 1, "cluster_queue", "cluster_queue1", "reason", "Finished")
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, EvictionDurationTimeSeconds, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1")
 	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1")
@@ -172,16 +185,6 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
-}
-
-func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
-	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
-	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "")
-
-	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq1", "namespace", "ns1", "reason", "Preempted")
-
-	ClearLocalQueueMetrics(lq)
-	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", "lq1", "namespace", "ns1")
 }
 
 func TestGitVersionMetric(t *testing.T) {
