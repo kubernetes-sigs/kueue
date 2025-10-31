@@ -190,7 +190,7 @@ spec:
               rule: '!has(oldSelf.topologyName) || self == oldSelf'
         type: object
     served: true
-    storage: true
+    storage: false
   - name: v1beta2
     schema:
       openAPIV3Schema:
@@ -363,4 +363,4 @@ spec:
               rule: '!has(oldSelf.topologyName) || self == oldSelf'
         type: object
     served: true
-    storage: false
+    storage: true

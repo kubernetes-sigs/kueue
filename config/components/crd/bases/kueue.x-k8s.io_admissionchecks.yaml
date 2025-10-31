@@ -152,7 +152,7 @@ spec:
             type: object
         type: object
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}
   - name: v1beta2
@@ -288,6 +288,6 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true
     subresources:
       status: {}

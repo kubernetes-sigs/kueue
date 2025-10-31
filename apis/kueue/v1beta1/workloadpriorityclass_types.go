@@ -23,8 +23,7 @@ import (
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:storageversion// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Value",JSONPath=".value",type=integer,description="Value of workloadPriorityClass's Priority"
 
 // WorkloadPriorityClass is the Schema for the workloadPriorityClass API

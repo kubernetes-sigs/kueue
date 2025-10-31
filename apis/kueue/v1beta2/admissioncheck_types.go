@@ -97,6 +97,7 @@ const (
 
 // +genclient
 // +genclient:nonNamespaced
+// +kubebuilder:storageversion
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster

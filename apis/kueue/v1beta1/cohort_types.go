@@ -80,7 +80,6 @@ type CohortStatus struct {
 
 // +genclient
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status
 
