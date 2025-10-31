@@ -1,0 +1,131 @@
+# 1. ConfigMap containing Kueue resource definitions
+# This resource will be created in the 'kueue-system' namespace.
+{{- if .Values.enableAutoKueue }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-kueue-resources
+  namespace: kueue-system
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  resources.yaml: |-
+    apiVersion: kueue.x-k8s.io/v1beta1
+    kind: Topology
+    metadata:
+      name: "default"
+    spec:
+      levels:
+{{- range .Values.autoKueue.tasLevels }}
+        - nodeLabel: {{ .name | quote }}
+{{- end }}
+    ---
+    kind: ResourceFlavor
+    apiVersion: kueue.x-k8s.io/v1beta1
+    metadata:
+      name: "tas-flavor"
+    spec:
+      {{- with .Values.autoKueue.nodeLabel }}
+      nodeLabels:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      topologyName: "default"
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: NoSchedule
+    ---
+    apiVersion: kueue.x-k8s.io/v1beta1
+    kind: ClusterQueue
+    metadata:
+      name: {{ .Values.autoKueue.clusterQueueName | quote }}
+    spec:
+      namespaceSelector: {} # match all.
+      resourceGroups:
+      - coveredResources: ["nvidia.com/gpu"]
+        flavors:
+        - name: "tas-flavor"
+          resources:
+          - name: "nvidia.com/gpu"
+            nominalQuota: 100000000
+---
+# 2. Service Account for the Job
+# This resource will be created in the 'kueue-system' namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-kueue-hook-sa
+  namespace: kueue-system
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+
+---
+# 3. ClusterRole with required permissions
+# This defines permissions to get resources and create Kueue resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kueue-hook-clusterrole
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+- apiGroups: ["kueue.x-k8s.io"]
+  resources: ["topologies", "resourceflavors", "clusterqueues", "localqueues"]
+  verbs: ["create", "get", "list", "patch", "update"]
+- apiGroups: [""] # Core API group
+  resources: ["configmaps", "endpoints"]
+  verbs: ["get"]
+
+---
+# 4. A ClusterRoleBinding to grant the permissions cluster-wide
+# This is required for managing cluster-scoped resources like Topologies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kueue-hook-crb
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-kueue-hook-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-kueue-hook-sa
+  namespace: kueue-system # The namespace where the ServiceAccount lives
+---
+# 5. The Job that waits and applies the resources
+# This Job will be created and run in the 'kueue-system' namespace.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-create-kueue-resources-job"
+  namespace: kueue-system
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ .Release.Name }}-kueue-hook-sa
+      containers:
+      - name: kubectl-apply
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -ex
+          
+          kubectl get configmap {{ .Release.Name }}-kueue-resources -n kueue-system -o=jsonpath='{.data.resources\.yaml}' | kubectl apply -f -
+          
+          echo "🚀 All Kueue resources applied successfully."
+      restartPolicy: Never
+  backoffLimit: 5
+{{- end }}
