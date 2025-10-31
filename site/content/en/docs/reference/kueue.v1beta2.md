@@ -380,7 +380,8 @@ Changing the value of workloadPriorityClass doesn't affect the priority of workl
 </td>
 <td>
    <p>description is an arbitrary string that usually provides guidelines on
-when this workloadPriorityClass should be used.</p>
+when this workloadPriorityClass should be used.
+The description is limited to a maximum of 2048 characters.</p>
 </td>
 </tr>
 </tbody>
@@ -593,7 +594,8 @@ This may be an empty string.</p>
 </td>
 <td>
    <p>conditions hold the latest available observations of the AdmissionCheck
-current state.</p>
+current state.
+This is limited to at most 16 separate conditions.</p>
 </td>
 </tr>
 </tbody>
@@ -1062,7 +1064,8 @@ before borrowing or preempting in the flavor being evaluated.</p>
 </td>
 <td>
    <p>admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-Cannot be used along with AdmissionCheckStrategy.</p>
+Cannot be used along with AdmissionCheckStrategy.
+Admission checks are limited to at most 64 items.</p>
 </td>
 </tr>
 <tr><td><code>admissionChecksStrategy</code><br/>
@@ -1127,7 +1130,8 @@ if FairSharing is enabled in the Kueue configuration.</p>
 </td>
 <td>
    <p>conditions hold the latest available observations of the ClusterQueue
-current state.</p>
+current state.
+conditions are limited to 16 elements.</p>
 </td>
 </tr>
 <tr><td><code>flavorsReservation</code><br/>
@@ -1135,7 +1139,8 @@ current state.</p>
 </td>
 <td>
    <p>flavorsReservation are the reserved quotas, by flavor, currently in use by the
-workloads assigned to this ClusterQueue.</p>
+workloads assigned to this ClusterQueue.
+flavorsReservation are limited to 64 elements.</p>
 </td>
 </tr>
 <tr><td><code>flavorsUsage</code><br/>
@@ -1789,7 +1794,8 @@ if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
 <td>
    <p>conditions hold the latest available observations of the LocalQueue
-current state.</p>
+current state.
+conditions are limited to 16 items.</p>
 </td>
 </tr>
 <tr><td><code>pendingWorkloads</code><br/>
@@ -1904,7 +1910,8 @@ Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 <td>
    <p>conditions hold the latest available observations of the MultiKueueCluster
-current state.</p>
+current state.
+conditions are limited to 16 elements.</p>
 </td>
 </tr>
 </tbody>
@@ -2208,7 +2215,8 @@ and the application of resource.excludeResourcePrefixes and resource.transformat
 <td>
    <p>required indicates the topology level required by the PodSet, as
 indicated by the <code>kueue.x-k8s.io/podset-required-topology</code> PodSet
-annotation.</p>
+annotation.
+This is limited to 63 characters.</p>
 </td>
 </tr>
 <tr><td><code>preferred</code><br/>
@@ -2217,7 +2225,8 @@ annotation.</p>
 <td>
    <p>preferred indicates the topology level preferred by the PodSet, as
 indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
-annotation.</p>
+annotation.
+This is limited to 63 characters.</p>
 </td>
 </tr>
 <tr><td><code>unconstrained</code><br/>
@@ -2238,7 +2247,8 @@ For example, in the context of</p>
 <ul>
 <li>kubernetes job this is: kubernetes.io/job-completion-index</li>
 <li>JobSet: kubernetes.io/job-completion-index (inherited from Job)</li>
-<li>Kubeflow: training.kubeflow.org/replica-index</li>
+<li>Kubeflow: training.kubeflow.org/replica-index
+This is limited to 317 characters.</li>
 </ul>
 </td>
 </tr>
@@ -2247,7 +2257,8 @@ For example, in the context of</p>
 </td>
 <td>
    <p>subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
-within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.</p>
+within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+This is limited to 317 characters.</p>
 </td>
 </tr>
 <tr><td><code>subGroupCount</code> <B>[Required]</B><br/>
@@ -2272,6 +2283,7 @@ PodSets with the same <code>PodSetGroupName</code> should be assigned the same R
 <td>
    <p>podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
 indicated by the <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
+<p>This is limited to 63</p>
 </td>
 </tr>
 <tr><td><code>podSetSliceSize</code><br/>
@@ -3273,7 +3285,8 @@ current state.</p>
 <li>Admitted: the Workload was admitted through a ClusterQueue.</li>
 <li>Finished: the associated workload finished running (failed or succeeded).</li>
 <li>PodsReady: at least <code>.spec.podSets[*].count</code> Pods are ready or have
-succeeded.</li>
+succeeded.
+conditions are limited to 16 items.</li>
 </ul>
 </td>
 </tr>

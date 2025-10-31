@@ -17046,22 +17046,22 @@ spec:
                         description: topologyRequest defines the topology request for the PodSet.
                         properties:
                           podIndexLabel:
-                            description: |-
-                              podIndexLabel indicates the name of the label indexing the pods.
-                              For example, in the context of
-                              - kubernetes job this is: kubernetes.io/job-completion-index
-                              - JobSet: kubernetes.io/job-completion-index (inherited from Job)
-                              - Kubeflow: training.kubeflow.org/replica-index
+                            description: "podIndexLabel indicates the name of the label indexing the pods.\nFor example, in the context of\n- kubernetes job this is: kubernetes.io/job-completion-index\n- JobSet: kubernetes.io/job-completion-index (inherited from Job)\n- Kubeflow: training.kubeflow.org/replica-index\n\tThis is limited to 317 characters."
+                            maxLength: 317
                             type: string
                           podSetGroupName:
                             description: |-
                               podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
                               PodSets with the same `PodSetGroupName` should be assigned the same ResourceFlavor
+                            maxLength: 256
                             type: string
                           podSetSliceRequiredTopology:
                             description: |-
                               podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
                               indicated by the `kueue.x-k8s.io/podset-slice-required-topology` annotation.
+
+                              This is limited to 63
+                            maxLength: 63
                             type: string
                           podSetSliceSize:
                             description: |-
@@ -17075,12 +17075,16 @@ spec:
                               preferred indicates the topology level preferred by the PodSet, as
                               indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
                               annotation.
+                              This is limited to 63 characters.
+                            maxLength: 63
                             type: string
                           required:
                             description: |-
                               required indicates the topology level required by the PodSet, as
                               indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
                               annotation.
+                              This is limited to 63 characters.
+                            maxLength: 63
                             type: string
                           subGroupCount:
                             description: |-
@@ -17089,9 +17093,8 @@ spec:
                             format: int32
                             type: integer
                           subGroupIndexLabel:
-                            description: |-
-                              subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
-                              within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.
+                            description: "subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)\nwithin a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.\n\tThis is limited to 317 characters."
+                            maxLength: 317
                             type: string
                           unconstrained:
                             description: |-
@@ -17199,6 +17202,7 @@ spec:
                               Kueue schedules the second pass of scheduling for each workload with at
                               least one PodSet which has delayedTopologyRequest=true and without
                               topologyAssignment.
+                            maxLength: 7
                             type: string
                           flavors:
                             additionalProperties:
@@ -17294,6 +17298,7 @@ spec:
                                         domain. The values correspond to the consecutive topology levels, from
                                         the highest to the lowest.
                                       items:
+                                        maxLength: 63
                                         type: string
                                       maxItems: 16
                                       minItems: 1
@@ -17303,6 +17308,7 @@ spec:
                                     - count
                                     - values
                                   type: object
+                                maxItems: 100000
                                 type: array
                                 x-kubernetes-list-type: atomic
                               levels:
@@ -17311,6 +17317,7 @@ spec:
                                   topology (i.e. node label keys), from the highest to the lowest level of
                                   the topology.
                                 items:
+                                  maxLength: 317
                                   type: string
                                 maxItems: 16
                                 minItems: 1
@@ -17467,6 +17474,7 @@ spec:
                     affinity or propagation policies across workload slices.
 
                     This field is reset after the Workload is evicted.
+                  maxLength: 256
                   type: string
                 conditions:
                   description: |-
@@ -17479,6 +17487,7 @@ spec:
                     - Finished: the associated workload finished running (failed or succeeded).
                     - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
                     succeeded.
+                    conditions are limited to 16 items.
                   items:
                     description: Condition contains details for one aspect of the current state of this API Resource.
                     properties:
@@ -17532,6 +17541,7 @@ spec:
                       - status
                       - type
                     type: object
+                  maxItems: 16
                   type: array
                   x-kubernetes-list-map-keys:
                     - type
@@ -17543,6 +17553,7 @@ spec:
                     `status.clusterName` is set.
                     This field is optional.
                   items:
+                    maxLength: 256
                     type: string
                   maxItems: 10
                   type: array
@@ -17655,6 +17666,7 @@ spec:
                           - reason
                           - underlyingCause
                         type: object
+                      maxItems: 256
                       type: array
                       x-kubernetes-list-map-keys:
                         - reason
@@ -17671,10 +17683,12 @@ spec:
                     properties:
                       name:
                         description: name is the name of the unhealthy node.
+                        maxLength: 63
                         type: string
                     required:
                       - name
                     type: object
+                  maxItems: 8
                   type: array
                   x-kubernetes-list-map-keys:
                     - name
