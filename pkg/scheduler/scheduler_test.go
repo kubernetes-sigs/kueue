@@ -197,8 +197,6 @@ func TestSchedule(t *testing.T) {
 		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
 		wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
-		wantPreempted sets.Set[workload.Reference]
 		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
 		wantEvents []utiltesting.EventRecord
 		// eventCmpOpts are the cmp options to compare recorded events.
@@ -277,7 +275,6 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantPreempted: sets.Set[workload.Reference]{},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/admitted": {
 					ClusterQueue: "other-alpha",
@@ -1237,6 +1234,8 @@ func TestSchedule(t *testing.T) {
 		"preempt workloads in ClusterQueue and cohort": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Queue("main").
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
@@ -1283,6 +1282,21 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "60000m").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("use-all-spot", "eng-alpha").
 					Request(corev1.ResourceCPU, "100").
@@ -1309,8 +1323,25 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "10000m").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Queue("main").
 					Request(corev1.ResourceCPU, "20").
 					Condition(metav1.Condition{
@@ -1332,7 +1363,6 @@ func TestSchedule(t *testing.T) {
 				// Preemptor is not admitted in this cycle.
 				"eng-beta": {"eng-beta/preemptor"},
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/borrower", "eng-beta/low-2"),
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/use-all-spot": *utiltestingapi.MakeAdmission("eng-alpha").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -1384,6 +1414,8 @@ func TestSchedule(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(-1).
 					Queue("other").
 					Request(corev1.ResourceCPU, "1").
@@ -1428,8 +1460,25 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "100").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(-1).
 					Queue("other").
 					Request(corev1.ResourceCPU, "1").
@@ -1455,7 +1504,6 @@ func TestSchedule(t *testing.T) {
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/pending"},
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/use-all"),
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				// Removal from cache for the preempted workloads is deferred until we receive Workload updates
 				"eng-alpha/use-all": *utiltestingapi.MakeAdmission("other-alpha").
@@ -1848,6 +1896,8 @@ func TestSchedule(t *testing.T) {
 		"partial admission single variable pod set, preempt first": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main").
 					Priority(4).
 					PodSets(*utiltestingapi.MakePodSet("one", 20).
@@ -1865,6 +1915,8 @@ func TestSchedule(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main").
 					Priority(4).
 					PodSets(*utiltestingapi.MakePodSet("one", 20).
@@ -1891,6 +1943,21 @@ func TestSchedule(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("eng-beta").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -1904,7 +1971,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-beta/old"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-beta": {"eng-beta/new"},
 			},
@@ -1912,6 +1978,8 @@ func TestSchedule(t *testing.T) {
 		"partial admission single variable pod set, preempt with partial admission": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main").
 					Priority(4).
 					PodSets(*utiltestingapi.MakePodSet("one", 30).
@@ -1929,6 +1997,8 @@ func TestSchedule(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main").
 					Priority(4).
 					PodSets(*utiltestingapi.MakePodSet("one", 30).
@@ -1955,6 +2025,21 @@ func TestSchedule(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("eng-beta").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment("example.com/gpu", "model-a", "10").Count(10).Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -1968,7 +2053,6 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-beta/old"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-beta": {"eng-beta/new"},
 			},
@@ -3897,6 +3981,8 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("incoming", "eng-alpha").
+					UID("wl-incoming").
+					JobUID("job-incoming").
 					Priority(0).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -3912,6 +3998,21 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "1").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-incoming, JobUID: job-incoming) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-incoming, JobUID: job-incoming) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a2", "eng-alpha").
 					Priority(-2).
@@ -3922,6 +4023,21 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "1").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-incoming, JobUID: job-incoming) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-incoming, JobUID: job-incoming) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a3", "eng-alpha").
 					Priority(-1).
@@ -3934,6 +4050,8 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("incoming", "eng-alpha").
+					UID("wl-incoming").
+					JobUID("job-incoming").
 					Priority(0).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -3982,7 +4100,6 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-alpha/a2"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/incoming"},
 			},
@@ -4167,6 +4284,8 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Queue("main").
 					Request(corev1.ResourceCPU, "30").Obj(),
 			},
@@ -4176,7 +4295,23 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("eng-alpha", "spot", now).Obj(),
 				*utiltestingapi.MakeWorkload("alpha1", "eng-alpha").UID("alpha1").
 					Request(corev1.ResourceCPU, "20").
-					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+					SimpleReserveQuota("eng-alpha", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortFairSharing",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
 				*utiltestingapi.MakeWorkload("alpha2", "eng-alpha").UID("alpha2").
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
@@ -4187,6 +4322,8 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Queue("main").
 					Request(corev1.ResourceCPU, "30").
 					Condition(metav1.Condition{
@@ -4205,7 +4342,23 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("gamma1", "eng-gamma").UID("gamma1").
 					Request(corev1.ResourceCPU, "10").
-					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+					SimpleReserveQuota("eng-gamma", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortFairSharing",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
 				*utiltestingapi.MakeWorkload("gamma2", "eng-gamma").UID("gamma2").
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
@@ -4216,7 +4369,6 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/alpha1", "eng-gamma/gamma1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				// Preemptor is not admitted in this cycle.
 				"eng-beta": {"eng-beta/preemptor"},
@@ -4321,11 +4473,15 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -4341,8 +4497,25 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -4369,8 +4542,25 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -4389,7 +4579,6 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-beta/b1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 				"other-beta":  {"eng-beta/preemptor"},
@@ -4458,6 +4647,8 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(99).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -4502,8 +4693,25 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(99).
 					Queue("other").
 					Request(corev1.ResourceCPU, "2").
@@ -4522,7 +4730,6 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-beta/b1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-beta": {"eng-beta/preemptor"},
 			},
@@ -4613,6 +4820,8 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -4633,8 +4842,25 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "2").
 							Obj()).
 						Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -4681,7 +4907,6 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 				"other-beta":  {"eng-beta/pretending-preemptor"},
@@ -4781,16 +5006,22 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-gamma").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -4805,8 +5036,25 @@ func TestSchedule(t *testing.T) {
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").
 							Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -4831,8 +5079,25 @@ func TestSchedule(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-beta").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -4857,8 +5122,25 @@ func TestSchedule(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-gamma").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-gamma").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -4877,7 +5159,6 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-beta/b1", "eng-gamma/c1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 				"other-beta":  {"eng-beta/preemptor"},
@@ -4988,6 +5269,8 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "default", "9").Obj()).Obj(), now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -5009,8 +5292,25 @@ func TestSchedule(t *testing.T) {
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment("alpha-resource", "default", "1").
 							Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request(corev1.ResourceCPU, "3").
@@ -5066,9 +5366,23 @@ func TestSchedule(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-gamma").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "9").Obj()).Obj(), now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortFairSharing",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1", "eng-gamma/c1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 				"other-beta":  {"eng-beta/pretending-preemptor"},
@@ -5305,6 +5619,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "6").
@@ -5318,6 +5634,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-alpha", "on-demand", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "6").
@@ -5340,9 +5658,23 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "5").
 					SimpleReserveQuota("other-beta", "spot", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-beta/b1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 			},
@@ -5404,6 +5736,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "8").
@@ -5417,6 +5751,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-alpha", "on-demand", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "8").
@@ -5439,9 +5775,23 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "5").
 					SimpleReserveQuota("other-beta", "spot", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortFairSharing",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-beta/b1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 			},
@@ -5506,6 +5856,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "6").
@@ -5517,6 +5869,21 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "5").
 					SimpleReserveQuota("other-alpha", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a2", "eng-alpha").
 					Priority(50).
@@ -5525,6 +5892,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-alpha", "spot", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "6").
@@ -5549,7 +5918,6 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 			},
@@ -5621,6 +5989,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "5").
@@ -5632,6 +6002,21 @@ func TestSchedule(t *testing.T) {
 					Queue("other").
 					Request("gpu", "6").
 					SimpleReserveQuota("other-alpha", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a2", "eng-alpha").
 					Priority(50).
@@ -5640,6 +6025,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-alpha", "spot", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("preemptor", "eng-alpha").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(100).
 					Queue("other").
 					Request("gpu", "5").
@@ -5665,7 +6052,6 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("other-beta", "spot", now).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-alpha/a1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
 			},
@@ -5759,6 +6145,8 @@ func TestSchedule(t *testing.T) {
 					Request("gpu", "10").
 					Obj(),
 				*utiltestingapi.MakeWorkload("WL2", "eng-beta").
+					UID("wl-WL2").
+					JobUID("job-WL2").
 					Creation(now.Add(time.Second)).
 					Queue("lq").
 					Request("gpu", "10").
@@ -5801,6 +6189,8 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("WL2", "eng-beta").
+					UID("wl-WL2").
+					JobUID("job-WL2").
 					Creation(now.Add(time.Second)).
 					Queue("lq").
 					Request("gpu", "10").
@@ -5823,6 +6213,21 @@ func TestSchedule(t *testing.T) {
 					Priority(0).
 					Request("gpu", "5").
 					SimpleReserveQuota("CQ3", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-WL2, JobUID: job-WL2) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-WL2, JobUID: job-WL2) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("Admitted-Workload-3", "eng-gamma").
 					Queue("lq").
@@ -5831,7 +6236,6 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("CQ3", "on-demand", now).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("eng-gamma/Admitted-Workload-2"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"CQ2": {"eng-beta/WL2"},
 			},
@@ -6790,6 +7194,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("queue1", "on-demand", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a2", "default").
+					UID("wl-a2").
+					JobUID("job-a2").
 					Priority(99).
 					Queue("queue1").
 					Request("gpu", "1").
@@ -6802,8 +7208,25 @@ func TestSchedule(t *testing.T) {
 					Queue("queue1").
 					Request("gpu", "2").
 					SimpleReserveQuota("queue1", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-a2, JobUID: job-a2) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-a2, JobUID: job-a2) due to prioritization in the ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a2", "default").
+					UID("wl-a2").
+					JobUID("job-a2").
 					Priority(99).
 					Queue("queue1").
 					Request("gpu", "1").
@@ -6822,7 +7245,6 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("default/a1"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"queue1": {"default/a2"},
 			},
@@ -6897,6 +7319,8 @@ func TestSchedule(t *testing.T) {
 					SimpleReserveQuota("queue2", "on-demand", now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("a1", "default").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(99).
 					Queue("queue1").
 					Request("gpu", "1").
@@ -6904,6 +7328,8 @@ func TestSchedule(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a1", "default").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
 					Priority(99).
 					Queue("queue1").
 					Request("gpu", "1").
@@ -6927,9 +7353,23 @@ func TestSchedule(t *testing.T) {
 					Queue("queue2").
 					Request("gpu", "2").
 					SimpleReserveQuota("queue2", "on-demand", now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortFairSharing",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to Fair Sharing within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 			},
-			wantPreempted: sets.New[workload.Reference]("default/a2"),
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"queue1": {"default/a1"},
 			},
@@ -7021,25 +7461,12 @@ func TestSchedule(t *testing.T) {
 					func() { wg.Done() },
 				))
 
-				var mu sync.Mutex
-				gotPreempted := sets.New[workload.Reference]()
-				scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
-					mu.Lock()
-					gotPreempted.Insert(workload.Key(w))
-					mu.Unlock()
-					return nil
-				})
-
 				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 				go qManager.CleanUpOnContext(ctx)
 				defer cancel()
 
 				scheduler.schedule(ctx)
 				wg.Wait()
-
-				if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-					t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
-				}
 
 				// Verify assignments in cache.
 				gotAssignments := make(map[workload.Reference]kueue.Admission)
@@ -7070,6 +7497,7 @@ func TestSchedule(t *testing.T) {
 					cmpopts.EquateEmpty(),
 					cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
+					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 				}
 
 				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
