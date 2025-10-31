@@ -422,6 +422,31 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("validating kubeconfig failed: %w", errors.New("tokenFile is not allowed")),
 		},
+		"remove client with invalid kubeconfig": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Generation(1).
+					Obj(),
+			},
+			secrets: []corev1.Secret{
+				makeTestSecret("worker1", testKubeconfigInsecure("worker1", ptr.To("/path/to/tokenfile"))),
+			},
+			remoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(t.Context(), "worker1 old kubeconfig", cancelCalled),
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
+					Active(metav1.ConditionFalse, "InsecureKubeConfig", "insecure kubeconfig: tokenFile is not allowed", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{},
+			wantCancelCalled:  1,
+			wantErr:           fmt.Errorf("validating kubeconfig failed: %w", errors.New("tokenFile is not allowed")),
+		},
 		"skip insecure kubeconfig validation": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
