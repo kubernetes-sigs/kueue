@@ -67,7 +67,7 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 		threshold = min(threshold, lastDomainWithLeader.sliceStateWithLeader)
 	}
 	if lastDomain != nil {
-		threshold = min(threshold, lastDomain.sliceState)
+		threshold = min(threshold, lastDomain.sliceStateWithLeader)
 	}
 	return threshold
 }
