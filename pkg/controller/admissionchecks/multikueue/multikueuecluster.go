@@ -424,6 +424,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		err = validateKubeconfig(kubeConfig)
 		if err != nil {
 			log.Error(err, "validating kubeconfig failed")
+			c.stopAndRemoveCluster(req.Name)
 			if updateErr := c.updateStatus(ctx, cluster, false, "InsecureKubeConfig", fmt.Sprintf("insecure kubeconfig: %v", err)); updateErr != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after detecting insecure kubeconfig: %w", updateErr, err)
 			}
