@@ -1506,46 +1506,6 @@ spec:
                   admitted to this clusterQueue.
                 format: int32
                 type: integer
-              pendingWorkloadsStatus:
-                description: |-
-                  pendingWorkloadsStatus contains the information exposed about the current
-                  status of the pending workloads in the cluster queue.
-                  Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
-                  You can migrate to VisibilityOnDemand
-                  (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
-                  instead.
-                properties:
-                  clusterQueuePendingWorkload:
-                    description: clusterQueuePendingWorkload contains the list of
-                      top pending workloads.
-                    items:
-                      description: |-
-                        ClusterQueuePendingWorkload contains the information identifying a pending workload
-                        in the cluster queue.
-                      properties:
-                        name:
-                          description: name indicates the name of the pending workload.
-                          maxLength: 256
-                          type: string
-                        namespace:
-                          description: namespace indicates the name of the pending
-                            workload.
-                          maxLength: 63
-                          type: string
-                      required:
-                      - name
-                      - namespace
-                      type: object
-                    type: array
-                    x-kubernetes-list-type: atomic
-                  lastChangeTime:
-                    description: lastChangeTime indicates the time of the last change
-                      of the structure.
-                    format: date-time
-                    type: string
-                required:
-                - lastChangeTime
-                type: object
               reservingWorkloads:
                 description: |-
                   reservingWorkloads is the number of workloads currently reserving quota in this
