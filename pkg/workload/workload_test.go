@@ -1532,6 +1532,7 @@ func TestSetQuotaReservation(t *testing.T) {
 		})
 	}
 }
+
 func TestPatchAdmissionStatus(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -1593,5 +1594,158 @@ func TestPatchAdmissionStatus(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSetRequeueState(t *testing.T) {
+	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	futureTime := baseTime.Add(5 * time.Minute)
+	evenMoreFutureTime := baseTime.Add(10 * time.Minute)
+	pastTime := baseTime.Add(-5 * time.Minute)
+
+	cases := map[string]struct {
+		workload       *kueue.Workload
+		waitUntil      metav1.Time
+		incrementCount bool
+		wantUpdated    bool
+		wantRequeueAt  *metav1.Time
+		wantCount      *int32
+	}{
+		"should initialize and set time when requeue state is nil without increment": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: nil,
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: false,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantCount:      nil,
+		},
+		"should initialize and set time and count when requeue state is nil with increment": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: nil,
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: true,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantCount:      ptr.To[int32](1),
+		},
+		"should update time when existing requeue time is earlier": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: &kueue.RequeueState{
+						RequeueAt: ptr.To(metav1.NewTime(pastTime)),
+						Count:     ptr.To[int32](2),
+					},
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: false,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantCount:      ptr.To[int32](2),
+		},
+		"should not update time when existing requeue time is later": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: &kueue.RequeueState{
+						RequeueAt: ptr.To(metav1.NewTime(evenMoreFutureTime)),
+						Count:     ptr.To[int32](3),
+					},
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: false,
+			wantUpdated:    false,
+			wantRequeueAt:  ptr.To(metav1.NewTime(evenMoreFutureTime)),
+			wantCount:      ptr.To[int32](3),
+		},
+		"should increment count but keep later requeue time": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: &kueue.RequeueState{
+						RequeueAt: ptr.To(metav1.NewTime(evenMoreFutureTime)),
+						Count:     ptr.To[int32](3),
+					},
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: true,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(evenMoreFutureTime)),
+			wantCount:      ptr.To[int32](4),
+		},
+		"should increment count when requeue time is same": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: &kueue.RequeueState{
+						RequeueAt: ptr.To(metav1.NewTime(futureTime)),
+						Count:     ptr.To[int32](1),
+					},
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: true,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantCount:      ptr.To[int32](2),
+		},
+		"should increment from zero count": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: &kueue.RequeueState{
+						RequeueAt: ptr.To(metav1.NewTime(pastTime)),
+						Count:     ptr.To[int32](0),
+					},
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: true,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantCount:      ptr.To[int32](1),
+		},
+		"should handle zero time in requeue state": {
+			workload: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					RequeueState: &kueue.RequeueState{
+						RequeueAt: ptr.To(metav1.NewTime(time.Time{})),
+						Count:     ptr.To[int32](0),
+					},
+				},
+			},
+			waitUntil:      metav1.NewTime(futureTime),
+			incrementCount: true,
+			wantUpdated:    true,
+			wantRequeueAt:  ptr.To(metav1.NewTime(futureTime)),
+			wantCount:      ptr.To[int32](1),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotUpdated := SetRequeueState(tc.workload, tc.waitUntil, tc.incrementCount)
+
+			if gotUpdated != tc.wantUpdated {
+				t.Errorf("SetRequeueState() returned %v, want %v", gotUpdated, tc.wantUpdated)
+			}
+
+			if tc.workload.Status.RequeueState == nil {
+				t.Fatal("RequeueState should not be nil after SetRequeueState")
+			}
+
+			if diff := cmp.Diff(tc.wantRequeueAt, tc.workload.Status.RequeueState.RequeueAt); diff != "" {
+				t.Errorf("Unexpected RequeueAt (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantCount, tc.workload.Status.RequeueState.Count); diff != "" {
+				t.Errorf("Unexpected Count (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

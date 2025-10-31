@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -135,7 +136,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				).
 				Annotations(map[string]string{
 					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
-					"invalid-provreq-prefix/Foo":               "Bar"}).
+					"invalid-provreq-prefix/Foo":               "Bar",
+				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 
@@ -1086,9 +1088,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
 						kueue.AdmissionCheckState{
-							Name:    kueue.AdmissionCheckReference(ac.Name),
-							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after eviction. Previously: Rejected",
+							Name:       kueue.AdmissionCheckReference(ac.Name),
+							State:      kueue.CheckStatePending,
+							Message:    "Reset to Pending after eviction. Previously: Rejected",
+							RetryCount: ptr.To(int32(1)),
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
