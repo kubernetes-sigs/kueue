@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
@@ -70,7 +71,9 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got := selectOptimalDomainSetToFit(tc.domains, tc.workerCount, tc.leaderCount, 1, true)
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
 				gotIDs[i] = string(d.id)
@@ -148,12 +151,14 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			domains := make([]*domain, len(tc.domains))
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
 			for i, d := range tc.domains {
 				clone := *d
 				domains[i] = &clone
 			}
 
-			got, _ := placeSlicesOnDomainsBalanced(domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
+			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
 
 			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(domain{}), cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"), cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id })); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)

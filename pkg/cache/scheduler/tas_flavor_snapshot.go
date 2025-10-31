@@ -753,7 +753,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			// the balanced placement algorithm selects domains on three levels: levelIdx -1, levelIdx and levelIdx + 1
 			// unless levelIdx == sliceLevelIdx in which case it selects only on two levels: levelIdx -1 and levelIdx
 			if levelIdx < sliceLevelIdx {
-				resultDomains := selectOptimalDomainSetToFit(currFitDomain, sliceCount, leaderCount, sliceSize, true)
+				resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true)
 				if resultDomains == nil {
 					return nil, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
 				}
@@ -762,7 +762,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			} else {
 				fitLevelIdx = levelIdx
 			}
-			currFitDomain, reason = placeSlicesOnDomainsBalanced(currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
+			currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
 			if len(reason) > 0 {
 				return nil, reason
 			}
@@ -783,7 +783,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if levelIdx < sliceLevelIdx {
 			// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
 			// all domains without checking what we've assigned to parent domains.
-			sortedLowerDomains := sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
+			sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
 			currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
 		} else {
 			// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
@@ -791,7 +791,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			// each parent domain and assigning `domain.state` amount of pods its child domains.
 			newCurrFitDomain := make([]*domain, 0)
 			for _, domain := range currFitDomain {
-				sortedLowerDomains := sortedDomains(domain.children, unconstrained)
+				sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
 
 				addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
 				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
@@ -999,7 +999,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := sortedDomainsWithLeader(levelDomains, unconstrained)
+	sortedDomain := s.sortedDomainsWithLeader(levelDomains, unconstrained)
 	topDomain := sortedDomain[0]
 
 	sliceCount := podSetSize / sliceSize
@@ -1051,7 +1051,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = sortedDomains(sortedDomain[idx:], unconstrained)
+		sortedDomain = s.sortedDomains(sortedDomain[idx:], unconstrained)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].sliceState > 0; idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(unconstrained) && sortedDomain[idx].sliceState >= remainingSliceCount {
@@ -1249,7 +1249,7 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
-func sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
@@ -1282,7 +1282,7 @@ func sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
 // - **LeastFreeCapacity**: `sliceState` (ascending), `state` (ascending), `levelValues` (ascending)
 //
 // `state` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
-func sortedDomains(domains []*domain, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {

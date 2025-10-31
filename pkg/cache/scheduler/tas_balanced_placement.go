@@ -25,7 +25,7 @@ import (
 // evaluateGreedyAssignment simulates placement of a (leaderCount, sliceCount) request on the given domains.
 // It returns whether the request fits, how many domains greedy algorithm uses and what would be the last
 // used domain (with and without leader)
-func evaluateGreedyAssignment(domains []*domain, sliceCount int32, leaderCount int32) (bool, int32, *domain, *domain) {
+func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32) (bool, int32, *domain, *domain) {
 	var selectedDomainsCount int32
 	var sortedWithoutLeader, sortedWithLeader []*domain
 	var lastDomain, lastDomainWithLeader *domain
@@ -33,16 +33,16 @@ func evaluateGreedyAssignment(domains []*domain, sliceCount int32, leaderCount i
 	remainingLeaderCount := leaderCount
 	idx := 0
 	if leaderCount > 0 {
-		sortedWithLeader = sortedDomainsWithLeader(domains, false)
+		sortedWithLeader = s.sortedDomainsWithLeader(domains, false)
 		for ; remainingLeaderCount > 0 && idx < len(sortedWithLeader) && sortedWithLeader[idx].leaderState > 0; idx++ {
 			selectedDomainsCount++
 			lastDomainWithLeader = sortedWithLeader[idx]
 			remainingLeaderCount -= sortedWithLeader[idx].leaderState
 			remainingSliceCount -= sortedWithLeader[idx].sliceStateWithLeader
 		}
-		sortedWithoutLeader = sortedDomains(sortedWithLeader[idx:], false)
+		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false)
 	} else {
-		sortedWithoutLeader = sortedDomains(domains, false)
+		sortedWithoutLeader = s.sortedDomains(domains, false)
 	}
 
 	if remainingLeaderCount > 0 {
@@ -72,8 +72,8 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 	return threshold
 }
 
-func selectOptimalDomainSetToFit(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool) []*domain {
-	fit, optimalNumberOfDomains, _, _ := evaluateGreedyAssignment(domains, sliceCount, leaderCount)
+func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool) []*domain {
+	fit, optimalNumberOfDomains, _, _ := evaluateGreedyAssignment(s, domains, sliceCount, leaderCount)
 	if !fit {
 		return nil
 	}
@@ -140,15 +140,15 @@ func selectOptimalDomainSetToFit(domains []*domain, sliceCount int32, leaderCoun
 	return bestSlicePlacement
 }
 
-func placeSlicesOnDomainsBalanced(domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32) ([]*domain, string) {
-	resultDomains := selectOptimalDomainSetToFit(domains, sliceCount, leaderCount, sliceSize, false)
+func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32) ([]*domain, string) {
+	resultDomains := selectOptimalDomainSetToFit(s, domains, sliceCount, leaderCount, sliceSize, false)
 	if resultDomains == nil {
 		return nil, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
 	}
 	if sliceCount < int32(len(resultDomains))*threshold {
 		return nil, "TAS Balanced Placement: Not enough slices to meet the threshold"
 	}
-	resultDomains = sortedDomainsWithLeader(resultDomains, false)
+	resultDomains = s.sortedDomainsWithLeader(resultDomains, false)
 	extraSlicesLeft := sliceCount - int32(len(resultDomains))*threshold
 	leadersLeft := leaderCount
 	var extraSlicesToTake int32
@@ -264,14 +264,14 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
 		domainsToBalance := getDomainsToBalance(s, requestedLevelSiblingDomains, levelIdx, sliceLevelIdx)
-		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(domainsToBalance, sliceCount, leaderCount)
+		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, domainsToBalance, sliceCount, leaderCount)
 		if !fits {
 			continue
 		}
 		threshold := balanceThresholdValue(sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
 		if threshold >= bestThreshold {
 			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, sliceSize, sliceLevelIdx, levelIdx)
-			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(requestedLevelSiblingDomains, sliceCount, leaderCount)
+			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, leaderCount)
 			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestRequestedLevelDomainCount) {
 				bestThreshold = threshold
 				bestRequestedLevelDomainCount = requestedLevelDomainCount
