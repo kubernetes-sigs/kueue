@@ -1727,4 +1727,5 @@ For these reasons, if we choose to do it, we would likely extract only "excess" 
 **Reasons for discarding/deferring**
 
 - Decreased readability of the API (some info delegated to other objects).
-- Decreased performance of Kueue scheduler (need to do more etcd reads and writes).
+- Decreased performance of Kueue scheduler (need to do more etcd reads and writes). \
+  (In particular, even when we end up using slices in separate CRDs, the "compression capabilities" introduced in v1beta2 are going to improve performance by reducing the necessary number of such slices).
