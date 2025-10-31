@@ -34,6 +34,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utilResource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -96,6 +97,10 @@ func (w *WorkloadWrapper) Clone() *WorkloadWrapper {
 func (w *WorkloadWrapper) UID(uid types.UID) *WorkloadWrapper {
 	w.Workload.UID = uid
 	return w
+}
+
+func (w *WorkloadWrapper) JobUID(uid string) *WorkloadWrapper {
+	return w.Label(constants.JobUIDLabel, uid)
 }
 
 // Generation sets the generation of the Workload.
