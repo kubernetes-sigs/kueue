@@ -108,13 +108,25 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	case corev1.ResourceCPU:
 		return *resource.NewMilliQuantity(v, resource.DecimalSI)
 	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
-		return *resource.NewQuantity(v, resource.BinarySI)
+		return parseMaybeBinary(v)
 	default:
 		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
-			return *resource.NewQuantity(v, resource.BinarySI)
+			return parseMaybeBinary(v)
 		}
 		return *resource.NewQuantity(v, resource.DecimalSI)
 	}
+}
+
+// Ensures that the resulting Quantity roundtrips.
+// For example, 1000000 will be decimal (1M), while 1048576 will be binary (1Mi)
+func parseMaybeBinary(v int64) resource.Quantity {
+	binary := *resource.NewQuantity(v, resource.BinarySI)
+	final, err := resource.ParseQuantity(binary.String())
+	if err != nil {
+		// Should never happen
+		return binary
+	}
+	return final
 }
 
 func ResourceQuantityString(name corev1.ResourceName, v int64) string {
