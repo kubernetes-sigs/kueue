@@ -265,6 +265,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ObjectRetentionPolicies: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
