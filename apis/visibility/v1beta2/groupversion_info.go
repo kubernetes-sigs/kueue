@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1beta1 contains API Schema definitions for the pending workloads kueue v1beta1 API group
+// Package v1beta2 contains API Schema definitions for the pending workloads kueue v1beta2 API group
 // +kubebuilder:object:generate=true
 // +kubebuilder:skip
 // +groupName=visibility.kueue.x-k8s.io
 // +k8s:openapi-gen=true
 
-package v1beta1
+package v1beta2
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -29,7 +29,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "visibility.kueue.x-k8s.io", Version: "v1beta1"}
+	GroupVersion = schema.GroupVersion{Group: "visibility.kueue.x-k8s.io", Version: "v1beta2"}
 
 	// SchemeGroupVersion is alias to GroupVersion for client-go libraries.
 	// It is required by pkg/client/informers/externalversions/...

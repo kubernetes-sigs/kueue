@@ -14,10 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +kubebuilder:object:generate=true
-// +kubebuilder:skip
-// +groupName=visibility.kueue.x-k8s.io
-// +k8s:openapi-gen=true
-// +k8s:conversion-gen=sigs.k8s.io/kueue/apis/visibility/v1beta2
+package storage
 
-package v1beta1
+import (
+	"k8s.io/apiserver/pkg/registry/rest"
+
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+)
+
+func NewStorage(mgr *qcache.Manager) map[string]rest.Storage {
+	return map[string]rest.Storage{
+		"clusterqueues":                  NewCqREST(),
+		"clusterqueues/pendingworkloads": NewPendingWorkloadsInCqREST(mgr),
+		"localqueues":                    NewLqREST(),
+		"localqueues/pendingworkloads":   NewPendingWorkloadsInLqREST(mgr),
+	}
+}
