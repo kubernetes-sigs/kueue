@@ -440,6 +440,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
 		})
 
+		ac := utiltesting.MakeAdmissionCheck("testing-ac").
+			ControllerName(kueue.MultiKueueControllerName).
+			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Obj()
+		ginkgo.By("creating the admission check", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
+		})
+
+		config := utiltesting.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
+		ginkgo.By("creating the config", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, config)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, config) })
+		})
+
 		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.SecretLocationType, "testing-secret").Obj()
 		ginkgo.By("creating the cluster, its Active state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
@@ -455,6 +470,20 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
 						Message: "insecure kubeconfig: certificate-authority file paths are not allowed, use certificate-authority-data for cluster default-cluster",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoUsableClusters",
+						Message: "Inactive clusters: [testing-cluster]",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -485,6 +514,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "The admission check is active",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 
@@ -510,6 +552,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(os.WriteFile(fsKubeConfig, w1KubeconfigInvalidBytes, 0666)).Should(gomega.Succeed())
 		})
 
+		ac := utiltesting.MakeAdmissionCheck("testing-ac").
+			ControllerName(kueue.MultiKueueControllerName).
+			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Obj()
+		ginkgo.By("creating the admission check", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
+		})
+
+		config := utiltesting.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
+		ginkgo.By("creating the config", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, config)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, config) })
+		})
+
 		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.PathLocationType, fsKubeConfig).Obj()
 		ginkgo.By("creating the cluster, its Active state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
@@ -525,6 +582,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Status:  metav1.ConditionFalse,
 						Reason:  "InsecureKubeConfig",
 						Message: "insecure kubeconfig: tokenFile is not allowed",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoUsableClusters",
+						Message: "Inactive clusters: [testing-cluster]",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -545,6 +615,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",
 						Message: "Connected",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "The admission check is active",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -590,6 +673,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
 		})
 
+		ac := utiltesting.MakeAdmissionCheck("testing-ac").
+			ControllerName(kueue.MultiKueueControllerName).
+			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Obj()
+		ginkgo.By("creating the admission check", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
+		})
+
+		config := utiltesting.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
+		ginkgo.By("creating the config", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, config)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, config) })
+		})
+
 		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.SecretLocationType, "testing-secret").Obj()
 		ginkgo.By("creating the cluster, its Active state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
@@ -605,6 +703,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",
 						Message: "Connected",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "The admission check is active",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
