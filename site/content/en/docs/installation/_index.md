@@ -307,9 +307,6 @@ The SanitizePodSets and MultiKueueAllowInsecureKubeconfigs features are availabl
 
 | Feature                               | Default | Stage      | Since | Until |
 |---------------------------------------|---------|------------|-------|-------|
-| `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
-| `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
-| `ProvisioningACC`                     | `true`  | GA         | 0.14  |       |
 | `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   | 0.9   |
 | `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10  | 0.13  |
 | `ConfigurableResourceTransformations` | `true`  | GA         | 0.14  |       |
