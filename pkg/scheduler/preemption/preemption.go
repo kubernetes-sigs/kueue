@@ -198,7 +198,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 func (p *Preemptor) patchPreemption(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
 	return workload.Evict(ctx, p.client, p.recorder, w, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
-		workload.SetPreemptedCondition(w, reason, message)
+		workload.SetPreemptedCondition(w, p.clock.Now(), reason, message)
 		return w, nil
 	}))
 }
