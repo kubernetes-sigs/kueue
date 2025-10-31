@@ -226,9 +226,10 @@ func TestReconcile(t *testing.T) {
 
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
+	var backoffBaseSeconds int32 = 60
 	baseConfigWithRetryStrategy := baseConfig.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
 		BackoffLimitCount:  ptr.To[int32](3),
-		BackoffBaseSeconds: ptr.To[int32](60),
+		BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
 		BackoffMaxSeconds:  ptr.To[int32](1800),
 	})
 
@@ -567,14 +568,14 @@ func TestReconcile(t *testing.T) {
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:    "check1",
-						State:   kueue.CheckStateRetry,
-						Message: "Retrying after failure: ",
+						Name:                "check1",
+						State:               kueue.CheckStateRetry,
+						Message:             "Retrying after failure: ",
+						RequeueAfterSeconds: ptr.To(backoffBaseSeconds),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					RequeueState(ptr.To[int32](1), nil).
 					Obj(),
 			},
 		},
@@ -999,14 +1000,14 @@ func TestReconcile(t *testing.T) {
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:    "check1",
-						State:   kueue.CheckStateRetry,
-						Message: "Retrying after booking expired: ",
+						Name:                "check1",
+						State:               kueue.CheckStateRetry,
+						Message:             "Retrying after booking expired: ",
+						RequeueAfterSeconds: ptr.To(backoffBaseSeconds),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
-					RequeueState(ptr.To[int32](1), nil).
 					Admitted(false).
 					Obj(),
 			},

@@ -337,10 +337,9 @@ func TestSyncCheckStates(t *testing.T) {
 		"preserve conditions data": {
 			states: []kueue.AdmissionCheckState{
 				{
-					Name:               "ac0",
-					State:              kueue.CheckStateReady,
-					Message:            "Message one",
-					LastTransitionTime: metav1.NewTime(now),
+					Name:    "ac0",
+					State:   kueue.CheckStateReady,
+					Message: "Message one",
 				},
 				{
 					Name:  "ac1",
@@ -351,10 +350,9 @@ func TestSyncCheckStates(t *testing.T) {
 			wantChange: false,
 			wantStates: []kueue.AdmissionCheckState{
 				{
-					Name:               "ac0",
-					State:              kueue.CheckStateReady,
-					Message:            "Message one",
-					LastTransitionTime: metav1.NewTime(now),
+					Name:    "ac0",
+					State:   kueue.CheckStateReady,
+					Message: "Message one",
 				},
 				{
 					Name:  "ac1",
@@ -383,18 +381,16 @@ func TestSyncCheckStates(t *testing.T) {
 	}
 }
 
-var (
-	workloadCmpOpts = cmp.Options{
-		cmpopts.EquateEmpty(),
-		cmpopts.IgnoreFields(
-			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
-		),
-		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
-		cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt"),
-		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
-	}
-)
+var workloadCmpOpts = cmp.Options{
+	cmpopts.EquateEmpty(),
+	cmpopts.IgnoreFields(
+		kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
+	),
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+	cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+	cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt"),
+	cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+}
 
 func TestReconcile(t *testing.T) {
 	// the clock is primarily used with second rounded times
@@ -880,9 +876,10 @@ func TestReconcile(t *testing.T) {
 						Message: "Reset to Pending after eviction. Previously: Rejected",
 					},
 					kueue.AdmissionCheckState{
-						Name:    "check-2",
-						State:   kueue.CheckStatePending,
-						Message: "Reset to Pending after eviction. Previously: Retry",
+						Name:       "check-2",
+						State:      kueue.CheckStatePending,
+						Message:    "Reset to Pending after eviction. Previously: Retry",
+						RetryCount: ptr.To(int32(1)),
 					},
 				).
 				Conditions(
@@ -920,9 +917,10 @@ func TestReconcile(t *testing.T) {
 						Message: "Reset to Pending after eviction. Previously: Rejected",
 					},
 					kueue.AdmissionCheckState{
-						Name:    "check-2",
-						State:   kueue.CheckStatePending,
-						Message: "Reset to Pending after eviction. Previously: Retry",
+						Name:       "check-2",
+						State:      kueue.CheckStatePending,
+						Message:    "Reset to Pending after eviction. Previously: Retry",
+						RetryCount: ptr.To(int32(1)),
 					},
 				).
 				Conditions(
@@ -966,9 +964,10 @@ func TestReconcile(t *testing.T) {
 				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionChecks(kueue.AdmissionCheckState{
-					Name:    "check-1",
-					State:   kueue.CheckStatePending,
-					Message: "Reset to Pending after eviction. Previously: Retry",
+					Name:       "check-1",
+					State:      kueue.CheckStatePending,
+					Message:    "Reset to Pending after eviction. Previously: Retry",
+					RetryCount: ptr.To(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:    "check-2",
 					State:   kueue.CheckStatePending,
@@ -1102,7 +1101,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				Admitted(true).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
@@ -1145,7 +1144,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				Admitted(true).
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
@@ -1310,7 +1309,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1320,7 +1318,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadBackoffFinished,
 					Message: "The workload backoff was finished",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 		},
 		"should keep the WorkloadRequeued condition until the AdmissionCheck backoff expires": {
@@ -1355,7 +1352,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -1365,7 +1361,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadBackoffFinished,
 					Message: "The workload backoff was finished",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
@@ -2413,6 +2408,154 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 			wantError: nil,
+		},
+		"should update requeueState.requeueAt when admission check sets a delay": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(5*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(10)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(10)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(10)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantResult: reconcile.Result{Requeue: true},
+		},
+		"should not update requeueState.requeueAt when admission check delay is smaller": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 10 * time.Second},
+		},
+		"should always use the biggest admission check delay": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(7)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(7)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(10*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(7)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantResult: reconcile.Result{Requeue: true},
+		},
+		"should use the biggest total time not the biggest RequeueAfterSeconds": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime.Add(10 * time.Second)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(10)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(15*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime.Add(10 * time.Second)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(10)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, ptr.To(metav1.NewTime(testStartTime.Add(15*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check1",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(5)),
+					LastTransitionTime:  metav1.NewTime(testStartTime.Add(10 * time.Second)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check2",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: ptr.To(int32(10)),
+					LastTransitionTime:  metav1.NewTime(testStartTime),
+				}).
+				Obj(),
+			wantResult: reconcile.Result{Requeue: true},
 		},
 	}
 	for name, tc := range cases {
