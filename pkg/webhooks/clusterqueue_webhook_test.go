@@ -173,6 +173,29 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 		},
 		{
+			name: "flavor fungibility preference requires TryNextFlavor",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.MayStopSearch,
+					Preference:     ptr.To(kueue.PreferencePreempting),
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("flavorFungibility").Child("preference"), kueue.PreferencePreempting, "preference must be unset unless whenCanBorrow and whenCanPreempt are both TryNextFlavor"),
+			},
+		},
+		{
+			name: "flavor fungibility preference allowed when both TryNextFlavor",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.PreferencePreempting),
+				}).
+				Obj(),
+		},
+		{
 			name:                "flavor quota with lendingLimit and empty cohort, but feature disabled",
 			disableLendingLimit: true,
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").

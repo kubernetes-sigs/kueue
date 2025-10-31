@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -108,7 +109,6 @@ func TestAssignFlavors(t *testing.T) {
 		simulationResult                    map[resources.FlavorResource]simulationResultForFlavor
 		elasticJobsViaWorkloadSlicesEnabled bool
 		preemptWorkloadSlice                *workload.Info
-		enableImplicitPreferenceDefault     bool
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -2633,7 +2633,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt within cohort": {
-			enableImplicitPreferenceDefault: true,
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -2644,6 +2643,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt: kueue.TryNextFlavor,
 					WhenCanBorrow:  kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.PreferencePreempting),
 				}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
@@ -2687,7 +2687,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"preferPreemption; preempt without borrowing is preferred over fit with borrowing; preempt in own CQ": {
-			enableImplicitPreferenceDefault: true,
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -2698,6 +2697,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt: kueue.TryNextFlavor,
 					WhenCanBorrow:  kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.PreferencePreempting),
 				}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
@@ -2741,7 +2741,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"preferPreemption; fit without borrowing is preferred over fit with borrowing": {
-			enableImplicitPreferenceDefault: true,
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "10").
@@ -2752,6 +2751,7 @@ func TestAssignFlavors(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt: kueue.TryNextFlavor,
 					WhenCanBorrow:  kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.PreferencePreempting),
 				}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
@@ -2797,9 +2797,7 @@ func TestAssignFlavors(t *testing.T) {
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
-			if tc.enableImplicitPreferenceDefault {
-				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
-			}
+			// Preference is now derived solely from ClusterQueue.Spec.FlavorFungibility
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,

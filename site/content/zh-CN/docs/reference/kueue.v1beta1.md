@@ -1400,6 +1400,13 @@ to fit in current flavor.</li>
 </ul>
 </td>
 </tr>
+<tr><td><code>preference</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference"><code>FlavorFungibilityPreference</code></a>
+</td>
+<td>
+   <p>当 <code>whenCanBorrow</code> 和 <code>whenCanPreempt</code> 都设置为 <code>TryNextFlavor</code> 时，<code>preference</code> 用来选择优先借用还是优先抢占。如果不设置，默认是先考虑借用。只有在两个策略都为 <code>TryNextFlavor</code> 时才可以设置该字段。</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1444,6 +1451,32 @@ ClusterQueue will have an Active condition set to False.</p>
 <td>
    <p>resources is the list of quotas for this flavor per resource.
 There could be up to 16 resources.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `FlavorFungibilityPreference`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPreference}
+    
+
+<p>FlavorFungibilityPreference 定义在允许借用和抢占时的选择顺序。</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Value</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>Borrowing</code>
+</td>
+<td>
+   <p>优先选择需要借用的分配，再考虑需要抢占的分配。</p>
+</td>
+</tr>
+<tr><td><code>Preempting</code>
+</td>
+<td>
+   <p>优先避免借用，即使这意味着需要抢占。</p>
 </td>
 </tr>
 </tbody>

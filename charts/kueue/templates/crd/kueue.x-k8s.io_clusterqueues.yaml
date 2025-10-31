@@ -192,6 +192,16 @@ spec:
                     flavorFungibility defines whether a workload should try the next flavor
                     before borrowing or preempting in the flavor being evaluated.
                   properties:
+                    preference:
+                      description: |-
+                        preference selects the order between borrowing-first and preemption-first
+                        when both WhenCanBorrow and WhenCanPreempt are set to `TryNextFlavor`.
+                        If unset, the default preference is borrowing-first.
+                        Preference must be unset when either WhenCanBorrow or WhenCanPreempt is not `TryNextFlavor`.
+                      enum:
+                        - Borrowing
+                        - Preempting
+                      type: string
                     whenCanBorrow:
                       default: MayStopSearch
                       description: |-
@@ -948,6 +958,16 @@ spec:
                     flavorFungibility defines whether a workload should try the next flavor
                     before borrowing or preempting in the flavor being evaluated.
                   properties:
+                    preference:
+                      description: |-
+                        preference selects the order between borrowing-first and preemption-first
+                        when both WhenCanBorrow and WhenCanPreempt are set to `TryNextFlavor`.
+                        If unset, the default preference is borrowing-first. Preference must be
+                        unset when either WhenCanBorrow or WhenCanPreempt is not `TryNextFlavor`.
+                      enum:
+                        - Borrowing
+                        - Preempting
+                      type: string
                     whenCanBorrow:
                       default: MayStopSearch
                       description: |-
