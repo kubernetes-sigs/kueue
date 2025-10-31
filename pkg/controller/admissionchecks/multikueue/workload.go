@@ -123,6 +123,24 @@ func (g *wlGroup) FirstReserving() (bool, string) {
 	return found, bestMatch
 }
 
+func (g *wlGroup) FirstEvicted() (bool, string) {
+	found := false
+	bestMatch := ""
+	var bestTime time.Time
+	for remote, wl := range g.remotes {
+		if wl == nil {
+			continue
+		}
+		c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+		if c != nil && c.Status == metav1.ConditionTrue && (!found || bestTime.IsZero() || c.LastTransitionTime.Time.Before(bestTime)) {
+			found = true
+			bestMatch = remote
+			bestTime = c.LastTransitionTime.Time
+		}
+	}
+	return found, bestMatch
+}
+
 func (g *wlGroup) RemoteFinishedCondition() (*metav1.Condition, string) {
 	var bestMatch *metav1.Condition
 	bestMatchRemote := ""
@@ -401,6 +419,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 3. get the first reserving
 	hasReserving, reservingRemote := group.FirstReserving()
+	hasEvicted, evictedRemote := group.FirstEvicted()
 	if hasReserving {
 		// remove the non-reserving worker workloads
 		for rem, remWl := range group.remotes {
@@ -415,7 +434,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
-			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
+			log.V(2).Error(err, "syncing remote and local job status", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return reconcile.Result{}, err
 		}
@@ -444,6 +463,21 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			w.recorder.Eventf(group.local, corev1.EventTypeNormal, "MultiKueue", acs.Message)
 		}
 		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
+	} else if hasEvicted {
+		if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[evictedRemote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
+			log.V(2).Error(err, "syncing remote and local job status", "remote", evictedRemote)
+			// We'll retry this in the next reconcile.
+			return reconcile.Result{}, err
+		}
+
+		err := clientutil.PatchStatus(ctx, w.client, group.local, func() (client.Object, bool, error) {
+			group.local.Status = group.remotes[evictedRemote].Status
+			return group.local, true, nil
+		})
+		if err != nil {
+			log.V(2).Error(err, "copying workload status", "remote", evictedRemote)
+			return reconcile.Result{}, err
+		}
 	} else if acs.State == kueue.CheckStateReady {
 		// If there is no reserving and the AC is ready, the connection with the reserving remote might
 		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
