@@ -185,7 +185,8 @@ const (
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
-	// Use balanced placement algorithm in TAS
+	// Use balanced placement algorithm in TAS. This feature gate is going to be replaced by an API
+	// before graduation or deprecation.
 	TASBalancedPlacement featuregate.Feature = "TASBalancedPlacement"
 
 	// owner: @alaypatel07
