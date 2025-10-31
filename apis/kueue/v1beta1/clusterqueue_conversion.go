@@ -45,3 +45,7 @@ func Convert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta2.Cl
 	out.Cohort = CohortReference(in.CohortName)
 	return autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in, out, s)
 }
+
+func Convert_v1beta1_ClusterQueueStatus_To_v1beta2_ClusterQueueStatus(in *ClusterQueueStatus, out *v1beta2.ClusterQueueStatus, s conversionapi.Scope) error {
+	return autoConvert_v1beta1_ClusterQueueStatus_To_v1beta2_ClusterQueueStatus(in, out, s)
+}

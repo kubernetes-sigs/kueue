@@ -236,7 +236,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			configCmpOpts := cmp.Options{
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"),
 				cmpopts.EquateEmpty(),
 			}
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {

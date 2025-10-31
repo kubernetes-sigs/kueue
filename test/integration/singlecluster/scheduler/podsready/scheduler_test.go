@@ -40,7 +40,6 @@ import (
 
 var (
 	ignoreCQConditions                       = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
-	ignorePendingWorkloadsStatus             = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 	defaultRequeuingBackoffLimitCount *int32 = nil
 )
 
@@ -402,7 +401,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 							Total: resource.MustParse("2"),
 						}},
 					}},
-				}, ignoreCQConditions, ignorePendingWorkloadsStatus))
+				}, ignoreCQConditions))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("wait for the timeout to be exceeded")
@@ -439,7 +438,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 							Total: resource.MustParse("0"),
 						}},
 					}},
-				}, ignoreCQConditions, ignorePendingWorkloadsStatus))
+				}, ignoreCQConditions))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("verify the active workload metric is decreased for the cluster queue")
