@@ -265,7 +265,7 @@ To use this feature, use the `kueue.x-k8s.io/podset-preferred-topology` annotati
 sure that the minimum number of pods (or slices) placed on any domain **one level below** the indicated level
 will be maximied. Also (as a second criteria) the number of domains used on the indicated level will be
 minimized. However, if the Job would not fit within a single domain **one level above** the indicated level,
-Kueue will not perform the balanced placement and will fallback to the standard algorithm.
+Kueue will not perform the balanced placement and will fallback to the standard TAS algorithm.
 
 ### Limitations
 
