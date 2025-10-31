@@ -174,8 +174,23 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 			)...)
 		}
 
-		if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
-			allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+		if oldReplicas == 0 && newReplicas > 0 {
+			// Block if pods are still terminating
+			if newStatefulSet.Status.Replicas > 0 {
+				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+			}
+
+			// Block if workload is still being deleted
+			workloadName := GetWorkloadName(oldStatefulSet.GetName())
+			wlKey := client.ObjectKey{Namespace: oldStatefulSet.GetNamespace(), Name: workloadName}
+			var wl kueue.Workload
+			err := wh.client.Get(ctx, wlKey, &wl)
+			if client.IgnoreNotFound(err) != nil {
+				return nil, err
+			}
+			if err == nil {
+				allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
+			}
 		}
 	}
 
