@@ -298,8 +298,6 @@ spec:
 
 | 功能                                    | 默认值  | 阶段       | 起始版本    | 截止版本    |
 |---------------------------------------| ------- | ---------- |---------|---------|
-| `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10    | 0.13    |
-| `ManagedJobsNamespaceSelector`        | `true`  | GA         | 0.13    |         |
 | `ProvisioningACC`                     | `false` | Alpha      | 0.5     | 0.6     |
 | `ProvisioningACC`                     | `true`  | Beta       | 0.7     |         |
 | `ProvisioningACC`                     | `true`  | GA         | 0.14    |         |
