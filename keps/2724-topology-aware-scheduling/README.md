@@ -958,7 +958,7 @@ In v1beta2, the data format is reshaped, with the main goal of improving handlin
 ```golang
 type TopologyAssignment struct {
   // (same role & comments as in v1beta1)
-  Levels []string
+  Levels []string `json:"levels"`
 
   // slices represent topology assignments for subsets of pods of a workload.
   // The full assignment is obtained as a union of all slices.
@@ -966,15 +966,15 @@ type TopologyAssignment struct {
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=30000
-  Slices []TopologyAssignmentSlice
+  Slices []TopologyAssignmentSlice `json:"slices"`
 }
 
 // TopologyAssignmentSlice fully specifies the topology assignment for a subset of pods of a workload.
 type TopologyAssignmentSlice struct {
-  // size is the number of domains covered by this slice.
+  // domainCount is the number of domains covered by this slice.
   // +required
   // +kubebuilder:validation:Minimum=1
-  Size int32
+  DomainCount int32 `json:"domainCount"`
 
   // valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
   // The entry corresponding to a particular level specifies the placement of pods at that level.
@@ -982,46 +982,46 @@ type TopologyAssignmentSlice struct {
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=16
-  ValuesPerLevel []TopologyAssignmentSliceLevelValues
+  ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel"`
 
-  // counts specifies the number of pods allocated per each domain.
+  // podCounts specifies the number of pods allocated per each domain.
   // May be omitted if all values are identical; if so, UniversalCount is used instead.
-  // If set, its length must be equal to the "size" field.
+  // If set, its length must be equal to the "domainCount" field.
   // Exactly one of count, universalCount must be set.
   // +optional
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=100000
-  Counts []int32 `json:"omitempty"`
+  PodCounts []int32 `json:"podCounts,omitempty"`
 
-  // universalCount, if set, specifies the number of pods allocated in every domain in this slice.
-  // Exactly one of count, universalCount must be set.
+  // universalPodCount, if set, specifies the number of pods allocated in every domain in this slice.
+  // Exactly one of count, universalPodCount must be set.
   // +optional
-  UniversalCount *int32 `json:"omitempty"`
+  UniversalPodCount *int32 `json:"universalPodCount,omitempty"`
 }
 
 type TopologyAssignmentSliceLevelValues struct {
-  // commonPrefix specifies a common prefix for all values in this slice assignment.
+  // prefix specifies a common prefix for all values in this slice assignment.
   // +optional
-  CommonPrefix *string `json:"omitempty"`
-  // commonSuffix specifies a common suffix for all values in this slice assignment.
+  Prefix *string `json:"prefix,omitempty"`
+  // suffix specifies a common suffix for all values in this slice assignment.
   // +optional
-  CommonSuffix *string `json:"omitempty"`
+  Suffix *string `json:"suffix,omitempty"`
 
-  // roots specifies the values in this assignment, excluding commonPrefix and commonSuffix, if non-empty.
-  // May be omitted if all values are identical; if so, UniversalCount is used instead.
-  // If set, its length must be equal to the "size" field of the TopologyAssignmentSlice.
+  // roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+  // May be omitted if all values are identical; if so, UniversalValue is used instead.
+  // If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
   // +optional
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=100000
-  Roots []string
+  Roots []string `json:"roots,omitempty"`
 
-  // universalCount, if set, specifies the topology assignment value (on the current topology level)
+  // universalValue, if set, specifies the topology assignment value (on the current topology level)
   // that applies to every domain in the current slice.
-  // Mutually exclusive with roots, commonPrefix and commonSuffix.
+  // Mutually exclusive with roots, prefix and suffix.
   // +optional
-  UniversalValue *string
+  UniversalValue *string `json:"universalValue,omitempty"`
 }
 ```
 
@@ -1035,12 +1035,12 @@ topologyAssignment:
   - cloud.provider.com/topology-block
   - cloud.provider.com/topology-rack
   slices:
-  - size: 2
+  - domainCount: 2
     valuesPerLevel:
     - universalValue: block-1
-    - commonPrefix: rack-
+    - prefix: rack-
       roots: [1, 2]
-    counts: [4, 2]
+    podCounts: [4, 2]
 ```
 
 The above example has one slice, specifying 2 domains on 2 topology levels. On the block level, all domains take the same value (`block-1`), which allows using `universalValue`. On the rack level, the values diverge (`rack-1`) vs. (`rack-2`) but they still share a relatively long common prefix. The new representation allows deduplicating characters between these.
@@ -1051,16 +1051,16 @@ Multiple slices may be used e.g. for a host-level assignment when the nodes bein
 topologyAssignment:
   levels: [kubernetes.io/hostname]
   slices:
-  - size: 5
+  - domainCount: 5
     valuesPerLevel:
-    - commonPrefix: pool-1-node-
+    - prefix: pool-1-node-
       roots: [1, 2, 3, 4, 5]
-    universalCount: 1
-  - size: 7
+    universalPodCount: 1
+  - domainCount: 7
     valuesPerLevel:
-    - commonPrefix: pool-2-node-
+    - prefix: pool-2-node-
       roots: [1, 2, 3, 4, 5, 6, 7]
-    universalCount: 1
+    universalPodCount: 1
 ```
 
 The main motivation behind the new format is the etcd size limit of 1.5MiB per single resource, which currently restricts the number of nodes that can participate in the assignment for a single workload. (For the v1beta1 format, and the real-life node naming schemes of main K8s vendors, the limit is around 20-30k). The new format helps addressing this problem in 2 time perspectives:
@@ -1726,6 +1726,6 @@ For these reasons, if we choose to do it, we would likely extract only "excess" 
 
 **Reasons for discarding/deferring**
 
-- Decreased readability of the API (some info delegated to other objects).
+- Decreased UX of the API (some info delegated to other objects).
 - Decreased performance of Kueue scheduler (need to do more etcd reads and writes). \
   (In particular, even when we end up using slices in separate CRDs, the "compression capabilities" introduced in v1beta2 are going to improve performance by reducing the necessary number of such slices).
