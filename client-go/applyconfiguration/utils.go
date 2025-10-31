@@ -223,8 +223,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.KubeConfigApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta2.LocalQueueApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFlavorStatus"):
-		return &kueuev1beta2.LocalQueueFlavorStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
 		return &kueuev1beta2.LocalQueueFlavorUsageApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("LocalQueueResourceUsage"):
@@ -285,8 +283,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.TopologyAssignmentApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologyDomainAssignment"):
 		return &kueuev1beta2.TopologyDomainAssignmentApplyConfiguration{}
-	case v1beta2.SchemeGroupVersion.WithKind("TopologyInfo"):
-		return &kueuev1beta2.TopologyInfoApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologyLevel"):
 		return &kueuev1beta2.TopologyLevelApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("TopologySpec"):

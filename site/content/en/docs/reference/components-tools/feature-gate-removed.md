@@ -39,3 +39,5 @@ In the following table:
 | `ProvisioningACC`                 | `false` | Alpha      | 0.5  | 0.6  |
 | `ProvisioningACC`                 | `true`  | Beta       | 0.7  | 0.14 |
 | `ProvisioningACC`                 | `true`  | GA         | 0.14 | 0.15 |
+| `ExposeFlavorsInLocalQueue`       | `false` | Beta       | 0.9  | 0.15 |
+| `ExposeFlavorsInLocalQueue`       | `false` | Deprecated | 0.15 | 0.15 |
