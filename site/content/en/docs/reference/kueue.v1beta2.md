@@ -466,8 +466,6 @@ The description is limited to a maximum of 2048 characters.</p>
 
 - [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta2-AdmissionCheckStrategyRule)
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
-
 
 <p>AdmissionCheckReference is the name of an AdmissionCheck.</p>
 
@@ -984,21 +982,11 @@ before borrowing or preempting in the flavor being evaluated.</p>
    <p>preemption defines the preemption policies.</p>
 </td>
 </tr>
-<tr><td><code>admissionChecks</code><br/>
-<a href="#kueue-x-k8s-io-v1beta2-AdmissionCheckReference"><code>[]AdmissionCheckReference</code></a>
-</td>
-<td>
-   <p>admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-Cannot be used along with AdmissionCheckStrategy.
-Admission checks are limited to at most 64 items.</p>
-</td>
-</tr>
 <tr><td><code>admissionChecksStrategy</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-AdmissionChecksStrategy"><code>AdmissionChecksStrategy</code></a>
 </td>
 <td>
-   <p>admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
-This property cannot be used in conjunction with the 'admissionChecks' property.</p>
+   <p>admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.</p>
 </td>
 </tr>
 <tr><td><code>stopPolicy</code><br/>

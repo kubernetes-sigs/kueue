@@ -935,9 +935,19 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 	return c
 }
 
-// AdmissionChecks replaces the queue additional checks
+// AdmissionChecks replaces the queue additional checks.
+// This is a convenience wrapper that converts to the AdmissionChecksStrategy format.
 func (c *ClusterQueueWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckReference) *ClusterQueueWrapper {
-	c.Spec.AdmissionChecks = checks
+	// Convert simple admission check references to the strategy format
+	acs := make([]kueue.AdmissionCheckStrategyRule, len(checks))
+	for i, check := range checks {
+		acs[i] = kueue.AdmissionCheckStrategyRule{
+			Name: check,
+		}
+	}
+	c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+		AdmissionChecks: acs,
+	}
 	return c
 }
 

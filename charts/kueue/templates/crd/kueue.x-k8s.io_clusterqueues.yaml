@@ -838,21 +838,8 @@ spec:
             spec:
               description: spec is the specification of the ClusterQueue.
               properties:
-                admissionChecks:
-                  description: |-
-                    admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-                    Cannot be used along with AdmissionCheckStrategy.
-                    Admission checks are limited to at most 64 items.
-                  items:
-                    description: AdmissionCheckReference is the name of an AdmissionCheck.
-                    maxLength: 316
-                    minLength: 1
-                    type: string
-                  type: array
                 admissionChecksStrategy:
-                  description: |-
-                    admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
-                    This property cannot be used in conjunction with the 'admissionChecks' property.
+                  description: admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
                   properties:
                     admissionChecks:
                       description: admissionChecks is a list of strategies for AdmissionChecks

@@ -115,14 +115,7 @@ type ClusterQueueSpec struct {
 	// +optional
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
-	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
-	// Cannot be used along with AdmissionCheckStrategy.
-	// Admission checks are limited to at most 64 items.
-	// +optional
-	AdmissionChecks []AdmissionCheckReference `json:"admissionChecks,omitempty"` //nolint:kubeapilinter // field is being removed
-
 	// admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
-	// This property cannot be used in conjunction with the 'admissionChecks' property.
 	// +optional
 	AdmissionChecksStrategy *AdmissionChecksStrategy `json:"admissionChecksStrategy,omitempty"`
 
