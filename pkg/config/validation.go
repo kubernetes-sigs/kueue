@@ -47,8 +47,6 @@ var (
 	integrationsPath                     = field.NewPath("integrations")
 	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath    = integrationsPath.Child("externalFrameworks")
-	podOptionsPath                       = integrationsPath.Child("podOptions")
-	podOptionsNamespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
 	managedJobsNamespaceSelectorPath     = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath                 = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -255,19 +253,9 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	// At least one namespace selector must be non-nil and enabled.
-	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
-	hasNamespaceSelector := false
 	if c.ManagedJobsNamespaceSelector != nil {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-		allErrs = validateNamespaceSelectorForPodIntegration(c, c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-
-	if !hasNamespaceSelector {
+	} else {
 		allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 	}
 

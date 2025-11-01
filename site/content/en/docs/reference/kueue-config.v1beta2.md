@@ -455,16 +455,6 @@ Possible options:</p>
 the expected format is <code>Kind.version.group.com</code>.</p>
 </td>
 </tr>
-<tr><td><code>podOptions</code> <B>[Required]</B><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
-</td>
-<td>
-   <p>PodOptions defines kueue controller behaviour for pod objects
-Deprecated: This field will be removed on v1beta2, use ManagedJobsNamespaceSelector
-(https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/)
-instead.</p>
-</td>
-</tr>
 <tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>
@@ -645,37 +635,6 @@ the expected format is <code>kind.version.group</code>.</p>
 <td>
    <p>Workloads configures retention for Workloads.
 A nil value disables automatic deletion of Workloads.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
-## `PodIntegrationOptions`     {#config-kueue-x-k8s-io-v1beta2-PodIntegrationOptions}
-    
-
-**Appears in:**
-
-- [Integrations](#config-kueue-x-k8s-io-v1beta2-Integrations)
-
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>namespaceSelector</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
-</td>
-<td>
-   <p>NamespaceSelector can be used to omit some namespaces from pod reconciliation</p>
-</td>
-</tr>
-<tr><td><code>podSelector</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
-</td>
-<td>
-   <p>PodSelector can be used to choose what pods to reconcile</p>
 </td>
 </tr>
 </tbody>
