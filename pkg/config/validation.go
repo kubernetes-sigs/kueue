@@ -253,7 +253,6 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	// managedJobsNamespaceSelector must be non-nil when pod integration is enabled
 	if c.ManagedJobsNamespaceSelector != nil {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
 	} else {
