@@ -669,7 +669,7 @@ func TestProcessOptions(t *testing.T) {
 				ManageJobsWithoutQueueName: true,
 				WaitForPodsReady:           true,
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
-				IntegrationOptions:         map[string]any{},
+				IntegrationOptions:         nil,
 				LabelKeysToCopy:            []string{"toCopyKey"},
 				Clock:                      fakeClock,
 			},
