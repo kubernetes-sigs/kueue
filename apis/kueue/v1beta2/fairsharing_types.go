@@ -65,7 +65,7 @@ type AdmissionFairSharingStatus struct {
 	// with decaying function applied.
 	// The value is populated if usage consumption functionality is enabled in Kueue config.
 	// +required
-	ConsumedResources corev1.ResourceList `json:"consumedResources"`
+	ConsumedResources corev1.ResourceList `json:"consumedResources"` //nolint:kubeapilinter // map type is required for standard Kubernetes ResourceList
 
 	// lastUpdate is the time when share and consumed resources were updated.
 	// +required
