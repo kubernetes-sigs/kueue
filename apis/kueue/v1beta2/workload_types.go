@@ -75,7 +75,7 @@ type WorkloadSpec struct {
 	//
 	// Defaults to true
 	// +kubebuilder:default=true
-	Active *bool `json:"active,omitempty"`
+	Active *bool `json:"active,omitempty"` //nolint:kubeapilinter
 
 	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
@@ -113,7 +113,7 @@ type PodSetTopologyRequest struct {
 	//
 	// +optional
 	// +kubebuilder:validation:Type=boolean
-	Unconstrained *bool `json:"unconstrained,omitempty"`
+	Unconstrained *bool `json:"unconstrained,omitempty"` //nolint:kubeapilinter
 
 	// podIndexLabel indicates the name of the label indexing the pods.
 	// For example, in the context of
