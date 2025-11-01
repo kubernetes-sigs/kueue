@@ -1188,7 +1188,7 @@ func autoConvert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *Cluste
 	out.NamespaceSelector = (*v1.LabelSelector)(unsafe.Pointer(in.NamespaceSelector))
 	out.FlavorFungibility = (*v1beta2.FlavorFungibility)(unsafe.Pointer(in.FlavorFungibility))
 	out.Preemption = (*v1beta2.ClusterQueuePreemption)(unsafe.Pointer(in.Preemption))
-	out.AdmissionChecks = *(*[]v1beta2.AdmissionCheckReference)(unsafe.Pointer(&in.AdmissionChecks))
+	// WARNING: in.AdmissionChecks requires manual conversion: does not exist in peer-type
 	out.AdmissionChecksStrategy = (*v1beta2.AdmissionChecksStrategy)(unsafe.Pointer(in.AdmissionChecksStrategy))
 	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
@@ -1203,7 +1203,6 @@ func autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta
 	out.NamespaceSelector = (*v1.LabelSelector)(unsafe.Pointer(in.NamespaceSelector))
 	out.FlavorFungibility = (*FlavorFungibility)(unsafe.Pointer(in.FlavorFungibility))
 	out.Preemption = (*ClusterQueuePreemption)(unsafe.Pointer(in.Preemption))
-	out.AdmissionChecks = *(*[]AdmissionCheckReference)(unsafe.Pointer(&in.AdmissionChecks))
 	out.AdmissionChecksStrategy = (*AdmissionChecksStrategy)(unsafe.Pointer(in.AdmissionChecksStrategy))
 	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))

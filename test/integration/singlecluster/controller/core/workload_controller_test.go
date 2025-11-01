@@ -246,7 +246,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				queueKey := client.ObjectKeyFromObject(clusterQueue)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
-					createdQueue.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check2", "check3"}
+					createdQueue.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+						AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+							{Name: "check2"},
+							{Name: "check3"},
+						},
+					}
 					g.Expect(k8sClient.Update(ctx, &createdQueue)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

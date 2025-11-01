@@ -105,7 +105,6 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
@@ -171,15 +170,6 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
 	}
-	return allErrs
-}
-
-func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if spec.AdmissionChecksStrategy != nil && len(spec.AdmissionChecks) != 0 {
-		allErrs = append(allErrs, field.Invalid(path, spec, "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"))
-	}
-
 	return allErrs
 }
 

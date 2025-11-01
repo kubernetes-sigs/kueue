@@ -799,7 +799,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedCq := &kueue.ClusterQueue{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = nil
 				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
 					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
 						*utiltestingapi.MakeAdmissionCheckStrategyRule("check1", flavorCPUArchA).Obj(),
@@ -831,8 +830,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check1"}
-				updatedCq.Spec.AdmissionChecksStrategy = nil
+				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+						{Name: "check1"},
+					},
+				}
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
