@@ -23,7 +23,7 @@ linters:
               # - "nobools" # Bools do not evolve over time, should use enums instead.
               - "nodurations" # Prevents usage of `Duration` types.
               - "nofloats" # Ensure floats are not used.
-              # - "nomaps" # Ensure maps are not used.
+              - "nomaps" # Ensure maps are not used.
               - "nonullable" # Ensure that types and fields do not have the nullable marker.
               - "notimestamp" # Prevents usage of 'Timestamp' fields
               # - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and

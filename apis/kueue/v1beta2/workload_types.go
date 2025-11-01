@@ -190,7 +190,7 @@ type PodSetAssignment struct {
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
 	// This field will not change in case of quota reclaim.
-	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
+	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"` //nolint:kubeapilinter
 
 	// count is the number of pods taken into account at admission time.
 	// This field will not change in case of quota reclaim.
@@ -627,7 +627,7 @@ type PodSetRequest struct {
 	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
 	// and the application of resource.excludeResourcePrefixes and resource.transformations.
 	// +optional
-	Resources corev1.ResourceList `json:"resources,omitempty"`
+	Resources corev1.ResourceList `json:"resources,omitempty"` //nolint:kubeapilinter
 }
 
 const (
