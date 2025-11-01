@@ -75,7 +75,7 @@ type WorkloadSpec struct {
 	//
 	// Defaults to true
 	// +kubebuilder:default=true
-	Active *bool `json:"active,omitempty"`
+	Active *bool `json:"active,omitempty"` //nolint:kubeapilinter
 
 	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
@@ -113,7 +113,7 @@ type PodSetTopologyRequest struct {
 	//
 	// +optional
 	// +kubebuilder:validation:Type=boolean
-	Unconstrained *bool `json:"unconstrained,omitempty"`
+	Unconstrained *bool `json:"unconstrained,omitempty"` //nolint:kubeapilinter
 
 	// podIndexLabel indicates the name of the label indexing the pods.
 	// For example, in the context of
@@ -190,7 +190,7 @@ type PodSetAssignment struct {
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
 	// This field will not change in case of quota reclaim.
-	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
+	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"` //nolint:kubeapilinter
 
 	// count is the number of pods taken into account at admission time.
 	// This field will not change in case of quota reclaim.
@@ -627,7 +627,7 @@ type PodSetRequest struct {
 	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
 	// and the application of resource.excludeResourcePrefixes and resource.transformations.
 	// +optional
-	Resources corev1.ResourceList `json:"resources,omitempty"`
+	Resources corev1.ResourceList `json:"resources,omitempty"` //nolint:kubeapilinter
 }
 
 const (
