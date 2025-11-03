@@ -261,7 +261,7 @@ capacities (10,10) will be placed (10,2). However, in some applications, a more 
 be more efficient. Some examples of such cases would be all-to-all communication procedures (e.g. Allgather)
 since more balanced placement leads to more efficient cross-domain traffic.
 
-To use this feature, use the `kueue.x-k8s.io/podset-preferred-topology` annotation on the Job. Kueue TAS make 
+To use this feature, use the `kueue.x-k8s.io/podset-preferred-topology` annotation on the Job. Kueue TAS makes 
 sure that the minimum number of pods (or slices) placed on any domain **one level below** the indicated level
 will be maximied. Also (as a second criterion) the number of domains used on the indicated level will be
 minimized. However, if the Job would not fit within a single domain **one level above** the indicated level,
