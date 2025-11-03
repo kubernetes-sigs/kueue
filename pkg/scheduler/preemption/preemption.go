@@ -60,9 +60,6 @@ type Preemptor struct {
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
 
-	// stubs
-	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
-
 	enabledAfs bool
 }
 
@@ -94,12 +91,7 @@ func New(
 		fsStrategies:      parseStrategies(fs.PreemptionStrategies),
 		enabledAfs:        enabledAfs,
 	}
-	p.applyPreemption = p.patchPreemption
 	return p
-}
-
-func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, string, string) error) {
-	p.applyPreemption = f
 }
 
 type Target struct {
@@ -178,7 +170,11 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.WorkloadInfo.Obj.Status.Conditions, kueue.WorkloadEvicted) {
 			message := preemptionMessage(preemptor.Obj, target.Reason)
-			err := p.applyPreemption(ctx, target.WorkloadInfo.Obj, target.Reason, message)
+			wlCopy := target.WorkloadInfo.Obj.DeepCopy()
+			err := workload.Evict(ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+				workload.SetPreemptedCondition(wlCopy, p.clock.Now(), target.Reason, message)
+				return wlCopy, nil
+			}))
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
 				return
@@ -193,14 +189,6 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		successfullyPreempted.Add(1)
 	})
 	return int(successfullyPreempted.Load()), errCh.ReceiveError()
-}
-
-func (p *Preemptor) patchPreemption(ctx context.Context, w *kueue.Workload, reason, message string) error {
-	w = w.DeepCopy()
-	return workload.Evict(ctx, p.client, p.recorder, w, kueue.WorkloadEvictedByPreemption, message, "", p.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
-		workload.SetPreemptedCondition(w, p.clock.Now(), reason, message)
-		return w, nil
-	}))
 }
 
 type preemptionAttemptOpts struct {
