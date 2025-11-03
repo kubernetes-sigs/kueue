@@ -20,11 +20,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	tools "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +43,8 @@ const (
 
 var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
+	crdNotifiers             = make(map[schema.GroupVersionKind][]chan struct{})
+	crdNotifiersMu           sync.RWMutex
 )
 
 // SetupControllers setups all controllers and webhooks for integrations.
@@ -50,6 +57,8 @@ var (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	go startCRDInformer(ctx, mgr, log)
+
 	return manager.setupControllers(ctx, mgr, log, opts...)
 }
 
@@ -147,6 +156,7 @@ func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 }
 
 func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
+	crdNotifyCh := registerCRDNotifier(gvk)
 	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
 	item := gvk.String()
 	for {
@@ -161,6 +171,9 @@ func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk sche
 		select {
 		case <-ctx.Done():
 			return
+		case <-crdNotifyCh:
+			log.V(2).Info("Received CRD notification, checking API availability", "gvk", gvk)
+			continue
 		case <-time.After(rateLimiter.When(item)):
 			continue
 		}
@@ -192,4 +205,99 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Opti
 		}
 		return nil
 	})
+}
+
+// startCRDInformer watches for CRD additions/updates and notifies waitForAPI immediately
+func startCRDInformer(ctx context.Context, mgr ctrl.Manager, log logr.Logger) {
+	crdClient, err := clientset.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		log.V(2).Info("Failed to create CRD client for informer, falling back to polling", "error", err)
+		return
+	}
+
+	factory := externalversions.NewSharedInformerFactory(crdClient, 0)
+	crdInformer := factory.Apiextensions().V1().CustomResourceDefinitions().Informer()
+
+	handler := tools.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			crd := obj.(*apiextensionsv1.CustomResourceDefinition)
+			if isCRDEstablished(crd) {
+				notifyCRDAvailable(crd, log)
+			}
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			crd := newObj.(*apiextensionsv1.CustomResourceDefinition)
+			if isCRDEstablished(crd) {
+				notifyCRDAvailable(crd, log)
+			}
+		},
+	}
+
+	if _, err := crdInformer.AddEventHandler(handler); err != nil {
+		log.V(2).Info("Failed to add CRD informer handler, falling back to polling", "error", err)
+		return
+	}
+
+	factory.Start(ctx.Done())
+	if !tools.WaitForCacheSync(ctx.Done(), crdInformer.HasSynced) {
+		log.V(2).Info("CRD informer cache failed to sync, falling back to polling")
+		return
+	}
+
+	log.V(2).Info("CRD informer started successfully")
+	<-ctx.Done()
+}
+
+// isCRDEstablished checks if a CRD has the Established condition
+func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// notifyCRDAvailable notifies all waiters for this CRD's GVK
+func notifyCRDAvailable(crd *apiextensionsv1.CustomResourceDefinition, log logr.Logger) {
+	var version string
+	for _, v := range crd.Spec.Versions {
+		if v.Storage {
+			version = v.Name
+			break
+		}
+	}
+	if version == "" && len(crd.Spec.Versions) > 0 {
+		version = crd.Spec.Versions[0].Name
+	}
+
+	gvk := schema.GroupVersionKind{
+		Group:   crd.Spec.Group,
+		Version: version,
+		Kind:    crd.Spec.Names.Kind,
+	}
+
+	crdNotifiersMu.Lock()
+	defer crdNotifiersMu.Unlock()
+
+	if notifiers, exists := crdNotifiers[gvk]; exists {
+		log.V(2).Info("CRD established, notifying waiters", "gvk", gvk, "waiters", len(notifiers))
+		for _, ch := range notifiers {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+		delete(crdNotifiers, gvk)
+	}
+}
+
+// registerCRDNotifier registers a channel to be notified when a CRD becomes available
+func registerCRDNotifier(gvk schema.GroupVersionKind) chan struct{} {
+	crdNotifiersMu.Lock()
+	defer crdNotifiersMu.Unlock()
+
+	ch := make(chan struct{}, 1)
+	crdNotifiers[gvk] = append(crdNotifiers[gvk], ch)
+	return ch
 }
