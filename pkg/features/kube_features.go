@@ -257,7 +257,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	TASProfileMixed: {
-		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	HierarchicalCohorts: {
