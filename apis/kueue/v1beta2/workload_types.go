@@ -347,6 +347,7 @@ const (
 	DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
 )
 
+// +kubebuilder:validation:XValidation:rule="self.slices.all(x, size(x.valuesPerLevel) == size(self.levels))", message="valuesPerLevel must have the same length as the number of levels in this TopologyAssignment"
 type TopologyAssignment struct {
 	// levels is an ordered list of keys denoting the levels of the assigned
 	// topology (i.e. node label keys), from the highest to the lowest level of
@@ -359,33 +360,72 @@ type TopologyAssignment struct {
 	// +kubebuilder:validation:items:MaxLength=317
 	Levels []string `json:"levels,omitempty"`
 
-	// domains is a list of topology assignments split by topology domains at
-	// the lowest level of the topology.
-	//
+	// slices represent topology assignments for subsets of pods of a workload.
+	// The full assignment is obtained as a union of all slices.
 	// +required
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=100000
-	Domains []TopologyDomainAssignment `json:"domains,omitempty"`
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=30000
+	Slices []TopologyAssignmentSlice `json:"slices"`
 }
 
-type TopologyDomainAssignment struct {
-	// values is an ordered list of node selector values describing a topology
-	// domain. The values correspond to the consecutive topology levels, from
-	// the highest to the lowest.
-	//
+// +kubebuilder:validation:XValidation:rule="!has(self.podCounts) || size(self.podCounts) == self.domainCount", message="podCounts must have length equal to domainCount"
+// +kubebuilder:validation:XValidation:rule="has(self.podCounts) != has(self.universalPodCount)", message="Exactly one of podCounts, universalPodCount must be set"
+// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.roots) || size(x.roots) == size(self.domainCount))", message="roots, if set, must have length equal to domainCount of this TopologyAssignmentSlice"
+type TopologyAssignmentSlice struct {
+	// domainCount is the number of domains covered by this slice.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	DomainCount int32 `json:"domainCount"`
+
+	// valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+	// The entry corresponding to a particular level specifies the placement of pods at that level.
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:items:MaxLength=63
-	Values []string `json:"values,omitempty"`
+	ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel"`
 
-	// count indicates the number of Pods to be scheduled in the topology
-	// domain indicated by the values field.
-	//
-	// +required
-	// +kubebuilder:validation:Minimum=1
-	Count int32 `json:"count,omitempty"`
+	// podCounts specifies the number of pods allocated per each domain.
+	// May be omitted if all values are identical; if so, UniversalCount is used instead.
+	// If set, its length must be equal to the "domainCount" field.
+	// Exactly one of podCounts, universalCount must be set.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100000
+	PodCounts []int32 `json:"podCounts,omitempty"`
+
+	// universalPodCount, if set, specifies the number of pods allocated in every domain in this slice.
+	// Exactly one of podCounts, universalPodCount must be set.
+	// +optional
+	UniversalPodCount *int32 `json:"universalPodCount,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="has(self.roots) != has(self.universalValue)", message="Exactly one of roots, universalValue must be set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.universalValue) && (has(self.prefix) || has(self.suffix))", message="universalValue cannot be set together with prefix or suffix"
+type TopologyAssignmentSliceLevelValues struct {
+	// prefix specifies a common prefix for all values in this slice assignment.
+	// +optional
+	Prefix *string `json:"prefix,omitempty"`
+	// suffix specifies a common suffix for all values in this slice assignment.
+	// +optional
+	Suffix *string `json:"suffix,omitempty"`
+
+	// roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+	// May be omitted if all values are identical; if so, UniversalValue is used instead.
+	// If set, its length must be equal to the "domainCount" field of the TopologyAssignmentSlice.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100000
+	Roots []string `json:"roots,omitempty"`
+
+	// universalValue, if set, specifies the topology assignment value (on the current topology level)
+	// that applies to every domain in the current slice.
+	// Mutually exclusive with roots, prefix and suffix.
+	// +optional
+	UniversalValue *string `json:"universalValue,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
