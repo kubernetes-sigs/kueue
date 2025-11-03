@@ -42,7 +42,8 @@ import (
 )
 
 const (
-	instanceType = "tas-node"
+	tasNodeGroupLabel = "cloud.provider.com/node-group"
+	instanceType      = "tas-node"
 )
 
 var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
