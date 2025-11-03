@@ -67,6 +67,7 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 		threshold = min(threshold, lastDomainWithLeader.sliceStateWithLeader)
 	}
 	if lastDomain != nil {
+		// TODO: https://github.com/kubernetes-sigs/kueue/issues/7494
 		// we don't have min(threshold, lastDomain.sliceState) here because
 		// later we prune all nodes with sliceStateWithLeader < threshold
 		// while pruning we don't know which node will host the leader
