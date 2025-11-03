@@ -1201,20 +1201,20 @@ The algorithm could be summarized as follows:
 
 ```
 1. For each domain on level L-1:
- - check if the entire request fits on this domain
- - calculate T, the maximum possible minimum number of pods that would be placed on a domain on level L+1 if the request is placed on this domain.
+   - check if the entire request fits on this domain
+   - calculate T, the maximum possible minimum number of pods that would be placed on a domain on level L+1 if the request is placed on this domain.
 2. If no domain on level L-1 fits the entire request, fallback to the standard algorithm.
 3. Otherwise, pick a domain D on level L-1 that 
-- first maximizes the value of T
-- secondly minimizes the number of domains that need to be used on level L to fit the request 
+   - first maximizes the value of T
+   - secondly minimizes the number of domains that need to be used on level L to fit the request 
 4. Prune every descendant of D with capacity below T.
 5. On level L find an optimal subset of children of D that fit the request:
-- first minimize the size of the subset
-- secondly minimize the total capacity of the subset
-- thirdly maximize entropies of children capacities of the subset
+   - first minimize the size of the subset
+   - secondly minimize the total capacity of the subset
+   - thirdly maximize entropies of children capacities of the subset
 6. On level L+1 find an optimal subset of children of domains from step 5 that fit the request:
-- first minimize the size of the subset
-- secondly minimize the total capacity of the subset
+   - first minimize the size of the subset
+   - secondly minimize the total capacity of the subset
 7. For the subset found in step 6, place the pods by first placing T pods on each domain, and then distribute the rest abritrarily.
 ```
 
