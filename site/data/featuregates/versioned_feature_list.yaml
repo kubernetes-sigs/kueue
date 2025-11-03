@@ -111,6 +111,7 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+<<<<<<< HEAD
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -118,11 +119,15 @@
     preRelease: Beta
     version: "0.18"
 - name: KueueDRAIntegrationExtendedResource
+=======
+- name: JobFrameworkCRDReinstallation
+>>>>>>> c8e7ba53a (Optimise current implementation of processing newly added Job Frameworks)
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+<<<<<<< HEAD
 - name: KueueDRAIntegrationPartitionableDevices
   versionedSpecs:
   - default: false
@@ -135,6 +140,8 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+=======
+>>>>>>> c8e7ba53a (Optimise current implementation of processing newly added Job Frameworks)
 - name: LendingLimit
   versionedSpecs:
   - default: false
