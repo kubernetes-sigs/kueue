@@ -344,7 +344,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.ExpectWorkloadsToBeAdmitted(assignedWorkerCtx, assignedWorkerCluster, wl)
 			})
 
-			ginkgo.By("verify admission for the workload in the assigned worker cluster", func() {
+			ginkgo.By("verify TopologyAssignment for the workload in the assigned worker cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, wlLookupKey, wl)).Should(gomega.Succeed())
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
@@ -355,6 +355,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"host-1"}}},
 						},
 					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify DelayedTopologyRequest is marked Ready on manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStateReady)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -555,12 +565,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify admission for the workload in the assigned worker cluster", func() {
+			ginkgo.By("verify the workload is admitted in the assigned worker cluster", func() {
+				util.ExpectWorkloadsToBeAdmitted(assignedWorkerCtx, assignedWorkerCluster, wl)
+			})
+
+			ginkgo.By("verify TopologyAssignment for the workload in the assigned worker cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, wlLookupKey, wl)).To(gomega.Succeed())
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeEquivalentTo(
+					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 						&kueue.TopologyAssignment{
 							Levels: []string{
 								corev1.LabelHostname,
@@ -578,10 +592,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify the workload is admitted in the assigned worker cluster", func() {
-				util.ExpectReservingActiveWorkloadsMetric(managerCq, 1)
-				util.ExpectPendingWorkloadsMetric(managerCq, 0, 0)
-				util.ExpectWorkloadsToBeAdmitted(assignedWorkerCtx, assignedWorkerCluster, wl)
+			ginkgo.By("verify DelayedTopologyRequest is marked Ready on manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStateReady)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

@@ -234,9 +234,3 @@ func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acNam
 
 	return sets.New(cfg.Spec.Clusters...), nil
 }
-
-// IsIndexerConflict returns true if the error is an indexer conflict error.
-// This is used to detect when multiple controllers try to register the same index.
-func IsIndexerConflict(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "indexer conflict")
-}

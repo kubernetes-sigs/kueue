@@ -259,19 +259,16 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
 					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).To(gomega.Equal([]string{corev1.LabelHostname}))
 					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).NotTo(gomega.BeEmpty())
-					g.Expect(workerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).NotTo(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStatePending)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for TopologyAssignment to be synced back to manager", func() {
+			ginkgo.By("Waiting for DelayedTopologyRequest to be marked Ready on manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					managerWl := &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
 					g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).To(gomega.Equal([]string{corev1.LabelHostname}))
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Domains).NotTo(gomega.BeEmpty())
+					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStateReady)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -355,14 +352,13 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for TopologyAssignment to be synced back to manager", func() {
+			ginkgo.By("Waiting for DelayedTopologyRequest to be marked Ready on manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					managerWl := &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
 					g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).NotTo(gomega.BeEmpty())
+					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStateReady)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
