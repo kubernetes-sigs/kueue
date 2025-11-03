@@ -11,7 +11,7 @@ description: >
 
 本页面的目标受众是[批量用户](/docs/tasks#batch-user)。
 
-## 开始之前 {#before-you-begin}
+## 开始之前
 
 确保满足以下条件：
 
@@ -24,7 +24,7 @@ description: >
 
 ![Kueue Components](/images/queueing-components.svg)
 
-## 0. 识别命名空间中可用的队列 {#0-identify-the-queues-available-in-your-namespace}
+## 0. 识别命名空间中可用的队列
 
 运行以下命令列出您命名空间中可用的 `LocalQueues`。
 
@@ -43,7 +43,7 @@ user-queue   cluster-queue   3
 
 [ClusterQueue](/zh-CN/docs/concepts/cluster_queue) 定义了队列的配额。
 
-## 1. 定义 Job {#1-define-the-job}
+## 1. 定义 Job
 
 在 Kueue 中运行 Job 类似于[在 Kubernetes 集群中运行 Job](https://kubernetes.io/docs/tasks/job/)，
 只是没有使用 Kueue。但是，您必须考虑以下差异：
@@ -58,7 +58,7 @@ user-queue   cluster-queue   3
 
 {{< include "examples/jobs/sample-job.yaml" "yaml" >}}
 
-## 2. 运行 Job {#2-run-the-job}
+## 2. 运行 Job
 
 您可以使用以下命令运行 Job：
 
@@ -79,7 +79,7 @@ NAME               QUEUE         RESERVED IN   ADMITTED   AGE
 sample-job-sl4bm   user-queue                             1s
 ```
 
-## 3. （可选）监控 Workload 的状态 {#3-optional-monitor-the-status-of-the-workload}
+## 3. （可选）监控 Workload 的状态
 
 您可以使用以下命令查看 Workload 状态：
 
@@ -197,7 +197,7 @@ Events:
 
 由于事件的时间戳精度为秒，事件可能与实际发生的顺序略有不同。
 
-## 部分准入 {#partial-admission}
+## 部分准入
 
 {{< feature-state state="beta" for_version="v0.5" >}}
 
