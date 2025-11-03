@@ -1072,7 +1072,7 @@ Since v0.15, the available feature gates are as follows:
 
 | feature gate / annotation                  | preferred         | required          | unconstrained     |
 | ------------------------------------------ | ----------------- | ----------------- | ----------------- |
-| None <br/> or TASProfileMixed (default) | BestFit           | BestFit           | LeastFreeCapacity |
+| None <br/> or TASProfileMixed (default)    | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
 | TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
