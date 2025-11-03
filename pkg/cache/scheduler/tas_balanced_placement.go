@@ -67,6 +67,10 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 		threshold = min(threshold, lastDomainWithLeader.sliceStateWithLeader)
 	}
 	if lastDomain != nil {
+		// we don't have min(threshold, lastDomain.sliceState) here because
+		// later we prune all nodes with sliceStateWithLeader < threshold
+		// while pruning we don't know which node will host the leader
+		// so we have to leave space on each node
 		threshold = min(threshold, lastDomain.sliceStateWithLeader)
 	}
 	return threshold
