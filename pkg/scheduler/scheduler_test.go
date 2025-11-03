@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/metrics/testutil"
@@ -7885,7 +7884,6 @@ func TestLastSchedulingContext(t *testing.T) {
 		cqs                            []kueue.ClusterQueue
 		workloads                      []kueue.Workload
 		deleteWorkloads                []client.ObjectKey
-		wantPreempted                  sets.Set[workload.Reference]
 		wantWorkloads                  []kueue.Workload
 		wantAdmissionsOnSecondSchedule map[workload.Reference]kueue.Admission
 	}{
@@ -7930,7 +7928,6 @@ func TestLastSchedulingContext(t *testing.T) {
 				Namespace: metav1.NamespaceDefault,
 				Name:      "low-1",
 			}},
-			wantPreempted: sets.Set[workload.Reference]{},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("low-1", "default").
 					Queue("main").
@@ -7990,7 +7987,6 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			wantPreempted: sets.Set[workload.Reference]{},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("borrower", "default").
 					Queue("main-alpha").
@@ -8103,7 +8099,6 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			wantPreempted: sets.Set[workload.Reference]{},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
@@ -8206,7 +8201,6 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			wantPreempted: sets.Set[workload.Reference]{},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "40").
@@ -8311,6 +8305,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 				*utiltesting.MakeWorkload("new", "default").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main-theta").
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
@@ -8319,9 +8315,10 @@ func TestLastSchedulingContext(t *testing.T) {
 				Namespace: metav1.NamespaceDefault,
 				Name:      "placeholder-alpha",
 			}},
-			wantPreempted: sets.New[workload.Reference]("default/placeholder-alpha"),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "default").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main-theta").
 					Request(corev1.ResourceCPU, "20").
 					Condition(metav1.Condition{
@@ -8347,6 +8344,21 @@ func TestLastSchedulingContext(t *testing.T) {
 							Obj()).
 						Obj(), now).
 					AdmittedAt(true, now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltesting.MakeWorkload("placeholder-theta-spot", "default").
 					Request(corev1.ResourceCPU, "100").
@@ -8440,6 +8452,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 				*utiltesting.MakeWorkload("new", "default").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main-beta").
 					Request(corev1.ResourceCPU, "22").
 					Obj(),
@@ -8448,7 +8462,6 @@ func TestLastSchedulingContext(t *testing.T) {
 				Namespace: metav1.NamespaceDefault,
 				Name:      "alpha2",
 			}},
-			wantPreempted: sets.New[workload.Reference]("default/alpha2"),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("alpha1", "default").
 					Request(corev1.ResourceCPU, "22").
@@ -8459,6 +8472,21 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "22").
 					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now).
 					AdmittedAt(true, now).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-new, JobUID: job-new) due to reclamation within the cohort",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltesting.MakeWorkload("alpha3", "default").
 					Request(corev1.ResourceCPU, "22").
@@ -8471,6 +8499,8 @@ func TestLastSchedulingContext(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 				*utiltesting.MakeWorkload("new", "default").
+					UID("wl-new").
+					JobUID("job-new").
 					Queue("main-beta").
 					Request(corev1.ResourceCPU, "22").
 					Condition(metav1.Condition{
@@ -8567,25 +8597,12 @@ func TestLastSchedulingContext(t *testing.T) {
 					func() { wg.Done() },
 				))
 
-				var mu sync.Mutex
-				gotPreempted := sets.New[workload.Reference]()
-				scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
-					mu.Lock()
-					gotPreempted.Insert(workload.Key(w))
-					mu.Unlock()
-					return nil
-				})
-
 				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 				go qManager.CleanUpOnContext(ctx)
 				defer cancel()
 
 				scheduler.schedule(ctx)
 				wg.Wait()
-
-				if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-					t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
-				}
 
 				gotWorkloads := &kueue.WorkloadList{}
 				err := cl.List(ctx, gotWorkloads)
@@ -8596,6 +8613,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				defaultWorkloadCmpOpts := cmp.Options{
 					cmpopts.EquateEmpty(),
 					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
+					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 				}
 
 				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
@@ -8628,9 +8646,6 @@ func TestLastSchedulingContext(t *testing.T) {
 					wg.Wait()
 				}
 
-				if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-					t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
-				}
 				// Verify assignments in cache.
 				gotAssignments := make(map[workload.Reference]kueue.Admission)
 				snapshot, err := cqCache.Snapshot(ctx)
