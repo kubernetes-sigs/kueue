@@ -75,7 +75,7 @@ type WorkloadSpec struct {
 	//
 	// Defaults to true
 	// +kubebuilder:default=true
-	Active *bool `json:"active,omitempty"` //nolint:kubeapilinter // disabling to avoid changing existing API
+	Active *bool `json:"active,omitempty"` //nolint:kubeapilinter // bool for the ease of use, inspired by k8s Job's Suspend field.
 
 	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
