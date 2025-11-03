@@ -1072,11 +1072,11 @@ Since v0.15, the available feature gates are as follows:
 
 | feature gate / annotation                  | preferred         | required          | unconstrained     |
 | ------------------------------------------ | ----------------- | ----------------- | ----------------- |
-| None <br/> or TASProfileMixed (deprecated) | BestFit           | BestFit           | LeastFreeCapacity |
+| None <br/> or TASProfileMixed (default) | BestFit           | BestFit           | LeastFreeCapacity |
 | TASProfileBestFit (deprecated)             | BestFit           | BestFit           | BestFit           |
 | TASProfileLeastFreeCapacity (deprecated)   | LeastFreeCapacity | LeastFreeCapacity | LeastFreeCapacity |
 
-Based on the user feedback, we decided to make `TASProfileMixed` default. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
+Based on the user feedback, we decided to make `TASProfileMixed` default starting in v0.15. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
 
 For users still preferring the "always BestFit" profile, we introduce the `TASProfileBestFit` feature gate, marking it as deprecated. We will remove it in v0.17 if we see no report indicating a need for that configuration.
 
