@@ -35,7 +35,7 @@ i.e. pods that are stuck in the `Pending`/`Running` state due to a node-level fa
 ## Motivation
 
 Currently, a malfunction of the `kubelet` (or a more general node failure) results in the pods running on that node to become stuck.
-When the `kubelet` fails to send its regular heartbeat to the control plane within `node-monitor-grace-period`, the node is deemed unhealthy and is assigned the `node.kubernetes.io/not-ready` taint. By default, Kubernetes [automatically adds a 5-minute toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#taint-based-evictions) for pods running in the affected node (this can be explicitly set by a different value by the user/controller).
+When the `kubelet` fails to send its regular heartbeat to the control plane within `node-monitor-grace-period`, the node is deemed unhealthy and is assigned the `node.kubernetes.io/unreachable` taint. By default, Kubernetes [automatically adds a 5-minute toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#taint-based-evictions) for pods running in the affected node (this can be explicitly set by a different value by the user/controller).
 If the heartbeat is resumed within this toleration period, the control plane removes the taints and the pods continue running.
 On the other hand, if it is not resumed, then the pods are marked for termination (i.e. their `deletionTimestamp` is set in `etcd`).
 
@@ -182,6 +182,10 @@ The controller has to **ignore** updates to pods that:
 1. Are not managed by Kueue.
     * Neither the `kueue.x-k8s.io/managed` (for pod integration) nor `kueue.x-k8s.io/podset` label is set.
 1. Don't match the label selector defined in the configured `FailureRecoveryPolicy`.
+1. Are **not** scheduled on a node tainted with `node.kubernetes.io/unreachable`.
+    * This explicitly ignores pods assigned to nodes that still have a running kubelet.
+    For example, nodes with the `node.kubernetes.io/not-ready` taint experiencing resource pressure
+    that makes pod termination take longer.
 
 
 For relevant (not ignored) terminating pods, the controller schedules another reconciliation
@@ -298,14 +302,14 @@ limiting the implementation to defaults:
 ### Managing The `node.kubernetes.io/out-of-service` Taint On `Node`
 
 Core Kubernetes already contains logic for [automatic garbage collection](https://github.com/kubernetes/kubernetes/blob/4870d987d0a4aac2d9223d4c0b9f22858c0d1590/pkg/controller/podgc/gc_controller.go) of `Pod`s running on a `Node` with the `node.kubernetes.io/out-of-service` taint.
-It updates the `Pod`s status and deletes it from `etcd`. The recovery controller could use this fact to terminate stuck pods by automatically adding this taint to nodes which are not ready for some configurable time.
+It updates the `Pod`s status and deletes it from `etcd`. The recovery controller could use this fact to terminate stuck pods by automatically adding this taint to nodes which are unreachable for some configurable time.
 
 Given the API proposal, this approach could potentially be implemented as an alternative
  recovery strategy in the future.
 
  ```go
 type TaintNodeOutOfServiceConfig struct {
-  NotReadyNodeTimeout *time.Duration `json:"notReadyNodeTimeout"`
+  UnreachableNodeTimeout *time.Duration `json:"unreachableNodeTimeout"`
 }
 
 type FailureRecoveryAction string
