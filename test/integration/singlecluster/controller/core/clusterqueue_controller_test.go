@@ -851,7 +851,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 	})
 
-	ginkgo.FWhen("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
+	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
 		var (
 			clusterQueue *kueue.ClusterQueue
 			localQueue   *kueue.LocalQueue
