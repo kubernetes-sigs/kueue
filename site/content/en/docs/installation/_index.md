@@ -297,6 +297,7 @@ spec:
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.14  |       |
+| `ReclaimablePods`                             | `true`  | Beta  | 0.14  |       |
 
 ### Feature gates for graduated or deprecated features
 

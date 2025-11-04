@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,9 +44,10 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload    kueue.Workload
-		infoOptions []InfoOption
-		wantInfo    Info
+		workload     kueue.Workload
+		infoOptions  []InfoOption
+		wantInfo     Info
+		featureGates map[featuregate.Feature]bool
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
@@ -65,7 +67,7 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
-		"pending with reclaim": {
+		"pending with reclaim; reclaimablePods on": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -91,6 +93,37 @@ func TestNewInfo(t *testing.T) {
 						Count: 3,
 					},
 				},
+			},
+		},
+		"pending with reclaim; reclaimablePods off": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "512Ki").
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    5 * 10,
+							corev1.ResourceMemory: 5 * 512 * 1024,
+						},
+						Count: 5,
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ReclaimablePods: false,
 			},
 		},
 		"admitted": {
@@ -157,7 +190,7 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
-		"admitted with reclaim": {
+		"admitted with reclaim; reclaimablePods on": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
 					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
@@ -198,6 +231,49 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with reclaim; reclaimablePods off": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuota(
+					utiltesting.MakeAdmission("").
+						PodSets(utiltesting.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "50m").
+							Assignment(corev1.ResourceMemory, "f1", "50Ki").
+							Count(5).
+							Obj()).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    5 * 10,
+							corev1.ResourceMemory: 5 * 10 * 1024,
+						},
+						Count: 5,
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ReclaimablePods: false,
+			}},
 		"admitted with reclaim and increased reclaim": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
@@ -361,6 +437,9 @@ func TestNewInfo(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
 			info := NewInfo(&tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)

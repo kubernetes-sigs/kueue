@@ -214,6 +214,11 @@ const (
 	// Requires careful consideration as it may lead to security issues.
 	// Deprecated: planned to be removed in 0.17
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
+
+	// owner: @pbundyra
+	//
+	// Enables reclaimable pods counting towards quota.
+	ReclaimablePods featuregate.Feature = "ReclaimablePods"
 )
 
 func init() {
@@ -333,6 +338,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ReclaimablePods: {
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

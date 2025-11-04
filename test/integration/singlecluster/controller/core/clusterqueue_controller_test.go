@@ -853,6 +853,117 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 	})
 
+	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			modelAFlavor *kueue.ResourceFlavor
+			ac           *kueue.AdmissionCheck
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, false)
+
+			ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+			util.MustCreate(ctx, k8sClient, ac)
+			util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(flavorModelA).
+						Resource(resourceGPU, "5", "5").Obj(),
+				).
+				Cohort("cohort").
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+
+			modelAFlavor = testing.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
+			util.MustCreate(ctx, k8sClient, modelAFlavor)
+		})
+
+		ginkgo.AfterEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, modelAFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		})
+
+		ginkgo.It("Should ignore update status when workloads have reclaimable pods", framework.SlowSpec, func() {
+			wl := testing.MakeWorkload("one", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*testing.MakePodSet("workers", 5).
+						Request(resourceGPU, "1").
+						Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating the workload", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
+				util.ExpectLQPendingWorkloadsMetric(localQueue, 1, 0)
+			})
+
+			ginkgo.By("Admitting the workload", func() {
+				admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+					kueue.PodSetAssignment{
+						Name: "workers",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							resourceGPU: "model-a",
+						},
+						ResourceUsage: corev1.ResourceList{
+							resourceGPU: resource.MustParse("5"),
+						},
+						Count: ptr.To[int32](5),
+					},
+				).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+			})
+
+			ginkgo.By("Validating CQ status has changed", func() {
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					g.Expect(updatedCq.Status.FlavorsReservation).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+						{
+							Name: flavorModelA,
+							Resources: []kueue.ResourceUsage{{
+								Name:  resourceGPU,
+								Total: resource.MustParse("5"),
+							}},
+						},
+					}, util.IgnoreConditionTimestamps))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Marking two workers as reclaimable", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Validating CQ status hasn't changed", func() {
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					g.Expect(updatedCq.Status.FlavorsReservation).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+						{
+							Name: flavorModelA,
+							Resources: []kueue.ResourceUsage{{
+								Name:  resourceGPU,
+								Total: resource.MustParse("5"),
+							}},
+						},
+					}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
 			cq    *kueue.ClusterQueue
