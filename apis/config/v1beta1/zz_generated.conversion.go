@@ -134,11 +134,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*Integrations)(nil), (*v1beta2.Integrations)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_Integrations_To_v1beta2_Integrations(a.(*Integrations), b.(*v1beta2.Integrations), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.Integrations)(nil), (*Integrations)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_Integrations_To_v1beta1_Integrations(a.(*v1beta2.Integrations), b.(*Integrations), scope)
 	}); err != nil {
@@ -181,16 +176,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*v1beta2.ObjectRetentionPolicies)(nil), (*ObjectRetentionPolicies)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolicies(a.(*v1beta2.ObjectRetentionPolicies), b.(*ObjectRetentionPolicies), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*PodIntegrationOptions)(nil), (*v1beta2.PodIntegrationOptions)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_PodIntegrationOptions_To_v1beta2_PodIntegrationOptions(a.(*PodIntegrationOptions), b.(*v1beta2.PodIntegrationOptions), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.PodIntegrationOptions)(nil), (*PodIntegrationOptions)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_PodIntegrationOptions_To_v1beta1_PodIntegrationOptions(a.(*v1beta2.PodIntegrationOptions), b.(*PodIntegrationOptions), scope)
 	}); err != nil {
 		return err
 	}
@@ -246,6 +231,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*Configuration)(nil), (*v1beta2.Configuration)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_Configuration_To_v1beta2_Configuration(a.(*Configuration), b.(*v1beta2.Configuration), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*Integrations)(nil), (*v1beta2.Integrations)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_Integrations_To_v1beta2_Integrations(a.(*Integrations), b.(*v1beta2.Integrations), scope)
 	}); err != nil {
 		return err
 	}
@@ -308,7 +298,15 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 	out.InternalCertManagement = (*v1beta2.InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
 	out.WaitForPodsReady = (*v1beta2.WaitForPodsReady)(unsafe.Pointer(in.WaitForPodsReady))
 	out.ClientConnection = (*v1beta2.ClientConnection)(unsafe.Pointer(in.ClientConnection))
-	out.Integrations = (*v1beta2.Integrations)(unsafe.Pointer(in.Integrations))
+	if in.Integrations != nil {
+		in, out := &in.Integrations, &out.Integrations
+		*out = new(v1beta2.Integrations)
+		if err := Convert_v1beta1_Integrations_To_v1beta2_Integrations(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Integrations = nil
+	}
 	// WARNING: in.QueueVisibility requires manual conversion: does not exist in peer-type
 	out.MultiKueue = (*v1beta2.MultiKueue)(unsafe.Pointer(in.MultiKueue))
 	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
@@ -329,7 +327,15 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	out.InternalCertManagement = (*InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
 	out.WaitForPodsReady = (*WaitForPodsReady)(unsafe.Pointer(in.WaitForPodsReady))
 	out.ClientConnection = (*ClientConnection)(unsafe.Pointer(in.ClientConnection))
-	out.Integrations = (*Integrations)(unsafe.Pointer(in.Integrations))
+	if in.Integrations != nil {
+		in, out := &in.Integrations, &out.Integrations
+		*out = new(Integrations)
+		if err := Convert_v1beta2_Integrations_To_v1beta1_Integrations(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Integrations = nil
+	}
 	out.MultiKueue = (*MultiKueue)(unsafe.Pointer(in.MultiKueue))
 	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
 	out.AdmissionFairSharing = (*AdmissionFairSharing)(unsafe.Pointer(in.AdmissionFairSharing))
@@ -525,20 +531,14 @@ func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing,
 func autoConvert_v1beta1_Integrations_To_v1beta2_Integrations(in *Integrations, out *v1beta2.Integrations, s conversion.Scope) error {
 	out.Frameworks = *(*[]string)(unsafe.Pointer(&in.Frameworks))
 	out.ExternalFrameworks = *(*[]string)(unsafe.Pointer(&in.ExternalFrameworks))
-	out.PodOptions = (*v1beta2.PodIntegrationOptions)(unsafe.Pointer(in.PodOptions))
+	// WARNING: in.PodOptions requires manual conversion: does not exist in peer-type
 	out.LabelKeysToCopy = *(*[]string)(unsafe.Pointer(&in.LabelKeysToCopy))
 	return nil
-}
-
-// Convert_v1beta1_Integrations_To_v1beta2_Integrations is an autogenerated conversion function.
-func Convert_v1beta1_Integrations_To_v1beta2_Integrations(in *Integrations, out *v1beta2.Integrations, s conversion.Scope) error {
-	return autoConvert_v1beta1_Integrations_To_v1beta2_Integrations(in, out, s)
 }
 
 func autoConvert_v1beta2_Integrations_To_v1beta1_Integrations(in *v1beta2.Integrations, out *Integrations, s conversion.Scope) error {
 	out.Frameworks = *(*[]string)(unsafe.Pointer(&in.Frameworks))
 	out.ExternalFrameworks = *(*[]string)(unsafe.Pointer(&in.ExternalFrameworks))
-	out.PodOptions = (*PodIntegrationOptions)(unsafe.Pointer(in.PodOptions))
 	out.LabelKeysToCopy = *(*[]string)(unsafe.Pointer(&in.LabelKeysToCopy))
 	return nil
 }
@@ -638,28 +638,6 @@ func autoConvert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolic
 // Convert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolicies is an autogenerated conversion function.
 func Convert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolicies(in *v1beta2.ObjectRetentionPolicies, out *ObjectRetentionPolicies, s conversion.Scope) error {
 	return autoConvert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolicies(in, out, s)
-}
-
-func autoConvert_v1beta1_PodIntegrationOptions_To_v1beta2_PodIntegrationOptions(in *PodIntegrationOptions, out *v1beta2.PodIntegrationOptions, s conversion.Scope) error {
-	out.NamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.NamespaceSelector))
-	out.PodSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.PodSelector))
-	return nil
-}
-
-// Convert_v1beta1_PodIntegrationOptions_To_v1beta2_PodIntegrationOptions is an autogenerated conversion function.
-func Convert_v1beta1_PodIntegrationOptions_To_v1beta2_PodIntegrationOptions(in *PodIntegrationOptions, out *v1beta2.PodIntegrationOptions, s conversion.Scope) error {
-	return autoConvert_v1beta1_PodIntegrationOptions_To_v1beta2_PodIntegrationOptions(in, out, s)
-}
-
-func autoConvert_v1beta2_PodIntegrationOptions_To_v1beta1_PodIntegrationOptions(in *v1beta2.PodIntegrationOptions, out *PodIntegrationOptions, s conversion.Scope) error {
-	out.NamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.NamespaceSelector))
-	out.PodSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.PodSelector))
-	return nil
-}
-
-// Convert_v1beta2_PodIntegrationOptions_To_v1beta1_PodIntegrationOptions is an autogenerated conversion function.
-func Convert_v1beta2_PodIntegrationOptions_To_v1beta1_PodIntegrationOptions(in *v1beta2.PodIntegrationOptions, out *PodIntegrationOptions, s conversion.Scope) error {
-	return autoConvert_v1beta2_PodIntegrationOptions_To_v1beta1_PodIntegrationOptions(in, out, s)
 }
 
 func autoConvert_v1beta1_RequeuingStrategy_To_v1beta2_RequeuingStrategy(in *RequeuingStrategy, out *v1beta2.RequeuingStrategy, s conversion.Scope) error {
