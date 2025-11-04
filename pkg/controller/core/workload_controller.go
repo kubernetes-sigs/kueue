@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -170,6 +171,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
+		// Unset quota reservation for finished workloads
+		if workload.HasQuotaReservation(&wl) {
+			log.V(2).Info("Unsetting quota reservation for finished workload")
+			if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (*kueue.Workload, bool, error) {
+				return &wl, workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadFinished, "Workload finished", r.clock.Now()), nil
+			}); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to unset quota reservation for finished workload: %w", err)
+			}
+		}
+
 		if !features.Enabled(features.ObjectRetentionPolicies) || r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
 			return ctrl.Result{}, nil
 		}
@@ -226,6 +237,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 
 		var conditionsCleared bool
+		//if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && requeuedCond.Reason == kueue.WorkloadInadmissible {
 		if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
 			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			conditionsCleared = true
@@ -321,6 +333,18 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			if evicted {
 				if err := workload.Evict(ctx, r.client, r.recorder, wlOrig, reason, message, underlyingCause, r.clock, workload.WithCustomPrepare(func() (*kueue.Workload, error) {
+					// Unset quota reservation for deactivated workloads
+					if reason == kueue.WorkloadDeactivated || strings.HasPrefix(reason, kueue.WorkloadDeactivated) {
+						if workload.HasQuotaReservation(&wl) {
+							quotaReason := reason
+							if underlyingCause != "" {
+								quotaReason = workload.ReasonWithCause(reason, string(underlyingCause))
+							}
+							workload.UnsetQuotaReservationWithCondition(&wl, quotaReason, message, r.clock.Now())
+							// Set the WorkloadRequeued condition to false for deactivated workloads
+							workload.SetRequeuedCondition(&wl, quotaReason, message, false)
+						}
+					}
 					return &wl, nil
 				})); err != nil {
 					if !apierrors.IsNotFound(err) {

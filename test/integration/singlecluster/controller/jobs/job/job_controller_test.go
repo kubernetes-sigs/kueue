@@ -2141,14 +2141,14 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadDeactivated,
 						Message: "The workload is deactivated",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
-						Reason:  "NoReservation",
-						Message: "The workload has no reservation",
+						Reason:  "Deactivated",
+						Message: "The workload is deactivated",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -2194,13 +2194,11 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}, createdJob)).
 					Should(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
-				// Workload should get unadmitted
+				// Workload should get unadmitted and have Evicted condition
 				g.Expect(k8sClient.Get(ctx, wlKey, wll)).Should(gomega.Succeed())
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wll)
-				// Workload should stay pending
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wll), wll)).Should(gomega.Succeed())
-				// Should have Evicted condition
 				g.Expect(wll.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				// Workload should not be admitted
+				g.Expect(wll.Status.Conditions).Should(testing.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the first job becomes unsuspended after we update the Active field back to true")
@@ -2869,7 +2867,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2881,8 +2879,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
-						Reason:  "NoReservation",
-						Message: "The workload has no reservation",
+						Reason:  "Deactivated",
+						Message: "The workload is deactivated",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
@@ -3621,7 +3619,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
 					continue
 				}
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testJobWorkload)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &workloads.Items[i])
 			}
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
