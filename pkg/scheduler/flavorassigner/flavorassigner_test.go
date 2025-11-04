@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -109,6 +110,7 @@ func TestAssignFlavors(t *testing.T) {
 		elasticJobsViaWorkloadSlicesEnabled bool
 		preemptWorkloadSlice                *workload.Info
 		enableImplicitPreferenceDefault     bool
+		featureGates                        map[featuregate.Feature]bool
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -1361,7 +1363,7 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
-		"with reclaimable pods": {
+		"with reclaimable pods; reclaimablePods on": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 					Request(corev1.ResourceCPU, "1").
@@ -1401,6 +1403,48 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 		},
+		"with reclaimable pods; reclaimablePods off": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wlReclaimablePods: []kueue.ReclaimablePod{
+				{
+					Name:  kueue.DefaultPodSetName,
+					Count: 2,
+				},
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourcePods, "5").
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).Obj(),
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+
+						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("5"),
+					},
+					Count: 5,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourcePods}: 5,
+					{Flavor: "default", Resource: corev1.ResourceCPU}:  5_000,
+				}},
+			},
+			wantRepMode: Fit,
+			featureGates: map[featuregate.Feature]bool{
+				features.ReclaimablePods: false,
+			}},
 		"preempt before try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -2799,6 +2843,9 @@ func TestAssignFlavors(t *testing.T) {
 			}
 			if tc.enableImplicitPreferenceDefault {
 				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
+			}
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{

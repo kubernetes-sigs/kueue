@@ -502,6 +502,81 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 		})
 
+		ginkgo.It("Should admit workloads when resources are gradually released", func() {
+			firstWl := utiltestingapi.MakeWorkload("first-wl", ns.Name).Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("second", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("third", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating first workload and admitting it", func() {
+				util.MustCreate(ctx, k8sClient, firstWl)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
+				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
+			})
+
+			secondWl := utiltestingapi.MakeWorkload("second-wl", ns.Name).Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating the second workload which is pending", func() {
+				util.MustCreate(ctx, k8sClient, secondWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
+				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
+
+			})
+
+			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
+				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 2)
+			})
+		})
+
+		ginkgo.It("Should not admit workloads when resources are dynamically reclaimed and the reclaimablePods feature gate is off", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, false)
+			defer features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, true)
+
+			firstWl := utiltestingapi.MakeWorkload("first-wl", ns.Name).Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("second", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("third", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating first workload and admitting it", func() {
+				util.MustCreate(ctx, k8sClient, firstWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
+				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
+			})
+
+			ginkgo.By("Creating the second workload which is pending", func() {
+				secondWl := utiltestingapi.MakeWorkload("second-wl", ns.Name).Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet("first", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, secondWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
+				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
+
+			})
+
+			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})).To(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
+				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
+			})
+		})
+
 		ginkgo.It("Should admit workloads with admission checks", func() {
 			wl1 := utiltestingapi.MakeWorkload("admission-check-wl1", ns.Name).
 				Queue(kueue.LocalQueueName(admissionCheckQueue.Name)).
