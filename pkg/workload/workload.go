@@ -445,6 +445,9 @@ func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 
 func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	totalCounts := podSetsCounts(wl)
+	if !features.Enabled(features.ReclaimablePods) {
+		return totalCounts
+	}
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
 		if rc, found := reclaimCounts[podSetName]; found {
