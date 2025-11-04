@@ -964,8 +964,7 @@ type TopologyAssignment struct {
   // The full assignment is obtained as a union of all slices.
   // +required
   // +listType=atomic
-  // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=30000
+  // +kubebuilder:validation:MaxItems=1000
   Slices []TopologyAssignmentSlice `json:"slices"`
 }
 
