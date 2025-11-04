@@ -528,7 +528,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
-
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
@@ -566,7 +565,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
-
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
