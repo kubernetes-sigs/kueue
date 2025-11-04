@@ -20,8 +20,8 @@ package v1beta2
 // TopologyAssignmentApplyConfiguration represents a declarative configuration of the TopologyAssignment type for use
 // with apply.
 type TopologyAssignmentApplyConfiguration struct {
-	Levels  []string                                     `json:"levels,omitempty"`
-	Domains []TopologyDomainAssignmentApplyConfiguration `json:"domains,omitempty"`
+	Levels []string                                    `json:"levels,omitempty"`
+	Slices []TopologyAssignmentSliceApplyConfiguration `json:"slices,omitempty"`
 }
 
 // TopologyAssignmentApplyConfiguration constructs a declarative configuration of the TopologyAssignment type for use with
@@ -40,15 +40,15 @@ func (b *TopologyAssignmentApplyConfiguration) WithLevels(values ...string) *Top
 	return b
 }
 
-// WithDomains adds the given value to the Domains field in the declarative configuration
+// WithSlices adds the given value to the Slices field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Domains field.
-func (b *TopologyAssignmentApplyConfiguration) WithDomains(values ...*TopologyDomainAssignmentApplyConfiguration) *TopologyAssignmentApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the Slices field.
+func (b *TopologyAssignmentApplyConfiguration) WithSlices(values ...*TopologyAssignmentSliceApplyConfiguration) *TopologyAssignmentApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithDomains")
+			panic("nil value passed to WithSlices")
 		}
-		b.Domains = append(b.Domains, *values[i])
+		b.Slices = append(b.Slices, *values[i])
 	}
 	return b
 }

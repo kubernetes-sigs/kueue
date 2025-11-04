@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -57,7 +58,7 @@ func (a *Assignment) WorkloadsTopologyRequests(wl *workload.Info, cq *schdcache.
 }
 
 func (psa *PodSetAssignment) HasUnhealthyNode(wl *workload.Info) bool {
-	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain kueue.TopologyDomainAssignment) bool {
+	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain tas.TopologyDomainAssignment) bool {
 		return workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1])
 	})
 }

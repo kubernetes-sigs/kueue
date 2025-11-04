@@ -618,26 +618,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*TopologyAssignment)(nil), (*v1beta2.TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(a.(*TopologyAssignment), b.(*v1beta2.TopologyAssignment), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.TopologyAssignment)(nil), (*TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(a.(*v1beta2.TopologyAssignment), b.(*TopologyAssignment), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*TopologyDomainAssignment)(nil), (*v1beta2.TopologyDomainAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(a.(*TopologyDomainAssignment), b.(*v1beta2.TopologyDomainAssignment), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1beta2.TopologyDomainAssignment)(nil), (*TopologyDomainAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(a.(*v1beta2.TopologyDomainAssignment), b.(*TopologyDomainAssignment), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*TopologyInfo)(nil), (*v1beta2.TopologyInfo)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_TopologyInfo_To_v1beta2_TopologyInfo(a.(*TopologyInfo), b.(*v1beta2.TopologyInfo), scope)
 	}); err != nil {
@@ -763,6 +743,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*TopologyAssignment)(nil), (*v1beta2.TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(a.(*TopologyAssignment), b.(*v1beta2.TopologyAssignment), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*WorkloadStatus)(nil), (*v1beta2.WorkloadStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(a.(*WorkloadStatus), b.(*v1beta2.WorkloadStatus), scope)
 	}); err != nil {
@@ -775,6 +760,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*v1beta2.LocalQueueStatus)(nil), (*LocalQueueStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(a.(*v1beta2.LocalQueueStatus), b.(*LocalQueueStatus), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.TopologyAssignment)(nil), (*TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(a.(*v1beta2.TopologyAssignment), b.(*TopologyAssignment), scope)
 	}); err != nil {
 		return err
 	}
@@ -793,7 +783,17 @@ func RegisterConversions(s *runtime.Scheme) error {
 
 func autoConvert_v1beta1_Admission_To_v1beta2_Admission(in *Admission, out *v1beta2.Admission, s conversion.Scope) error {
 	out.ClusterQueue = v1beta2.ClusterQueueReference(in.ClusterQueue)
-	out.PodSetAssignments = *(*[]v1beta2.PodSetAssignment)(unsafe.Pointer(&in.PodSetAssignments))
+	if in.PodSetAssignments != nil {
+		in, out := &in.PodSetAssignments, &out.PodSetAssignments
+		*out = make([]v1beta2.PodSetAssignment, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta1_PodSetAssignment_To_v1beta2_PodSetAssignment(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.PodSetAssignments = nil
+	}
 	return nil
 }
 
@@ -804,7 +804,17 @@ func Convert_v1beta1_Admission_To_v1beta2_Admission(in *Admission, out *v1beta2.
 
 func autoConvert_v1beta2_Admission_To_v1beta1_Admission(in *v1beta2.Admission, out *Admission, s conversion.Scope) error {
 	out.ClusterQueue = ClusterQueueReference(in.ClusterQueue)
-	out.PodSetAssignments = *(*[]PodSetAssignment)(unsafe.Pointer(&in.PodSetAssignments))
+	if in.PodSetAssignments != nil {
+		in, out := &in.PodSetAssignments, &out.PodSetAssignments
+		*out = make([]PodSetAssignment, len(*in))
+		for i := range *in {
+			if err := Convert_v1beta2_PodSetAssignment_To_v1beta1_PodSetAssignment(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.PodSetAssignments = nil
+	}
 	return nil
 }
 
@@ -1830,7 +1840,15 @@ func autoConvert_v1beta1_PodSetAssignment_To_v1beta2_PodSetAssignment(in *PodSet
 	out.Flavors = *(*map[corev1.ResourceName]v1beta2.ResourceFlavorReference)(unsafe.Pointer(&in.Flavors))
 	out.ResourceUsage = *(*corev1.ResourceList)(unsafe.Pointer(&in.ResourceUsage))
 	out.Count = (*int32)(unsafe.Pointer(in.Count))
-	out.TopologyAssignment = (*v1beta2.TopologyAssignment)(unsafe.Pointer(in.TopologyAssignment))
+	if in.TopologyAssignment != nil {
+		in, out := &in.TopologyAssignment, &out.TopologyAssignment
+		*out = new(v1beta2.TopologyAssignment)
+		if err := Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.TopologyAssignment = nil
+	}
 	out.DelayedTopologyRequest = (*v1beta2.DelayedTopologyRequestState)(unsafe.Pointer(in.DelayedTopologyRequest))
 	return nil
 }
@@ -1845,7 +1863,15 @@ func autoConvert_v1beta2_PodSetAssignment_To_v1beta1_PodSetAssignment(in *v1beta
 	out.Flavors = *(*map[corev1.ResourceName]ResourceFlavorReference)(unsafe.Pointer(&in.Flavors))
 	out.ResourceUsage = *(*corev1.ResourceList)(unsafe.Pointer(&in.ResourceUsage))
 	out.Count = (*int32)(unsafe.Pointer(in.Count))
-	out.TopologyAssignment = (*TopologyAssignment)(unsafe.Pointer(in.TopologyAssignment))
+	if in.TopologyAssignment != nil {
+		in, out := &in.TopologyAssignment, &out.TopologyAssignment
+		*out = new(TopologyAssignment)
+		if err := Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.TopologyAssignment = nil
+	}
 	out.DelayedTopologyRequest = (*DelayedTopologyRequestState)(unsafe.Pointer(in.DelayedTopologyRequest))
 	return nil
 }
@@ -2323,46 +2349,14 @@ func Convert_v1beta2_Topology_To_v1beta1_Topology(in *v1beta2.Topology, out *Top
 
 func autoConvert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in *TopologyAssignment, out *v1beta2.TopologyAssignment, s conversion.Scope) error {
 	out.Levels = *(*[]string)(unsafe.Pointer(&in.Levels))
-	out.Domains = *(*[]v1beta2.TopologyDomainAssignment)(unsafe.Pointer(&in.Domains))
+	// WARNING: in.Domains requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment is an autogenerated conversion function.
-func Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in *TopologyAssignment, out *v1beta2.TopologyAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(in, out, s)
 }
 
 func autoConvert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in *v1beta2.TopologyAssignment, out *TopologyAssignment, s conversion.Scope) error {
 	out.Levels = *(*[]string)(unsafe.Pointer(&in.Levels))
-	out.Domains = *(*[]TopologyDomainAssignment)(unsafe.Pointer(&in.Domains))
+	// WARNING: in.Slices requires manual conversion: does not exist in peer-type
 	return nil
-}
-
-// Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment is an autogenerated conversion function.
-func Convert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in *v1beta2.TopologyAssignment, out *TopologyAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in, out, s)
-}
-
-func autoConvert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(in *TopologyDomainAssignment, out *v1beta2.TopologyDomainAssignment, s conversion.Scope) error {
-	out.Values = *(*[]string)(unsafe.Pointer(&in.Values))
-	out.Count = in.Count
-	return nil
-}
-
-// Convert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment is an autogenerated conversion function.
-func Convert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(in *TopologyDomainAssignment, out *v1beta2.TopologyDomainAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta1_TopologyDomainAssignment_To_v1beta2_TopologyDomainAssignment(in, out, s)
-}
-
-func autoConvert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(in *v1beta2.TopologyDomainAssignment, out *TopologyDomainAssignment, s conversion.Scope) error {
-	out.Values = *(*[]string)(unsafe.Pointer(&in.Values))
-	out.Count = in.Count
-	return nil
-}
-
-// Convert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment is an autogenerated conversion function.
-func Convert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(in *v1beta2.TopologyDomainAssignment, out *TopologyDomainAssignment, s conversion.Scope) error {
-	return autoConvert_v1beta2_TopologyDomainAssignment_To_v1beta1_TopologyDomainAssignment(in, out, s)
 }
 
 func autoConvert_v1beta1_TopologyInfo_To_v1beta2_TopologyInfo(in *TopologyInfo, out *v1beta2.TopologyInfo, s conversion.Scope) error {
@@ -2636,7 +2630,15 @@ func autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.Worklo
 
 func autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadStatus, out *v1beta2.WorkloadStatus, s conversion.Scope) error {
 	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
-	out.Admission = (*v1beta2.Admission)(unsafe.Pointer(in.Admission))
+	if in.Admission != nil {
+		in, out := &in.Admission, &out.Admission
+		*out = new(v1beta2.Admission)
+		if err := Convert_v1beta1_Admission_To_v1beta2_Admission(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Admission = nil
+	}
 	out.RequeueState = (*v1beta2.RequeueState)(unsafe.Pointer(in.RequeueState))
 	out.ReclaimablePods = *(*[]v1beta2.ReclaimablePod)(unsafe.Pointer(&in.ReclaimablePods))
 	out.AdmissionChecks = *(*[]v1beta2.AdmissionCheckState)(unsafe.Pointer(&in.AdmissionChecks))
@@ -2651,7 +2653,15 @@ func autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadSt
 
 func autoConvert_v1beta2_WorkloadStatus_To_v1beta1_WorkloadStatus(in *v1beta2.WorkloadStatus, out *WorkloadStatus, s conversion.Scope) error {
 	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
-	out.Admission = (*Admission)(unsafe.Pointer(in.Admission))
+	if in.Admission != nil {
+		in, out := &in.Admission, &out.Admission
+		*out = new(Admission)
+		if err := Convert_v1beta2_Admission_To_v1beta1_Admission(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Admission = nil
+	}
 	out.RequeueState = (*RequeueState)(unsafe.Pointer(in.RequeueState))
 	out.ReclaimablePods = *(*[]ReclaimablePod)(unsafe.Pointer(&in.ReclaimablePods))
 	out.AdmissionChecks = *(*[]AdmissionCheckState)(unsafe.Pointer(&in.AdmissionChecks))

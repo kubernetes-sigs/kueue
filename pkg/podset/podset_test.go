@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -174,15 +175,15 @@ func TestFromAssignment(t *testing.T) {
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				TopologyAssignment: &kueue.TopologyAssignment{
+				TopologyAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{"cloud.com/rack"},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Values: []string{"rack1"},
 							Count:  4,
 						},
 					},
-				},
+				}),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
@@ -210,15 +211,15 @@ func TestFromAssignment(t *testing.T) {
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				TopologyAssignment: &kueue.TopologyAssignment{
+				TopologyAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{"cloud.com/rack"},
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{
 							Values: []string{"rack1"},
 							Count:  4,
 						},
 					},
-				},
+				}),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},

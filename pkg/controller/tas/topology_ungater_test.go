@@ -40,6 +40,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -1715,9 +1716,9 @@ func TestReconcile(t *testing.T) {
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
 								Count(4).
-								TopologyAssignment(&kueue.TopologyAssignment{
+								TopologyAssignment(tas.V1Beta2From(&tas.TopologyAssignment{
 									Levels: defaultTestLevels,
-									Domains: []kueue.TopologyDomainAssignment{
+									Domains: []tas.TopologyDomainAssignment{
 										{
 											Count: 2,
 											Values: []string{
@@ -1740,7 +1741,7 @@ func TestReconcile(t *testing.T) {
 											},
 										},
 									},
-								}).
+								})).
 								Obj()).
 							Obj(),
 					).

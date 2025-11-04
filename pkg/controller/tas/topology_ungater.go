@@ -303,7 +303,7 @@ func podsToUngateInfo(
 	psa *kueue.PodSetAssignment,
 	podToUngateWithDomain []podWithDomain) []podWithUngateInfo {
 	domainIDToLabelValues := make(map[utiltas.TopologyDomainID][]string)
-	for _, psaDomain := range psa.TopologyAssignment.Domains {
+	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		domainID := utiltas.DomainID(psaDomain.Values)
 		domainIDToLabelValues[domainID] = psaDomain.Values
 	}
@@ -336,13 +336,13 @@ func assignGatedPodsToDomainsByRanks(
 	psa *kueue.PodSetAssignment,
 	rankToGatedPod map[int]*corev1.Pod) []podWithDomain {
 	toUngate := make([]podWithDomain, 0)
-	totalCount := 0
-	for i := range psa.TopologyAssignment.Domains {
-		totalCount += int(psa.TopologyAssignment.Domains[i].Count)
+	totalPodCount := 0
+	for count := range utiltas.PodCounts(psa.TopologyAssignment) {
+		totalPodCount += int(count)
 	}
-	rankToDomainID := make([]utiltas.TopologyDomainID, totalCount)
+	rankToDomainID := make([]utiltas.TopologyDomainID, totalPodCount)
 	index := int32(0)
-	for _, domain := range psa.TopologyAssignment.Domains {
+	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		for s := range domain.Count {
 			rankToDomainID[index+s] = utiltas.DomainID(domain.Values)
 		}
@@ -379,7 +379,7 @@ func assignGatedPodsToDomainsGreedy(
 		"domainIDToUngatedCount", domainIDToUngatedCnt,
 		"levelKeys", levelKeys)
 	toUngate := make([]podWithDomain, 0)
-	for _, psaDomain := range psa.TopologyAssignment.Domains {
+	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		domainID := utiltas.DomainID(psaDomain.Values)
 		ungatedInDomainCnt := domainIDToUngatedCnt[domainID]
 		remainingUngatedInDomain := max(psaDomain.Count-ungatedInDomainCnt, 0)

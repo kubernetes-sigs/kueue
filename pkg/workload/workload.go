@@ -51,6 +51,7 @@ import (
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
@@ -532,12 +533,13 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			setRes.TopologyRequest = &TopologyRequest{
 				Levels: psa.TopologyAssignment.Levels,
 			}
-			for _, domain := range psa.TopologyAssignment.Domains {
+			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
-					Values:            domain.Values,
+					Values:            req.Values,
 					SinglePodRequests: setRes.SinglePodRequests(),
-					Count:             domain.Count,
+					Count:             req.Count,
 				})
+
 			}
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.DelayedTopologyRequest != nil {
@@ -1182,8 +1184,8 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 		if psa.TopologyAssignment == nil {
 			continue
 		}
-		for _, domain := range psa.TopologyAssignment.Domains {
-			if HasUnhealthyNode(w, domain.Values[len(domain.Values)-1]) {
+		for value := range tas.ValuesAtLevel(psa.TopologyAssignment, len(psa.TopologyAssignment.Levels)-1) {
+			if HasUnhealthyNode(w, value) {
 				return true
 			}
 		}

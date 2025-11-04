@@ -2859,18 +2859,18 @@ topology (i.e. node label keys), from the highest to the lowest level of
 the topology.</p>
 </td>
 </tr>
-<tr><td><code>domains</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-TopologyDomainAssignment"><code>[]TopologyDomainAssignment</code></a>
+<tr><td><code>slices</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice"><code>[]TopologyAssignmentSlice</code></a>
 </td>
 <td>
-   <p>domains is a list of topology assignments split by topology domains at
-the lowest level of the topology.</p>
+   <p>slices represent topology assignments for subsets of pods of a workload.
+The full assignment is obtained as a union of all slices.</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `TopologyDomainAssignment`     {#kueue-x-k8s-io-v1beta2-TopologyDomainAssignment}
+## `TopologyAssignmentSlice`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice}
     
 
 **Appears in:**
@@ -2884,21 +2884,86 @@ the lowest level of the topology.</p>
 <tbody>
     
   
-<tr><td><code>values</code> <B>[Required]</B><br/>
-<code>[]string</code>
-</td>
-<td>
-   <p>values is an ordered list of node selector values describing a topology
-domain. The values correspond to the consecutive topology levels, from
-the highest to the lowest.</p>
-</td>
-</tr>
-<tr><td><code>count</code> <B>[Required]</B><br/>
+<tr><td><code>domainCount</code> <B>[Required]</B><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>count indicates the number of Pods to be scheduled in the topology
-domain indicated by the values field.</p>
+   <p>domainCount is the number of domains covered by this slice.</p>
+</td>
+</tr>
+<tr><td><code>valuesPerLevel</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues"><code>[]TopologyAssignmentSliceLevelValues</code></a>
+</td>
+<td>
+   <p>valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
+The entry corresponding to a particular level specifies the placement of pods at that level.</p>
+</td>
+</tr>
+<tr><td><code>podCounts</code><br/>
+<code>[]int32</code>
+</td>
+<td>
+   <p>podCounts specifies the number of pods allocated per each domain.
+May be omitted if all values are identical; if so, UniversalCount is used instead.
+If set, its length must be equal to the &quot;domainCount&quot; field.
+Exactly one of podCounts, universalCount must be set.</p>
+</td>
+</tr>
+<tr><td><code>universalPodCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>universalPodCount, if set, specifies the number of pods allocated in every domain in this slice.
+Exactly one of podCounts, universalPodCount must be set.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyAssignmentSliceLevelValues`     {#kueue-x-k8s-io-v1beta2-TopologyAssignmentSliceLevelValues}
+    
+
+**Appears in:**
+
+- [TopologyAssignmentSlice](#kueue-x-k8s-io-v1beta2-TopologyAssignmentSlice)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>prefix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>prefix specifies a common prefix for all values in this slice assignment.</p>
+</td>
+</tr>
+<tr><td><code>suffix</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>suffix specifies a common suffix for all values in this slice assignment.</p>
+</td>
+</tr>
+<tr><td><code>roots</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
+May be omitted if all values are identical; if so, UniversalValue is used instead.
+If set, its length must be equal to the &quot;domainCount&quot; field of the TopologyAssignmentSlice.</p>
+</td>
+</tr>
+<tr><td><code>universalValue</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>universalValue, if set, specifies the topology assignment value (on the current topology level)
+that applies to every domain in the current slice.
+Mutually exclusive with roots, prefix and suffix.</p>
 </td>
 </tr>
 </tbody>

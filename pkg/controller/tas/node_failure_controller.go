@@ -191,9 +191,10 @@ func (r *nodeFailureReconciler) getWorkloadsOnNode(ctx context.Context, nodeName
 			if !utiltas.IsLowestLevelHostname(topologyAssignment.Levels) {
 				continue
 			}
-			for _, domain := range topologyAssignment.Domains {
-				if nodeName == domain.Values[len(domain.Values)-1] {
+			for value := range utiltas.ValuesAtLevel(topologyAssignment, len(topologyAssignment.Levels)-1) {
+				if value == nodeName {
 					tasWorkloadsOnNode.Insert(types.NamespacedName{Name: wl.Name, Namespace: wl.Namespace})
+					break
 				}
 			}
 		}
