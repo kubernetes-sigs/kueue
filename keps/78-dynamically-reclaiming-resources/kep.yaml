@@ -17,7 +17,7 @@ superseded-by:
 
 stage: beta
 
-latest-milestone: "v0.14"
+latest-milestone: "v0.15"
 
 feature-gates:
   - ReclaimablePods
