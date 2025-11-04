@@ -618,27 +618,37 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(w)
 }
 
+func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {
+	for i := range assignments {
+		if assignments[i].Name == name {
+			return &assignments[i]
+		}
+	}
+	return nil
+}
+
 func needsDelayedTopologyUpdate(local, remote *kueue.Workload) bool {
 	if remote == nil || remote.Status.Admission == nil || local == nil || local.Status.Admission == nil {
 		return false
 	}
 
 	for _, remotePSA := range remote.Status.Admission.PodSetAssignments {
-		for _, localPSA := range local.Status.Admission.PodSetAssignments {
-			if localPSA.Name != remotePSA.Name {
-				continue
-			}
+		if remotePSA.TopologyAssignment == nil {
+			continue
+		}
 
-			if remotePSA.TopologyAssignment != nil && localPSA.TopologyAssignment == nil {
-				return true
-			}
+		localPSA := findPodSetAssignment(local.Status.Admission.PodSetAssignments, remotePSA.Name)
+		if localPSA == nil {
+			continue
+		}
 
-			if localPSA.DelayedTopologyRequest != nil &&
-				*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending &&
-				remotePSA.TopologyAssignment != nil {
-				return true
-			}
-			break
+		if localPSA.TopologyAssignment == nil {
+			return true
+		}
+
+		if localPSA.DelayedTopologyRequest != nil &&
+			*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
+			return true
 		}
 	}
 	return false
@@ -695,17 +705,18 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 	}
 
 	for _, remotePSA := range remote.Status.Admission.PodSetAssignments {
-		for j := range local.Status.Admission.PodSetAssignments {
-			if local.Status.Admission.PodSetAssignments[j].Name != remotePSA.Name {
-				continue
-			}
+		if remotePSA.TopologyAssignment == nil {
+			continue
+		}
 
-			if remotePSA.TopologyAssignment != nil &&
-				local.Status.Admission.PodSetAssignments[j].DelayedTopologyRequest != nil &&
-				*local.Status.Admission.PodSetAssignments[j].DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
-				local.Status.Admission.PodSetAssignments[j].DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
-			}
-			break
+		localPSA := findPodSetAssignment(local.Status.Admission.PodSetAssignments, remotePSA.Name)
+		if localPSA == nil {
+			continue
+		}
+
+		if localPSA.DelayedTopologyRequest != nil &&
+			*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
+			localPSA.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
 }

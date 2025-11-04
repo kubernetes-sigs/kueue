@@ -243,7 +243,6 @@ func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace strin
 	return client.IgnoreNotFound(c.Delete(ctx, secret))
 }
 
-
 func TestAPIs(t *testing.T) {
 	suiteName := "End To End MultiKueue Suite"
 	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
