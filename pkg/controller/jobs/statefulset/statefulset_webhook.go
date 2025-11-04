@@ -37,6 +37,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	queueutil "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
 type Webhook struct {
@@ -141,8 +142,29 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	// Prevents updating the queue-name if at least one Pod is not suspended
 	// or if the queue-name has been deleted.
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
+	queueNameChanged := oldQueueName != newQueueName
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	} else if isSuspended && queueNameChanged && oldQueueName != "" {
+		// Block queue changes if old queue exists and workload still exists.
+		// Allow if old queue doesn't exist.
+		oldQueueExists := true
+		if wh.queues != nil {
+			oldQueueKey := queueutil.NewLocalQueueReference(oldStatefulSet.GetNamespace(), oldQueueName)
+			_, oldQueueExists = wh.queues.ClusterQueueFromLocalQueue(oldQueueKey)
+		}
+
+		if oldQueueExists {
+			workloadName := GetWorkloadName(oldStatefulSet.GetName())
+			wlKey := client.ObjectKey{Namespace: oldStatefulSet.GetNamespace(), Name: workloadName}
+			var wl kueue.Workload
+			err := wh.client.Get(ctx, wlKey, &wl)
+			if client.IgnoreNotFound(err) != nil {
+				return nil, err
+			} else if err == nil {
+				allErrs = append(allErrs, field.Forbidden(queueNameLabelPath, "workload from previous queue still exists"))
+			}
+		}
 	}
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
