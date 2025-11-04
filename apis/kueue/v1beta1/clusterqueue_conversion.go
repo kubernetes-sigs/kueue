@@ -38,11 +38,27 @@ func (dst *ClusterQueue) ConvertFrom(srcRaw conversion.Hub) error {
 
 func Convert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *ClusterQueueSpec, out *v1beta2.ClusterQueueSpec, s conversionapi.Scope) error {
 	out.CohortName = v1beta2.CohortReference(in.Cohort)
+	if in.FlavorFungibility != nil && out.FlavorFungibility != nil {
+		if in.FlavorFungibility.WhenCanPreempt == Preempt {
+			out.FlavorFungibility.WhenCanPreempt = v1beta2.MayStopSearch
+		}
+		if in.FlavorFungibility.WhenCanBorrow == Borrow {
+			out.FlavorFungibility.WhenCanBorrow = v1beta2.MayStopSearch
+		}
+	}
 	return autoConvert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in, out, s)
 }
 
 func Convert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in *v1beta2.ClusterQueueSpec, out *ClusterQueueSpec, s conversionapi.Scope) error {
 	out.Cohort = CohortReference(in.CohortName)
+	if in.FlavorFungibility != nil && out.FlavorFungibility != nil {
+		if in.FlavorFungibility.WhenCanPreempt == v1beta2.MayStopSearch {
+			out.FlavorFungibility.WhenCanPreempt = Preempt
+		}
+		if in.FlavorFungibility.WhenCanBorrow == v1beta2.MayStopSearch {
+			out.FlavorFungibility.WhenCanBorrow = Borrow
+		}
+	}
 	return autoConvert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(in, out, s)
 }
 
