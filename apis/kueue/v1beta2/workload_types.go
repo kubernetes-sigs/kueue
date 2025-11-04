@@ -364,13 +364,13 @@ type TopologyAssignment struct {
 	// The full assignment is obtained as a union of all slices.
 	// +required
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=30000
+	// +kubebuilder:validation:MaxItems=1000
 	Slices []TopologyAssignmentSlice `json:"slices"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.podCounts) || size(self.podCounts) == self.domainCount", message="podCounts must have length equal to domainCount"
 // +kubebuilder:validation:XValidation:rule="has(self.podCounts) != has(self.universalPodCount)", message="Exactly one of podCounts, universalPodCount must be set"
-// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.roots) || size(x.roots) == size(self.domainCount))", message="roots, if set, must have length equal to domainCount of this TopologyAssignmentSlice"
+// +kubebuilder:validation:XValidation:rule="self.valuesPerLevel.all(x, !has(x.roots) || size(x.roots) == self.domainCount)", message="roots, if set, must have length equal to domainCount of this TopologyAssignmentSlice"
 type TopologyAssignmentSlice struct {
 	// domainCount is the number of domains covered by this slice.
 	// +required
@@ -402,13 +402,15 @@ type TopologyAssignmentSlice struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.roots) != has(self.universalValue)", message="Exactly one of roots, universalValue must be set"
-// +kubebuilder:validation:XValidation:rule="!(has(self.universalValue) && (has(self.prefix) || has(self.suffix))", message="universalValue cannot be set together with prefix or suffix"
+// +kubebuilder:validation:XValidation:rule="!(has(self.universalValue) && (has(self.prefix) || has(self.suffix)))", message="universalValue cannot be set together with prefix or suffix"
 type TopologyAssignmentSliceLevelValues struct {
 	// prefix specifies a common prefix for all values in this slice assignment.
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	Prefix *string `json:"prefix,omitempty"`
 	// suffix specifies a common suffix for all values in this slice assignment.
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	Suffix *string `json:"suffix,omitempty"`
 
 	// roots specifies the values in this assignment (excluding prefix and suffix, if non-empty).
@@ -418,12 +420,14 @@ type TopologyAssignmentSliceLevelValues struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=100000
+	// +kubebuilder:validation:items:MaxLength=63
 	Roots []string `json:"roots,omitempty"`
 
 	// universalValue, if set, specifies the topology assignment value (on the current topology level)
 	// that applies to every domain in the current slice.
 	// Mutually exclusive with roots, prefix and suffix.
 	// +optional
+	// +kubebuilder:validation:MaxLength=63
 	UniversalValue *string `json:"universalValue,omitempty"`
 }
 

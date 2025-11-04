@@ -154,6 +154,7 @@ func fillSingleCompactSliceValues(
 	// All strings equal
 	if len(prefix) == maxLen {
 		values.UniversalValue = &prefix
+		return
 	}
 
 	// Ensure that common prefix & suffix don't overlap
