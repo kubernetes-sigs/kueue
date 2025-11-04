@@ -17,6 +17,7 @@ limitations under the License.
 package fairsharing
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -951,38 +952,40 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
 
-		ginkgo.It("sticky workload deleted, next workload can admit", func() {
-			ginkgo.By("Creating borrowing workloads in queue2")
-			createWorkload("cq2", "1")
-			createWorkload("cq2", "1")
-			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+		for i := range 100 {
+			ginkgo.FIt(fmt.Sprintf("sticky workload deleted, next workload can admit %d", i), func() {
+				ginkgo.By("Creating borrowing workloads in queue2")
+				createWorkload("cq2", "1")
+				createWorkload("cq2", "1")
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
 
-			ginkgo.By("Create inadmissible workload in queue1")
-			createWorkloadWithPriority("cq1", "4", 999)
+				ginkgo.By("Create inadmissible workload in queue1")
+				createWorkloadWithPriority("cq1", "4", 999)
 
-			ginkgo.By("Verify doesn't admit")
-			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
+				ginkgo.By("Verify doesn't admit")
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
 
-			ginkgo.By("Create admissible workloads in queue1")
-			stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
+				ginkgo.By("Create admissible workloads in queue1")
+				stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
 
-			ginkgo.By("Another admissible workload in queue1")
-			createWorkloadWithPriority("cq1", "3", 0)
+				ginkgo.By("Another admissible workload in queue1")
+				createWorkloadWithPriority("cq1", "3", 0)
 
-			ginkgo.By("Delete sticky workload")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, stickyWorkload, true)
+				ginkgo.By("Delete sticky workload")
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, stickyWorkload, true)
 
-			ginkgo.By("Validate pending workloads")
-			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
+				ginkgo.By("Validate pending workloads")
+				util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
 
-			ginkgo.By("Complete preemption")
-			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+				ginkgo.By("Complete preemption")
+				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
-			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
-			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
-			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
-		})
+				ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
+				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
+				util.ExpectClusterQueueWeightedShareMetric(cq1, 0.0)
+				util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
+			})
+		}
 	})
 
 	ginkgo.When("Using AdmissionFairSharing at ClusterQueue level", func() {
