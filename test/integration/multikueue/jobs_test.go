@@ -1725,8 +1725,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("observe: job is no longer suspended in the manager cluster", func() {
-			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+			gomega.Eventually(func(g gomega.Gomega) {
+				getJob(manager.ctx, manager.client, job)
+				g.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		/*
