@@ -686,8 +686,10 @@ func TestReconciler(t *testing.T) {
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
+				// Add namespace to prevent early return when ManagedJobsNamespaceSelectorAlwaysRespected is enabled
+				namespace := utiltesting.MakeNamespace("ns")
 				objs := append(tc.priorityClasses, &tc.job)
-				kcBuilder := clientBuilder.WithObjects(objs...)
+				kcBuilder := clientBuilder.WithObjects(namespace).WithObjects(objs...)
 
 				for i := range tc.workloads {
 					kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
