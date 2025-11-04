@@ -62,7 +62,11 @@ type WorkloadWrapper struct{ kueue.Workload }
 // with a single container.
 func MakeWorkload(name, ns string) *WorkloadWrapper {
 	return &WorkloadWrapper{kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Namespace:  ns,
+			Finalizers: []string{kueue.SafeDeleteFinalizerName},
+		},
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
 				*MakePodSet(kueue.DefaultPodSetName, 1).Obj(),
