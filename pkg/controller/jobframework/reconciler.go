@@ -514,6 +514,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			// update the metrics only when PodsReady condition status is true
 			if condition.Status == metav1.ConditionTrue {
