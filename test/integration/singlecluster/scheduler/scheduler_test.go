@@ -539,7 +539,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Should not admit workloads when resources are dynamically reclaimed and the reclaimablePods feature gate is off", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, false)
-			defer features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, true)
 
 			firstWl := utiltestingapi.MakeWorkload("first-wl", ns.Name).Queue(kueue.LocalQueueName(preemptionQueue.Name)).
 				PodSets(
