@@ -388,6 +388,55 @@ The total length of each name must not exceed 253 characters.</p>
 </tbody>
 </table>
 
+## `FailureRecoveryPolicy`     {#config-kueue-x-k8s-io-v1beta1-FailureRecoveryPolicy}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>rules</code> <B>[Required]</B><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-FailureRecoveryRule"><code>[]FailureRecoveryRule</code></a>
+</td>
+<td>
+   <p>Rules specifies the rules to be enabled for failure recovery.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `FailureRecoveryRule`     {#config-kueue-x-k8s-io-v1beta1-FailureRecoveryRule}
+    
+
+**Appears in:**
+
+- [FailureRecoveryPolicy](#config-kueue-x-k8s-io-v1beta1-FailureRecoveryPolicy)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>terminatePod</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-TerminatePodConfig"><code>TerminatePodConfig</code></a>
+</td>
+<td>
+   <p>TerminatePod enables and contains configuration for the <code>TerminatePod</code> strategy.
+This strategy recovers stuck pods by forcefully terminating them after a configured
+grace period elapses.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `FairSharing`     {#config-kueue-x-k8s-io-v1beta1-FairSharing}
     
 
@@ -918,6 +967,42 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TerminatePodConfig`     {#config-kueue-x-k8s-io-v1beta1-TerminatePodConfig}
+    
+
+**Appears in:**
+
+- [FailureRecoveryRule](#config-kueue-x-k8s-io-v1beta1-FailureRecoveryRule)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>podLabelSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>PodLabelSelector specifies the scope of resources covered by <code>TerminatePod</code> failure recovery -
+resources not matching the selector are ignored by the controller.
+If a pod matches multiple configurations, the strictest one (with the shortest grace period)
+will be applied.</p>
+</td>
+</tr>
+<tr><td><code>forcefulTerminationGracePeriod</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>ForcefulTerminationGracePeriod is the duration between when the pod's <code>deletionGracePeriodSeconds</code>
+elapses and when the pod should be forcefully deleted.
+Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
 </td>
 </tr>
 </tbody>

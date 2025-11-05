@@ -58,6 +58,8 @@ var (
 	resourceTransformationPath           = field.NewPath("resources", "transformations")
 	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
+	failureRecoveryPolicyPath            = field.NewPath("failureRecoveryPolicy")
+	failureRecoveryPolicyRulesPath       = failureRecoveryPolicyPath.Child("rules")
 	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
 )
 
@@ -73,6 +75,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
+	allErrs = append(allErrs, validateFailureRecoveryPolicy(c)...)
 	return allErrs
 }
 
@@ -484,5 +487,24 @@ func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList
 		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterDeactivatedByKueue"),
 			c.ObjectRetentionPolicies.Workloads.AfterDeactivatedByKueue.Duration.String(), apimachineryvalidation.IsNegativeErrorMsg))
 	}
+	return allErrs
+}
+
+func validateFailureRecoveryPolicy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	frp := c.FailureRecoveryPolicy
+	if frp == nil {
+		return allErrs
+	}
+
+	for i, rule := range frp.Rules {
+		terminatePodConfigPath := failureRecoveryPolicyRulesPath.Index(i).Child("terminatePod")
+		if rule.TerminatePod != nil && rule.TerminatePod.PodLabelSelector != nil {
+			allErrs = append(
+				allErrs,
+				validation.ValidateLabelSelector(rule.TerminatePod.PodLabelSelector, validation.LabelSelectorValidationOptions{}, terminatePodConfigPath.Child("podLabelSelector"))...)
+		}
+	}
+
 	return allErrs
 }

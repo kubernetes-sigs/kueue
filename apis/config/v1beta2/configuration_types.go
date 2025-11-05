@@ -105,6 +105,10 @@ type Configuration struct {
 	// of Kueue-managed objects. A nil value disables all automatic deletions.
 	// +optional
 	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
+
+	// FailureRecoveryPolicy is used to enable automatic failure recovery mechanisms.
+	// +optional
+	FailureRecoveryPolicy *FailureRecoveryPolicy `json:"failureRecoveryPolicy,omitempty"`
 }
 
 type ControllerManager struct {
@@ -559,4 +563,33 @@ type WorkloadRetentionPolicy struct {
 	// Represented using metav1.Duration (e.g. "10m", "1h30m").
 	// +optional
 	AfterDeactivatedByKueue *metav1.Duration `json:"afterDeactivatedByKueue,omitempty"`
+}
+
+type FailureRecoveryPolicy struct {
+	// Rules specifies the rules to be enabled for failure recovery.
+	// +kubebuilder:validation:MinItems=1
+	Rules []FailureRecoveryRule `json:"rules"`
+}
+
+// +kubebuilder:validation:ExactlyOneOf=terminatePod
+type FailureRecoveryRule struct {
+	// TerminatePod enables and contains configuration for the `TerminatePod` strategy.
+	// This strategy recovers stuck pods by forcefully terminating them after a configured
+	// grace period elapses.
+	// +optional
+	TerminatePod *TerminatePodConfig `json:"terminatePod,omitempty"`
+}
+
+type TerminatePodConfig struct {
+	// PodLabelSelector specifies the scope of resources covered by `TerminatePod` failure recovery -
+	// resources not matching the selector are ignored by the controller.
+	// If a pod matches multiple configurations, the strictest one (with the shortest grace period)
+	// will be applied.
+	PodLabelSelector *metav1.LabelSelector `json:"podLabelSelector,omitempty"`
+
+	// ForcefulTerminationGracePeriod is the duration between when the pod's `deletionGracePeriodSeconds`
+	// elapses and when the pod should be forcefully deleted.
+	// Represented using metav1.Duration (e.g. "10m", "1h30m").
+	// +required
+	ForcefulTerminationGracePeriod metav1.Duration `json:"forcefulTerminationGracePeriod"`
 }
