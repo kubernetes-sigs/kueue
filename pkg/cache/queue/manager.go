@@ -723,7 +723,7 @@ func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {
 	return m.hm.ClusterQueuesNames()
 }
 
-func (m *Manager) getClusterQueue(cqName kueue.ClusterQueueReference) *ClusterQueue {
+func (m *Manager) GetClusterQueue(cqName kueue.ClusterQueueReference) *ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
 	return m.hm.ClusterQueue(cqName)
@@ -735,7 +735,7 @@ func (m *Manager) getClusterQueueLockless(cqName kueue.ClusterQueueReference) (v
 }
 
 func (m *Manager) PendingWorkloadsInfo(cqName kueue.ClusterQueueReference) []*workload.Info {
-	cq := m.getClusterQueue(cqName)
+	cq := m.GetClusterQueue(cqName)
 	if cq == nil {
 		return nil
 	}

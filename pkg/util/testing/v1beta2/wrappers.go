@@ -372,6 +372,10 @@ func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Delete() *WorkloadWrapper {
+	return w.DeletionTimestamp(time.Now())
+}
+
 func (w *WorkloadWrapper) RequeueState(count *int32, requeueAt *metav1.Time) *WorkloadWrapper {
 	if count == nil && requeueAt == nil {
 		w.Status.RequeueState = nil

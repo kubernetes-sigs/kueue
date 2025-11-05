@@ -530,6 +530,10 @@ func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lq *kueue
 	return nil, errQNotFound
 }
 
+func (c *Cache) GetClusterQueue(cqName kueue.ClusterQueueReference) *clusterQueue {
+	return c.hm.ClusterQueues()[cqName]
+}
+
 func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	if oldQ.Spec.ClusterQueue == newQ.Spec.ClusterQueue {
 		return nil
