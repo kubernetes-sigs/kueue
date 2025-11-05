@@ -18,13 +18,13 @@ package dra
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -32,61 +32,56 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
-var (
-	errDeviceClassNotMapped  = errors.New("DeviceClass is not mapped in DRA configuration")
-	errClaimSpecNotFound     = errors.New("failed to get claim spec")
-	errUnsupportedDRAFeature = errors.New("unsupported DRA feature")
-
-	// Specific unsupported DRA feature errors
-	errUnsupportedDRADeviceConstraints = errors.New("device constraints (MatchAttribute) are not supported")
-	errUnsupportedDRADeviceConfig      = errors.New("device config is not supported")
-	errUnsupportedDRAFirstAvailable    = errors.New("FirstAvailable device selection is not supported")
-	errUnsupportedDRACELSelectors      = errors.New("CEL selectors are not supported")
-	errUnsupportedDRAAdminAccess       = errors.New("AdminAccess is not supported")
-	errUnsupportedDRAAllocationModeAll = errors.New("AllocationMode 'All' is not supported")
-)
-
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec. It validates that only supported DRA features are used
-// and returns an error if unsupported features are detected.
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, error) {
+// and returns field errors if unsupported features are detected.
+func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
 	out := resources.Requests{}
 	if claimSpec == nil {
 		return out, nil
 	}
 
+	var allErrs field.ErrorList
+
 	// Check for unsupported device constraints
 	if len(claimSpec.Devices.Constraints) > 0 {
-		return nil, errUnsupportedDRADeviceConstraints
+		allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "constraints"), nil, "device constraints (MatchAttribute) are not supported"))
+		return nil, allErrs
 	}
 
 	// Check for unsupported device config
 	if len(claimSpec.Devices.Config) > 0 {
-		return nil, errUnsupportedDRADeviceConfig
+		allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "config"), nil, "device config is not supported"))
+		return nil, allErrs
 	}
 
-	for _, req := range claimSpec.Devices.Requests {
+	for i, req := range claimSpec.Devices.Requests {
 		// v1 DeviceRequest has Exactly or FirstAvailable. For Step 1, we
 		// preserve existing semantics by only supporting Exactly with Count.
 		var dcName string
 		var q int64
 		if req.FirstAvailable != nil {
-			return nil, errUnsupportedDRAFirstAvailable
+			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i), nil, "FirstAvailable device selection is not supported"))
+			return nil, allErrs
 		}
 
 		switch {
 		case len(req.Exactly.Selectors) > 0:
-			return nil, errUnsupportedDRACELSelectors
+			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "selectors"), nil, "CEL selectors are not supported"))
+			return nil, allErrs
 		case req.Exactly.AdminAccess != nil && *req.Exactly.AdminAccess:
-			return nil, errUnsupportedDRAAdminAccess
+			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "adminAccess"), nil, "AdminAccess is not supported"))
+			return nil, allErrs
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll:
-			return nil, errUnsupportedDRAAllocationModeAll
+			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "allocationMode"), resourcev1.DeviceAllocationModeAll, "AllocationMode 'All' is not supported"))
+			return nil, allErrs
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeExactCount:
 			dcName = req.Exactly.DeviceClassName
 			q = req.Exactly.Count
 		default:
-			return nil, fmt.Errorf("%w: unsupported allocation mode: %s", errUnsupportedDRAFeature, req.Exactly.AllocationMode)
+			allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "requests").Index(i).Child("exactly", "allocationMode"), req.Exactly.AllocationMode, fmt.Sprintf("unsupported allocation mode: %s", req.Exactly.AllocationMode)))
+			return nil, allErrs
 		}
 
 		dc := corev1.ResourceName(dcName)
@@ -125,37 +120,56 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 // returns the aggregated quantities per PodSet.
 //
 // If at least one DeviceClass is not present in the DRA configuration or if unsupported DRA
-// features are detected, the function returns an error.
+// features are detected, the function returns field errors.
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
 	cl client.Client,
-	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, error) {
+	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
+	var allErrs field.ErrorList
+
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
 		aggregated := corev1.ResourceList{}
 
-		for _, prc := range ps.Template.Spec.ResourceClaims {
+		for j, prc := range ps.Template.Spec.ResourceClaims {
 			if prc.ResourceClaimTemplateName == nil {
 				continue
 			}
 			spec, err := getClaimSpec(ctx, cl, wl.Namespace, prc)
 			if err != nil {
-				return nil, fmt.Errorf("failed to get claim spec for ResourceClaimTemplate %s in workload %s podset %s: %w", *prc.ResourceClaimTemplateName, wl.Name, ps.Name, fmt.Errorf("%w: %v", errClaimSpecNotFound, err))
+				allErrs = append(allErrs, field.InternalError(
+					field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j),
+					fmt.Errorf("failed to get claim spec for ResourceClaimTemplate %s in podset %s: %w", *prc.ResourceClaimTemplateName, ps.Name, err),
+				))
+				return nil, allErrs
 			}
 			if spec == nil {
 				continue
 			}
 
-			deviceCounts, err := countDevicesPerClass(spec)
-			if err != nil {
-				return nil, fmt.Errorf("unsupported DRA feature in ResourceClaimTemplate %s in workload %s podset %s: %w", *prc.ResourceClaimTemplateName, wl.Name, ps.Name, err)
+			deviceCounts, fieldErrs := countDevicesPerClass(spec)
+			if len(fieldErrs) > 0 {
+				// Prefix the field paths with the podset and resource claim context
+				for _, fieldErr := range fieldErrs {
+					allErrs = append(allErrs, &field.Error{
+						Type:     fieldErr.Type,
+						Field:    field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).String() + "." + fieldErr.Field,
+						BadValue: fieldErr.BadValue,
+						Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, fieldErr.Detail),
+					})
+				}
+				return nil, allErrs
 			}
 
 			for dc, qty := range deviceCounts {
 				logical, found := Mapper().lookup(dc)
 				if !found {
-					return nil, fmt.Errorf("DeviceClass %s is not mapped in DRA configuration for workload %s podset %s: %w", dc, wl.Name, ps.Name, errDeviceClassNotMapped)
+					allErrs = append(allErrs, field.NotFound(
+						field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("resourceClaimTemplateName"),
+						fmt.Sprintf("DeviceClass %s is not mapped in DRA configuration for podset %s", dc, ps.Name),
+					))
+					return nil, allErrs
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
 			}

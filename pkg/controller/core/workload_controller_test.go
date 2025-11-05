@@ -563,13 +563,13 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadInadmissible,
-						Message: "DeviceClass unmapped.example.com is not mapped in DRA configuration for workload wlUnmappedDRA podset main: DeviceClass is not mapped in DRA configuration",
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadInadmissible,
-						Message: "DeviceClass unmapped.example.com is not mapped in DRA configuration for workload wlUnmappedDRA podset main: DeviceClass is not mapped in DRA configuration",
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
 					}).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
@@ -580,7 +580,7 @@ func TestReconcile(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantErrorMsg: "DeviceClass is not mapped in DRA configuration",
+			wantErrorMsg: "not mapped in DRA configuration",
 			wantEvents:   nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
@@ -606,13 +606,13 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
-					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
-					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
 				}).
 				Obj(),
 			wantErrorMsg: "failed to get claim spec",

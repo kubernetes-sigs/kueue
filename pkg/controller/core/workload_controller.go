@@ -232,8 +232,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(3).Info("Processing DRA resources for workload")
-		draResources, err := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
-		if err != nil {
+		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, &wl)
+		if len(fieldErrs) > 0 {
+			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
 			if workload.UnsetQuotaReservationWithCondition(&wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now()) {
 				workload.SetRequeuedCondition(&wl, kueue.WorkloadInadmissible, err.Error(), false)
