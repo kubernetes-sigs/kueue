@@ -278,46 +278,101 @@ type PodSetAssignment struct {
 	// topology domains corresponding to the lowest level of the topology.
 	// The assignment specifies the number of Pods to be scheduled per topology
 	// domain and specifies the node selectors for each topology domain, in the
-	// following way: the node selector keys are specified by the levels field
-	// (same for all domains), and the corresponding node selector value is
-	// specified by the domains.values subfield. If the TopologySpec.Levels field contains
-	// "kubernetes.io/hostname" label, topologyAssignment will contain data only for
-	// this label, and omit higher levels in the topology
+	// following way:
+	// * `levels` specifies the node selector keys (same for all domains).
+	//   - If the TopologySpec.Levels field contains "kubernetes.io/hostname" label,
+	//     topologyAssignment will contain data only for this label,
+	//     and omit higher levels in the topology.
+	// * `slices` specifies the node selector values and pod counts for all domains
+	//   (which may be partitioned into separate slices).
+	//   - The node selector values are arranged first by topology level, only then by domain.
+	//     (This allows "optimizing" similar values; see below).
+	// * The format of `slices` supports the following variations
+	//   (aimed to optimize the total bytesize for very large number of domains; see examples below):
+	//   - When all node selector values (at a given topology level, in a given slice)
+	//     share a common prefix and/or suffix, these may be stored in dedicated `prefix`/`suffix` fields.
+	//     If so, the array of `roots` will only store the remaining parts of these strings.
+	//   - When all node selector values (at a given topology level, in a given slice)
+	//     are identical, this may be represented by `universalValue`.
+	//   - When all pod counts (in a given slice) are indentical,
+	//     this may be represented by `universalPodCount`.
 	//
-	// Example:
+	// Example 1:
+	//
+	// The following represents an assignment in which:
+	// * 4 Pods are to be scheduled on nodes matching the node selector:
+	//   - cloud.provider.com/topology-block: block-1
+	//   - cloud.provider.com/topology-rack: rack-1
+	// * 2 Pods are to be scheduled on nodes matching the node selector:
+	//   - cloud.provider.com/topology-block: block-1
+	//   - cloud.provider.com/topology-rack: rack-2
 	//
 	// topologyAssignment:
 	//   levels:
 	//   - cloud.provider.com/topology-block
 	//   - cloud.provider.com/topology-rack
-	//   domains:
-	//   - values: [block-1, rack-1]
-	//     count: 4
-	//   - values: [block-1, rack-2]
-	//     count: 2
+	//   slices:
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - roots: [block-1, block-1]
+	//     - roots: [rack-1, rack-2]
+	//     podCounts: [4, 2]
 	//
-	// Here:
-	// - 4 Pods are to be scheduled on nodes matching the node selector:
-	//   cloud.provider.com/topology-block: block-1
-	//   cloud.provider.com/topology-rack: rack-1
-	// - 2 Pods are to be scheduled on nodes matching the node selector:
-	//   cloud.provider.com/topology-block: block-1
-	//   cloud.provider.com/topology-rack: rack-2
+	// Example 2:
 	//
-	// Example:
-	// Below there is an equivalent of the above example assuming, Topology
-	// object defines kubernetes.io/hostname as the lowest level in topology.
-	// Hence we omit higher level of topologies, since the hostname label
-	// is sufficient to explicitly identify a proper node.
+	// The following is equivalent to Example 1 - but using extracted prefix and universalValue.
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - cloud.provider.com/topology-block
+	//   - cloud.provider.com/topology-rack
+	//   slices:
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - universalValue: block-1
+	//     - prefix: rack-
+	// 		 roots: [1, 2]
+	//     podCounts: [4, 2]
+	//
+	// Example 3:
+	//
+	// Now suppose that:
+	// - the Topology object defines kubernetes.io/hostname as the lowest level
+	//   (and hence, in the topologyAssignment, we omit all other levels
+	//   since the hostname label suffices to explicitly identify a proper node),
+	// - we assign 1 Pod per each node,
+	// - the node naming scheme is `block-{blockId}-rack-{rackId}-node-{nodeId}`.
+	// Then, using the "extraction of commons", the assignment from Examples 1-2 would look as follows:
 	//
 	// topologyAssignment:
 	//   levels:
 	//   - kubernetes.io/hostname
-	//   domains:
-	//   - values: [hostname-1]
-	//     count: 4
-	//   - values: [hostname-2]
-	//     count: 2
+	//   slices:
+	//   - domainCount: 6
+	//     valuesPerLevel:
+	//     - prefix: block-1-rack-
+	// 		 roots: [1-node-1, 1-node-2, 1-node-3, 1-node-4, 2-node-1, 2-node-2]
+	//     universalPodCount: 1
+	//
+	// Example 4:
+	//
+	// By using multiple slices, we can afford even longer common prefixes.
+	// The assignment from Example 3 can be alternatively represented as follows:
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - kubernetes.io/hostname
+	//   slices:
+	//   - domainCount: 4
+	//     valuesPerLevel:
+	//     - prefix: block-1-rack-1-node-
+	// 		 roots: [1, 2, 3, 4]
+	//     universalPodCount: 1
+	//   - domainCount: 2
+	//     valuesPerLevel:
+	//     - prefix: block-1-rack-2-node-
+	// 		 roots: [1, 2]
+	//     universalPodCount: 1
 	//
 	// +optional
 	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
