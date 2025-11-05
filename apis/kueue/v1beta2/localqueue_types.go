@@ -33,7 +33,8 @@ type LocalQueueName string
 type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
-	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
+	// +optional
+	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"` //nolint:kubeapilinter // should not be a pointer
 
 	// stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
 	// no new reservation being made.
@@ -60,18 +61,16 @@ type TopologyInfo struct {
 	// name is the name of the topology.
 	//
 	// +required
-	// +kubebuilder:validation:Required
-	Name TopologyReference `json:"name"`
+	Name TopologyReference `json:"name"` //nolint:kubeapilinter // should not be a pointer
 
 	// levels define the levels of topology.
 	//
 	// +required
 	// +listType=atomic
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MaxLength=317
-	Levels []string `json:"levels"`
+	Levels []string `json:"levels,omitempty"`
 }
 
 // LocalQueueStatus defines the observed state of LocalQueue
@@ -89,17 +88,17 @@ type LocalQueueStatus struct {
 
 	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
 	// +optional
-	PendingWorkloads int32 `json:"pendingWorkloads"`
+	PendingWorkloads int32 `json:"pendingWorkloads"` //nolint:kubeapilinter // should not be a pointer
 
 	// reservingWorkloads is the number of workloads in this LocalQueue
 	// reserving quota in a ClusterQueue and that haven't finished yet.
 	// +optional
-	ReservingWorkloads int32 `json:"reservingWorkloads"`
+	ReservingWorkloads int32 `json:"reservingWorkloads"` //nolint:kubeapilinter // should not be a pointer
 
 	// admittedWorkloads is the number of workloads in this LocalQueue
 	// admitted to a ClusterQueue and that haven't finished yet.
 	// +optional
-	AdmittedWorkloads int32 `json:"admittedWorkloads"`
+	AdmittedWorkloads int32 `json:"admittedWorkloads"` //nolint:kubeapilinter // should not be a pointer
 
 	// flavorsReservation are the reserved quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
@@ -107,7 +106,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation"`
+	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation,omitempty"`
 
 	// flavorsUsage are the used quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
@@ -115,7 +114,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage"`
+	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage,omitempty"`
 
 	// fairSharing contains the information about the current status of fair sharing.
 	// +optional
@@ -130,21 +129,25 @@ const (
 
 type LocalQueueFlavorUsage struct {
 	// name of the flavor.
-	Name ResourceFlavorReference `json:"name"`
+	// +required
+	Name ResourceFlavorReference `json:"name"` //nolint:kubeapilinter // should not be a pointer
 
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
-	Resources []LocalQueueResourceUsage `json:"resources"`
+	// +required
+	Resources []LocalQueueResourceUsage `json:"resources,omitempty"`
 }
 
 type LocalQueueResourceUsage struct {
 	// name of the resource.
-	Name corev1.ResourceName `json:"name"`
+	// +required
+	Name corev1.ResourceName `json:"name,omitempty"`
 
 	// total is the total quantity of used quota.
-	Total resource.Quantity `json:"total,omitempty"`
+	// +optional
+	Total resource.Quantity `json:"total,omitempty"` //nolint:kubeapilinter // should not be a pointer
 }
 
 // +genclient
@@ -159,12 +162,15 @@ type LocalQueueResourceUsage struct {
 type LocalQueue struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the LocalQueue.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the LocalQueue.
-	Spec LocalQueueSpec `json:"spec,omitempty"`
+	// +optional
+	Spec LocalQueueSpec `json:"spec"` //nolint:kubeapilinter // should not be a pointer
 	// status is the status of the LocalQueue.
-	Status LocalQueueStatus `json:"status,omitempty"`
+	// +optional
+	Status LocalQueueStatus `json:"status,omitempty"` //nolint:kubeapilinter // should not be a pointer
 }
 
 // +kubebuilder:object:root=true

@@ -846,6 +846,7 @@ spec:
                   items:
                     description: AdmissionCheckReference is the name of an AdmissionCheck.
                     maxLength: 316
+                    minLength: 1
                     type: string
                   type: array
                 admissionChecksStrategy:
@@ -861,6 +862,7 @@ spec:
                           name:
                             description: name is an AdmissionCheck's name.
                             maxLength: 316
+                            minLength: 1
                             type: string
                           onFlavors:
                             description: |-
@@ -878,10 +880,13 @@ spec:
                           - name
                         type: object
                       maxItems: 64
+                      minItems: 1
                       type: array
                       x-kubernetes-list-map-keys:
                         - name
                       x-kubernetes-list-type: map
+                  required:
+                    - admissionChecks
                   type: object
                 admissionScope:
                   description: admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
