@@ -485,7 +485,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 4. update reclaimable counts if implemented by the job
-	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable {
+	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable && features.Enabled(features.ReclaimablePods) {
 		log.V(3).Info("update reclaimable counts if implemented by the job")
 		reclPods, err := jobRecl.ReclaimablePods()
 		if err != nil {
