@@ -185,115 +185,36 @@ spec:
 - The `runtimeRef` specifies `kind: TrainingRuntime` to use the namespace-scoped runtime
 - Each namespace can have its own customized runtimes with different configurations
 
-## Using Kueue Priority
+## Using Workload Priority
 
-You can set job priority using Kueue's PriorityClass:
+To prioritize TrainJobs, use Kueue's workload priority classes. See [Run job with WorkloadPriority](/docs/tasks/manage/run_job_with_workload_priority) for details on configuring and using workload priority classes.
 
-```yaml
-apiVersion: trainer.kubeflow.org/v1alpha1
-kind: TrainJob
-metadata:
-  name: high-priority-training
-  namespace: default
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue
-    kueue.x-k8s.io/priority-class: high-priority
-spec:
-  runtimeRef:
-    name: torch-distributed
-    kind: ClusterTrainingRuntime
-  trainer:
-    image: docker.io/kubeflow/pytorch-dist-mnist-test:v1.0
-    numNodes: 2
-    resourcesPerNode:
-      requests:
-        cpu: "4"
-        memory: "8Gi"
-        nvidia.com/gpu: "1"
-```
+TrainJobs use the same priority mechanism as other Kueue workloads via the `kueue.x-k8s.io/priority-class` label.
 
 ## LLM Fine-Tuning with Kueue
 
-For Large Language Model fine-tuning with TorchTune, you can use specialized ClusterTrainingRuntimes:
+Kubeflow Trainer v2 supports LLM fine-tuning with TorchTune and DeepSpeed. For comprehensive examples, see:
+
+- [Fine-tune Llama-3.2-1B with Alpaca Dataset](https://github.com/kubeflow/trainer/blob/master/examples/torchtune/llama3_2/alpaca-trainjob-yaml.ipynb)
+- [Fine-tune Qwen2.5-1.5B with Alpaca Dataset](https://github.com/kubeflow/trainer/blob/master/examples/torchtune/qwen2_5/qwen2.5-1.5B-with-alpaca.ipynb)
+- [T5 Fine-Tuning with DeepSpeed](https://github.com/kubeflow/trainer/blob/master/examples/deepspeed/text-summarization/T5-Fine-Tuning.ipynb)
+
+To use Kueue scheduling with these examples, add the queue label to your TrainJob:
 
 ```yaml
-apiVersion: trainer.kubeflow.org/v1alpha1
-kind: TrainJob
 metadata:
-  name: llama-finetuning
-  namespace: default
   labels:
-    kueue.x-k8s.io/queue-name: gpu-queue
+    kueue.x-k8s.io/queue-name: gpu-queue  # Add this label for Kueue scheduling
 spec:
   runtimeRef:
     name: torchtune-llama3.2-1b
     kind: ClusterTrainingRuntime
-  initializer:
-    dataset:
-      storageUri: hf://tatsu-lab/alpaca
-    model:
-      storageUri: hf://meta-llama/Llama-3.2-1B-Instruct
-      accessToken: <your-hf-token>
-  trainer:
-    numNodes: 1
-    resourcesPerNode:
-      requests:
-        cpu: "8"
-        memory: "32Gi"
-        nvidia.com/gpu: "2"
+  # ... rest of the TrainJob spec as shown in Kubeflow examples
 ```
 
-## Monitoring TrainJob Status
 
-You can check the status of your TrainJob:
 
-```bash
-kubectl get trainjob pytorch-distributed -n default
-```
 
-To see detailed information including Kueue admission status:
-
-```bash
-kubectl describe trainjob pytorch-distributed -n default
-```
-
-Check the workload status in Kueue:
-
-```bash
-kubectl get workload -n default
-```
-
-## Gang Scheduling with ClusterQueue
-
-For distributed training that requires all nodes to start simultaneously, configure your ClusterQueue appropriately:
-
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: cluster-queue
-spec:
-  namespaceSelector: {}
-  resourceGroups:
-    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-      flavors:
-        - name: default-flavor
-          resources:
-            - name: "cpu"
-              nominalQuota: 100
-            - name: "memory"
-              nominalQuota: 500Gi
-            - name: "nvidia.com/gpu"
-              nominalQuota: 8
-```
-
-## Cleanup
-
-To delete a TrainJob:
-
-```bash
-kubectl delete trainjob pytorch-distributed -n default
-```
 
 ## Differences from Kubeflow Training Operator V1
 
@@ -321,54 +242,17 @@ For migration guidance, refer to the [Kubeflow Trainer documentation](https://ww
 
 - [Kubeflow Trainer Documentation](https://www.kubeflow.org/docs/components/trainer/)
 - [Kueue Concepts](/docs/concepts/)
-- [Configure ClusterQueue](/docs/tasks/manage/setup_cluster_queue/)
+- [Run job with WorkloadPriority](/docs/tasks/manage/run_job_with_workload_priority)
+- [Monitor Pending Workloads](/docs/tasks/manage/monitor_pending_workloads)
 - [Kubeflow Python SDK](https://github.com/kubeflow/sdk/)
 
 ## Troubleshooting
 
-### TrainJob is not being admitted
+For general troubleshooting guidance, see the [Kueue troubleshooting guide](/docs/tasks/troubleshooting).
 
-Check the LocalQueue and ClusterQueue status:
-
-```bash
-kubectl get localqueue user-queue -n default
-kubectl get clusterqueue
-```
-
-Ensure your resource requests don't exceed available quota:
-
-```bash
-kubectl describe clusterqueue <cluster-queue-name>
-```
-
-### TrainJob fails to start
-
-Check the TrainJob events and status:
-
-```bash
-kubectl describe trainjob <trainjob-name> -n <namespace>
-```
-
-Verify that the referenced ClusterTrainingRuntime or TrainingRuntime exists:
+For TrainJob-specific issues, verify that the referenced ClusterTrainingRuntime or TrainingRuntime exists:
 
 ```bash
 kubectl get clustertrainingruntime
 kubectl get trainingruntime -n <namespace>
-```
-
-### Pods are not being created
-
-Ensure the TrainJob has been admitted by Kueue:
-
-```bash
-kubectl get trainjob <trainjob-name> -n <namespace> -o jsonpath='{.spec.suspend}'
-```
-
-If it returns `true`, the job is still suspended and waiting for admission.
-
-Check workload status:
-
-```bash
-kubectl get workload -n <namespace>
-kubectl describe workload <workload-name> -n <namespace>
 ```
