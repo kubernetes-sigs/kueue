@@ -659,7 +659,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{Count: 1, Values: []string{"x1"}},
 						{Count: 1, Values: []string{"x3"}},
 						{Count: 1, Values: []string{"x5"}},
@@ -682,7 +682,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
-					Domains: []kueue.TopologyDomainAssignment{
+					Domains: []tas.TopologyDomainAssignment{
 						{Count: 1, Values: []string{"x1"}},
 						{Count: 1, Values: []string{"x3"}},
 						{Count: 1, Values: []string{"x5"}},
