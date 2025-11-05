@@ -954,10 +954,9 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 		for i := range 100 {
 			ginkgo.FIt(fmt.Sprintf("sticky workload deleted, next workload can admit %d", i), func() {
-				ginkgo.By("Creating borrowing workloads in queue2")
-				createWorkload("cq2", "1")
-				createWorkload("cq2", "1")
-				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+				ginkgo.By("Creating borrowing workload in queue2")
+				createWorkload("cq2", "2")
+				util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 1)
 
 				ginkgo.By("Create inadmissible workload in queue1")
 				createWorkloadWithPriority("cq1", "4", 999)
@@ -978,7 +977,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 				util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
 
 				ginkgo.By("Complete preemption")
-				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+				util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 1)
 
 				ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
