@@ -116,20 +116,20 @@ type FailureRecoveryPolicy struct {
 }
 
 type FailureRecoveryRule struct {
-  // PodLabelSelector specifies the scope of resources covered by failure recovery -
-  // resources not matching the selector behave according to the default Kubernetes mechanism.
-  PodLabelSelector *metav1.LabelSelector `json:"podLabelSelector,omitempty"`
-
   // Exactly one of the fields below must be specified.
 
-  // TerminatePodConfig enables and contains configuration for the `TerminatePod` strategy.
+  // TerminatePod enables and contains configuration for the `TerminatePod` strategy.
   // This strategy recovers stuck pods by forcefully terminating them after a configured
   // grace period elapses.
   // +optional
-  TerminatePodConfig *TerminatePodConfig `json:"terminatePodConfig,omitempty"`
+  TerminatePod *TerminatePodConfig `json:"terminatePod,omitempty"`
 }
 
 type TerminatePodConfig struct {
+  // PodLabelSelector specifies the scope of resources covered by `TerminatePod` failure recovery -
+  // resources not matching the selector are ignored by the controller.
+  PodLabelSelector *metav1.LabelSelector `json:"podLabelSelector,omitempty"`
+
   // ForcefulTerminationGracePeriod is the duration between when the pod's `deletionGracePeriodSeconds`
   // elapses and when the pod should be forcefully deleted.
   ForcefulTerminationGracePeriod *time.Duration `json:"forcefulTerminationGracePeriod"`
@@ -144,9 +144,9 @@ An example failure recovery configuration:
 ```yaml
 failureRecoveryPolicy:
   rules:
-  - podLabelSelector:
-      safe-to-fail: true
-    terminatePodConfig:
+  - terminatePod:
+      podLabelSelector:
+        safe-to-fail: true
       forcefulTerminationGracePeriod: 5m
 ```
 
