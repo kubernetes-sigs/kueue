@@ -929,7 +929,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Count: ptr.To[int32](5),
 					},
 				).Obj()
-				util.SetQuotaReservation(ctx, k8sClient, wl, admission)
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Validating CQ status has changed", func() {
