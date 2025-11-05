@@ -18093,7 +18093,6 @@ spec:
                           type: boolean
                       type: object
                   required:
-                  - count
                   - template
                   type: object
                   x-kubernetes-validations:
@@ -18124,6 +18123,7 @@ spec:
                   PriorityClass object with that name. If not specified, the workload
                   priority will be default or zero if there is no default.
                 maxLength: 253
+                minLength: 1
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               priorityClassSource:
@@ -18144,8 +18144,6 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
-            required:
-            - podSets
             type: object
             x-kubernetes-validations:
             - message: priority should not be nil when priorityClassName is set
@@ -18321,17 +18319,12 @@ spec:
                           - domains
                           - levels
                           type: object
-                      required:
-                      - name
                       type: object
                     maxItems: 8
                     type: array
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                required:
-                - clusterQueue
-                - podSetAssignments
                 type: object
               admissionChecks:
                 description: admissionChecks list all the admission checks required
@@ -18353,6 +18346,7 @@ spec:
                     name:
                       description: name identifies the admission check.
                       maxLength: 316
+                      minLength: 1
                       type: string
                     podSetUpdates:
                       description: podSetUpdates contains a list of pod set modifications
