@@ -875,23 +875,23 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, false)
 
-			ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+			ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 			util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
-			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(flavorModelA).
+					*testing.MakeFlavorQuotas(flavorModelA).
 						Resource(resourceGPU, "5", "5").Obj(),
 				).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 
-			modelAFlavor = utiltestingapi.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
+			modelAFlavor = testing.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
 			util.MustCreate(ctx, k8sClient, modelAFlavor)
 		})
 
@@ -902,10 +902,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should ignore update status when workloads have reclaimable pods", framework.SlowSpec, func() {
-			wl := utiltestingapi.MakeWorkload("one", ns.Name).
+			wl := testing.MakeWorkload("one", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				PodSets(
-					*utiltestingapi.MakePodSet("workers", 5).
+					*testing.MakePodSet("workers", 5).
 						Request(resourceGPU, "1").
 						Obj(),
 				).
@@ -917,7 +917,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			})
 
 			ginkgo.By("Admitting the workload", func() {
-				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+				admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: "workers",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -929,7 +929,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Count: ptr.To[int32](5),
 					},
 				).Obj()
-				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+				util.SetQuotaReservation(ctx, k8sClient, wl, admission)
 			})
 
 			ginkgo.By("Validating CQ status has changed", func() {
