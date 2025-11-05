@@ -17,9 +17,15 @@ The tasks below show you how to run Kueue managed Kubeflow Jobs.
 ### [Trainer](https://github.com/kubeflow/trainer) Integration
 
 {{% alert title="Note" color="primary" %}}
-Kueue supports only traditional Jobs served until Trainer v1.9.x and does not support new TrainJob. 
+Kueue integration with Kubeflow Trainer supports:
+- **Trainer v2.0+**: Use [TrainJob](/docs/tasks/run/kubeflow/trainjobs/) with ClusterTrainingRuntime and TrainingRuntime
+- **Trainer v1.9.x and earlier**: Use traditional job types (PyTorchJob, TFJob, etc.) as documented below
 {{% /alert %}}
 
+**Trainer v2 (Recommended):**
+- [Run a Kueue managed TrainJob](/docs/tasks/run/kubeflow/trainjobs/)
+
+**Trainer v1 (Legacy):**
 - [Run a Kueue managed Kubeflow PyTorchJob](/docs/tasks/run_kubeflow_jobs/run_pytorchjobs).
 - [Run a Kueue managed Kubeflow TFJob](/docs/tasks/run_kubeflow_jobs/run_tfjobs).
 - [Run a Kueue managed Kubeflow XGBoostJob](/docs/tasks/run_kubeflow_jobs/run_xgboostjobs).
