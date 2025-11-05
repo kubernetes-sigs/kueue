@@ -2490,7 +2490,8 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			nodeNames := slices.Collect(tas.ValuesAtLevel(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment, 0))
 			gomega.Expect(nodeNames).To(gomega.HaveLen(1))
-			gomega.Expect(nodeNames[0]).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
+			nodeName = nodeNames[0]
+			gomega.Expect(nodeName).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
 		})
 
 		ginkgo.By("wait for pods to be ungated and manually bind them with the node", func() {
@@ -2573,7 +2574,8 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			nodeNames := slices.Collect(tas.ValuesAtLevel(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment, 0))
 			gomega.Expect(nodeNames).To(gomega.HaveLen(1))
-			gomega.Expect(nodeNames[0]).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
+			nodeName = nodeNames[0]
+			gomega.Expect(nodeName).To(gomega.Or(gomega.Equal("x1"), gomega.Equal("x3")))
 		})
 
 		ginkgo.By("wait for pods to be ungated and manually bind them with the node", func() {
