@@ -106,7 +106,7 @@ type Configuration struct {
   // ...
 
   // FailureRecoveryPolicy is used to enable automatic failure recovery mechanisms.
-	// +optional
+  // +optional
   FailureRecoveryPolicy *FailureRecoveryPolicy `json:"failureRecoveryPolicy,omitempty"`
 }
 
@@ -125,12 +125,12 @@ type FailureRecoveryRule struct {
   // TerminatePodConfig enables and contains configuration for the `TerminatePod` strategy.
   // This strategy recovers stuck pods by forcefully terminating them after a configured
   // grace period elapses.
-	// +optional
+  // +optional
   TerminatePodConfig *TerminatePodConfig `json:"terminatePodConfig,omitempty"`
 }
 
 type TerminatePodConfig struct {
-	// ForcefulTerminationGracePeriod is the duration between when the pod's `deletionGracePeriodSeconds`
+  // ForcefulTerminationGracePeriod is the duration between when the pod's `deletionGracePeriodSeconds`
   // elapses and when the pod should be forcefully deleted.
   ForcefulTerminationGracePeriod *time.Duration `json:"forcefulTerminationGracePeriod"`
 }
@@ -208,12 +208,12 @@ the pod will be deemed "zombie" and transitioned into the `PodFailed` phase:
 func (r *ZombiePodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
   // ...
 
-	pod.Status.Phase = corev1.PodFailed
-	if err := r.client.Status().Update(ctx, pod); err != nil {
-		return ctrl.Result{}, err
-	}
+  pod.Status.Phase = corev1.PodFailed
+  if err := r.client.Status().Update(ctx, pod); err != nil {
+    return ctrl.Result{}, err
+  }
 
-	return ctrl.Result{}, nil
+  return ctrl.Result{}, nil
 }
 ```
 
@@ -308,7 +308,7 @@ Given the API proposal, this approach could potentially be implemented as an alt
   // TaintNodeOutOfServiceConfig enables and contains configuration for the `TaintNodeOutOfService` strategy.
   // This strategy recovers stuck pods by tainting an unreachable node with the `out-of-service` taint, allowing
   // the pod garbage-collector to terminate the pods scheduled on that node.
-	// +optional
+  // +optional
   TaintNodeOutOfServiceConfig *TaintNodeOutOfServiceConfig `json:"taintNodeOutOfServiceConfig,omitempty"`
 }
 
