@@ -107,7 +107,7 @@ type Configuration struct {
 
   // FailureRecoveryPolicy is used to enable automatic failure recovery mechanisms.
 	// +optional
-  FailureRecoveryPolicy *FailureRecoveryPolicy `json:failureRecoveryPolicy,omitempty"`
+  FailureRecoveryPolicy *FailureRecoveryPolicy `json:"failureRecoveryPolicy,omitempty"`
 }
 
 type FailureRecoveryPolicy struct {
