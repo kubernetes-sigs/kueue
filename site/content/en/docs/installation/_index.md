@@ -294,7 +294,8 @@ spec:
 | `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13  | 0.13  |
 | `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14  |       |
 | `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13  |       |
-| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  |       |
+| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13  | 0.15  |
+| `ManagedJobsNamespaceSelectorAlwaysRespected` | `true`  | Beta  | 0.15  |       |
 | `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13  |       |
 | `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14  |       |
 | `SanitizePodSets`                             | `true`  | Beta  | 0.13  |       |

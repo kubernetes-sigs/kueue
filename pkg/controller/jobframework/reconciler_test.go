@@ -162,6 +162,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
@@ -243,6 +244,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			}
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(testNS)).
 				WithObjects(job, wl).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
 				Build()
