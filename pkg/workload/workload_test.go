@@ -43,10 +43,11 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload     kueue.Workload
-		infoOptions  []InfoOption
-		wantInfo     Info
-		featureGates map[featuregate.Feature]bool
+		workload                            kueue.Workload
+		infoOptions                         []InfoOption
+		wantInfo                            Info
+		configurableResourceTransformations bool
+		featureGates                        map[featuregate.Feature]bool
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
@@ -432,6 +433,7 @@ func TestNewInfo(t *testing.T) {
 					},
 				},
 			},
+			configurableResourceTransformations: true,
 		},
 	}
 	for name, tc := range cases {

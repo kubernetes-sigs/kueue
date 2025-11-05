@@ -2476,6 +2476,9 @@ func TestAssignFlavors(t *testing.T) {
 			if tc.enableImplicitPreferenceDefault {
 				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
 			}
+			log := testr.NewWithOptions(t, testr.Options{
+				Verbosity: 2,
+			})
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
