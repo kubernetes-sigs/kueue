@@ -17,14 +17,16 @@ limitations under the License.
 package dra
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -79,7 +81,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
 		want         map[kueue.PodSetReference]corev1.ResourceList
-		wantErr      error
+		wantErr      field.ErrorList
 	}{
 		{
 			name: "Single claim template with single device",
@@ -98,9 +100,11 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
-			name:    "Unmapped DeviceClass returns error",
-			lookup:  noLookup,
-			wantErr: errDeviceClassNotMapped,
+			name:   "Unmapped DeviceClass returns error",
+			lookup: noLookup,
+			wantErr: field.ErrorList{
+				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
+			},
 		},
 		{
 			name: "Two containers each using different claim templates",
@@ -229,8 +233,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-all", ResourceClaimTemplateName: ptr.To("claim-tmpl-all")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRAAllocationModeAll,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "allocationMode"), "", ""),
+			},
 		},
 		{
 			name: "CEL selectors returns error",
@@ -245,8 +251,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-cel", ResourceClaimTemplateName: ptr.To("claim-tmpl-cel")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRACELSelectors,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"), "", ""),
+			},
 		},
 		{
 			name: "Device constraints returns error",
@@ -262,8 +270,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-constraints", ResourceClaimTemplateName: ptr.To("claim-tmpl-constraints")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRADeviceConstraints,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "constraints"), "", ""),
+			},
 		},
 		{
 			name: "FirstAvailable returns error",
@@ -277,8 +287,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-first", ResourceClaimTemplateName: ptr.To("claim-tmpl-first")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRAFirstAvailable,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
+			},
 		},
 		{
 			name: "AdminAccess returns error",
@@ -293,8 +305,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-admin", ResourceClaimTemplateName: ptr.To("claim-tmpl-admin")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRAAdminAccess,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "adminAccess"), "", ""),
+			},
 		},
 		{
 			name: "Device config returns error",
@@ -309,8 +323,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-config", ResourceClaimTemplateName: ptr.To("claim-tmpl-config")},
 				}
 			},
-			lookup:  defaultLookup,
-			wantErr: errUnsupportedDRADeviceConfig,
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "config"), "", ""),
+			},
 		},
 	}
 
@@ -351,20 +367,15 @@ func Test_GetResourceRequests(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, wlCopy)
-			if tc.wantErr != nil {
-				if err == nil {
-					t.Fatalf("expected error but got none")
-				}
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("unexpected error: got=%v, want=%v", err, tc.wantErr)
-				}
-				return
+
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("unexpected result; got=%v want=%v", got, tc.want)
+
+			if err == nil {
+				if !reflect.DeepEqual(got, tc.want) {
+					t.Fatalf("unexpected result; got=%v want=%v", got, tc.want)
+				}
 			}
 		})
 	}
