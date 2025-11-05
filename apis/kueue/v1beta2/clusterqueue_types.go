@@ -364,8 +364,6 @@ const (
 type FlavorFungibilityPolicy string
 
 const (
-	Borrow        FlavorFungibilityPolicy = "Borrow"
-	Preempt       FlavorFungibilityPolicy = "Preempt"
 	MayStopSearch FlavorFungibilityPolicy = "MayStopSearch"
 	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
@@ -379,9 +377,8 @@ type FlavorFungibility struct {
 	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
 	//   fits or requires borrowing to fit.
 	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
-	// - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Borrow}
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor}
 	// +kubebuilder:default="MayStopSearch"
 	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
@@ -391,9 +388,8 @@ type FlavorFungibility struct {
 	//   preemption to fit.
 	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
 	//   to fit in current flavor.
-	// - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
 	//
-	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor,Preempt}
+	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor}
 	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 }

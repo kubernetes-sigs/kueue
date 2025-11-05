@@ -945,11 +945,9 @@ spec:
                       - `MayStopSearch` (default): stop the search for candidate flavors if workload
                         fits or requires borrowing to fit.
                       - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
-                      - `Borrow` (deprecated): old name for `MayStopSearch`; please use new name.
                     enum:
                     - MayStopSearch
                     - TryNextFlavor
-                    - Borrow
                     type: string
                   whenCanPreempt:
                     default: TryNextFlavor
@@ -961,11 +959,9 @@ spec:
                         preemption to fit.
                       - `TryNextFlavor` (default): try next flavor if workload requires preemption
                         to fit in current flavor.
-                      - `Preempt` (deprecated): old name for `MayStopSearch`; please use new name.
                     enum:
                     - MayStopSearch
                     - TryNextFlavor
-                    - Preempt
                     type: string
                 type: object
               namespaceSelector:

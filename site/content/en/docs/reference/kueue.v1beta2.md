@@ -1370,7 +1370,6 @@ before borrowing in current flavor. The possible values are:</p>
 <li><code>MayStopSearch</code> (default): stop the search for candidate flavors if workload
 fits or requires borrowing to fit.</li>
 <li><code>TryNextFlavor</code>: try next flavor if workload requires borrowing to fit.</li>
-<li><code>Borrow</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1385,7 +1384,6 @@ before borrowing in current flavor. The possible values are:</p>
 preemption to fit.</li>
 <li><code>TryNextFlavor</code> (default): try next flavor if workload requires preemption
 to fit in current flavor.</li>
-<li><code>Preempt</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
