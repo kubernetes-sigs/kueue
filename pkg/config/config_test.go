@@ -991,7 +991,7 @@ func TestEncode(t *testing.T) {
 					"gcInterval":        "1m0s",
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
-					"dispatcherName":    string(configapi.MultiKueueDispatcherModeAllAtOnce),
+					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
 				},
 				"waitForPodsReady": map[string]any{},
 			},
