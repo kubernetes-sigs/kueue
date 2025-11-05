@@ -726,96 +726,60 @@ func TestStrictFIFO(t *testing.T) {
 	}{
 		{
 			name: "w1.priority is higher than w2.priority",
-			w1: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w1",
-					CreationTimestamp: metav1.NewTime(t1),
-				},
-				Spec: kueue.WorkloadSpec{
-					PriorityClassName: "highPriority",
-					Priority:          ptr.To(highPriority),
-				},
-			},
-			w2: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w2",
-					CreationTimestamp: metav1.NewTime(t2),
-				},
-				Spec: kueue.WorkloadSpec{
-					PriorityClassName: "lowPriority",
-					Priority:          ptr.To(lowPriority),
-				},
-			},
+			w1: utiltestingapi.MakeWorkload("w1", "").
+				Creation(t1).
+				PriorityClass("highPriority").
+				Priority(highPriority).
+				Obj(),
+			w2: utiltestingapi.MakeWorkload("w2", "").
+				Creation(t2).
+				PriorityClass("lowPriority").
+				Priority(lowPriority).
+				Obj(),
 			expected: "w1",
 		},
 		{
 			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time",
-			w1: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w1",
-					CreationTimestamp: metav1.NewTime(t1),
-				},
-			},
-			w2: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w2",
-					CreationTimestamp: metav1.NewTime(t2),
-				},
-			},
+			w1: utiltestingapi.MakeWorkload("w1", "").
+				Creation(t1).
+				Obj(),
+			w2: utiltestingapi.MakeWorkload("w2", "").
+				Creation(t2).
+				Obj(),
 			expected: "w1",
 		},
 		{
 			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time but w1 was evicted",
-			w1: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w1",
-					CreationTimestamp: metav1.NewTime(t1),
-				},
-				Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadEvicted,
-							Status:             metav1.ConditionTrue,
-							LastTransitionTime: metav1.NewTime(t3),
-							Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-							Message:            "by test",
-						},
-					},
-				},
-			},
-			w2: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w2",
-					CreationTimestamp: metav1.NewTime(t2),
-				},
-			},
+			w1: utiltestingapi.MakeWorkload("w1", "").
+				Creation(t1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(t3),
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "by test",
+				}).
+				Obj(),
+			w2: utiltestingapi.MakeWorkload("w2", "").
+				Creation(t2).
+				Obj(),
 			expected: "w2",
 		},
 		{
 			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time and w1 was evicted but kueue is configured to always use the creation timestamp",
-			w1: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w1",
-					CreationTimestamp: metav1.NewTime(t1),
-				},
-				Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadEvicted,
-							Status:             metav1.ConditionTrue,
-							LastTransitionTime: metav1.NewTime(t3),
-							Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-							Message:            "by test",
-						},
-					},
-				},
-			},
-			w2: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w2",
-					CreationTimestamp: metav1.NewTime(t2),
-				},
-			},
+			w1: utiltestingapi.MakeWorkload("w1", "").
+				Creation(t1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(t3),
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "by test",
+				}).
+				Obj(),
+			w2: utiltestingapi.MakeWorkload("w2", "").
+				Creation(t2).
+				Obj(),
 			workloadOrdering: &workload.Ordering{
 				PodsReadyRequeuingTimestamp: config.CreationTimestamp,
 			},
@@ -823,26 +787,16 @@ func TestStrictFIFO(t *testing.T) {
 		},
 		{
 			name: "p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time",
-			w1: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w1",
-					CreationTimestamp: metav1.NewTime(t1),
-				},
-				Spec: kueue.WorkloadSpec{
-					PriorityClassName: "lowPriority",
-					Priority:          ptr.To(lowPriority),
-				},
-			},
-			w2: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "w2",
-					CreationTimestamp: metav1.NewTime(t2),
-				},
-				Spec: kueue.WorkloadSpec{
-					PriorityClassName: "highPriority",
-					Priority:          ptr.To(highPriority),
-				},
-			},
+			w1: utiltestingapi.MakeWorkload("w1", "").
+				Creation(t1).
+				PriorityClass("lowPriority").
+				Priority(lowPriority).
+				Obj(),
+			w2: utiltestingapi.MakeWorkload("w2", "").
+				Creation(t2).
+				PriorityClass("highPriority").
+				Priority(highPriority).
+				Obj(),
 			expected: "w2",
 		},
 	} {
