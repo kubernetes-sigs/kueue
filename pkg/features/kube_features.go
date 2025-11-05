@@ -288,6 +288,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},

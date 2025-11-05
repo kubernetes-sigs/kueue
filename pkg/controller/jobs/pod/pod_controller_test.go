@@ -5595,7 +5595,9 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
 
-				kcBuilder := clientBuilder.WithObjects(tc.initObjects...)
+				// Add namespace to prevent early return when ManagedJobsNamespaceSelectorAlwaysRespected is enabled
+				namespace := utiltesting.MakeNamespace("ns")
+				kcBuilder := clientBuilder.WithObjects(namespace).WithObjects(tc.initObjects...)
 				for i := range tc.pods {
 					kcBuilder = kcBuilder.WithObjects(&tc.pods[i])
 				}
@@ -5710,6 +5712,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	errMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
 
 	kcBuilder := clientBuilder.
+		WithObjects(utiltesting.MakeNamespace("ns")).
 		WithObjects(&pod).
 		WithStatusSubresource(&wl).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -5943,6 +5946,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	}
 
 	kcBuilder := clientBuilder.
+		WithObjects(utiltesting.MakeNamespace("ns")).
 		WithStatusSubresource(&wl).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
