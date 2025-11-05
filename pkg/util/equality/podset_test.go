@@ -139,7 +139,7 @@ func TestComparePodSetSlices(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := ComparePodSetSlices(tc.a, tc.b, tc.ignoreTolerations)
+			got := ComparePodSetSlices(tc.a, tc.b, tc.ignoreTolerations, false)
 			if got != tc.wantEquivalent {
 				t.Errorf("Unexpected result, want %v", tc.wantEquivalent)
 			}

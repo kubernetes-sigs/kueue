@@ -36,8 +36,8 @@ func comparePodTemplate(a, b *corev1.PodSpec, ignoreTolerations bool) bool {
 	return equality.Semantic.DeepEqual(a.Containers, b.Containers)
 }
 
-func ComparePodSets(a, b *kueue.PodSet, ignoreTolerations bool) bool {
-	if a.Count != b.Count {
+func ComparePodSets(a, b *kueue.PodSet, ignoreTolerations, ignoreCount bool) bool {
+	if !ignoreCount && a.Count != b.Count {
 		return false
 	}
 	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
@@ -47,12 +47,12 @@ func ComparePodSets(a, b *kueue.PodSet, ignoreTolerations bool) bool {
 	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec, ignoreTolerations)
 }
 
-func ComparePodSetSlices(a, b []kueue.PodSet, ignoreTolerations bool) bool {
+func ComparePodSetSlices(a, b []kueue.PodSet, ignoreTolerations, ignoreCount bool) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if !ComparePodSets(&a[i], &b[i], ignoreTolerations) {
+		if !ComparePodSets(&a[i], &b[i], ignoreTolerations, ignoreCount) {
 			return false
 		}
 	}

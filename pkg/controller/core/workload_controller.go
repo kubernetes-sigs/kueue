@@ -237,7 +237,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 
 		var conditionsCleared bool
-		//if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && requeuedCond.Reason == kueue.WorkloadInadmissible {
 		if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
 			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			conditionsCleared = true
