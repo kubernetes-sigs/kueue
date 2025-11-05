@@ -116,14 +116,15 @@ type FailureRecoveryPolicy struct {
 }
 
 type FailureRecoveryRule struct {
-  // Action specifies the action taken to recover from failures.
-  Action FailureRecoveryAction `json:"action"`
-
   // PodLabelSelector specifies the scope of resources covered by failure recovery -
   // resources not matching the selector behave according to the default Kubernetes mechanism.
   PodLabelSelector *metav1.LabelSelector `json:"podLabelSelector,omitempty"`
 
-  // TerminatePodConfig contains configuration for the `TerminatePodConfig` strategy.
+  // Exactly one of the fields below must be specified.
+
+  // TerminatePodConfig enables and contains configuration for the `TerminatePod` strategy.
+  // This strategy recovers stuck pods by forcefully terminating them after a configured
+  // grace period elapses.
 	// +optional
   TerminatePodConfig *TerminatePodConfig `json:"terminatePodConfig,omitempty"`
 }
@@ -133,12 +134,6 @@ type TerminatePodConfig struct {
   // elapses and when the pod should be forcefully deleted.
   ForcefulTerminationGracePeriod *time.Duration `json:"forcefulTerminationGracePeriod"`
 }
-
-type FailureRecoveryAction string
-
-const (
-	TerminatePod FailureRecoveryAction = "TerminatePod"
-)
 ```
 
 This API requires opt-in both from the administrators and user's end, as the workloads would
@@ -149,8 +144,7 @@ An example failure recovery configuration:
 ```yaml
 failureRecoveryPolicy:
   rules:
-  - action: TerminatePod
-    podLabelSelector:
+  - podLabelSelector:
       safe-to-fail: true
     terminatePodConfig:
       forcefulTerminationGracePeriod: 5m
@@ -308,16 +302,19 @@ Given the API proposal, this approach could potentially be implemented as an alt
  recovery strategy in the future.
 
  ```go
+ type FailureRecoveryRule struct {
+  // ...
+
+  // TaintNodeOutOfServiceConfig enables and contains configuration for the `TaintNodeOutOfService` strategy.
+  // This strategy recovers stuck pods by tainting an unreachable node with the `out-of-service` taint, allowing
+  // the pod garbage-collector to terminate the pods scheduled on that node.
+	// +optional
+  TaintNodeOutOfServiceConfig *TaintNodeOutOfServiceConfig `json:"taintNodeOutOfServiceConfig,omitempty"`
+}
+
 type TaintNodeOutOfServiceConfig struct {
   UnreachableNodeTimeout *time.Duration `json:"unreachableNodeTimeout"`
 }
-
-type FailureRecoveryAction string
-
-const (
-  TerminatePod FailureRecoveryAction = "TerminatePod"
-  TaintNodeOutOfService FailureRecoveryAction = "TaintNodeOutOfService"
-)
  ```
 
 Compared to the final proposal, this approach has the following benefits:
