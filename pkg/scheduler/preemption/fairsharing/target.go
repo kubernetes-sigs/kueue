@@ -71,3 +71,8 @@ func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) T
 	_, almostLCA := getAlmostLCAs(t)
 	return TargetNewShare(almostLCA.DominantResourceShare())
 }
+
+// GetTargetCq returns the target ClusterQueue snapshot.
+func (t *TargetClusterQueue) GetTargetCq() *schdcache.ClusterQueueSnapshot {
+	return t.targetCq
+}
