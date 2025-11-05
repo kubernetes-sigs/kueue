@@ -14,3 +14,10 @@ status: implementable
 see-also:
 replaces:
 superseded-by:
+
+stage: beta
+
+latest-milestone: "v0.13"
+
+feature-gates:
+  - ReclaimablePods

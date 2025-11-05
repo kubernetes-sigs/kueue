@@ -297,6 +297,7 @@ spec:
 | `TASReplaceNodeOnPodTermination`      | `false` | Alpha | 0.13  |       |
 | `SanitizePodSets`                     | `true`  | Beta  | 0.13  |       |
 | `MultiKueueAllowInsecureKubeconfigs`  | `false` | Alpha | 0.13  |       |
+| `ReclaimablePods`                     | `true`  | Beta  | 0.13  |       |
 
 ### Feature gates for graduated or deprecated features
 
