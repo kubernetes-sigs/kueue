@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -142,19 +143,9 @@ var HumanReadablePreemptionReasons = map[string]string{
 }
 
 func preemptionMessage(preemptor *kueue.Workload, reason string) string {
-	var wUID, jUID string
-	if preemptor.UID == "" {
-		wUID = "UNKNOWN"
-	} else {
-		wUID = string(preemptor.UID)
-	}
+	wUID := cmp.Or(string(preemptor.UID), "UNKNOWN")
 	uid := preemptor.Labels[constants.JobUIDLabel]
-	if uid == "" {
-		jUID = "UNKNOWN"
-	} else {
-		jUID = uid
-	}
-
+	jUID := cmp.Or(uid, "UNKNOWN")
 	return fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s", wUID, jUID, HumanReadablePreemptionReasons[reason])
 }
 
