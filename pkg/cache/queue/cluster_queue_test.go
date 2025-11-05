@@ -728,12 +728,12 @@ func TestStrictFIFO(t *testing.T) {
 			name: "w1.priority is higher than w2.priority",
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
-				PriorityClass("highPriority").
+				PodPriorityClassRef("highPriority").
 				Priority(highPriority).
 				Obj(),
 			w2: utiltestingapi.MakeWorkload("w2", "").
 				Creation(t2).
-				PriorityClass("lowPriority").
+				PodPriorityClassRef("lowPriority").
 				Priority(lowPriority).
 				Obj(),
 			expected: "w1",
@@ -789,12 +789,12 @@ func TestStrictFIFO(t *testing.T) {
 			name: "p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time",
 			w1: utiltestingapi.MakeWorkload("w1", "").
 				Creation(t1).
-				PriorityClass("lowPriority").
+				PodPriorityClassRef("lowPriority").
 				Priority(lowPriority).
 				Obj(),
 			w2: utiltestingapi.MakeWorkload("w2", "").
 				Creation(t2).
-				PriorityClass("highPriority").
+				PodPriorityClassRef("highPriority").
 				Priority(highPriority).
 				Obj(),
 			expected: "w2",

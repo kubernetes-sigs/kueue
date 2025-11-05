@@ -527,14 +527,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			// update the metrics only when PodsReady condition status is true
 			if condition.Status == metav1.ConditionTrue {
 				cqName := wl.Status.Admission.ClusterQueue
+				priorityClassName := workload.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
+				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.ReportAdmittedUntilReadyWaitTime(cqName, wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
+				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime)
 				if features.Enabled(features.LocalQueueMetrics) {
-					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, queuedUntilReadyWaitTime)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), wl.Spec.PriorityClassName, admittedUntilReadyWaitTime)
+					metrics.LocalQueueReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, queuedUntilReadyWaitTime)
+					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(metrics.LQRefFromWorkload(wl), priorityClassName, admittedUntilReadyWaitTime)
 				}
 			}
 			return ctrl.Result{}, nil
@@ -945,7 +946,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r record.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	if wl.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource && WorkloadPriorityClassName(obj) != wl.Spec.PriorityClassName {
+	if workload.IsWorkloadPriorityClass(wl) && WorkloadPriorityClassName(obj) != workload.PriorityClassName(wl) {
 		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
 			return fmt.Errorf("prepare workload priority: %w", err)
 		}
@@ -1294,14 +1295,13 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 }
 
 func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassName, source, p, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
 
-	wl.Spec.PriorityClassName = priorityClassName
-	wl.Spec.Priority = &p
-	wl.Spec.PriorityClassSource = source
+	wl.Spec.PriorityClassRef = priorityClassRef
+	wl.Spec.Priority = &priority
 
 	return nil
 }
@@ -1320,7 +1320,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (string, string, int32, error) {
+func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
 	}

@@ -807,9 +807,10 @@ func (s *Scheduler) recordQuotaReservationMetrics(newWorkload, originalWorkload 
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 
-	metrics.QuotaReservedWorkload(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, waitTime)
+	priorityClassName := workload.PriorityClassName(newWorkload)
+	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), newWorkload.Spec.PriorityClassName, waitTime)
+		metrics.LocalQueueQuotaReservedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime)
 	}
 }
 
@@ -820,20 +821,17 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 	}
 
 	s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
-	metrics.AdmittedWorkload(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, waitTime)
 
+	priorityClassName := workload.PriorityClassName(newWorkload)
+	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueAdmittedWorkload(
-			metrics.LQRefFromWorkload(newWorkload),
-			newWorkload.Spec.PriorityClassName,
-			waitTime,
-		)
+		metrics.LocalQueueAdmittedWorkload(metrics.LQRefFromWorkload(newWorkload), priorityClassName, waitTime)
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
-		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, newWorkload.Spec.PriorityClassName, 0)
+		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0)
 		if features.Enabled(features.LocalQueueMetrics) {
-			metrics.ReportLocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), newWorkload.Spec.PriorityClassName, 0)
+			metrics.ReportLocalQueueAdmissionChecksWaitTime(metrics.LQRefFromWorkload(newWorkload), priorityClassName, 0)
 		}
 	}
 }

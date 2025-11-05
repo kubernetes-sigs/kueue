@@ -106,6 +106,48 @@ func TestWorkloadConvertTo(t *testing.T) {
 				},
 			},
 		},
+		"with PodPriorityClassSource": {
+			input: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: WorkloadSpec{
+					Priority:            ptr.To[int32](100),
+					PriorityClassSource: PodPriorityClassSource,
+					PriorityClassName:   "low",
+				},
+			},
+			expected: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: v1beta2.WorkloadSpec{
+					Priority: ptr.To[int32](100),
+					PriorityClassRef: &v1beta2.PriorityClassRef{
+						Group: v1beta2.PodPriorityClassGroup,
+						Kind:  v1beta2.PodPriorityClassKind,
+						Name:  "low",
+					},
+				},
+			},
+		},
+		"with WorkloadPriorityClassSource": {
+			input: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: WorkloadSpec{
+					Priority:            ptr.To[int32](100),
+					PriorityClassSource: WorkloadPriorityClassSource,
+					PriorityClassName:   "low",
+				},
+			},
+			expected: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: v1beta2.WorkloadSpec{
+					Priority: ptr.To[int32](100),
+					PriorityClassRef: &v1beta2.PriorityClassRef{
+						Group: v1beta2.WorkloadPriorityClassGroup,
+						Kind:  v1beta2.WorkloadPriorityClassKind,
+						Name:  "low",
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -201,6 +243,48 @@ func TestWorkloadConvertFrom(t *testing.T) {
 				},
 			},
 		},
+		"with PodPriorityClassRef": {
+			input: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: v1beta2.WorkloadSpec{
+					Priority: ptr.To[int32](100),
+					PriorityClassRef: &v1beta2.PriorityClassRef{
+						Group: v1beta2.PodPriorityClassGroup,
+						Kind:  v1beta2.PodPriorityClassKind,
+						Name:  "low",
+					},
+				},
+			},
+			expected: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: WorkloadSpec{
+					Priority:            ptr.To[int32](100),
+					PriorityClassSource: PodPriorityClassSource,
+					PriorityClassName:   "low",
+				},
+			},
+		},
+		"with WorkloadPriorityClassRef": {
+			input: &v1beta2.Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: v1beta2.WorkloadSpec{
+					Priority: ptr.To[int32](100),
+					PriorityClassRef: &v1beta2.PriorityClassRef{
+						Group: v1beta2.WorkloadPriorityClassGroup,
+						Kind:  v1beta2.WorkloadPriorityClassKind,
+						Name:  "low",
+					},
+				},
+			},
+			expected: &Workload{
+				ObjectMeta: defaultObjectMeta,
+				Spec: WorkloadSpec{
+					Priority:            ptr.To[int32](100),
+					PriorityClassSource: WorkloadPriorityClassSource,
+					PriorityClassName:   "low",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -257,6 +341,32 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 				},
 				Status: WorkloadStatus{
 					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](0),
+				},
+			},
+		},
+		"Workload with PodPriorityClassSource": {
+			v1beta1Obj: &Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workload",
+					Namespace: "default",
+				},
+				Spec: WorkloadSpec{
+					Priority:            ptr.To[int32](100),
+					PriorityClassSource: PodPriorityClassSource,
+					PriorityClassName:   "low",
+				},
+			},
+		},
+		"Workload with WorkloadPriorityClassSource": {
+			v1beta1Obj: &Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workload",
+					Namespace: "default",
+				},
+				Spec: WorkloadSpec{
+					Priority:            ptr.To[int32](100),
+					PriorityClassSource: WorkloadPriorityClassSource,
+					PriorityClassName:   "low",
 				},
 			},
 		},
