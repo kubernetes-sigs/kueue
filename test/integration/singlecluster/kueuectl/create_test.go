@@ -33,7 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -548,7 +548,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				var resourceFlavor kueue.ResourceFlavor
 				gomega.Eventually(func(g gomega.Gomega) {
 					rfKey := types.NamespacedName{Name: rfName, Namespace: ns.Name}
-					g.Expect(k8sClient.Get(ctx, rfKey, &resourceFlavor)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, rfKey, &resourceFlavor)).Should(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

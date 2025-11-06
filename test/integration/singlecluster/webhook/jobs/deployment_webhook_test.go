@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	deploymentcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 			ginkgo.By("Try to remove queue label", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
 				delete(createdDeployment.Labels, constants.QueueLabel)
-				gomega.Expect(k8sClient.Update(ctx, createdDeployment)).To(testing.BeForbiddenError())
+				gomega.Expect(k8sClient.Update(ctx, createdDeployment)).To(utiltesting.BeForbiddenError())
 			})
 
 			ginkgo.By("Check that queue label not deleted from pod template spec", func() {
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Deployment Webhook", ginkgo.Ordered, ginkgo.ContinueOnF
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
 					deploymentWrapper := &testingdeployment.DeploymentWrapper{Deployment: *createdDeployment}
 					updatedDeployment := deploymentWrapper.Queue("another-queue").Obj()
-					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(testing.BeForbiddenError())
+					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(utiltesting.BeForbiddenError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
