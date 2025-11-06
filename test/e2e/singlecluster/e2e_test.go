@@ -50,6 +50,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			Obj()
@@ -300,6 +301,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Job is preempted by higher priority job", func() {
 				job := testingjob.MakeJob("high", ns.Name).
 					Queue("main").
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					PriorityClass("high").
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
@@ -336,6 +338,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Job is preempted by higher priority job", func() {
 				job := testingjob.MakeJob("high-with-wpc", ns.Name).
 					Queue("main").
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					WorkloadPriorityClass("high-workload").
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
@@ -505,6 +508,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Parallelism(1).
 				NodeSelector("instance-type", "on-demand").
 				Containers(
@@ -539,6 +543,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 			highJob := testingjob.MakeJob("high", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Parallelism(1).
 				PriorityClass(highPriorityClass.Name).
 				Request(corev1.ResourceCPU, "1").
