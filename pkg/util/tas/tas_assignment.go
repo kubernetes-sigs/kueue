@@ -120,15 +120,13 @@ func fillSingleCompactSliceValues(
 	inputProvider func() iter.Seq[string],
 ) {
 	var prefix, suffix string
-	var prefixLen, suffixLen, maxLen, minLen, count int
+	var maxLen, minLen, count int
 	start := true
 	for s := range inputProvider() {
 		count++
 		if start {
 			prefix = s
 			suffix = s
-			prefixLen = len(s)
-			suffixLen = len(s)
 			maxLen = len(s)
 			minLen = len(s)
 			start = false
@@ -140,10 +138,10 @@ func fillSingleCompactSliceValues(
 			if n > maxLen {
 				maxLen = n
 			}
-			if n < prefixLen {
+			if n < len(prefix) {
 				prefix = prefix[:n]
 			}
-			if n < suffixLen {
+			if n < len(suffix) {
 				suffix = suffix[len(suffix)-n:]
 			}
 			for i := 0; i < len(prefix); i++ {
