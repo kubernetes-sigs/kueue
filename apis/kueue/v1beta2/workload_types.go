@@ -420,7 +420,7 @@ type TopologyAssignment struct {
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=1000
-	Slices []TopologyAssignmentSlice `json:"slices"`
+	Slices []TopologyAssignmentSlice `json:"slices,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.podCounts) || size(self.podCounts) == self.domainCount", message="podCounts must have length equal to domainCount"
