@@ -18353,7 +18353,7 @@ spec:
                                     x-kubernetes-list-type: atomic
                                   universalPodCount:
                                     description: |-
-                                      universalPodCount, if set, specifies the number of pods allocated in every domain in this slice.
+                                      universalPodCount - if set - specifies the number of pods allocated in every domain in this slice.
                                       Exactly one of podCounts, universalPodCount must be set.
                                     format: int32
                                     type: integer
@@ -18387,7 +18387,7 @@ spec:
                                           type: string
                                         universalValue:
                                           description: |-
-                                            universalValue, if set, specifies the topology assignment value (on the current topology level)
+                                            universalValue - if set - specifies the topology assignment value (on the current topology level)
                                             that applies to every domain in the current slice.
                                             Mutually exclusive with roots, prefix and suffix.
                                           maxLength: 63

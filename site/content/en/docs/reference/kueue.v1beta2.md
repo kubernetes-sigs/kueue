@@ -2999,7 +2999,7 @@ Exactly one of podCounts, universalCount must be set.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>universalPodCount, if set, specifies the number of pods allocated in every domain in this slice.
+   <p>universalPodCount - if set - specifies the number of pods allocated in every domain in this slice.
 Exactly one of podCounts, universalPodCount must be set.</p>
 </td>
 </tr>
@@ -3047,7 +3047,7 @@ If set, its length must be equal to the &quot;domainCount&quot; field of the Top
 <code>string</code>
 </td>
 <td>
-   <p>universalValue, if set, specifies the topology assignment value (on the current topology level)
+   <p>universalValue - if set - specifies the topology assignment value (on the current topology level)
 that applies to every domain in the current slice.
 Mutually exclusive with roots, prefix and suffix.</p>
 </td>
