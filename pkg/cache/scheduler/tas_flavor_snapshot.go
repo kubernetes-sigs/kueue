@@ -749,20 +749,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		currFitDomain, bestThreshold, useBalancedPlacement = findBestDomainsForBalancedPlacement(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize)
 
 		if useBalancedPlacement {
-			sliceCount := count / sliceSize
-			// the balanced placement algorithm selects domains on three levels: levelIdx -1, levelIdx and levelIdx + 1
-			// unless levelIdx == sliceLevelIdx in which case it selects only on two levels: levelIdx -1 and levelIdx
-			if levelIdx < sliceLevelIdx {
-				resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true)
-				if resultDomains == nil {
-					return nil, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
-				}
-				currFitDomain = s.lowerLevelDomains(resultDomains)
-				fitLevelIdx = levelIdx + 1
-			} else {
-				fitLevelIdx = levelIdx
-			}
-			currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
+			currFitDomain, reason = applyBalancedPlacementAlgorithm(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize, bestThreshold, unconstrained, currFitDomain)
 			if len(reason) > 0 {
 				return nil, reason
 			}
@@ -778,25 +765,26 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		// topology domains at each level
 		// if unconstrained is set, we'll only do it once
 		currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
-	}
-	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
-		if levelIdx < sliceLevelIdx {
-			// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
-			// all domains without checking what we've assigned to parent domains.
-			sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
-			currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
-		} else {
-			// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
-			// to domains based on what we've assigned to parent domains, that's why we're iterating through
-			// each parent domain and assigning `domain.state` amount of pods its child domains.
-			newCurrFitDomain := make([]*domain, 0)
-			for _, domain := range currFitDomain {
-				sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
 
-				addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
-				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+		for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
+			if levelIdx < sliceLevelIdx {
+				// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
+				// all domains without checking what we've assigned to parent domains.
+				sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
+				currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
+			} else {
+				// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
+				// to domains based on what we've assigned to parent domains, that's why we're iterating through
+				// each parent domain and assigning `domain.state` amount of pods its child domains.
+				newCurrFitDomain := make([]*domain, 0)
+				for _, domain := range currFitDomain {
+					sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+
+					addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
+					newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+				}
+				currFitDomain = newCurrFitDomain
 			}
-			currFitDomain = newCurrFitDomain
 		}
 	}
 

@@ -20,6 +20,8 @@ import (
 	"maps"
 	"math"
 	"slices"
+
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 // evaluateGreedyAssignment simulates placement of a (leaderCount, sliceCount) request on the given domains.
@@ -77,6 +79,10 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 	return threshold
 }
 
+// selectOptimalDomainSetToFit finds a subset of the provided domains that can accommodate
+// the request (sliceCount, leaderCount). It uses dynamic programming to find a combination
+// of domains that can fit the requested number of leaders and slices, using the minimum number
+// of domains possible (as determined by a greedy assignment) and having the minimum total capacity.
 func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool) []*domain {
 	fit, optimalNumberOfDomains, _, _ := evaluateGreedyAssignment(s, domains, sliceCount, leaderCount)
 	if !fit {
@@ -172,7 +178,7 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 		}
 		domain.state = (threshold + extraSlicesToTake) * sliceSize
 		domain.sliceState = (threshold + extraSlicesToTake)
-		domain.sliceStateWithLeader = domain.sliceState - domain.leaderState
+		domain.sliceStateWithLeader = domain.sliceState
 		domain.stateWithLeader = domain.state - domain.leaderState
 		extraSlicesLeft -= extraSlicesToTake
 	}
@@ -208,42 +214,25 @@ func calculateEntropy(blockSizes []int32) float64 {
 }
 
 func sortDomainsByCapacityAndEntropy(domains []*domain) {
-	// Create a temporary struct to hold domains and their calculated entropy
-	// to avoid re-calculation during sort.
-	type domainWithEntropy struct {
-		d       *domain
-		entropy float64
-	}
-
-	domainsWithEntropy := make([]domainWithEntropy, 0, len(domains))
-	for _, d := range domains {
-		childrenCapacities := make([]int32, len(d.children))
-		for i, child := range d.children {
-			childrenCapacities[i] = child.state
-		}
-		domainsWithEntropy = append(domainsWithEntropy, domainWithEntropy{d: d, entropy: calculateEntropy(childrenCapacities)})
-	}
-
-	// Sort by capacity (desc), then by entropy (desc).
-	slices.SortFunc(domainsWithEntropy, func(a, b domainWithEntropy) int {
-		if r := b.d.leaderState - a.d.leaderState; r != 0 {
+	slices.SortFunc(domains, func(a, b *domain) int {
+		if r := b.leaderState - a.leaderState; r != 0 {
 			return int(r)
 		}
-		if r := b.d.sliceStateWithLeader - a.d.sliceStateWithLeader; r != 0 {
+		if r := b.sliceStateWithLeader - a.sliceStateWithLeader; r != 0 {
 			return int(r)
 		}
-		if b.entropy > a.entropy {
+		aChildrenCapacities := utilslices.Map(a.children, func(d **domain) int32 { return (*d).state })
+		bChildrenCapacities := utilslices.Map(b.children, func(d **domain) int32 { return (*d).state })
+		aEntropy := calculateEntropy(aChildrenCapacities)
+		bEntropy := calculateEntropy(bChildrenCapacities)
+		if bEntropy > aEntropy {
 			return 1
 		}
-		if b.entropy < a.entropy {
+		if bEntropy < aEntropy {
 			return -1
 		}
 		return 0
 	})
-
-	for i := range domainsWithEntropy {
-		domains[i] = domainsWithEntropy[i].d
-	}
 }
 
 // findBestDomainsForBalancedPlacement evaluates domains for balanced placement.
@@ -263,13 +252,13 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 	}
 
 	var bestThreshold int32
-	var bestRequestedLevelDomainCount int32
+	var bestDomainCountOnRequestedLevel int32
 	var currFitDomain []*domain
 	useBalancedPlacement := false
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
-		domainsToBalance := getDomainsToBalance(s, requestedLevelSiblingDomains, levelIdx, sliceLevelIdx)
-		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, domainsToBalance, sliceCount, leaderCount)
+		lowerLevelDomains := getLowerLevelDomains(s, requestedLevelSiblingDomains, levelIdx, sliceLevelIdx)
+		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, leaderCount)
 		if !fits {
 			continue
 		}
@@ -277,9 +266,9 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 		if threshold >= bestThreshold {
 			s.pruneDomainsBelowThreshold(requestedLevelSiblingDomains, threshold, sliceSize, sliceLevelIdx, levelIdx)
 			_, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, requestedLevelSiblingDomains, sliceCount, leaderCount)
-			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestRequestedLevelDomainCount) {
+			if threshold > bestThreshold || (threshold == bestThreshold && requestedLevelDomainCount < bestDomainCountOnRequestedLevel) {
 				bestThreshold = threshold
-				bestRequestedLevelDomainCount = requestedLevelDomainCount
+				bestDomainCountOnRequestedLevel = requestedLevelDomainCount
 				currFitDomain = requestedLevelSiblingDomains
 				useBalancedPlacement = true
 			}
@@ -288,7 +277,42 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, levelIdx, sliceLe
 	return currFitDomain, bestThreshold, useBalancedPlacement
 }
 
-func getDomainsToBalance(s *TASFlavorSnapshot, domains []*domain, levelIdx, sliceLevelIdx int) []*domain {
+// applyBalancedPlacementAlgorithm applies the balanced placement algorithm to determine domain assignments.
+func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelIdx int, count, leaderCount, sliceSize, bestThreshold int32, unconstrained bool, currFitDomain []*domain) ([]*domain, string) {
+	sliceCount := count / sliceSize
+	var fitLevelIdx int
+	if levelIdx < sliceLevelIdx {
+		resultDomains := selectOptimalDomainSetToFit(s, currFitDomain, sliceCount, leaderCount, sliceSize, true)
+		if resultDomains == nil {
+			return nil, "TAS Balanced Placement: Cannot find optimal domain set to fit the request"
+		}
+		currFitDomain = s.lowerLevelDomains(resultDomains)
+		fitLevelIdx = levelIdx + 1
+	} else {
+		fitLevelIdx = levelIdx
+	}
+	var reason string
+	currFitDomain, reason = placeSlicesOnDomainsBalanced(s, currFitDomain, sliceCount, leaderCount, sliceSize, bestThreshold)
+	if len(reason) > 0 {
+		return nil, reason
+	}
+	for currentLevelIdx := fitLevelIdx; currentLevelIdx+1 < len(s.domainsPerLevel); currentLevelIdx++ {
+		sliceSizeOnLevel := sliceSize
+		if currentLevelIdx < sliceLevelIdx {
+			sliceSizeOnLevel = 1
+		}
+		newCurrFitDomain := make([]*domain, 0)
+		for _, domain := range currFitDomain {
+			sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, unconstrained, false)
+			newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+		}
+		currFitDomain = newCurrFitDomain
+	}
+	return currFitDomain, ""
+}
+
+func getLowerLevelDomains(s *TASFlavorSnapshot, domains []*domain, levelIdx, sliceLevelIdx int) []*domain {
 	if levelIdx < sliceLevelIdx {
 		return s.lowerLevelDomains(domains)
 	}
