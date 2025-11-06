@@ -120,8 +120,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
@@ -172,8 +170,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(3).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
@@ -225,8 +221,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Parallelism(2).
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
@@ -253,8 +247,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 				Completions(int32(numPods)).
 				Indexed(true).
 				RequestAndLimit(extraResource, "1").
-				Obj()
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Obj()
