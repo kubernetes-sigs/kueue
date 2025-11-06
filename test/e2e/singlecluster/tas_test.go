@@ -94,9 +94,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "700m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
-				Obj()
-			jobKey := client.ObjectKeyFromObject(sampleJob)
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
@@ -105,6 +102,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			createdWorkload := &kueue.Workload{}
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
+			jobKey := client.ObjectKeyFromObject(sampleJob)
 			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})

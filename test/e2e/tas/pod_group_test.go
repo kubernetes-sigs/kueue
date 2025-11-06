@@ -134,6 +134,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1")
 			podGroup := basePod.MakeIndexedGroup(numPods)
@@ -216,6 +217,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1")
 			podGroup := basePod.MakeIndexedGroup(numPods)
