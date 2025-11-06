@@ -1,7 +1,8 @@
 ---
-title: "Run a TrainJob"
+title: "Run A TrainJob"
+linkTitle: "TrainJobs"
 date: 2024-11-05
-weight: 7
+weight: 6
 description: >
   Run a Kueue scheduled TrainJob from Kubeflow Trainer v2
 ---
@@ -147,7 +148,7 @@ spec:
 - The `kueue.x-k8s.io/queue-name` label assigns this TrainJob to the `user-queue` LocalQueue
 - The `runtimeRef` points to the `ClusterTrainingRuntime` named `torch-distributed`
 - Kueue will manage the lifecycle and admission of this TrainJob based on available quota
-- This example uses an inline Python script for a simple distributed MNIST training
+- This example uses an inline Python script for a simple distributed training example
 
 {{% alert title="Note" color="info" %}}
 For more advanced examples using TorchTune, DeepSpeed, and production-ready training images, see the [Kubeflow Trainer examples](https://github.com/kubeflow/trainer/tree/master/examples).
@@ -246,10 +247,6 @@ spec:
     kind: ClusterTrainingRuntime
   # ... rest of the TrainJob spec as shown in Kubeflow examples
 ```
-
-
-
-
 
 ## Differences from Kubeflow Training Operator V1
 

@@ -11,7 +11,7 @@ no_list: true
 The tasks below show you how to run Kueue managed Kubeflow Trainer v1 Jobs.
 
 {{% alert title="Note" color="primary" %}}
-**Kubeflow Trainer v2 is now available:** Consider using [TrainJob](/docs/tasks/run/trainjob/) which provides a unified API for all training frameworks. Trainer v1 APIs (PyTorchJob, TFJob, etc.) are stable and production-ready.
+**Kubeflow Trainer v2 is now available:** Consider using [TrainJob](/docs/tasks/run/trainjobs/) which provides a unified API for all training frameworks. Trainer v1 APIs (PyTorchJob, TFJob, etc.) are stable and production-ready.
 {{% /alert %}}
 
 ### [Trainer v1](https://github.com/kubeflow/trainer) Integration
