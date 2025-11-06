@@ -539,7 +539,6 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 					SinglePodRequests: setRes.SinglePodRequests(),
 					Count:             req.Count,
 				})
-
 			}
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.DelayedTopologyRequest != nil {

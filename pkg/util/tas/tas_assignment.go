@@ -162,7 +162,6 @@ func fillSingleCompactSliceValues(
 					suffix = suffix[len(suffix)-i:]
 					break
 				}
-
 			}
 		}
 	}
