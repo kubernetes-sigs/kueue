@@ -17,13 +17,13 @@ Kubeflow Trainer v2 introduces the `TrainJob` API that works seamlessly with Kue
 - **ClusterTrainingRuntime**: Cluster-scoped training runtimes that can be used across all namespaces
 - **TrainingRuntime**: Namespace-scoped training runtimes that are only available within a specific namespace
 
-Kueue manages TrainJobs by scheduling their underlying JobSets according to available quota and priority.
+Kueue manages TrainJobs by scheduling their underlying jobs according to available quota and priority.
 
 ## Before you begin
 
 1. Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
 
-2. Install Kubeflow Trainer v2. Check [the Trainer installation guide](https://www.kubeflow.org/docs/components/trainer/getting-started/).
+2. Install Kubeflow Trainer v2. Check [the Trainer installation guide](https://www.kubeflow.org/docs/components/trainer/operator-guides/installation/).
 
    **Note**: The minimum required Trainer version is v2.0.0.
 
@@ -52,7 +52,7 @@ spec:
 
 ## Using ClusterTrainingRuntime
 
-ClusterTrainingRuntimes are cluster-scoped resources that define training configurations accessible across all namespaces. They are typically created by platform administrators.
+ClusterTrainingRuntimes are cluster-scoped resources that define training configurations accessible across all namespaces. They are typically created by platform administrators. For more details on ClusterTrainingRuntime configuration, see the [Kubeflow Runtime Guide](https://www.kubeflow.org/docs/components/trainer/operator-guides/runtime/).
 
 ### Example: PyTorch Distributed Training with ClusterTrainingRuntime
 
@@ -241,9 +241,12 @@ For migration guidance, refer to the [Kubeflow Trainer documentation](https://ww
 ## Additional Resources
 
 - [Kubeflow Trainer Documentation](https://www.kubeflow.org/docs/components/trainer/)
+- [Kubeflow Runtime Guide](https://www.kubeflow.org/docs/components/trainer/operator-guides/runtime/)
+- [Fine-tune LLMs with TorchTune](https://www.kubeflow.org/docs/components/trainer/user-guides/builtin-trainer/torchtune/)
 - [Kueue Concepts](/docs/concepts/)
 - [Run job with WorkloadPriority](/docs/tasks/manage/run_job_with_workload_priority)
 - [Monitor Pending Workloads](/docs/tasks/manage/monitor_pending_workloads)
+- [Troubleshooting](/docs/tasks/troubleshooting)
 - [Kubeflow Python SDK](https://github.com/kubeflow/sdk/)
 
 ## Troubleshooting
