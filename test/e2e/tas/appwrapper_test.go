@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 						RequestAndLimit(extraResource, "1").
 						Suspend(false).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 						SetTypeMeta().Obj(),
 				}).
 				Queue(localQueue.Name).
@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", func() {
 				Indexed(true).
 				Suspend(false).
 				RequestAndLimit(extraResource, "1").
-				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 				SetTypeMeta().
 				Obj()

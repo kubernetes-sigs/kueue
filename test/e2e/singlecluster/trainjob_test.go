@@ -27,7 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util"
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			ginkgo.By("Ensuring that a workload is created and the job admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatus(kueue.WorkloadAdmitted, metav1.ConditionTrue))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatus(kueue.WorkloadAdmitted, metav1.ConditionTrue))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			ginkgo.By("Waiting for the trainjob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("TrainJob", func() {
 			ginkgo.By("Ensuring that a workload is created and the job admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatus(kueue.WorkloadAdmitted, metav1.ConditionTrue))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatus(kueue.WorkloadAdmitted, metav1.ConditionTrue))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

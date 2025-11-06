@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", func() {
 				RequestAndLimit(extraResource, "1").
 				Replicas(replicas).
 				Queue(localQueue.Name).
-				PodTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
+				PodTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
 				TerminationGracePeriod(1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sts)
