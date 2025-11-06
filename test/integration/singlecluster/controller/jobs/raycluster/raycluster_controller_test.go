@@ -737,7 +737,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	ginkgo.It("Should support raycluster scale-down and scale-up", func() {
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			Queue(string(kueue.LocalQueueName(localQueue.Name))).
+			Queue(localQueue.Name).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
 			WithEnableAutoscaling(ptr.To(true)).
@@ -872,7 +872,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		testRayClusterA := testingraycluster.MakeCluster("raycluster-a", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			Queue(string(kueue.LocalQueueName(localQueue.Name))).
+			Queue(localQueue.Name).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
 			WithEnableAutoscaling(ptr.To(true)).
@@ -899,7 +899,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		testRayClusterB := testingraycluster.MakeCluster("raycluster-b", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			Queue(string(kueue.LocalQueueName(localQueue.Name))).
+			Queue(localQueue.Name).
 			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
 			WithEnableAutoscaling(ptr.To(true)).

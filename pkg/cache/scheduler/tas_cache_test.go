@@ -3027,7 +3027,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required:                    ptr.To(string(tasBlockLabel)),
+					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To("not-existing-topology-level"),
 					PodSetSliceSize:             ptr.To(int32(1)),
 				},

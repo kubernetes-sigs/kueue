@@ -23,9 +23,9 @@ type Wrapper interface {
 
 var _ Wrapper = &wrapper{}
 
-var DefaultWrapper Wrapper = NewWrapper(nil, nil)
+var DefaultWrapper = NewWrapper(nil, nil)
 
-// wrapper implement the Wrapper interface.
+// wrapper implements the Wrapper interface.
 // before() will be executed before the function starts, and after()
 // will be executed after the function ends.
 type wrapper struct {

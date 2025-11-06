@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 
 		ginkgo.By("verifying that the metric is updated", func() {
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
-				{"kueue_evicted_workloads_once_total", cq.Name, string(kueue.WorkloadEvictedByPodsReadyTimeout), kueue.WorkloadWaitForStart, "1"},
+				{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "1"},
 			})
 		})
 
@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 		ginkgo.By("verifying that the metric is updated", func() {
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
-				{"kueue_evicted_workloads_once_total", cq.Name, string(kueue.WorkloadEvictedByPodsReadyTimeout), kueue.WorkloadWaitForRecovery, "1"},
+				{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForRecovery, "1"},
 			})
 		})
 	})
