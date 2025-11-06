@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			job := testingjob.MakeJob("rayjob", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.It("invalid configuration shutdown after job finishes", func() {
@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.It("should reject RayJob with clusterSelector and RayClusterSpec", func() {
@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			// clusterSelector + RayClusterSpec -> validation error
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.It("should allow RayJob with clusterSelector but no RayClusterSpec", func() {
@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			// no clusterSelector + nil RayClusterSpec -> validation error
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.It("should allow RayJob with clusterSelector and no queue label", func() {
