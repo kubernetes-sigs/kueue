@@ -953,6 +953,12 @@ func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *Cluste
 	return c
 }
 
+// AutoLocalQueue sets the autoLocalQueue field.
+func (c *ClusterQueueWrapper) AutoLocalQueue(s *kueue.AutoLocalQueue) *ClusterQueueWrapper {
+	c.Spec.AutoLocalQueue = s
+	return c
+}
+
 // Preemption sets the preemption policies.
 func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *ClusterQueueWrapper {
 	c.Spec.Preemption = &p

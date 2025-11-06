@@ -17,6 +17,7 @@ limitations under the License.
 package webhooks
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -333,9 +334,10 @@ func TestValidateClusterQueue(t *testing.T) {
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
-			gotErr := ValidateClusterQueue(tc.clusterQueue)
+			wh := &ClusterQueueWebhook{}
+			gotErr := wh.validateClusterQueue(context.Background(), tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateClusterQueue() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -364,9 +366,10 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := ValidateClusterQueueUpdate(tc.newClusterQueue)
+			wh := &ClusterQueueWebhook{}
+			gotErr := wh.validateClusterQueueUpdate(context.Background(), tc.newClusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateClusterQueueUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -401,8 +404,8 @@ func TestValidateTotalFlavors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(makeFlavors(tc.numFlavors)...).Obj()
-
-			gotErr := ValidateClusterQueue(cq)
+			wh := &ClusterQueueWebhook{}
+			gotErr := wh.validateClusterQueue(context.Background(), cq)
 
 			if diff := cmp.Diff(tc.wantErr, len(gotErr) > 0); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
@@ -448,8 +451,8 @@ func TestValidateTotalCoveredResources(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				Obj()
 			cq.Spec.ResourceGroups = makeCoveredResources(tc.numCoveredRes)
-
-			gotErr := ValidateClusterQueue(cq)
+			wh := &ClusterQueueWebhook{}
+			gotErr := wh.validateClusterQueue(context.Background(), cq)
 
 			if diff := cmp.Diff(tc.wantErr, len(gotErr) > 0); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
@@ -501,8 +504,8 @@ func TestValidateFlavorResourceCombinations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").Obj()
 			cq.Spec.ResourceGroups = makeFlavorResourceCombinations(tc.numFlavors, tc.numResources)
-
-			gotErr := ValidateClusterQueue(cq)
+			wh := &ClusterQueueWebhook{}
+			gotErr := wh.validateClusterQueue(context.Background(), cq)
 
 			if diff := cmp.Diff(tc.wantErr, len(gotErr) > 0); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)

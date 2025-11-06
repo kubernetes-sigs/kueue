@@ -21,13 +21,18 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -41,13 +46,15 @@ const (
 	lendingLimitErrorMsg         string = `must be less than or equal to the nominalQuota`
 )
 
-type ClusterQueueWebhook struct{}
+type ClusterQueueWebhook struct {
+	client client.Client
+}
 
 func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
 		WithDefaulter(&ClusterQueueWebhook{}).
-		WithValidator(&ClusterQueueWebhook{}).
+		WithValidator(&ClusterQueueWebhook{client: mgr.GetClient()}).
 		Complete()
 }
 
@@ -75,17 +82,16 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 	cq := obj.(*kueue.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating create")
-	allErrs := ValidateClusterQueue(cq)
+	allErrs := w.validateClusterQueue(ctx, cq)
 	return nil, allErrs.ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newCQ := newObj.(*kueue.ClusterQueue)
-
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update")
-	allErrs := ValidateClusterQueueUpdate(newCQ)
+	allErrs := w.validateClusterQueueUpdate(ctx, newCQ)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -94,7 +100,7 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ runtime.Object
 	return nil, nil
 }
 
-func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
+func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
@@ -104,7 +110,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	}
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
-		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
+		metav1validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, metav1validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
@@ -113,11 +119,59 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	if features.Enabled(features.DefaultLocalQueue) && cq.Spec.AutoLocalQueue != nil {
+		allErrs = append(allErrs, validateAutoLocalQueueName(cq.Spec.AutoLocalQueue, path.Child("autoLocalQueue"))...)
+		allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
+	}
 	return allErrs
 }
 
-func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
-	return ValidateClusterQueue(newObj)
+func (w *ClusterQueueWebhook) validateExistingLocalQueues(ctx context.Context, cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if cq.Spec.NamespaceSelector == nil {
+		return nil
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
+	if err != nil {
+		allErrs = append(allErrs, field.Invalid(path.Child("namespaceSelector"), cq.Spec.NamespaceSelector, err.Error()))
+		return allErrs
+	}
+
+	if selector.Empty() {
+		return nil
+	}
+
+	var nsList corev1.NamespaceList
+	if err := w.client.List(ctx, &nsList); err != nil {
+		allErrs = append(allErrs, field.InternalError(path, err))
+		return allErrs
+	}
+
+	for _, ns := range nsList.Items {
+		if selector.Matches(labels.Set(ns.Labels)) {
+			var lq kueue.LocalQueue
+			err := w.client.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: cq.Spec.AutoLocalQueue.Name}, &lq)
+			if err == nil {
+				allErrs = append(allErrs, field.Invalid(path.Child("autoLocalQueue").Child("name"), cq.Spec.AutoLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
+			} else if !apierrors.IsNotFound(err) {
+				allErrs = append(allErrs, field.InternalError(path, err))
+			}
+		}
+	}
+	return allErrs
+}
+
+func (w *ClusterQueueWebhook) validateClusterQueueUpdate(ctx context.Context, newObj *kueue.ClusterQueue) field.ErrorList {
+	return w.validateClusterQueue(ctx, newObj)
+}
+
+func validateAutoLocalQueueName(autoLq *kueue.AutoLocalQueue, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if errs := validation.IsDNS1123Subdomain(autoLq.Name); len(errs) > 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("name"), autoLq.Name, "must be a valid DNS subdomain name"))
+	}
+	return allErrs
 }
 
 func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
