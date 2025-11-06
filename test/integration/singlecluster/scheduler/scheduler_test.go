@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -1743,7 +1743,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Cohort(chName).
 				Obj()
 			util.MustCreate(ctx, k8sClient, strictFIFOClusterQ)
-			matchingNS = util.CreateNamespaceFromObjectWithLog(ctx, k8sClient, testing.MakeNamespaceWrapper("").GenerateName("foo-").Label("dep", "eng").Obj())
+			matchingNS = util.CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespaceWrapper("").GenerateName("foo-").Label("dep", "eng").Obj())
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1961,7 +1961,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		}
 
 		ginkgo.DescribeTable("", func(tp testParams) {
-			lrBuilder := testing.MakeLimitRange("limit", ns.Name)
+			lrBuilder := utiltesting.MakeLimitRange("limit", ns.Name)
 			if tp.limitType != "" {
 				lrBuilder.WithType(tp.limitType)
 			}
