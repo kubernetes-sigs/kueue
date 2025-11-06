@@ -99,10 +99,42 @@ spec:
     name: torch-distributed
     kind: ClusterTrainingRuntime
   trainer:
-    image: docker.io/kubeflow/pytorch-dist-mnist-test:v1.0
+    image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
     command:
-      - torchrun
-      - /workspace/examples/mnist/mnist.py
+      - python
+      - -c
+      - |
+        import torch
+        import torch.distributed as dist
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        
+        # Initialize distributed training
+        dist.init_process_group(backend='nccl')
+        rank = dist.get_rank()
+        device = torch.device(f'cuda:{rank % torch.cuda.device_count()}')
+        
+        # Simple model
+        model = DDP(torch.nn.Linear(10, 10).to(device))
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        
+        # Training loop
+        for epoch in range(5):
+            data = torch.randn(20, 10).to(device)
+            target = torch.randn(20, 10).to(device)
+            
+            output = model(data)
+            loss = torch.nn.functional.mse_loss(output, target)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            if rank == 0:
+                print(f'Epoch {epoch}: Loss = {loss.item():.4f}')
+        
+        if rank == 0:
+            print('Training completed!')
+        dist.destroy_process_group()
     numNodes: 2
     resourcesPerNode:
       requests:
@@ -115,6 +147,11 @@ spec:
 - The `kueue.x-k8s.io/queue-name` label assigns this TrainJob to the `user-queue` LocalQueue
 - The `runtimeRef` points to the `ClusterTrainingRuntime` named `torch-distributed`
 - Kueue will manage the lifecycle and admission of this TrainJob based on available quota
+- This example uses an inline Python script for a simple distributed MNIST training
+
+{{% alert title="Note" color="info" %}}
+For more advanced examples using TorchTune, DeepSpeed, and production-ready training images, see the [Kubeflow Trainer examples](https://github.com/kubeflow/trainer/tree/master/examples).
+{{% /alert %}}
 
 ## Using TrainingRuntime (Namespace-scoped)
 
