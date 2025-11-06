@@ -185,8 +185,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				testing.BeInvalidError()),
 			ginkgo.Entry("empty priorityClassName is valid",
 				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Priority(0).Obj()
 				},
 				nil),
 			ginkgo.Entry("priority should not be nil when priorityClassName is set",
