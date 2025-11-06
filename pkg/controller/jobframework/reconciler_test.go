@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	"go.uber.org/mock/gomock"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -32,23 +33,257 @@ import (
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
+
+func TestReconcileGenericJob(t *testing.T) {
+	var (
+		testJobName        = "test-job"
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+	)
+
+	baseReq := types.NamespacedName{Name: testJobName, Namespace: metav1.NamespaceDefault}
+	baseJob := testingjob.MakeJob(testJobName, metav1.NamespaceDefault).UID(testJobName).Queue(testLocalQueueName)
+	basePodSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}
+	baseWl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		PodSets(basePodSets...).
+		Priority(0)
+
+	testCases := map[string]struct {
+		elasticJobsViaWorkloadSlicesEnabled bool
+		req                                 types.NamespacedName
+		job                                 *batchv1.Job
+		podSets                             []kueue.PodSet
+		objs                                []client.Object
+		wantWorkloads                       []kueue.Workload
+	}{
+		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
+			elasticJobsViaWorkloadSlicesEnabled: false,
+			req:                                 baseReq,
+			job:                                 baseJob.DeepCopy(),
+			podSets:                             basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
+			},
+		},
+		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false and elastic job annotation)": {
+			elasticJobsViaWorkloadSlicesEnabled: false,
+			req:                                 baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
+			},
+		},
+		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true)": {
+			elasticJobsViaWorkloadSlicesEnabled: true,
+			req:                                 baseReq,
+			job:                                 baseJob.DeepCopy(),
+			podSets:                             basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
+			},
+		},
+		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = true and elastic job annotation)": {
+			elasticJobsViaWorkloadSlicesEnabled: true,
+			req:                                 baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-3991b").
+					Annotations(map[string]string{workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue}).
+					Obj(),
+			},
+		},
+		"update workload to match job (one existing workload)": {
+			elasticJobsViaWorkloadSlicesEnabled: true,
+			req:                                 baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Obj(),
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticJobsViaWorkloadSlicesEnabled)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
+			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
+			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
+				WithObjects(tc.objs...).
+				WithObjects(tc.job).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			rec := NewReconciler(cl, recorder)
+			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mgj)
+			if err != nil {
+				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			}
+
+			wls := kueue.WorkloadList{}
+			err = cl.List(ctx, &wls)
+			if err != nil {
+				t.Fatalf("Failed to List workloads: %v", err)
+			}
+
+			if diff := cmp.Diff(wls.Items, tc.wantWorkloads, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
+				t.Errorf("Workloads mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
+	const (
+		testJobName = "test-job"
+		testNS      = metav1.NamespaceDefault
+	)
+
+	var (
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+		req                = types.NamespacedName{Name: testJobName, Namespace: testNS}
+	)
+
+	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobName).Queue(testLocalQueueName)
+	basePodSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}
+	baseWl := utiltestingapi.MakeWorkload("job-test-job", testNS).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		PodSets(basePodSets...).
+		Priority(0)
+
+	testCases := map[string]struct {
+		initialActive  *bool
+		jobActive      bool
+		expectedActive bool
+	}{
+		"marks workload inactive when job requests": {
+			initialActive:  nil,
+			jobActive:      false,
+			expectedActive: false,
+		},
+		"marks workload active when job requests": {
+			initialActive:  ptr.To(false),
+			jobActive:      true,
+			expectedActive: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			job := baseJob.DeepCopy()
+			wl := baseWl.Clone().Name("job-test-job-1").Obj()
+			if tc.initialActive == nil {
+				wl.Spec.Active = nil
+			} else {
+				wl.Spec.Active = ptr.To(*tc.initialActive)
+			}
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(testNS)).
+				WithObjects(job, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := NewReconciler(cl, recorder)
+
+			mgj := &struct {
+				*mocks.MockGenericJob
+				*mocks.MockJobWithCustomWorkloadActivation
+			}{
+				MockGenericJob:                      mocks.NewMockGenericJob(mockctrl),
+				MockJobWithCustomWorkloadActivation: mocks.NewMockJobWithCustomWorkloadActivation(mockctrl),
+			}
+			mgj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
+			mgj.MockGenericJob.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mgj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+			mgj.MockGenericJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.MockGenericJob.EXPECT().PodSets(gomock.Any()).Return(basePodSets, nil).AnyTimes()
+			mgj.MockJobWithCustomWorkloadActivation.EXPECT().IsWorkloadActive().Return(tc.jobActive).MaxTimes(1)
+
+			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
+				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
+			}
+
+			updated := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKey{Name: wl.Name, Namespace: wl.Namespace}, updated); err != nil {
+				t.Fatalf("Failed to get workload: %v", err)
+			}
+
+			if updated.Spec.Active == nil {
+				t.Fatalf("Workload.Spec.Active is nil, want %t", tc.expectedActive)
+			}
+			if *updated.Spec.Active != tc.expectedActive {
+				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, tc.expectedActive)
+			}
+		})
+	}
+}
 
 func TestFindAncestorJobManagedByKueue(t *testing.T) {
 	grandparentJobName := "test-job-grandparent"
@@ -329,8 +564,8 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
-							APIVersion: "workload.codeflare.dev/appwrapper",
-							Kind:       "AppWrapper",
+							APIVersion: awv1beta2.GroupVersion.String(),
+							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
 							Controller: ptr.To(true),
 						}},
@@ -352,8 +587,8 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
-							APIVersion: "workload.codeflare.dev/v1beta2",
-							Kind:       "AppWrapper",
+							APIVersion: awv1beta2.GroupVersion.String(),
+							Kind:       awv1beta2.AppWrapperKind,
 							UID:        "aw",
 							Controller: ptr.To(true),
 						}},
@@ -375,7 +610,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 						Namespace: jobNamespace,
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "deploy",
-							APIVersion: "apps/v1",
+							APIVersion: appsv1.SchemeGroupVersion.String(),
 							Kind:       "Deployment",
 							UID:        "deploy",
 							Controller: ptr.To(true),
@@ -429,9 +664,6 @@ func TestProcessOptions(t *testing.T) {
 				WithManageJobsWithoutQueueName(true),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
-				WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{},
-				}),
 				WithLabelKeysToCopy([]string{"toCopyKey"}),
 				WithClock(t, fakeClock),
 			},
@@ -439,13 +671,9 @@ func TestProcessOptions(t *testing.T) {
 				ManageJobsWithoutQueueName: true,
 				WaitForPodsReady:           true,
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
-				IntegrationOptions: map[string]any{
-					corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.PodIntegrationOptions{
-						PodSelector: &metav1.LabelSelector{},
-					},
-				},
-				LabelKeysToCopy: []string{"toCopyKey"},
-				Clock:           fakeClock,
+				IntegrationOptions:         nil,
+				LabelKeysToCopy:            []string{"toCopyKey"},
+				Clock:                      fakeClock,
 			},
 		},
 		"a single option is passed": {

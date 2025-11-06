@@ -27,13 +27,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
 
@@ -73,12 +73,12 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
 			topologyAwareScheduling: true,
@@ -88,16 +88,16 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			}, testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)}.ToAggregate(),
 			topologyAwareScheduling: true,
@@ -107,15 +107,172 @@ func TestValidateCreate(t *testing.T) {
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 					Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
-						kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-						kueuealpha.PodSetSliceSizeAnnotation:             "20",
+						kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+						kueue.PodSetSliceSizeAnnotation:             "20",
 					},
 				}).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "replicatedJobs[0]", "template", "metadata", "annotations").
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 2"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "valid PodSet grouping request",
+			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "launcher", Replicas: 1, Parallelism: 1, Completions: 1,
+				PodAnnotations: map[string]string{
+					kueue.PodSetGroupName:                  "groupname",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name: "worker", Replicas: 4, Parallelism: 1, Completions: 1,
+				PodAnnotations: map[string]string{
+					kueue.PodSetGroupName:                  "groupname",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - groups of size other than 2",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "1podset",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job3", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job4", Replicas: 2, Parallelism: 2, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "1podset", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[2].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[3].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - no leader in group",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 1, Parallelism: 3, Completions: 3, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - required topology does not match",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - preferred topology does not match",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                   "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                   "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - different topology annotations within group",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetGroupName:                   "groupname",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[1].template.spec.template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.replicatedJobs[0].template.spec.template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -154,7 +311,7 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			}).Obj(),
 			topologyAwareScheduling: true,
@@ -168,11 +325,11 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				},
 			}).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
+			wantValidationErrs: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations"),
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 			topologyAwareScheduling: true,
@@ -182,8 +339,8 @@ func TestValidateUpdate(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
-
-			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate((*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
@@ -222,16 +379,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -249,16 +406,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -306,12 +463,12 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("non-existent-admission-check").
 					Obj(),
 			},
@@ -329,16 +486,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -359,16 +516,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -386,12 +543,12 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					Obj(),
 			},
 			multiKueueEnabled: true,
@@ -433,7 +590,7 @@ func TestDefault(t *testing.T) {
 			queueManager := qcache.NewManager(cl, cqCache)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}

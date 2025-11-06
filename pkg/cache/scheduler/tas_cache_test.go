@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -658,18 +658,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantAssignment: &kueue.TopologyAssignment{
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
-						{
-							Count: 4,
-							Values: []string{
-								"x3",
-							},
-						},
-						{
-							Count: 2,
-							Values: []string{
-								"x6",
-							},
-						},
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x5"}},
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 2, Values: []string{"x6"}},
 					},
 				},
 			}},
@@ -688,18 +681,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantAssignment: &kueue.TopologyAssignment{
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
-						{
-							Count: 4,
-							Values: []string{
-								"x3",
-							},
-						},
-						{
-							Count: 2,
-							Values: []string{
-								"x6",
-							},
-						},
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x5"}},
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 2, Values: []string{"x6"}},
 					},
 				},
 			}},
@@ -3041,7 +3027,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required:                    ptr.To(string(tasBlockLabel)),
+					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To("not-existing-topology-level"),
 					PodSetSliceSize:             ptr.To(int32(1)),
 				},
@@ -4089,6 +4075,58 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{Count: 2, Values: []string{"x2"}},
 						},
 					},
+				},
+			},
+		},
+		// Proves cleanup necessity: the second PodSet excludes all nodes via selector.
+		// Without resetting temporary per-domain state (e.g. state/stateWithLeader), stale
+		// values from the first PodSet would leak and produce a bogus assignment instead of failure.
+		"temporary state cleanup prevents leakage across PodSets": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("n1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("4Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("n2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("4Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{corev1.LabelHostname},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "ps1",
+					requests: resources.Requests{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1000,
+					},
+					count: 1,
+					wantAssignment: &kueue.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []kueue.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName:   "ps2",
+					nodeSelector: map[string]string{"never": "match"},
+					requests: resources.Requests{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1000,
+					},
+					count:      1,
+					wantReason: "topology \"default\" doesn't allow to fit any of 1 pod(s)",
 				},
 			},
 		},

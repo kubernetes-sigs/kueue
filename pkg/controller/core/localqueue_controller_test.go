@@ -33,12 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -54,15 +55,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 		wantRequeueAfter *time.Duration
 	}{
 		"local queue with Hold StopPolicy": {
-			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
+			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				PendingWorkloads(1).
 				StopPolicy(kueue.Hold).
 				Generation(1).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				PendingWorkloads(0).
 				StopPolicy(kueue.Hold).
@@ -78,15 +79,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"local queue with HoldAndDrain StopPolicy": {
-			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
+			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				PendingWorkloads(1).
 				StopPolicy(kueue.HoldAndDrain).
 				Generation(1).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				PendingWorkloads(0).
 				StopPolicy(kueue.HoldAndDrain).
@@ -102,14 +103,14 @@ func TestLocalQueueReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"cluster queue is inactive": {
-			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
+			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				PendingWorkloads(1).
 				Generation(1).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				PendingWorkloads(0).
 				Generation(1).
@@ -124,10 +125,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"local queue decaying usage decays if there is no running workloads": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -142,7 +143,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -163,10 +164,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage sums the previous state and running workloads": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -181,7 +182,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				ReservingWorkloads(1).
@@ -199,7 +200,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl", "default").
+				*utiltestingapi.MakeWorkload("wl", "default").
 					Queue("lq").
 					Request(corev1.ResourceCPU, "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
@@ -212,10 +213,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage sums the usage from different flavors and resources": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -232,7 +233,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				ReservingWorkloads(3).
@@ -251,19 +252,19 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl-1", "default").
+				*utiltestingapi.MakeWorkload("wl-1", "default").
 					Queue("lq").
 					Request(corev1.ResourceCPU, "2").
 					SimpleReserveQuota("cq", "rf-1", clock.Now()).
 					Admitted(true).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-2", "default").
+				*utiltestingapi.MakeWorkload("wl-2", "default").
 					Queue("lq").
 					Request(corev1.ResourceCPU, "2").
 					SimpleReserveQuota("cq", "rf-2", clock.Now()).
 					Admitted(true).
 					Obj(),
-				*utiltesting.MakeWorkload("wl-3", "default").
+				*utiltestingapi.MakeWorkload("wl-3", "default").
 					Queue("lq").
 					Request("GPU", "4").
 					SimpleReserveQuota("cq", "rf-3", clock.Now()).
@@ -276,10 +277,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage sums the previous state and running workloads half time twice larger than sampling": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -294,7 +295,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -312,7 +313,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl", "default").
+				*utiltestingapi.MakeWorkload("wl", "default").
 					Queue("lq").
 					Request(corev1.ResourceCPU, "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
@@ -325,10 +326,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage sums the previous state and running workloads with long half time": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -343,7 +344,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -364,10 +365,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage sums the previous state and running GPU workloads half time twice larger than sampling": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -382,7 +383,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -400,7 +401,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl", "default").
+				*utiltestingapi.MakeWorkload("wl", "default").
 					Queue("lq").
 					Request("GPU", "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
@@ -413,10 +414,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage resets to 0 when half life is 0": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("lq", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -431,7 +432,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("lq", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -445,7 +446,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl", "default").
+				*utiltestingapi.MakeWorkload("wl", "default").
 					Queue("lq").
 					Request("GPU", "4").
 					SimpleReserveQuota("cq", "rf", clock.Now()).
@@ -458,10 +459,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 			},
 		},
 		"local queue decaying usage is not reconciled if not enough time has passed": {
-			clusterQueue: utiltesting.MakeClusterQueue("cq").
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
-			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{
@@ -476,7 +477,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				FairSharing(&kueue.FairSharing{

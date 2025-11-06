@@ -30,7 +30,8 @@ import (
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -41,8 +42,8 @@ var (
 	cfg                          *rest.Config
 	restClient                   *rest.RESTClient
 	ctx                          context.Context
-	visibilityClient             visibilityv1beta1.VisibilityV1beta1Interface
-	impersonatedVisibilityClient visibilityv1beta1.VisibilityV1beta1Interface
+	kueueClientset               kueueclientset.Interface
+	impersonatedVisibilityClient visibility.VisibilityV1beta2Interface
 	kueueNS                      = util.GetKueueNamespace()
 )
 
@@ -64,9 +65,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sClient, cfg, err = util.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	restClient = util.CreateRestClient(cfg)
-	visibilityClient, err = util.CreateVisibilityClient("")
+	kueueClientset = util.CreateKueueClientset("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	impersonatedVisibilityClient, err = util.CreateVisibilityClient(fmt.Sprintf("system:serviceaccount:%s:default", kueueNS))
+	impersonatedVisibilityClient = util.CreateVisibilityClient(fmt.Sprintf("system:serviceaccount:%s:default", kueueNS))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 

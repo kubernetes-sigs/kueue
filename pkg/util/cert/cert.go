@@ -18,30 +18,35 @@ package cert
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 const (
-	vwcName        = "kueue-validating-webhook-configuration"
-	mwcName        = "kueue-mutating-webhook-configuration"
-	caName         = "kueue-ca"
-	caOrganization = "kueue"
+	caName               = "kueue-ca"
+	caOrganization       = "kueue"
+	webhookServiceSuffix = "-webhook-service"
 )
 
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=get;list;watch;update
 
 // ManageCerts creates all certs for webhooks. This function is called from main.go.
 func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan struct{}) error {
 	// DNSName is <service name>.<namespace>.svc
 	var dnsName = fmt.Sprintf("%s.%s.svc", *cfg.InternalCertManagement.WebhookServiceName, *cfg.Namespace)
+
+	// Derive webhook configuration names from the webhook service name
+	webhookBaseName := deriveWebhookBaseName(*cfg.InternalCertManagement.WebhookServiceName)
+	mutatingWebhookName := buildWebhookConfigurationName(webhookBaseName, "mutating")
+	validatingWebhookName := buildWebhookConfigurationName(webhookBaseName, "validating")
 
 	return cert.AddRotator(mgr, &cert.CertRotator{
 		SecretKey: types.NamespacedName{
@@ -55,10 +60,19 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 		IsReady:        setupFinished,
 		Webhooks: []cert.WebhookInfo{{
 			Type: cert.Validating,
-			Name: vwcName,
+			Name: validatingWebhookName,
 		}, {
 			Type: cert.Mutating,
-			Name: mwcName,
+			Name: mutatingWebhookName,
+		}, {
+			Type: cert.CRDConversion,
+			Name: "localqueues.kueue.x-k8s.io",
+		}, {
+			Type: cert.CRDConversion,
+			Name: "clusterqueues.kueue.x-k8s.io",
+		}, {
+			Type: cert.CRDConversion,
+			Name: "workloads.kueue.x-k8s.io",
 		}},
 		// When kueue is running in the leader election mode,
 		// we expect webhook server will run in primary and secondary instance
@@ -70,4 +84,15 @@ func WaitForCertsReady(log logr.Logger, certsReady chan struct{}) {
 	log.Info("Waiting for certificate generation to complete")
 	<-certsReady
 	log.Info("Certs ready")
+}
+
+// deriveWebhookBaseName extracts the base name from a webhook service name
+func deriveWebhookBaseName(webhookServiceName string) string {
+	return strings.TrimSuffix(webhookServiceName, webhookServiceSuffix)
+}
+
+// buildWebhookConfigurationName constructs a webhook configuration name
+// from a base name and webhook type suffix.
+func buildWebhookConfigurationName(baseName, webhookType string) string {
+	return fmt.Sprintf("%s-%s-webhook-configuration", baseName, webhookType)
 }

@@ -18,7 +18,7 @@ Only [batch administrators](/docs/tasks#batch-administrator) should create `Clus
 A sample ClusterQueue looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -92,7 +92,7 @@ through the network or simply you wish to track their quota independently of oth
 An example of a ClusterQueue with multiple resource groups looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -252,13 +252,13 @@ by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibilit
 Assume you created the following two ClusterQueues:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -271,13 +271,13 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -309,13 +309,13 @@ you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].borrowingLimit`
 As an example, assume you created the following two ClusterQueues:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -327,13 +327,13 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -369,13 +369,13 @@ You can disable it by setting the `LendingLimit` feature gate. Check the [Instal
 As an example, assume you created the following two ClusterQueues:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -386,13 +386,13 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -422,7 +422,7 @@ A configuration for a ClusterQueue that enables preemption looks like the
 following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
@@ -487,26 +487,28 @@ process by configuring the `flavorFungibility` field.
 A configuration for a ClusterQueue that configures this behavior looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   flavorFungibility:
     whenCanBorrow: TryNextFlavor
-    whenCanPreempt: Preempt
+    whenCanPreempt: MayStopSearch
 ```
 
 The fields above do the following:
 
 - `whenCanBorrow` defines what should happen if a workload can get enough resource by
 borrowing in current ResourceFlavor. The possible values are:
-  - `Borrow` (default): Kueue stops looking for a better assignment.
+  - `MayStopSearch` (default): Kueue stops looking for a better assignment.
   - `TryNextFlavor`: Kueue tries the next ResourceFlavor.
+  - `Borrow` (deprecated): Old name for `MayStopSearch`.
 - `whenCanPreempt` defines what should happen if a workload can get enough resource by
 preempting in current ResourceFlavor. The possible values are:
-  - `Preempt`: Kueue stops looking for a better assignment.
+  - `MayStopSearch`: Kueue stops looking for a better assignment.
   - `TryNextFlavor` (default): Kueue tries the next ResourceFlavor.
+  - `Preempt` (deprecated): Old name for `MayStopSearch`.
 
 If during the search, Kueue finds some ResourceFlavor in which it can fit
 without preemption or borrowing, such ResourceFlavor is immediately selected,
@@ -539,7 +541,7 @@ guide for details on feature gate configuration.
 StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"

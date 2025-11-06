@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -64,9 +64,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			return nil
 		}
 
-		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 			localJob.Status = remoteJob.Status
-			return true, nil
+			return &localJob, true, nil
 		})
 	}
 

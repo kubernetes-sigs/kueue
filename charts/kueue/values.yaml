@@ -95,7 +95,7 @@ managerConfig:
   # ControllerManager utilizes this yaml via manager-config Configmap.
   # @default -- controllerManagerConfigYaml
   controllerManagerConfigYaml: |-
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     health:
       healthProbeBindAddress: :8081
@@ -146,6 +146,7 @@ managerConfig:
       - "ray.io/rayjob"
       - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
+      - "trainer.kubeflow.org/trainjob"
       - "kubeflow.org/paddlejob"
       - "kubeflow.org/pytorchjob"
       - "kubeflow.org/tfjob"
@@ -222,7 +223,15 @@ kueueViz:
     imagePullSecrets: []
     # -- Enable PriorityClass for KueueViz dashboard backend deployments
     priorityClassName:
+    # -- Environment variables for KueueViz backend deployment
+    env:
+      - name: KUEUEVIZ_ALLOWED_ORIGINS
+        value: "frontend.kueueviz.local"
     ingress:
+      # -- KueueViz dashboard backend ingress annotations
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: "/"
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
       # -- KueueViz dashboard backend ingress class name
       ingressClassName:
       # -- KueueViz dashboard backend ingress host
@@ -247,7 +256,15 @@ kueueViz:
     imagePullSecrets: []
     # -- Enable PriorityClass for KueueViz dashboard frontend deployments
     priorityClassName:
+    # -- Environment variables for KueueViz frontend deployment
+    env:
+      - name: REACT_APP_WEBSOCKET_URL
+        value: "wss://backend.kueueviz.local"
     ingress:
+      # -- KueueViz dashboard frontend ingress annotations
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: "/"
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
       # -- KueueViz dashboard frontend ingress class name
       ingressClassName:
       # -- KueueViz dashboard frontend ingress host

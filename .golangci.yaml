@@ -21,6 +21,7 @@ linters:
     - perfsprint
     - revive
     - unconvert
+    - forbidigo
   settings:
     gocritic:
       enabled-checks:
@@ -70,6 +71,11 @@ linters:
         - name: var-naming
         - name: redundant-import-alias
         - name: use-any
+        - name: use-waitgroup-go
+    forbidigo:
+      forbid:
+        - pattern: ^sort\.Slice$
+          msg: Please use slices.SortFunc instead of sort.Slice for better performance and consistency
   exclusions:
     generated: lax
     presets:
@@ -78,10 +84,6 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - linters:
-          - staticcheck
-        # TODO(#768): Drop when incrementing the API version.
-        text: 'SA1019: constants.QueueAnnotation is deprecated'
       - linters:
           - staticcheck
         text: 'SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field.'

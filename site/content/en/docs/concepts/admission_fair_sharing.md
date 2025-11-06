@@ -6,12 +6,12 @@ description: >
   A mechanism for ordering workloads based on the historical resource usage of their source LocalQueues, giving preference to those that have consumed fewer resources over time.
 ---
 
-{{< feature-state state="alpha" for_version="v0.12" >}}
+{{< feature-state state="beta" for_version="v0.15" >}}
 
 {{% alert title="Note" color="primary" %}}
-`AdmissionFairSharing` is currently an alpha feature and is not enabled by default.
+`AdmissionFairSharing` is currently an beta feature and is enabled by default.
 
-You can enable it by editing the `AdmissionFairSharing` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+You can disable it by editing the `AdmissionFairSharing` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
 
 
@@ -39,7 +39,7 @@ For example, if Tenant A has low historical usage and Tenant B has high usage, b
 
 ## Configuration
 
-### Kueue's configuration
+### Kueue configuration
 
 The following parameters can be configured in Kueue's configuration `.admissionFairSharing`:
 
@@ -47,7 +47,7 @@ The following parameters can be configured in Kueue's configuration `.admissionF
 - `usageSamplingInterval`: How frequently usage is sampled
 - `resourceWeights`: Relative importance of different resource types
 
-#### Exemplary configuration:
+#### Example configuration:
 
 ```
 admissionFairSharing:
@@ -58,12 +58,12 @@ admissionFairSharing:
     memory: 1.0
 ```
 
-### ClusterQueue's configuration
+### ClusterQueue configuration
 
 Enable Admission Fair Sharing by adding an AdmissionScope to your ClusterQueue:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: sample-queue
@@ -74,12 +74,12 @@ spec:
     # ...existing resource configuration...
 ```
 
-### LocalQueue's configuration
+### LocalQueue configuration
 
 You can define a `fairSharing` section in your LocalQueue to adjust its weight in the fair sharing calculation (defaults to `1`):
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: team-a-queue

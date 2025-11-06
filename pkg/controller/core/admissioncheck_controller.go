@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -164,7 +164,20 @@ func (r *AdmissionCheckReconciler) Generic(e event.TypedGenericEvent[*kueue.Admi
 func (r *AdmissionCheckReconciler) NotifyClusterQueueUpdate(oldCq *kueue.ClusterQueue, newCq *kueue.ClusterQueue) {
 	log := r.log.WithValues("oldClusterQueue", klog.KObj(oldCq), "newClusterQueue", klog.KObj(newCq))
 	log.V(5).Info("Cluster queue notification")
-	noChange := newCq != nil && oldCq != nil && slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks)
+
+	// Helper to extract admission check names from strategy
+	getAcNames := func(cq *kueue.ClusterQueue) []kueue.AdmissionCheckReference {
+		if cq.Spec.AdmissionChecksStrategy == nil {
+			return nil
+		}
+		names := make([]kueue.AdmissionCheckReference, len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
+		for i, ac := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+			names[i] = ac.Name
+		}
+		return names
+	}
+
+	noChange := newCq != nil && oldCq != nil && slices.CmpNoOrder(getAcNames(oldCq), getAcNames(newCq))
 	if noChange {
 		return
 	}
@@ -196,14 +209,16 @@ func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workq
 	log := log.FromContext(ctx).WithValues("clusterQueue", klog.KObj(cq))
 	log.V(6).Info("Cluster queue generic event")
 
-	for _, ac := range cq.Spec.AdmissionChecks {
-		if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac); len(cqs) == 0 {
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name: string(ac),
-				},
+	if cq.Spec.AdmissionChecksStrategy != nil {
+		for _, ac := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+			if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac.Name); len(cqs) == 0 {
+				req := reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name: string(ac.Name),
+					},
+				}
+				q.Add(req)
 			}
-			q.Add(req)
 		}
 	}
 }

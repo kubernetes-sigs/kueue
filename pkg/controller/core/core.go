@@ -21,7 +21,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -77,12 +77,17 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "ClusterQueue", err
 	}
 
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
+	workloadRec := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
 		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 		WithWorkloadRetention(workloadRetention(cfg.ObjectRetentionPolicies)),
-	).SetupWithManager(mgr, cfg); err != nil {
+	)
+	if features.Enabled(features.DynamicResourceAllocation) {
+		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
+	}
+
+	if err := workloadRec.SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
 	qManager.AddTopologyUpdateWatcher(cqRec)

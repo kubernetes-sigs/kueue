@@ -298,14 +298,33 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
+      path: /mutate-trainer-kubeflow-org-v1alpha1-trainjob
+  failurePolicy: Fail
+  name: mtrainjob.kb.io
+  rules:
+  - apiGroups:
+    - trainer.kubeflow.org
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    resources:
+    - trainjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-kueue-x-k8s-io-v1beta2-clusterqueue
   failurePolicy: Fail
   name: mclusterqueue.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     resources:
@@ -317,14 +336,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-kueue-x-k8s-io-v1beta1-resourceflavor
+      path: /mutate-kueue-x-k8s-io-v1beta2-resourceflavor
   failurePolicy: Fail
   name: mresourceflavor.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     resources:
@@ -336,14 +355,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-kueue-x-k8s-io-v1beta1-workload
+      path: /mutate-kueue-x-k8s-io-v1beta2-workload
   failurePolicy: Fail
   name: mworkload.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     resources:
@@ -661,14 +680,34 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
+      path: /validate-trainer-kubeflow-org-v1alpha1-trainjob
+  failurePolicy: Fail
+  name: vtrainjob.kb.io
+  rules:
+  - apiGroups:
+    - trainer.kubeflow.org
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - trainjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kueue-x-k8s-io-v1beta2-clusterqueue
   failurePolicy: Fail
   name: vclusterqueue.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     - UPDATE
@@ -681,14 +720,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1beta1-cohort
+      path: /validate-kueue-x-k8s-io-v1beta2-cohort
   failurePolicy: Fail
   name: vcohort.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     - UPDATE
@@ -701,14 +740,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1beta1-resourceflavor
+      path: /validate-kueue-x-k8s-io-v1beta2-resourceflavor
   failurePolicy: Fail
   name: vresourceflavor.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     - UPDATE
@@ -721,14 +760,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1beta1-workload
+      path: /validate-kueue-x-k8s-io-v1beta2-workload
   failurePolicy: Fail
   name: vworkload.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1beta1
+    - v1beta2
     operations:
     - CREATE
     - UPDATE

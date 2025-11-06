@@ -1,3 +1,19 @@
+{{- /*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/ -}}
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,4 +22,15 @@ metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 data:
-  controller_manager_config.yaml: {{ .Values.managerConfig.controllerManagerConfigYaml | toYaml | indent 1 }}
+  controller_manager_config.yaml: |
+{{- $config := .Values.managerConfig.controllerManagerConfigYaml | fromYaml }}
+{{- if not .Values.enableCertManager }}
+  {{- $defaultInternalCert := dict
+        "enable" true
+        "webhookServiceName" (printf "%s-webhook-service" (include "kueue.fullname" .))
+        "webhookSecretName" (printf "%s-webhook-server-cert" (include "kueue.fullname" .)) }}
+  {{- if not $config.internalCertManagement }}
+    {{- $_ := set $config "internalCertManagement" $defaultInternalCert }}
+  {{- end }}
+{{- end }}
+{{ $config | toYaml | indent 4 }}

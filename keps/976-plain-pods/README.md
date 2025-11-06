@@ -402,7 +402,7 @@ The simplest case we want to support is single Pod jobs. These Pods only have th
 The Workload for the Pod in [story 1](#story-1) would look as follows:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: pod-foo
@@ -473,7 +473,7 @@ indicating the reason.
 The Workload for the Pod in [story 2](#story-2) would look as follows:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: pod-group
@@ -526,7 +526,7 @@ The template for the initial pods can be left empty, as it can be populated by K
 The Workload for the Pod in [story 3](#story-3) would look as follows:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: pod-group

@@ -3,7 +3,7 @@ kep-number: 4136
 authors:
   - "@mwielgus"
   - "@pbundyra"
-status: draft
+status: implementable
 creation-date: 2025-02-03
 reviewers:
   - "@mimowo"
@@ -16,16 +16,17 @@ sea-also:
   - "KEP-1714"
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: alpha
+stage: beta
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.12"
+latest-milestone: "v0.15"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
   alpha: "v0.12"
+  beta: "v0.15"
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled

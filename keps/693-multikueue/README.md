@@ -14,7 +14,6 @@
 - [Design Details](#design-details)
   - [Subcomponents](#subcomponents)
     - [MultiKueueCluster Controller](#multikueuecluster-controller)
-    - [ClusterProfile Controller](#clusterprofile-controller)
     - [AdmissionCheck Controller](#admissioncheck-controller)
     - [Workload Controller](#workload-controller)
     - [Garbage Collector](#garbage-collector)
@@ -203,7 +202,7 @@ type MultiKueueClusterSpec struct {
     // The controller will use the information from the ClusterProfile to connect to the remote cluster.
     // This field can only be configured when KubeConfig is not specified.
     // +optional
-    ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+    ClusterProfile *ClusterProfileReference `json:"clusterProfile,omitempty"`
 }
 
 type KubeConfig struct {
@@ -217,7 +216,7 @@ type KubeConfig struct {
     LocationType LocationType `json:"locationType"`
 }
 
-type ClusterProfile struct {
+type ClusterProfileReference struct {
   // Name of the ClusterProfile.
   Name string `json:"name"`
 
@@ -256,18 +255,14 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of credential providers.
-  1. The controller uses this configuration to invoke the corresponding credential plugin binary.
-  1. The plugin is responsible for the actual authentication process. This might involve calling an external HTTP endpoint (e.g., a cloud provider's metadata service or an OIDC provider) to generate a short-lived authentication token. The details of this process are specific to the plugin and are opaque to Kueue. It returns the credentials, including the token, to the controller.
-  1. The controller uses these credentials to configure a Kubernetes client for the worker cluster.
+  2. The controller uses this configuration to invoke the corresponding credential plugin binary.
+  3. The plugin is responsible for the actual authentication process. This might involve calling an external HTTP endpoint (e.g., a cloud provider's metadata service or an OIDC provider) to generate a short-lived authentication token. The details of this process are specific to the plugin and are opaque to Kueue. It returns the credentials, including the token, to the controller.
+  4. The controller uses these credentials to configure a Kubernetes client for the worker cluster.
 
   Token refreshing is also managed automatically by the client-go library. When a token is expired or about to expire, client-go re-invokes the plugin to fetch a new one.
 
 Creation of kubeconfig files or ClusterProfile objects is outside of the MultiKueue scope, and is cloud
 provider/environment dependent.
-
-#### ClusterProfile Controller
-
-Will monitor `ClusterProfile` objects and create/update their corresponding `MultiKueueCluster` objects. This controller allows administrators to make worker clusters available to MultiKueue simply by creating `ClusterProfile` objects. It ensures a `MultiKueueCluster` is created for each relevant `ClusterProfile` and kept in sync with any changes. The lifecycle of the `MultiKueueCluster` is independent of the `ClusterProfile` after creation; deleting a `ClusterProfile` will not result in the deletion of the corresponding `MultiKueueCluster`.
 
 #### AdmissionCheck Controller
 
@@ -506,4 +501,3 @@ MultiKueue has some drawbacks.
 ## Alternatives
 * Use Armada or Multi Cluster App Dispatcher.
 * Use multicluster-specific Job APIs.
-

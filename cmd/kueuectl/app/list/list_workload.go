@@ -35,8 +35,8 @@ import (
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -283,7 +283,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	for {
 		headers := totalCount == 0
 
-		list, err := o.ClientSet.KueueV1beta1().Workloads(namespace).List(ctx, opts)
+		list, err := o.ClientSet.KueueV1beta2().Workloads(namespace).List(ctx, opts)
 		if err != nil {
 			return err
 		}
@@ -346,11 +346,11 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 }
 
-func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList, enableOwnerReferenceFilter bool, uid types.UID) {
+func (o *WorkloadOptions) filterList(list *kueue.WorkloadList, enableOwnerReferenceFilter bool, uid types.UID) {
 	if len(list.Items) == 0 {
 		return
 	}
-	filteredItems := make([]v1beta1.Workload, 0, len(o.LocalQueueFilter))
+	filteredItems := make([]kueue.Workload, 0, len(o.LocalQueueFilter))
 	for _, wl := range list.Items {
 		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) &&
 			o.filterByOwnerReference(&wl, enableOwnerReferenceFilter, uid) {
@@ -360,16 +360,16 @@ func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList, enableOwnerRefe
 	list.Items = filteredItems
 }
 
-func (o *WorkloadOptions) filterByLocalQueue(wl *v1beta1.Workload) bool {
+func (o *WorkloadOptions) filterByLocalQueue(wl *kueue.Workload) bool {
 	return len(o.LocalQueueFilter) == 0 || string(wl.Spec.QueueName) == o.LocalQueueFilter
 }
 
-func (o *WorkloadOptions) filterByClusterQueue(wl *v1beta1.Workload) bool {
+func (o *WorkloadOptions) filterByClusterQueue(wl *kueue.Workload) bool {
 	return len(o.ClusterQueueFilter) == 0 || wl.Status.Admission != nil &&
-		wl.Status.Admission.ClusterQueue == v1beta1.ClusterQueueReference(o.ClusterQueueFilter)
+		wl.Status.Admission.ClusterQueue == kueue.ClusterQueueReference(o.ClusterQueueFilter)
 }
 
-func (o *WorkloadOptions) filterByStatuses(wl *v1beta1.Workload) bool {
+func (o *WorkloadOptions) filterByStatuses(wl *kueue.Workload) bool {
 	if o.StatusesFilter.Len() == 0 || o.StatusesFilter.Has(workloadStatusAll) {
 		return true
 	}
@@ -395,7 +395,7 @@ func (o *WorkloadOptions) filterByStatuses(wl *v1beta1.Workload) bool {
 	return false
 }
 
-func (o *WorkloadOptions) filterByOwnerReference(wl *v1beta1.Workload, isEnabled bool, uid types.UID) bool {
+func (o *WorkloadOptions) filterByOwnerReference(wl *kueue.Workload, isEnabled bool, uid types.UID) bool {
 	if !isEnabled {
 		return true
 	}
@@ -409,15 +409,15 @@ func (o *WorkloadOptions) filterByOwnerReference(wl *v1beta1.Workload, isEnabled
 	return false
 }
 
-func (o *WorkloadOptions) localQueues(ctx context.Context, list *v1beta1.WorkloadList) (map[string]*v1beta1.LocalQueue, error) {
-	localQueues := make(map[string]*v1beta1.LocalQueue)
+func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadList) (map[string]*kueue.LocalQueue, error) {
+	localQueues := make(map[string]*kueue.LocalQueue)
 	for _, wl := range list.Items {
 		// It's not necessary to get localqueue if we have clusterqueue name on Admission status.
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
 			continue
 		}
 		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {
-			lq, err := o.ClientSet.KueueV1beta1().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
+			lq, err := o.ClientSet.KueueV1beta2().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
@@ -430,17 +430,17 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *v1beta1.Workloa
 	return localQueues, nil
 }
 
-func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.WorkloadList, localQueues map[string]*v1beta1.LocalQueue) (map[workload.Reference]*visibility.PendingWorkload, error) {
+func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.WorkloadList, localQueues map[string]*kueue.LocalQueue) (map[workload.Reference]*visibility.PendingWorkload, error) {
 	var err error
 
 	pendingWorkloads := make(map[workload.Reference]*visibility.PendingWorkload)
-	pendingWorkloadsSummaries := make(map[v1beta1.ClusterQueueReference]*visibility.PendingWorkloadsSummary)
+	pendingWorkloadsSummaries := make(map[kueue.ClusterQueueReference]*visibility.PendingWorkloadsSummary)
 
 	for _, wl := range list.Items {
 		if !workloadPending(&wl) {
 			continue
 		}
-		var clusterQueueName v1beta1.ClusterQueueReference
+		var clusterQueueName kueue.ClusterQueueReference
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
 			clusterQueueName = wl.Status.Admission.ClusterQueue
 		} else if lq := localQueues[localQueueKeyForWorkload(&wl)]; lq != nil {
@@ -451,7 +451,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 		}
 		pendingWorkloadsSummary, ok := pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {
-			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta1().ClusterQueues().
+			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta2().ClusterQueues().
 				GetPendingWorkloadsSummary(ctx, string(clusterQueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
@@ -474,7 +474,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 	return pendingWorkloads, nil
 }
 
-func (o *WorkloadOptions) apiResources(list *v1beta1.WorkloadList) (map[string]*metav1.APIResourceList, error) {
+func (o *WorkloadOptions) apiResources(list *kueue.WorkloadList) (map[string]*metav1.APIResourceList, error) {
 	apiResourceLists := make(map[string]*metav1.APIResourceList)
 	for _, wl := range list.Items {
 		for _, ref := range wl.OwnerReferences {
@@ -493,10 +493,10 @@ func (o *WorkloadOptions) apiResources(list *v1beta1.WorkloadList) (map[string]*
 	return apiResourceLists, nil
 }
 
-func workloadPending(wl *v1beta1.Workload) bool {
+func workloadPending(wl *kueue.Workload) bool {
 	return workload.Status(wl) == workload.StatusPending
 }
 
-func localQueueKeyForWorkload(wl *v1beta1.Workload) string {
+func localQueueKeyForWorkload(wl *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", wl.Namespace, wl.Spec.QueueName)
 }

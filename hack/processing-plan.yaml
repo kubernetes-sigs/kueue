@@ -1,3 +1,5 @@
+globalOptions:
+  boilerplatePath: ./hack/boilerplate.go.txt
 files:
   - path: ./config/components/crd/bases/*.yaml
     outputDir: ./charts/kueue/templates/crd/
@@ -8,6 +10,7 @@ files:
     operations:
       - type: INSERT_OBJECT
         key: .spec
+        onFileCondition: '{"Workload": true, "LocalQueue": true, "ClusterQueue": true}[.spec.names.kind]'
         value: |
           conversion:
               strategy: Webhook
@@ -73,6 +76,7 @@ files:
     removeComments: true
     excludes:
       - kustomization.yaml
+      - subject_transformer.yaml
     continueOnError: true
     operations:
       - type: APPEND
@@ -92,12 +96,18 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: DELETE
+        key: .spec.insecureSkipTLSVerify
+        onFileCondition: '.kind == "APIService"'
     postOperations:
       - type: INSERT_TEXT
         key: .metadata
         value: |
           labels:
-          {{- include "kueue.labels" . | nindent 4 }}
+          {{- include "kueue.visibilityService.labels" . | nindent 4 }}
         indentation: 2
       - type: INSERT_TEXT
         key: .spec
@@ -106,6 +116,23 @@ files:
           {{- include "kueue.selectorLabels" . | nindent 4 }}
         indentation: 2
         onFileCondition: '.kind == "Service"'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- if .Values.enableCertManager }}
+          annotations:
+            cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-visibility-server-cert'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "APIService"'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if not .Values.enableCertManager }}
+          insecureSkipTLSVerify: true
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "APIService"'
   - path: ./config/components/visibility-apf/*.yaml
     outputDir: ./charts/kueue/templates/visibility-apf
     removeComments: true
@@ -167,7 +194,7 @@ files:
         key: .metadata
         value: |
           labels:
-          {{- include "kueue.labels" . | nindent 4 }}
+          {{- include "kueue.webhookService.labels" . | nindent 4 }}
         indentation: 2
       - type: INSERT_TEXT
         key: .spec.type
@@ -588,26 +615,6 @@ files:
     continueOnError: true
     operations:
       - type: UPDATE
-        key: .spec.tls.[].secretName
-        value: '"{{ .Values.kueueViz.backend.ingress.tlsSecretName | default \"kueueviz-backend-tls\" }}"'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
-        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
-      - type: UPDATE
-        key: .spec.tls.[].secretName
-        value: '"{{ .Values.kueueViz.frontend.ingress.tlsSecretName | default \"kueueviz-frontend-tls\" }}"'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
-        onItemCondition: '.spec.tls.[].secretName == "kueueviz-tls-secret"'
-      - type: UPDATE
-        key: .spec.tls.[].hosts
-        value: '["{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"]'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
-        onItemCondition: '.spec.tls.[].hosts.[] == "backend.kueueviz.local"'
-      - type: UPDATE
-        key: .spec.tls.[].hosts
-        value: '["{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"]'
-        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
-        onItemCondition: '.spec.tls.[].hosts.[] == "frontend.kueueviz.local"'
-      - type: UPDATE
         key: .spec.rules[0].host
         value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
@@ -690,6 +697,64 @@ files:
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.backend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.frontend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.frontend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.backend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         key: .spec.template.spec
         value: |
@@ -859,6 +924,14 @@ files:
           - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
         indentation: 2
         onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-visibility-server.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-visibility-server.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("visibility-server-cert")'
       - type: INSERT_TEXT
         position: START
         value: |

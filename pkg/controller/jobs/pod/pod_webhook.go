@@ -18,7 +18,6 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,8 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -53,8 +51,6 @@ var (
 	prebuiltWorkloadLabelPath      = labelsPath.Key(ctrlconstants.PrebuiltWorkloadLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
-
-	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
 )
 
 type PodWebhook struct {
@@ -69,19 +65,11 @@ type PodWebhook struct {
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	podOpts, err := getPodOptions(options.IntegrationOptions)
-	if err != nil {
-		return err
-	}
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-	}
-	if podOpts != nil {
-		wh.namespaceSelector = podOpts.NamespaceSelector
-		wh.podSelector = podOpts.PodSelector
 	}
 	obj := &corev1.Pod{}
 	return webhook.WebhookManagedBy(mgr).
@@ -89,18 +77,6 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		WithMutationHandler(admission.WithCustomDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
-}
-
-func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOptions, error) {
-	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
-	if !ok {
-		return nil, nil
-	}
-	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
-	if !ok {
-		return nil, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
-	}
-	return podOpts, nil
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
@@ -192,13 +168,13 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {
-			if val, ok := pod.pod.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation]; ok {
+			if val, ok := pod.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]; ok {
 				if pod.pod.Labels == nil {
 					pod.pod.Labels = make(map[string]string, 1)
 				}
-				pod.pod.Labels[kueuealpha.PodGroupPodIndexLabel] = pod.pod.Labels[val]
+				pod.pod.Labels[kueue.PodGroupPodIndexLabel] = pod.pod.Labels[val]
 			}
-			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
+			utilpod.Gate(&pod.pod, kueue.TopologySchedulingGate)
 		}
 		if err := pod.addRoleHash(); err != nil {
 			return err

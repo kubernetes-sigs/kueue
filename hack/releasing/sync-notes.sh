@@ -57,6 +57,18 @@ git fetch "${UPSTREAM_REMOTE}" --tags
 find_previous_version() {
   local release_version="$1"
   IFS='.' read -r major minor patch <<< "${release_version#v}"
+  # If patch is 0, treat it as a minor or major version bump
+  if [ "$patch" -eq 0 ]; then
+    if [ "$minor" -gt 0 ]; then
+      # Decrease minor version and set patch to 0
+      echo "v$major.$((minor-1)).0"
+      return 0
+    elif [ "$major" -gt 0 ]; then
+      # Decrease major version, set minor and patch to 0
+      echo "v$((major-1)).0.0"
+      return 0
+    fi
+  fi
   for tag in $(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r); do
     IFS='.' read -r t_major t_minor t_patch <<< "${tag#v}"
     if [ "$t_major" -lt "$major" ] || \
@@ -88,9 +100,11 @@ function find_head_branch() {
 
 HEAD_BRANCH=$(find_head_branch "$RELEASE_VERSION")
 declare HEAD_BRANCH
+echo "+++ HEAD_BRANCH=$HEAD_BRANCH"
 
 PREVIOUS_VERSION=$(find_previous_version "$RELEASE_VERSION")
 declare PREVIOUS_VERSION
+echo "+++ PREVIOUS_VERSION=$PREVIOUS_VERSION"
 
 START_SHA=$(git rev-parse "${PREVIOUS_VERSION}^{commit}" 2>/dev/null)
 declare START_SHA
@@ -137,7 +151,7 @@ fi
 RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
 declare RELEASE_ISSUE_NAME
 
-RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1

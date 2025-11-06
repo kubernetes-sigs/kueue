@@ -17,6 +17,7 @@ limitations under the License.
 package mke2e
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -43,7 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -118,6 +120,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(corev1.SchemeGroupVersion.Group, "pods/status", "get"),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters", resourceVerbs...),
 			policyRule(rayv1.SchemeGroupVersion.Group, "rayclusters/status", "get"),
+			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs", resourceVerbs...),
+			policyRule(kftrainerapi.SchemeGroupVersion.Group, "trainjobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)
@@ -253,17 +257,11 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	util.SetupLogger()
 
-	managerClusterName = os.Getenv("MANAGER_KIND_CLUSTER_NAME")
-	gomega.Expect(managerClusterName).NotTo(gomega.BeEmpty(), "MANAGER_KIND_CLUSTER_NAME should not be empty")
-
-	worker1ClusterName = os.Getenv("WORKER1_KIND_CLUSTER_NAME")
-	gomega.Expect(worker1ClusterName).NotTo(gomega.BeEmpty(), "WORKER1_KIND_CLUSTER_NAME should not be empty")
-
-	worker2ClusterName = os.Getenv("WORKER2_KIND_CLUSTER_NAME")
-	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
+	managerClusterName = cmp.Or(os.Getenv("MANAGER_KIND_CLUSTER_NAME"), "kind-manager")
+	worker1ClusterName = cmp.Or(os.Getenv("WORKER1_KIND_CLUSTER_NAME"), "kind-worker1")
+	worker2ClusterName = cmp.Or(os.Getenv("WORKER2_KIND_CLUSTER_NAME"), "kind-worker2")
 
 	var err error
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sManagerClient, managerCfg, err = util.CreateClientUsingCluster("kind-" + managerClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sWorker1Client, worker1Cfg, err = util.CreateClientUsingCluster("kind-" + worker1ClusterName)

@@ -30,22 +30,22 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const crdTypeMaxLength = 20
 
 type listWorkloadResources struct {
-	localQueues      map[string]*v1beta1.LocalQueue
+	localQueues      map[string]*kueue.LocalQueue
 	pendingWorkloads map[workload.Reference]*visibility.PendingWorkload
 	apiResourceLists map[string]*metav1.APIResourceList
 }
 
 func newListWorkloadResources() *listWorkloadResources {
 	return &listWorkloadResources{
-		localQueues:      make(map[string]*v1beta1.LocalQueue),
+		localQueues:      make(map[string]*kueue.LocalQueue),
 		pendingWorkloads: make(map[workload.Reference]*visibility.PendingWorkload),
 		apiResourceLists: make(map[string]*metav1.APIResourceList),
 	}
@@ -62,7 +62,7 @@ var _ printers.ResourcePrinter = (*listWorkloadPrinter)(nil)
 func (p *listWorkloadPrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 	printer := printers.NewTablePrinter(p.printOptions)
 
-	list, ok := obj.(*v1beta1.WorkloadList)
+	list, ok := obj.(*kueue.WorkloadList)
 	if !ok {
 		return errors.New("invalid object type")
 	}
@@ -115,7 +115,7 @@ func newWorkloadTablePrinter() *listWorkloadPrinter {
 	}
 }
 
-func (p *listWorkloadPrinter) printWorkloadList(list *v1beta1.WorkloadList) []metav1.TableRow {
+func (p *listWorkloadPrinter) printWorkloadList(list *kueue.WorkloadList) []metav1.TableRow {
 	rows := make([]metav1.TableRow, len(list.Items))
 	for index := range list.Items {
 		rows[index] = p.printWorkload(&list.Items[index])
@@ -123,7 +123,7 @@ func (p *listWorkloadPrinter) printWorkloadList(list *v1beta1.WorkloadList) []me
 	return rows
 }
 
-func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRow {
+func (p *listWorkloadPrinter) printWorkload(wl *kueue.Workload) metav1.TableRow {
 	row := metav1.TableRow{
 		Object: runtime.RawExtension{Object: wl},
 	}
@@ -141,11 +141,11 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 	}
 
 	var execTime string
-	if admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadAdmitted); admittedCond != nil &&
+	if admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted); admittedCond != nil &&
 		admittedCond.Status == metav1.ConditionTrue {
 		finishedTime := p.clock.Now()
 
-		if finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadFinished); finishedCond != nil &&
+		if finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); finishedCond != nil &&
 			finishedCond.Status == metav1.ConditionTrue {
 			finishedTime = finishedCond.LastTransitionTime.Time
 		}
@@ -168,7 +168,7 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 	return row
 }
 
-func (p *listWorkloadPrinter) crdTypes(wl *v1beta1.Workload) []string {
+func (p *listWorkloadPrinter) crdTypes(wl *kueue.Workload) []string {
 	crdTypes := sets.New[string]()
 
 	for _, ref := range wl.OwnerReferences {
@@ -191,7 +191,7 @@ func (p *listWorkloadPrinter) crdTypes(wl *v1beta1.Workload) []string {
 	return crdTypes.UnsortedList()
 }
 
-func (p *listWorkloadPrinter) crdNames(wl *v1beta1.Workload) []string {
+func (p *listWorkloadPrinter) crdNames(wl *kueue.Workload) []string {
 	crdNames := sets.New[string]()
 
 	for _, ref := range wl.OwnerReferences {

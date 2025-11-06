@@ -25,14 +25,12 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/fields"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -116,13 +114,8 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
-	r, err := labels.NewRequirement(kueuealpha.TASLabel, selection.DoesNotExist, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build requirement for non-TAS pods: %w", err)
-	}
 	podListOpts := &client.ListOptions{}
-	podListOpts.LabelSelector = labels.NewSelector()
-	podListOpts.LabelSelector = podListOpts.LabelSelector.Add(*r)
+	podListOpts.FieldSelector = fields.OneTermEqualSelector(indexer.TASKey, "false")
 	pods := corev1.PodList{}
 	err = c.client.List(ctx, &pods, podListOpts)
 	if err != nil {

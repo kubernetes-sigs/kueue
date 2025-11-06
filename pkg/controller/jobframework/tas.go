@@ -22,8 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type podSetTopologyRequestBuilder struct {
@@ -52,14 +51,14 @@ func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBui
 
 func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, error) {
 	psTopologyReq := kueue.PodSetTopologyRequest{}
-	requiredValue, requiredFound := p.meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
-	preferredValue, preferredFound := p.meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
-	unconstrained, unconstrainedFound := p.meta.Annotations[kueuealpha.PodSetUnconstrainedTopologyAnnotation]
+	requiredValue, requiredFound := p.meta.Annotations[kueue.PodSetRequiredTopologyAnnotation]
+	preferredValue, preferredFound := p.meta.Annotations[kueue.PodSetPreferredTopologyAnnotation]
+	unconstrained, unconstrainedFound := p.meta.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]
 
-	sliceRequiredTopologyValue, sliceRequiredTopologyFound := p.meta.Annotations[kueuealpha.PodSetSliceRequiredTopologyAnnotation]
-	sliceSizeValue, sliceSizeFound := p.meta.Annotations[kueuealpha.PodSetSliceSizeAnnotation]
+	sliceRequiredTopologyValue, sliceRequiredTopologyFound := p.meta.Annotations[kueue.PodSetSliceRequiredTopologyAnnotation]
+	sliceSizeValue, sliceSizeFound := p.meta.Annotations[kueue.PodSetSliceSizeAnnotation]
 
-	podSetGroupName, podSetGroupNameFound := p.meta.Annotations[kueuealpha.PodSetGroupName]
+	podSetGroupName, podSetGroupNameFound := p.meta.Annotations[kueue.PodSetGroupName]
 
 	switch {
 	case requiredFound:

@@ -21,14 +21,21 @@ import (
 	"fmt"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+)
+
+var (
+	objectKeySecret = new(corev1.Secret)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -48,6 +55,8 @@ func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration)
 // addTo provides an alternative to the deprecated o.AndFrom(&cfg)
 func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	addLeaderElectionTo(o, cfg)
+	addCacheByObjectTo(o, cfg)
+
 	if o.Metrics.BindAddress == "" && cfg.Metrics.BindAddress != "" {
 		o.Metrics.BindAddress = cfg.Metrics.BindAddress
 	}
@@ -91,6 +100,24 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		if len(o.Controller.GroupKindConcurrency) == 0 && len(cfg.Controller.GroupKindConcurrency) > 0 {
 			o.Controller.GroupKindConcurrency = cfg.Controller.GroupKindConcurrency
 		}
+	}
+}
+
+func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
+	if cfg.Namespace == nil {
+		// Invalid source; noop. This should not be reached
+		// due to prior defaulting/validation.
+		return
+	}
+
+	if o.Cache.ByObject == nil {
+		o.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
+	}
+
+	o.Cache.ByObject[objectKeySecret] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			*cfg.Namespace: {},
+		},
 	}
 }
 

@@ -20,7 +20,7 @@ import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 // the lowest shared node - the LeastCommonAncestor (LCA). While LCA
 // is always a Cohort, almostLCA may be a ClusterQueue or a Cohort.
 type almostLCA interface {
-	DominantResourceShare() int
+	DominantResourceShare() schdcache.DRS
 }
 
 // getAlmostLCAs returns almostLCAs of (preemptor, target).

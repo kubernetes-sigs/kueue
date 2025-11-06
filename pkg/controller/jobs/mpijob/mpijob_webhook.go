@@ -17,8 +17,9 @@ limitations under the License.
 package mpijob
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -28,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -39,7 +40,13 @@ import (
 )
 
 var (
-	mpiReplicaSpecsPath = field.NewPath("spec", "mpiReplicaSpecs")
+	mpiReplicaSpecsPath         = field.NewPath("spec", "mpiReplicaSpecs")
+	launcherAnnotationsPath     = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeLauncher)).Child("template", "metadata", "annotations")
+	workerAnnotationsPath       = mpiReplicaSpecsPath.Key(string(v2beta1.MPIReplicaTypeWorker)).Child("template", "metadata", "annotations")
+	podSetAnnotationsPathByName = map[kueue.PodSetReference]*field.Path{
+		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherAnnotationsPath,
+		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerAnnotationsPath,
+	}
 )
 
 type MpiJobWebhook struct {
@@ -99,12 +106,12 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCommon(mpiJob)
+	validationErrs, err := w.validateCommon(ctx, mpiJob)
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(validationErrs, func(i, j int) bool {
-		return validationErrs[i].Field < validationErrs[j].Field
+	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, validationErrs.ToAggregate()
 }
@@ -116,13 +123,13 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update")
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist)
-	validationErrs, err := w.validateCommon(newMpiJob)
+	validationErrs, err := w.validateCommon(ctx, newMpiJob)
 	if err != nil {
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
-	sort.Slice(validationErrs, func(i, j int) bool {
-		return validationErrs[i].Field < validationErrs[j].Field
+	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, allErrs.ToAggregate()
 }
@@ -132,11 +139,11 @@ func (w *MpiJobWebhook) ValidateDelete(context.Context, runtime.Object) (admissi
 	return nil, nil
 }
 
-func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) {
+func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = jobframework.ValidateJobOnCreate(mpiJob)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(mpiJob)
+		validationErrs, err := w.validateTopologyRequest(ctx, mpiJob)
 		if err != nil {
 			return nil, err
 		}
@@ -145,10 +152,14 @@ func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) (field.ErrorList, error) 
 	return allErrs, nil
 }
 
-func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList, error) {
+func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := mpiJob.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, mpiJob)
+
+	if podSetsErr == nil {
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)
+	}
 
 	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
 		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
@@ -158,7 +169,7 @@ func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) (field.ErrorList
 			continue
 		}
 
-		podSet := podset.FindPodSetByName(podSets, v1beta1.NewPodSetReference(string(replicaType)))
+		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(string(replicaType)))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &replicaSpec.Template.ObjectMeta, podSet)...)
 	}
 

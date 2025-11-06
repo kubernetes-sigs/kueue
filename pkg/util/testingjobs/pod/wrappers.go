@@ -28,11 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // PodWrapper wraps a Pod.
@@ -146,7 +146,7 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
-	return p.Label(kueuealpha.PodGroupPodIndexLabel, index)
+	return p.Label(kueue.PodGroupPodIndexLabel, index)
 }
 
 // Label sets the label of the Pod
@@ -183,7 +183,7 @@ func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 
 // TopologySchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
-	return p.Gate(kueuealpha.TopologySchedulingGate)
+	return p.Gate(kueue.TopologySchedulingGate)
 }
 
 // Gate adds kueue scheduling gate to the Pod by the gate name
@@ -256,7 +256,7 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
-	testing.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return p
 }
 

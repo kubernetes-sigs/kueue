@@ -18,6 +18,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 - [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
 - [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
 - [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 - [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
   
@@ -44,13 +45,15 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec"><code>AdmissionCheckSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the AdmissionCheck.</p>
+</td>
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckStatus"><code>AdmissionCheckStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>status is the status of the AdmissionCheck.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -77,13 +80,15 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueueSpec"><code>ClusterQueueSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the ClusterQueue.</p>
+</td>
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueueStatus"><code>ClusterQueueStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>status is the status of the ClusterQueue.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -113,13 +118,15 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-CohortSpec"><code>CohortSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the Cohort.</p>
+</td>
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-CohortStatus"><code>CohortStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>status is the status of the Cohort.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -146,13 +153,15 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueSpec"><code>LocalQueueSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the LocalQueue.</p>
+</td>
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueStatus"><code>LocalQueueStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>status is the status of the LocalQueue.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -179,13 +188,15 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec"><code>MultiKueueClusterSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the MultiKueueCluster.</p>
+</td>
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-MultiKueueClusterStatus"><code>MultiKueueClusterStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>status is the status of the MultiKueueCluster.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -212,7 +223,8 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec"><code>MultiKueueConfigSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the MultiKueueConfig.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -239,7 +251,8 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec"><code>ProvisioningRequestConfigSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the ProvisioningRequestConfig.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -266,7 +279,36 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the ResourceFlavor.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `Topology`     {#kueue-x-k8s-io-v1beta1-Topology}
+    
+
+**Appears in:**
+
+
+
+<p>Topology is the Schema for the topology API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>Topology</code></td></tr>
+    
+  
+<tr><td><code>spec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologySpec"><code>TopologySpec</code></a>
+</td>
+<td>
+   <p>spec is the specification of the Topology.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -293,13 +335,15 @@ V0.9 and V0.10 is unsupported, and results in undefined behavior.</p>
 <a href="#kueue-x-k8s-io-v1beta1-WorkloadSpec"><code>WorkloadSpec</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>spec is the specification of the Workload.</p>
+</td>
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-WorkloadStatus"><code>WorkloadStatus</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>status is the status of the Workload.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -367,7 +411,7 @@ when this workloadPriorityClass should be used.</p>
 <a href="#kueue-x-k8s-io-v1beta1-PodSetAssignment"><code>[]PodSetAssignment</code></a>
 </td>
 <td>
-   <p>PodSetAssignments hold the admission results for each of the .spec.podSets entries.</p>
+   <p>podSetAssignments hold the admission results for each of the .spec.podSets entries.</p>
 </td>
 </tr>
 </tbody>
@@ -391,21 +435,21 @@ when this workloadPriorityClass should be used.</p>
 <code>string</code>
 </td>
 <td>
-   <p>ApiGroup is the group for the resource being referenced.</p>
+   <p>apiGroup is the group for the resource being referenced.</p>
 </td>
 </tr>
 <tr><td><code>kind</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>Kind is the type of the resource being referenced.</p>
+   <p>kind is the type of the resource being referenced.</p>
 </td>
 </tr>
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>Name is the name of the resource being referenced.</p>
+   <p>name is the name of the resource being referenced.</p>
 </td>
 </tr>
 </tbody>
@@ -457,7 +501,7 @@ not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 <code>int64</code>
 </td>
 <td>
-   <p>RetryDelayMinutes specifies how long to keep the workload suspended after
+   <p>retryDelayMinutes specifies how long to keep the workload suspended after
 a failed check (after it transitioned to False). When the delay period has passed, the check
 state goes to &quot;Unknown&quot;. The default is 15 min.
 Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
@@ -467,7 +511,7 @@ Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference"><code>AdmissionCheckParametersReference</code></a>
 </td>
 <td>
-   <p>Parameters identifies a configuration with additional parameters for the
+   <p>parameters identifies a configuration with additional parameters for the
 check.</p>
 </td>
 </tr>
@@ -522,7 +566,8 @@ This may be an empty string.</p>
 <a href="#kueue-x-k8s-io-v1beta1-PodSetUpdate"><code>[]PodSetUpdate</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -632,7 +677,7 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
-   <p>ConsumedResources represents the aggregated usage of resources over time,
+   <p>consumedResources represents the aggregated usage of resources over time,
 with decaying function applied.
 The value is populated if usage consumption functionality is enabled in Kueue config.</p>
 </td>
@@ -641,7 +686,7 @@ The value is populated if usage consumption functionality is enabled in Kueue co
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
 </td>
 <td>
-   <p>LastUpdate is the time when share and consumed resources were updated.</p>
+   <p>lastUpdate is the time when share and consumed resources were updated.</p>
 </td>
 </tr>
 </tbody>
@@ -677,7 +722,7 @@ The value is populated if usage consumption functionality is enabled in Kueue co
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionMode"><code>AdmissionMode</code></a>
 </td>
 <td>
-   <p>AdmissionMode indicates which mode for AdmissionFairSharing should be used
+   <p>admissionMode indicates which mode for AdmissionFairSharing should be used
 in the AdmissionScope. Possible values are:</p>
 <ul>
 <li>UsageBasedAdmissionFairSharing</li>
@@ -780,14 +825,14 @@ in the cluster queue.</p>
 <code>string</code>
 </td>
 <td>
-   <p>Name indicates the name of the pending workload.</p>
+   <p>name indicates the name of the pending workload.</p>
 </td>
 </tr>
 <tr><td><code>namespace</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
 <td>
-   <p>Namespace indicates the name of the pending workload.</p>
+   <p>namespace indicates the name of the pending workload.</p>
 </td>
 </tr>
 </tbody>
@@ -811,14 +856,14 @@ in the cluster queue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload"><code>[]ClusterQueuePendingWorkload</code></a>
 </td>
 <td>
-   <p>Head contains the list of top pending workloads.</p>
+   <p>clusterQueuePendingWorkload contains the list of top pending workloads.</p>
 </td>
 </tr>
 <tr><td><code>lastChangeTime</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
 </td>
 <td>
-   <p>LastChangeTime indicates the time of the last change of the structure.</p>
+   <p>lastChangeTime indicates the time of the last change of the structure.</p>
 </td>
 </tr>
 </tbody>
@@ -884,7 +929,10 @@ in the cohort that satisfy the Fair Sharing preemptionStrategies.</li>
 <a href="#kueue-x-k8s-io-v1beta1-BorrowWithinCohort"><code>BorrowWithinCohort</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>borrowWithinCohort determines whether a pending Workload can preempt
+Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
+May only be configured with Classical Preemption, and <strong>not</strong> with Fair Sharing.</p>
+</td>
 </tr>
 <tr><td><code>withinClusterQueue</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-PreemptionPolicy"><code>PreemptionPolicy</code></a>
@@ -947,7 +995,7 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 Each resource group defines the list of resources and a list of flavors
 that provide quotas for these resources.
 Each resource and each flavor can only form part of one resource group.
-resourceGroups can be up to 16.</p>
+resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
 </td>
 </tr>
 <tr><td><code>cohort</code> <B>[Required]</B><br/>
@@ -970,7 +1018,7 @@ object.</p>
 <a href="#kueue-x-k8s-io-v1beta1-QueueingStrategy"><code>QueueingStrategy</code></a>
 </td>
 <td>
-   <p>QueueingStrategy indicates the queueing strategy of the workloads
+   <p>queueingStrategy indicates the queueing strategy of the workloads
 across the queues in this ClusterQueue.
 Current Supported Strategies:</p>
 <ul>
@@ -1006,7 +1054,8 @@ before borrowing or preempting in the flavor being evaluated.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption"><code>ClusterQueuePreemption</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>preemption defines the preemption policies.</p>
+</td>
 </tr>
 <tr><td><code>admissionChecks</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckReference"><code>[]AdmissionCheckReference</code></a>
@@ -1020,7 +1069,7 @@ Cannot be used along with AdmissionCheckStrategy.</p>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionChecksStrategy"><code>AdmissionChecksStrategy</code></a>
 </td>
 <td>
-   <p>admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+   <p>admissionChecksStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
 This property cannot be used in conjunction with the 'admissionChecks' property.</p>
 </td>
 </tr>
@@ -1073,6 +1122,14 @@ if FairSharing is enabled in the Kueue configuration.</p>
 <tbody>
     
   
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the ClusterQueue
+current state.</p>
+</td>
+</tr>
 <tr><td><code>flavorsReservation</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FlavorUsage"><code>[]FlavorUsage</code></a>
 </td>
@@ -1113,19 +1170,11 @@ clusterQueue.</p>
 clusterQueue and haven't finished yet.</p>
 </td>
 </tr>
-<tr><td><code>conditions</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <p>conditions hold the latest available observations of the ClusterQueue
-current state.</p>
-</td>
-</tr>
 <tr><td><code>pendingWorkloadsStatus</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkloadsStatus"><code>ClusterQueuePendingWorkloadsStatus</code></a>
 </td>
 <td>
-   <p>PendingWorkloadsStatus contains the information exposed about the current
+   <p>pendingWorkloadsStatus contains the information exposed about the current
 status of the pending workloads in the cluster queue.
 Deprecated: This field is no longer effective since v0.14.0, which means Kueue no longer stores and updates information.
 You can migrate to VisibilityOnDemand
@@ -1183,7 +1232,7 @@ subdomain in DNS (RFC 1123).</p>
 <a href="#kueue-x-k8s-io-v1beta1-CohortReference"><code>CohortReference</code></a>
 </td>
 <td>
-   <p>ParentName references the name of the Cohort's parent, if
+   <p>parentName references the name of the Cohort's parent, if
 any. It satisfies one of three cases:</p>
 <ol>
 <li>Unset. This Cohort is the root of its Cohort tree.</li>
@@ -1200,7 +1249,7 @@ exists.</p>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
 <td>
-   <p>ResourceGroups describes groupings of Resources and
+   <p>resourceGroups describes groupings of Resources and
 Flavors.  Each ResourceGroup defines a list of Resources
 and a list of Flavors which provide quotas for these
 Resources. Each Resource and each Flavor may only form part
@@ -1275,6 +1324,20 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 
 
 
+## `EvictionUnderlyingCause`     {#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WorkloadSchedulingStatsEviction](#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction)
+
+
+<p>EvictionUnderlyingCause represents the underlying cause of a workload eviction.</p>
+
+
+
+
 ## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
     
 
@@ -1312,7 +1375,8 @@ ClusterQueues and Cohorts with the lowest share and
 preempting workloads from the ClusterQueues and Cohorts
 with the highest share.  A zero weight implies infinite
 share value, meaning that this Node will always be at
-disadvantage against other ClusterQueues and Cohorts.</p>
+disadvantage against other ClusterQueues and Cohorts.
+When not 0, Weight must be greater than 10^-9.</p>
 </td>
 </tr>
 </tbody>
@@ -1342,7 +1406,7 @@ disadvantage against other ClusterQueues and Cohorts.</p>
 <code>int64</code>
 </td>
 <td>
-   <p>WeightedShare represents the maximum of the ratios of usage
+   <p>weightedShare represents the maximum of the ratios of usage
 above nominal quota to the lendable resources in the
 Cohort, among all the resources provided by the Node, and
 divided by the weight.  If zero, it means that the usage of
@@ -1385,10 +1449,10 @@ before borrowing or preempting in current flavor.</p>
    <p>whenCanBorrow determines whether a workload should try the next flavor
 before borrowing in current flavor. The possible values are:</p>
 <ul>
-<li><code>Borrow</code> (default): allocate in current flavor if borrowing
-is possible.</li>
-<li><code>TryNextFlavor</code>: try next flavor even if the current
-flavor has enough resources to borrow.</li>
+<li><code>MayStopSearch</code> (default): stop the search for candidate flavors if workload
+fits or requires borrowing to fit.</li>
+<li><code>TryNextFlavor</code>: try next flavor if workload requires borrowing to fit.</li>
+<li><code>Borrow</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1399,9 +1463,11 @@ flavor has enough resources to borrow.</li>
    <p>whenCanPreempt determines whether a workload should try the next flavor
 before borrowing in current flavor. The possible values are:</p>
 <ul>
-<li><code>Preempt</code>: allocate in current flavor if it's possible to preempt some workloads.</li>
-<li><code>TryNextFlavor</code> (default): try next flavor even if there are enough
-candidates for preemption in the current flavor.</li>
+<li><code>MayStopSearch</code>: stop the search for candidate flavors if workload fits or requires
+preemption to fit.</li>
+<li><code>TryNextFlavor</code> (default): try next flavor if workload requires preemption
+to fit in current flavor.</li>
+<li><code>Preempt</code> (deprecated): old name for <code>MayStopSearch</code>; please use new name.</li>
 </ul>
 </td>
 </tr>
@@ -1448,7 +1514,7 @@ ClusterQueue will have an Active condition set to False.</p>
 </td>
 <td>
    <p>resources is the list of quotas for this flavor per resource.
-There could be up to 16 resources.</p>
+There could be up to 64 resources.</p>
 </td>
 </tr>
 </tbody>
@@ -1503,7 +1569,7 @@ There could be up to 16 resources.</p>
 <code>string</code>
 </td>
 <td>
-   <p>Location of the KubeConfig.</p>
+   <p>location of the KubeConfig.</p>
 <p>If LocationType is Secret then Location is the name of the secret inside the namespace in
 which the kueue controller manager is running. The config should be stored in the &quot;kubeconfig&quot; key.</p>
 </td>
@@ -1512,7 +1578,7 @@ which the kueue controller manager is running. The config should be stored in th
 <a href="#kueue-x-k8s-io-v1beta1-LocationType"><code>LocationType</code></a>
 </td>
 <td>
-   <p>Type of the KubeConfig location.</p>
+   <p>locationType of the KubeConfig.</p>
 </td>
 </tr>
 </tbody>
@@ -1525,6 +1591,8 @@ which the kueue controller manager is running. The config should be stored in th
 
 - [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
 
+
+<p>Deprecated: LocalQueueFlavorStatus is deprecated and marked for removal in v1beta2.</p>
 
 
 <table class="table">
@@ -1567,7 +1635,7 @@ have.</p>
 </td>
 <td>
    <p>topology is the topology that associated with this ResourceFlavor.</p>
-<p>This is an alpha field and requires enabling the TopologyAwareScheduling
+<p>This is a beta field and requires enabling the TopologyAwareScheduling
 feature gate.</p>
 </td>
 </tr>
@@ -1716,11 +1784,19 @@ if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 <tbody>
     
   
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the LocalQueue
+current state.</p>
+</td>
+</tr>
 <tr><td><code>pendingWorkloads</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>PendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue</p>
+   <p>pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue</p>
 </td>
 </tr>
 <tr><td><code>reservingWorkloads</code><br/>
@@ -1739,14 +1815,6 @@ reserving quota in a ClusterQueue and that haven't finished yet.</p>
 admitted to a ClusterQueue and that haven't finished yet.</p>
 </td>
 </tr>
-<tr><td><code>conditions</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <p>Conditions hold the latest available observations of the LocalQueue
-current state.</p>
-</td>
-</tr>
 <tr><td><code>flavorsReservation</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage"><code>[]LocalQueueFlavorUsage</code></a>
 </td>
@@ -1759,7 +1827,7 @@ workloads assigned to this LocalQueue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage"><code>[]LocalQueueFlavorUsage</code></a>
 </td>
 <td>
-   <p>flavorsUsage are the used quotas, by flavor currently in use by the
+   <p>flavorUsage are the used quotas, by flavor currently in use by the
 workloads assigned to this LocalQueue.</p>
 </td>
 </tr>
@@ -1767,14 +1835,15 @@ workloads assigned to this LocalQueue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus"><code>[]LocalQueueFlavorStatus</code></a>
 </td>
 <td>
-   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.</p>
+   <p>flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+Deprecated: Flavors is deprecated and marked for removal in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
 <td>
-   <p>FairSharing contains the information about the current status of fair sharing.</p>
+   <p>fairSharing contains the information about the current status of fair sharing.</p>
 </td>
 </tr>
 </tbody>
@@ -1810,7 +1879,7 @@ workloads assigned to this LocalQueue.</p>
 <a href="#kueue-x-k8s-io-v1beta1-KubeConfig"><code>KubeConfig</code></a>
 </td>
 <td>
-   <p>Information how to connect to the cluster.</p>
+   <p>kubeConfig is information on how to connect to the cluster.</p>
 </td>
 </tr>
 </tbody>
@@ -1834,7 +1903,9 @@ workloads assigned to this LocalQueue.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>conditions hold the latest available observations of the MultiKueueCluster
+current state.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -1859,7 +1930,7 @@ workloads assigned to this LocalQueue.</p>
 <code>[]string</code>
 </td>
 <td>
-   <p>List of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.</p>
+   <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.</p>
 </td>
 </tr>
 </tbody>
@@ -1963,14 +2034,14 @@ enabled.</p>
 <a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
-   <p>Name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
+   <p>name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
 </td>
 </tr>
 <tr><td><code>flavors</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>map[ResourceName]ResourceFlavorReference</code></a>
 </td>
 <td>
-   <p>Flavors are the flavors assigned to the workload for each resource.</p>
+   <p>flavors are the flavors assigned to the workload for each resource.</p>
 </td>
 </tr>
 <tr><td><code>resourceUsage</code> <B>[Required]</B><br/>
@@ -2162,7 +2233,7 @@ This is indicated by the <code>kueue.x-k8s.io/podset-unconstrained-topology</cod
 <code>string</code>
 </td>
 <td>
-   <p>PodIndexLabel indicates the name of the label indexing the pods.
+   <p>podIndexLabel indicates the name of the label indexing the pods.
 For example, in the context of</p>
 <ul>
 <li>kubernetes job this is: kubernetes.io/job-completion-index</li>
@@ -2175,7 +2246,7 @@ For example, in the context of</p>
 <code>string</code>
 </td>
 <td>
-   <p>SubGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
+   <p>subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)
 within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.</p>
 </td>
 </tr>
@@ -2183,7 +2254,7 @@ within a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.i
 <code>int32</code>
 </td>
 <td>
-   <p>SubGroupIndexLabel indicates the count of replicated Jobs (groups) within a PodSet.
+   <p>subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
 For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.</p>
 </td>
 </tr>
@@ -2191,7 +2262,7 @@ For example, in the context of JobSet this value is read from jobset.sigs.k8s.io
 <code>string</code>
 </td>
 <td>
-   <p>PodSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
+   <p>podSetGroupName indicates the name of the group of PodSets to which this PodSet belongs to.
 PodSets with the same <code>PodSetGroupName</code> should be assigned the same ResourceFlavor</p>
 </td>
 </tr>
@@ -2199,7 +2270,7 @@ PodSets with the same <code>PodSetGroupName</code> should be assigned the same R
 <code>string</code>
 </td>
 <td>
-   <p>PodSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
+   <p>podSetSliceRequiredTopology indicates the topology level required by the PodSet slice, as
 indicated by the <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
 </td>
 </tr>
@@ -2207,7 +2278,7 @@ indicated by the <code>kueue.x-k8s.io/podset-slice-required-topology</code> anno
 <code>int32</code>
 </td>
 <td>
-   <p>PodSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
+   <p>podSetSliceSize indicates the size of a subgroup of pods in a PodSet for which
 Kueue finds a requested topology domain on a level defined
 in <code>kueue.x-k8s.io/podset-slice-required-topology</code> annotation.</p>
 </td>
@@ -2238,32 +2309,36 @@ result in failure during workload admission.</p>
 <a href="#kueue-x-k8s-io-v1beta1-PodSetReference"><code>PodSetReference</code></a>
 </td>
 <td>
-   <p>Name of the PodSet to modify. Should match to one of the Workload's PodSets.</p>
+   <p>name of the PodSet to modify. Should match to one of the Workload's PodSets.</p>
 </td>
 </tr>
 <tr><td><code>labels</code><br/>
 <code>map[string]string</code>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>labels of the PodSet to modify.</p>
+</td>
 </tr>
 <tr><td><code>annotations</code><br/>
 <code>map[string]string</code>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>annotations of the PodSet to modify.</p>
+</td>
 </tr>
 <tr><td><code>nodeSelector</code><br/>
 <code>map[string]string</code>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>nodeSelector of the PodSet to modify.</p>
+</td>
 </tr>
 <tr><td><code>tolerations</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#toleration-v1-core"><code>[]k8s.io/api/core/v1.Toleration</code></a>
 </td>
 <td>
-   <span class="text-muted">No description provided.</span></td>
+   <p>tolerations of the PodSet to modify.</p>
+</td>
 </tr>
 </tbody>
 </table>
@@ -2312,7 +2387,7 @@ result in failure during workload admission.</p>
 <code>string</code>
 </td>
 <td>
-   <p>ProvisioningClassName describes the different modes of provisioning the resources.
+   <p>provisioningClassName describes the different modes of provisioning the resources.
 Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.</p>
 </td>
 </tr>
@@ -2320,7 +2395,7 @@ Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for det
 <a href="#kueue-x-k8s-io-v1beta1-Parameter"><code>map[string]Parameter</code></a>
 </td>
 <td>
-   <p>Parameters contains all other parameters classes may require.</p>
+   <p>parameters contains all other parameters classes may require.</p>
 </td>
 </tr>
 <tr><td><code>managedResources</code><br/>
@@ -2442,7 +2517,7 @@ is used for the update.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffLimitCount defines the maximum number of re-queuing retries.
+   <p>backoffLimitCount defines the maximum number of re-queuing retries.
 Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).</p>
 <p>Every backoff duration is about &quot;b*2^(n-1)+Rand&quot; where:</p>
 <ul>
@@ -2460,7 +2535,7 @@ By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffBaseSeconds defines the base for the exponential backoff for
+   <p>backoffBaseSeconds defines the base for the exponential backoff for
 re-queuing an evicted workload.</p>
 <p>Defaults to 60.</p>
 </td>
@@ -2469,7 +2544,7 @@ re-queuing an evicted workload.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
+   <p>backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
 <p>Defaults to 1800.</p>
 </td>
 </tr>
@@ -2672,7 +2747,8 @@ nodes matching to the Resource Flavor node labels.</p>
    <p>coveredResources is the list of resources covered by the flavors in this
 group.
 Examples: cpu, memory, vendor.com/gpu.
-The list cannot be empty and it can contain up to 16 resources.</p>
+The list cannot be empty and it can contain up to 64 resources. With a total
+of up to 256 covered resources across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 <tr><td><code>flavors</code> <B>[Required]</B><br/>
@@ -2685,7 +2761,8 @@ Typically, different flavors represent different hardware models
 cpus).
 Each flavor MUST list all the resources listed for this group in the same
 order as the .resources field.
-The list cannot be empty and it can contain up to 16 flavors.</p>
+The list cannot be empty and it can contain up to 64 flavors, with a max of
+256 total flavors across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 </tbody>
@@ -2795,7 +2872,7 @@ from the cohort.</p>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
 <td>
-   <p>Borrowed is quantity of quota that is borrowed from the cohort. In other
+   <p>borrowed is quantity of quota that is borrowed from the cohort. In other
 words, it's the used quota that is over the nominalQuota.</p>
 </td>
 </tr>
@@ -2939,6 +3016,38 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
+## `TopologyLevel`     {#kueue-x-k8s-io-v1beta1-TopologyLevel}
+    
+
+**Appears in:**
+
+- [TopologySpec](#kueue-x-k8s-io-v1beta1-TopologySpec)
+
+
+<p>TopologyLevel defines the desired state of TopologyLevel</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>nodeLabel</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>nodeLabel indicates the name of the node label for a specific topology
+level.</p>
+<p>Examples:</p>
+<ul>
+<li>cloud.provider.com/topology-block</li>
+<li>cloud.provider.com/topology-rack</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
     
 (Alias of `string`)
@@ -2954,6 +3063,56 @@ domain indicated by the values field.</p>
 
 
 
+
+## `TopologySpec`     {#kueue-x-k8s-io-v1beta1-TopologySpec}
+    
+
+**Appears in:**
+
+- [Topology](#kueue-x-k8s-io-v1beta1-Topology)
+
+
+<p>TopologySpec defines the desired state of Topology</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyLevel"><code>[]TopologyLevel</code></a>
+</td>
+<td>
+   <p>levels define the levels of topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `UnhealthyNode`     {#kueue-x-k8s-io-v1beta1-UnhealthyNode}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the unhealthy node.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta1-WorkloadSchedulingStatsEviction}
     
@@ -2977,7 +3136,7 @@ domain indicated by the values field.</p>
 </td>
 </tr>
 <tr><td><code>underlyingCause</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-EvictionUnderlyingCause"><code>EvictionUnderlyingCause</code></a>
 </td>
 <td>
    <p>underlyingCause specifies a finer-grained explanation that complements the eviction reason.
@@ -3032,7 +3191,8 @@ queueName cannot be changed while .status.admission is not null.</p>
 <code>string</code>
 </td>
 <td>
-   <p>If specified, indicates the workload's priority.
+   <p>priorityClassName is the name of the PriorityClass the Workload is associated with.
+If specified, indicates the workload's priority.
 &quot;system-node-critical&quot; and &quot;system-cluster-critical&quot; are two special
 keywords which indicate the highest priorities with the former being
 the highest priority. Any other name must be defined by creating a
@@ -3044,7 +3204,7 @@ priority will be default or zero if there is no default.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>Priority determines the order of access to the resources managed by the
+   <p>priority determines the order of access to the resources managed by the
 ClusterQueue where the workload is queued.
 The priority value is populated from PriorityClassName.
 The higher the value, the higher the priority.
@@ -3064,7 +3224,7 @@ When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s
 <code>bool</code>
 </td>
 <td>
-   <p>Active determines if a workload can be admitted into a queue.
+   <p>active determines if a workload can be admitted into a queue.
 Changing active from true to false will evict any running workloads.
 Possible values are:</p>
 <ul>
@@ -3102,7 +3262,22 @@ the workload can be admitted before it's automatically deactivated.</p>
 <tbody>
     
   
-<tr><td><code>admission</code> <B>[Required]</B><br/>
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the Workload
+current state.</p>
+<p>The type of the condition could be:</p>
+<ul>
+<li>Admitted: the Workload was admitted through a ClusterQueue.</li>
+<li>Finished: the associated workload finished running (failed or succeeded).</li>
+<li>PodsReady: at least <code>.spec.podSets[*].count</code> Pods are ready or have
+succeeded.</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>admission</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-Admission"><code>Admission</code></a>
 </td>
 <td>
@@ -3117,21 +3292,6 @@ changed once set.</p>
 <td>
    <p>requeueState holds the re-queue state
 when a workload meets Eviction with PodsReadyTimeout reason.</p>
-</td>
-</tr>
-<tr><td><code>conditions</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <p>conditions hold the latest available observations of the Workload
-current state.</p>
-<p>The type of the condition could be:</p>
-<ul>
-<li>Admitted: the Workload was admitted through a ClusterQueue.</li>
-<li>Finished: the associated workload finished running (failed or succeeded).</li>
-<li>PodsReady: at least <code>.spec.podSets[*].count</code> Pods are ready or have
-succeeded.</li>
-</ul>
 </td>
 </tr>
 <tr><td><code>reclaimablePods</code><br/>
@@ -3188,18 +3348,21 @@ This field is optional.</p>
 <code>string</code>
 </td>
 <td>
-   <p>clusterName is the name of the cluster where the workload is actually assigned.
-This field is reset after the Workload is evicted.</p>
+   <p>clusterName is the name of the cluster where the workload is currently assigned.</p>
+<p>With ElasticJobs, this field may also indicate the cluster where the original (old) workload
+was assigned, providing placement context for new scaled-up workloads. This supports
+affinity or propagation policies across workload slices.</p>
+<p>This field is reset after the Workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>nodesToReplace</code><br/>
-<code>[]string</code>
+<tr><td><code>unhealthyNodes</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-UnhealthyNode"><code>[]UnhealthyNode</code></a>
 </td>
 <td>
-   <p>nodesToReplace holds the names of failed nodes running at least one pod of this workload
+   <p>unhealthyNodes holds the failed nodes running at least one pod of this workload
 when Topology-Aware Scheduling is used. This field should not be set by the users.
 It indicates Kueue's scheduler is searching for replacements of the failed nodes.
-Requires enabling the TASFaliedNodReplacement feature gate.</p>
+Requires enabling the TASFailedNodeReplacement feature gate.</p>
 </td>
 </tr>
 </tbody>

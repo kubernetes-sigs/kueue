@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,14 +43,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -135,11 +134,11 @@ func NewJob() jobframework.GenericJob {
 	return NewPod()
 }
 
-func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
 		expectationsStore: expectations.NewStore("finalizedPods"),
-	}
+	}, nil
 }
 
 type Pod struct {
@@ -158,7 +157,7 @@ type Pod struct {
 var (
 	_ jobframework.GenericJob                      = (*Pod)(nil)
 	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
-	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
+	_ jobframework.JobWithSkip                     = (*Pod)(nil)
 	_ jobframework.ComposableJob                   = (*Pod)(nil)
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
@@ -265,8 +264,8 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, &p.pod, true, func() (bool, error) {
-			return true, prepare(&p.pod, podSetsInfo[0])
+		if err := clientutil.Patch(ctx, c, &p.pod, func() (client.Object, bool, error) {
+			return &p.pod, true, prepare(&p.pod, podSetsInfo[0])
 		}); err != nil {
 			return err
 		}
@@ -285,27 +284,27 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return nil
 		}
 
-		if err := clientutil.Patch(ctx, c, pod, true, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
 			roleHash, err := getRoleHash(*pod)
 			if err != nil {
-				return false, err
+				return nil, false, err
 			}
 
 			podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
 				return string(info.Name) == roleHash
 			})
 			if podSetIndex == -1 {
-				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
+				return nil, false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
 			}
 
 			err = prepare(pod, podSetsInfo[podSetIndex])
 			if err != nil {
-				return false, err
+				return nil, false, err
 			}
 
 			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
 
-			return true, nil
+			return pod, true, nil
 		}); err != nil {
 			return err
 		}
@@ -322,7 +321,7 @@ func (p *Pod) IsTopLevel() bool {
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
+func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
 	return errors.New("RunWithPodSetsInfo is not implemented for the Pod object")
 }
@@ -335,11 +334,11 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
-func (p *Pod) Finished() (message string, success, finished bool) {
+func (p *Pod) Finished(ctx context.Context) (message string, success, finished bool) {
 	if p.isServing() {
 		return "", true, false
 	}
-
+	log := ctrl.LoggerFrom(ctx)
 	finished = true
 	success = true
 
@@ -355,7 +354,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
-		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
+		log.V(2).Error(err, "failed to check if pod group is finished")
 		message = "failed to check if pod group is finished"
 		return message, success, false
 	}
@@ -381,7 +380,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 }
 
 // PodSets will build workload podSets corresponding to the job.
-func (p *Pod) PodSets() ([]kueue.PodSet, error) {
+func (p *Pod) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
@@ -389,12 +388,38 @@ func (p *Pod) PodSets() ([]kueue.PodSet, error) {
 	}
 }
 
-// IsActive returns true if there are any running pods.
+// IsActive reports whether a Pod or PodGroup should be considered active.
+//
+// For regular Pod, return value is always false.
+//
+// For Pod group, return true if there is at least a single Active pod in the group.
+// A Pod is considered active if it is in the Running phase and has not exceeded
+// its deletion grace period. Pods in other phases are ignored. If a Pod is
+// terminating (has a DeletionTimestamp) and its grace period has already
+// elapsed, it is treated as inactive. This prevents workloads from being
+// blocked by Pods that are stuck terminating, ensuring quota can be released
+// and new Pods admitted.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		if p.list.Items[i].Status.Phase == corev1.PodRunning {
-			return true
+		pod := p.list.Items[i]
+
+		// Pods that are not in the Running phase are never considered Active.
+		if pod.Status.Phase != corev1.PodRunning {
+			continue
 		}
+
+		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
+		// counting as Active, as doing so could block the workload to release acquired quota.
+		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
+			now := p.clock.Now()
+			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
+			if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
+				continue
+			}
+		}
+
+		// At this point, the pod is Running and not stuck terminating — count as active.
+		return true
 	}
 	return false
 }
@@ -410,7 +435,7 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 }
 
 // PodsReady instructs whether job derived pods are all ready now.
-func (p *Pod) PodsReady() bool {
+func (p *Pod) PodsReady(ctx context.Context) bool {
 	if !p.isGroup {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
 	}
@@ -529,15 +554,22 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		return clientutil.Patch(ctx, c, pod, false, func() (bool, error) {
-			return controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
-		})
+		return clientutil.Patch(ctx, c, pod, func() (client.Object, bool, error) {
+			return pod, controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer), nil
+		}, clientutil.WithLoose())
 	})
 }
 
-func (p *Pod) Skip() bool {
+func (p *Pod) Skip(ctx context.Context) bool {
+	log := ctrl.LoggerFrom(ctx)
 	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
 	if v, ok := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]; p.isFound && (!ok || v != constants.ManagedByKueueLabelValue) {
+		log.V(3).Info("Skipping pod, not managed by Kueue", constants.ManagedByKueueLabelKey, v, "labelSet", ok)
+		return true
+	}
+	if jobframework.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
+		p.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
+		log.V(3).Info("Pod Integration was implicitly enabled but object lacks parent annotation, skipping")
 		return true
 	}
 	return false
@@ -661,7 +693,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
-			ptr.To(kueuealpha.PodGroupPodIndexLabel)).Build()
+			ptr.To(kueue.PodGroupPodIndexLabel)).Build()
 		if err != nil {
 			return kueue.PodSet{}, err
 		}
@@ -738,7 +770,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 		return err
 	}
 
-	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), kueuealpha.PodGroupPodIndexLabel, groupTotalCount)
+	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), kueue.PodGroupPodIndexLabel, groupTotalCount)
 	if utilpod.IgnoreLabelNotFoundError(err) != nil {
 		return err
 	}
@@ -827,22 +859,21 @@ func lastActiveTime(clock clock.Clock, p *corev1.Pod) time.Time {
 // - lastActiveTime (pods that were active last are first)
 // - creation timestamp (newer pods are first)
 func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
-	sort.Slice(inactivePods, func(i, j int) bool {
-		pi := &inactivePods[i]
-		pj := &inactivePods[j]
-		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
-		if iFin != jFin {
-			return iFin
-		}
-
-		iLastActive := lastActiveTime(clock, pi)
-		jLastActive := lastActiveTime(clock, pj)
-
-		if iLastActive.Equal(jLastActive) {
-			return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
-		}
-		return jLastActive.Before(iLastActive)
+	slices.SortFunc(inactivePods, func(pi, pj corev1.Pod) int {
+		return cmputil.LazyOr(
+			func() int {
+				return cmputil.CompareBool(
+					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
+					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
+				)
+			},
+			func() int {
+				return lastActiveTime(clock, &pj).Compare(lastActiveTime(clock, &pi))
+			},
+			func() int {
+				return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+			},
+		)
 	})
 }
 
@@ -852,22 +883,26 @@ func sortInactivePods(clock clock.Clock, inactivePods []corev1.Pod) {
 // - creation timestamp (newer pods are last)
 func sortActivePods(activePods []corev1.Pod) {
 	// Sort active pods by creation timestamp
-	sort.Slice(activePods, func(i, j int) bool {
-		pi := &activePods[i]
-		pj := &activePods[j]
-		iFin := slices.Contains(pi.Finalizers, podconstants.PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, podconstants.PodFinalizer)
-		// Prefer to keep pods that have a finalizer.
-		if iFin != jFin {
-			return iFin
-		}
-		iGated := isGated(pi)
-		jGated := isGated(pj)
-		// Prefer to keep pods that aren't gated.
-		if iGated != jGated {
-			return !iGated
-		}
-		return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
+	slices.SortFunc(activePods, func(pi, pj corev1.Pod) int {
+		return cmputil.LazyOr(
+			func() int {
+				// Prefer to keep pods that have a finalizer.
+				return cmputil.CompareBool(
+					slices.Contains(pi.Finalizers, podconstants.PodFinalizer),
+					slices.Contains(pj.Finalizers, podconstants.PodFinalizer),
+				)
+			},
+			func() int {
+				// Prefer to keep pods that aren't gated.
+				return cmputil.CompareBool(
+					isGated(&pj),
+					isGated(&pi),
+				)
+			},
+			func() int {
+				return pi.CreationTimestamp.Compare(pj.CreationTimestamp.Time)
+			},
+		)
 	})
 }
 
@@ -885,11 +920,13 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
 			removed := controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
-			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
-			return removed, nil
-		}); err != nil {
+			if removed {
+				log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
+			}
+			return &pod, removed, nil
+		}, clientutil.WithLoose()); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
@@ -925,11 +962,13 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		var removed bool
-		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, &pod, func() (client.Object, bool, error) {
 			removed = controllerutil.RemoveFinalizer(&pod, podconstants.PodFinalizer)
-			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
-			return removed, nil
-		}); err != nil {
+			if removed {
+				log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
+			}
+			return &pod, removed, nil
+		}, clientutil.WithLoose()); err != nil {
 			// We won't observe this cleanup in the event handler.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
@@ -1024,7 +1063,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := p.PodSets()
+	podSets, err := jobframework.JobPodSets(ctx, p)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
@@ -1234,7 +1273,7 @@ func (p *Pod) isReclaimable() bool {
 	return p.isGroup && !p.isServing()
 }
 
-func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+func (p *Pod) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
 	if !p.isReclaimable() {
 		return []kueue.ReclaimablePod{}, nil
 	}
@@ -1370,8 +1409,11 @@ func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
 	}
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
 	// Remove the TopologySchedulingGate if the Pod is scheduled without using TAS
-	if _, found := pod.Labels[kueuealpha.TASLabel]; !found {
-		utilpod.Ungate(pod, kueuealpha.TopologySchedulingGate)
+	found := slices.ContainsFunc(info.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
+		return g.Name == kueue.TopologySchedulingGate
+	})
+	if !found {
+		utilpod.Ungate(pod, kueue.TopologySchedulingGate)
 	}
 	return nil
 }

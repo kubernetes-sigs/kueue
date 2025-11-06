@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 )
 
@@ -47,7 +47,7 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
-	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
 	for i := range addToSchemes {
 		utilruntime.Must(addToSchemes[i](scheme))
 	}
@@ -149,5 +149,12 @@ func wrapSSAPatch(patch client.Patch) client.Patch {
 // Note: By doing so the values set in the patch will be updated but the call will have no knowledge of FieldManagement when it
 // comes to detecting conflicts between managers or removing fields that are missing from the patch.
 func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), opts...)
+	filteredOpts := make([]client.SubResourcePatchOption, 0, len(opts))
+	for _, opt := range opts {
+		// Skip ForceOwnership for MergePatch to avoid invalid patch error, as it's only valid for ApplyPatch.
+		if opt != client.ForceOwnership {
+			filteredOpts = append(filteredOpts, opt)
+		}
+	}
+	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), filteredOpts...)
 }

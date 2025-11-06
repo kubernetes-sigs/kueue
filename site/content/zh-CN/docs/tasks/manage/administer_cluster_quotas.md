@@ -38,7 +38,7 @@ kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -79,7 +79,7 @@ ClusterQueue 目前还不能使用，因为 `default` 风味尚未定义。
 
 ```yaml
 # default-flavor.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
@@ -106,7 +106,7 @@ kubectl apply -f default-flavor.yaml
 
 ```yaml
 # default-user-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: "default"
@@ -135,7 +135,7 @@ kubectl apply -f default-user-queue.yaml
 
 ```yaml
 # flavor-x86.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "x86"
@@ -146,7 +146,7 @@ spec:
 
 ```yaml
 # flavor-arm.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "arm"
@@ -171,7 +171,7 @@ ResourceFlavor 中设置的标签应与你的节点标签一致。
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -218,13 +218,13 @@ kubectl apply -f cluster-queue.yaml
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -239,13 +239,13 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {}
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -280,13 +280,13 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -309,13 +309,13 @@ spec:
 
 ```yaml
 # team-b-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -338,13 +338,13 @@ spec:
 
 ```yaml
 # shared-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "shared-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -383,7 +383,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
 操作，并在配置中添加如下字段：
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   excludeResourcePrefixes:
@@ -392,13 +392,7 @@ resources:
 
 ## 配额管理的资源转换 {#transform-resources-for-quota-management}
 
-{{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="注意" color="primary" %}}
-
-`ConfigurableResourceTransformation` 是一个 Beta 特性，默认启用。
-
-你可以通过设置 `ConfigurableResourceTransformation` 特性开关来禁用它。详细的特性开关配置请查阅[安装指南](/zh-CN/docs/installation/#change-the-feature-gates-configuration)。
-{{% /alert %}}
+{{< feature-state state="beta" for_version="v0.14" >}}
 
 管理员可以自定义 Pod 请求的资源是如何转换成 Workload 的资源请求的。
 这样，ClusterQueue 在执行准入（admission）和配额（quota）计算时，
@@ -416,7 +410,7 @@ resources:
 操作，并在 Kueue 配置中添加如下字段：
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   transformations:

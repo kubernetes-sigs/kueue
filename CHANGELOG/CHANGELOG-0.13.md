@@ -1,3 +1,153 @@
+## v0.13.9
+
+Changes since `v0.13.8`:
+
+## Changes by Kind
+
+### Feature
+
+- `ReclaimablePods` feature gate is introduced to enable users switching on and off the reclaimable Pods feature (#7536, @PBundyra)
+
+### Bug or Regression
+
+- Fix eviction of jobs with memory requests in decimal format (#7557, @brejman)
+- Fix the bug for the StatefulSet integration that the scale up could get stuck if
+  triggered immediately after scale down to zero. (#7499, @IrvingMg)
+- MultiKueue: Remove remoteClient from clusterReconciler when kubeconfig is detected as invalid or insecure, preventing workloads from being admitted to misconfigured clusters. (#7516, @mszadkow)
+
+## v0.13.8
+
+Changes since `v0.13.7`:
+
+## Urgent Upgrade Notes
+
+### (No, really, you MUST read this before you upgrade)
+
+- MultiKueue: validate remote client kubeconfigs and reject insecure kubeconfigs by default; add feature gate MultiKueueAllowInsecureKubeconfigs to temporarily allow insecure kubeconfigs until v0.17.0.
+
+  if you are using MultiKueue kubeconfigs which are not passing the new validation please
+  enable the `MultiKueueAllowInsecureKubeconfigs` feature gate and let us know so that we can re-consider
+  the deprecation plans for the feature gate. (#7453, @mszadkow)
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix a bug where a workload would not get requeued after eviction due to failed hotswap. (#7380, @pajakd)
+- Fix the kueue-controller-manager startup failures.
+
+  This fixed the Kueue CrashLoopBackOff due to the log message: "Unable to setup indexes","error":"could not setup multikueue indexer: setting index on workloads admission checks: indexer conflict. (#7441, @IrvingMg)
+- Fixed the bug that prevented managing workloads with duplicated environment variable names in containers. This issue manifested when creating the Workload via the API. (#7442, @mbobrovskyi)
+- Services: fix the setting of the `app.kubernetes.io/component` label to discriminate between different service components within Kueue as follows:
+    - controller-manager-metrics-service for kueue-controller-manager-metrics-service
+    - visibility-service for kueue-visibility-server
+    - webhook-service for kueue-webhook-service (#7451, @rphillips)
+- TAS: Increase the number of Topology levels limitations for localqueue and workloads to 16 (#7428, @kannon92)
+
+## v0.13.7
+
+Changes since `v0.13.6`:
+
+## Changes by Kind
+
+### Feature
+
+- JobFramework: Introduce an optional interface for custom Jobs, called JobWithCustomWorkloadActivation, which can be used to deactivate or active a custom CRD workload. (#7199, @tg123)
+
+### Bug or Regression
+
+- Fix existing workloads not being re-evaluated when new clusters are added to MultiKueueConfig. Previously, only newly created workloads would see updated cluster lists. (#7351, @mimowo)
+- Fix handling of RayJobs which specify the spec.clusterSelector and the "queue-name" label for Kueue. These jobs should be ignored by kueue as they are being submitted to a RayCluster which is where the resources are being used and was likely already admitted by kueue. No need to double admit.
+  Fix on a panic on kueue managed jobs if spec.rayClusterSpec wasn't specified. (#7257, @laurafitzgerald)
+- Fixed a bug that Kueue would keep sending empty updates to a Workload, along with sending the "UpdatedWorkload" event, even if the Workload didn't change. This would happen for Workloads using any other mechanism for setting
+  the priority than the WorkloadPriorityClass, eg. for Workloads for PodGroups. (#7306, @mbobrovskyi)
+- MultiKueue x ElasticJobs: fix webhook validation bug which prevented scale up operation when any other
+  than the default "AllAtOnce" MultiKueue dispatcher was used. (#7333, @mszadkow)
+- Visibility API: Fix a bug that the Config clientConnection is not respected in the visibility server. (#7224, @tenzen-y)
+
+### Other (Cleanup or Flake)
+
+- Improve the messages presented to the user in scheduling events, by clarifying the reason for "insufficient quota"
+  in case of workloads with multiple PodSets. 
+  
+  Example:
+  - before: "insufficient quota for resource-type in flavor example-flavor, request > maximum capacity (24 > 16)"
+  - after: "insufficient quota for resource-type in flavor example-flavor, previously considered podsets requests (16) + current podset request (8) > maximum capacity (16)" (#7294, @iomarsayed)
+
+## v0.13.6
+
+Changes since `v0.13.5`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix invalid annotations path being reported in `JobSet` topology validations. (#7190, @kshalot)
+- Fix malformed annotations paths being reported for `RayJob` and `RayCluster` head group specs. (#7184, @kshalot)
+- With BestEffortFIFO enabled, we will keep attempting to schedule a workload as long as
+  it is waiting for preemption targets to complete. This fixes a bugs where an inadmissible
+  workload went back to head of queue, in front of the preempting workload, allowing
+  preempted workloads to reschedule (#7202, @gabesaba)
+
+## v0.13.5
+
+Changes since `v0.13.4`:
+
+## Changes by Kind
+
+### Feature
+
+- KueueViz: Enhancing the following endpoint customizations and optimizations:
+    - The frontend and backend ingress no longer have hardcoded NGINX annotations. You can now set your own annotations in Helm’s values.yaml using kueueViz.backend.ingress.annotations and kueueViz.frontend.ingress.annotations
+    - The Ingress resources for KueueViz frontend and backend no longer require hardcoded TLS. You can now choose to use HTTP only by not providing kueueViz.backend.ingress.tlsSecretName and kueueViz.frontend.ingress.tlsSecretName
+    - You can set environment variables like KUEUEVIZ_ALLOWED_ORIGINS directly from values.yaml using kueueViz.backend.env (#6934, @Smuger)
+
+### Bug or Regression
+
+- ElasticJobs: workloads correctly trigger workload preemption in response to a scale-up event. (#6973, @ichekrygin)
+- FS: Fix the following FairSharing bugs:
+    - Incorrect DominantResourceShare caused by rounding (large quotas or high FairSharing weight)
+    - Preemption loop caused by zero FairSharing weight (#6994, @gabesaba)
+- FS: Validate FairSharing.Weight against small values which lose precision (0 < value <= 10^-9) (#7008, @gabesaba)
+- Fix bug in workload usage removal simulation that results in inaccurate flavor assignment (#7084, @gabesaba)
+- Fix the bug for the StatefulSet integration which would occasionally cause a StatefulSet
+  to be stuck without workload after renaming the "queue-name" label. (#7037, @IrvingMg)
+- Fix the bug that a workload going repeatedly via the preemption and re-admission cycle would accumulate the
+  "Previously" prefix in the condition message, eg: "Previously: Previously: Previously: Preempted to accommodate a workload ...". (#6874, @amy)
+- HC: When multiple borrowing flavors are available, prefer the flavor which
+  results in borrowing more locally (closer to the ClusterQueue, further from the root Cohort).
+
+  This fixes the scenario where a flavor would be selected which required borrowing
+  from the root Cohort in one flavor, while in a second flavor, quota was
+  available from the nearest parent Cohort. (#7042, @gabesaba)
+- Helm: Fix a bug where the internal cert manager assumed that the helm installation name is 'kueue'. (#6917, @cmtly)
+- Helm: Fixed bug where webhook configurations assumed a helm install name as "kueue". (#6924, @cmtly)
+- Pod-integration now correctly handles pods stuck in the Terminating state within pod groups, preventing them from being counted as active and avoiding blocked quota release. (#6892, @ichekrygin)
+- TAS: Fix the scenario when Node Hot Swap cannot find a replacement. In particular, if slices are used
+  they could result in generating invalid assignment, resulting in panic from TopologyUngater.
+  Now, such a workload is evicted. (#6927, @mbobrovskyi)
+- TAS: Node Hot Swap allows replacing a node for workloads using PodSet slices,
+  ie. when the `kueue.x-k8s.io/podset-slice-size` annotation is used. (#6989, @pajakd)
+
+## v0.13.4
+
+Changes since `v0.13.3`:
+
+## Changes by Kind
+
+### Feature
+
+- TAS: Implicit mode schedules consecutive indexes as close as possible (rank-ordering). (#6706, @PBundyra)
+
+### Bug or Regression
+
+- AFS: Fixed kueue-controller-manager crash when enabled AdmissionFairSharing feature gate without AdmissionFairSharing config. (#6671, @mbobrovskyi)
+- FS: Fix the algorithm bug for identifying preemption candidates, as it could return a different
+  set of preemption target workloads (pseudo random) in consecutive attempts in tie-break scenarios,
+  resulting in excessive preemptions. (#6784, @PBundyra)
+- Fix the validation messages when attempting to remove the queue-name label from a Deployment or StatefulSet. (#6717, @Panlq)
+- Helm: Fixed a bug preventing Kueue from starting after installing via Helm with a release name other than "kueue" (#6801, @mbobrovskyi)
+
 ## v0.13.3
 
 Changes since `v0.13.2`:

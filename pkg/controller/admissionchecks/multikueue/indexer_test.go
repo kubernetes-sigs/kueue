@@ -28,10 +28,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 const (
@@ -52,6 +54,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	}))
 
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
+	_ = indexer.Setup(ctx, utiltesting.AsIndexer(builder))
 	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace)
 	return builder
 }
@@ -68,21 +71,21 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 		},
 		"single cluster, single match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
 		},
 		"single cluster, no match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
 			},
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"multiple clusters, single match": {
 			clusters: []*kueue.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
-				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster1").KubeConfig(kueue.SecretLocationType, "secret1").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("cluster2").KubeConfig(kueue.SecretLocationType, "secret2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
@@ -126,21 +129,21 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 		},
 		"single config, single match": {
 			configs: []*kueue.MultiKueueConfig{
-				utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster2"},
 			wantList: []string{"config1"},
 		},
 		"single config, no match": {
 			configs: []*kueue.MultiKueueConfig{
-				utiltesting.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
 			},
 			filter: client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
 		},
 		"multiple configs, single match": {
 			configs: []*kueue.MultiKueueConfig{
-				utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
-				utiltesting.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
 			wantList: []string{"config1"},
@@ -167,6 +170,80 @@ func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 			gotList := slices.Map(lst.Items, func(mkc *kueue.MultiKueueConfig) string { return mkc.Name })
 			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestListWorkloadsWithAdmissionCheck(t *testing.T) {
+	cases := map[string]struct {
+		workloads     []*kueue.Workload
+		filter        client.ListOption
+		wantListError error
+		wantList      []string
+	}{
+		"no workloads": {
+			filter: client.MatchingFields{WorkloadsWithAdmissionCheckKey: "ac1"},
+		},
+		"single workload, single match": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					}).Obj(),
+			},
+			filter:   client.MatchingFields{WorkloadsWithAdmissionCheckKey: "ac1"},
+			wantList: []string{"wl1"},
+		},
+		"single workload, no match": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl2", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac2",
+						State: kueue.CheckStatePending,
+					}).Obj(),
+			},
+			filter: client.MatchingFields{WorkloadsWithAdmissionCheckKey: "ac1"},
+		},
+		"multiple workloads, single match": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					}).Obj(),
+				utiltestingapi.MakeWorkload("wl2", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "ac2",
+						State: kueue.CheckStatePending,
+					}).Obj(),
+			},
+			filter:   client.MatchingFields{WorkloadsWithAdmissionCheckKey: "ac1"},
+			wantList: []string{"wl1"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := getClientBuilder(ctx)
+			k8sClient := builder.Build()
+			for _, wl := range tc.workloads {
+				if err := k8sClient.Create(ctx, wl); err != nil {
+					t.Fatalf("Unable to create %q workload: %v", client.ObjectKeyFromObject(wl), err)
+				}
+			}
+
+			lst := &kueue.WorkloadList{}
+
+			gotListErr := k8sClient.List(ctx, lst, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+
+			gotList := slices.Map(lst.Items, func(wl *kueue.Workload) string { return wl.Name })
+			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected (-want/+got):\n%s", diff)
 			}
 		})
 	}

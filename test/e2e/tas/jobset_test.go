@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -47,21 +47,21 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 
 	ginkgo.When("Creating a JobSet", func() {
 		var (
-			topology     *kueuealpha.Topology
+			topology     *kueue.Topology
 			tasFlavor    *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			topology = testing.MakeDefaultThreeLevelTopology("datacenter")
+			topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 			util.MustCreate(ctx, k8sClient, topology)
 
-			tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
 			util.MustCreate(ctx, k8sClient, tasFlavor)
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						Resource(extraResource, "8").
 						Obj(),
 				).
@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 			util.MustCreate(ctx, k8sClient, clusterQueue)
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
 						},
 					},
 				).
@@ -161,9 +161,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetSliceSizeAnnotation:             "3",
+							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
 				).
@@ -226,8 +226,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", func() {
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
-							kueuealpha.PodSetSliceSizeAnnotation:             "3",
+							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
 				).

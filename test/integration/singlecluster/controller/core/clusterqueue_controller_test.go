@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -26,10 +25,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -45,8 +45,6 @@ const (
 	flavorCPUArchA = "arch-a"
 	flavorCPUArchB = "arch-b"
 )
-
-var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
 var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
@@ -88,11 +86,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 	})
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
-	})
-
-	ginkgo.BeforeEach(func() {
-		gomega.Expect(features.SetEnable(features.LocalQueueMetrics, true)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -111,28 +106,28 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		)
 
 		ginkgo.BeforeEach(func() {
-			ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+			ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 			util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas(flavorOnDemand).
+					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 						Resource(corev1.ResourceCPU, "5", "5").Obj(),
-					*testing.MakeFlavorQuotas(flavorSpot).
+					*utiltestingapi.MakeFlavorQuotas(flavorSpot).
 						Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
 				ResourceGroup(
-					*testing.MakeFlavorQuotas(flavorModelA).
+					*utiltestingapi.MakeFlavorQuotas(flavorModelA).
 						Resource(resourceGPU, "5", "5").Obj(),
-					*testing.MakeFlavorQuotas(flavorModelB).
+					*utiltestingapi.MakeFlavorQuotas(flavorModelB).
 						Resource(resourceGPU, "5", "5").Obj(),
 				).
 				Cohort("cohort").
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			util.MustCreate(ctx, k8sClient, clusterQueue)
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.MustCreate(ctx, k8sClient, localQueue)
 		})
 
@@ -147,17 +142,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", framework.SlowSpec, func() {
 			workloads := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+				utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+				utiltestingapi.MakeWorkload("two", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
-				testing.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+				utiltestingapi.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+				utiltestingapi.MakeWorkload("four", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("five", ns.Name).Queue("other").
+				utiltestingapi.MakeWorkload("five", ns.Name).Queue("other").
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("six", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+				utiltestingapi.MakeWorkload("six", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			}
 
@@ -197,7 +192,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Message: "Can't admit new workloads: references missing ResourceFlavor(s): on-demand,spot,model-a,model-b.",
 						},
 					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			// Workloads are inadmissible because ResourceFlavors don't exist here yet.
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
@@ -206,35 +201,38 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 0)
 
 			ginkgo.By("Creating ResourceFlavors")
-			onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
+			onDemandFlavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
-			spotFlavor = testing.MakeResourceFlavor(flavorSpot).Obj()
+			spotFlavor = utiltestingapi.MakeResourceFlavor(flavorSpot).Obj()
 			util.MustCreate(ctx, k8sClient, spotFlavor)
-			modelAFlavor = testing.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
+			modelAFlavor = utiltestingapi.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
 			util.MustCreate(ctx, k8sClient, modelAFlavor)
-			modelBFlavor = testing.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
+			modelBFlavor = utiltestingapi.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
 			util.MustCreate(ctx, k8sClient, modelBFlavor)
 
 			ginkgo.By("Set workloads quota reservation")
 			admissions := []*kueue.Admission{
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "2").Assignment(resourceGPU, flavorModelA, "2").Obj(),
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "3").Assignment(resourceGPU, flavorModelA, "3").Obj(),
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Assignment(resourceGPU, flavorModelB, "1").Obj(),
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj(),
-				testing.MakeAdmission("other").
-					Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj(),
+				utiltestingapi.MakeAdmission(clusterQueue.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, flavorOnDemand, "2").Assignment(resourceGPU, flavorModelA, "2").Obj()).Obj(),
+				utiltestingapi.MakeAdmission(clusterQueue.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, flavorOnDemand, "3").Assignment(resourceGPU, flavorModelA, "3").Obj()).Obj(),
+				utiltestingapi.MakeAdmission(clusterQueue.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Assignment(resourceGPU, flavorModelB, "1").Obj()).Obj(),
+				utiltestingapi.MakeAdmission(clusterQueue.Name).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj()).Obj(),
+				utiltestingapi.MakeAdmission("other").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj()).Obj(),
 				nil,
 			}
 			for i, w := range workloads {
 				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 					if admissions[i] != nil {
-						g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])).Should(gomega.Succeed())
+						util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
@@ -288,7 +286,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Message: "Can admit new workloads",
 						},
 					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 4)
@@ -324,7 +322,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Message: "Can admit new workloads",
 						},
 					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 4)
@@ -354,7 +352,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Message: "Can admit new workloads",
 						},
 					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
@@ -363,7 +361,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status and report metrics when a pending workload is deleted", func() {
-			workload := testing.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+			workload := utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "5").Obj()
 
 			ginkgo.By("Creating a workload", func() {
@@ -387,7 +385,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Message: "Can't admit new workloads: references missing ResourceFlavor(s): on-demand,spot,model-a,model-b.",
 						},
 					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
@@ -415,7 +413,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Message: "Can't admit new workloads: references missing ResourceFlavor(s): on-demand,spot,model-a,model-b.",
 						},
 					},
-				}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
@@ -425,23 +423,23 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 		ginkgo.It("Should update status when workloads have reclaimable pods", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceFlavors", func() {
-				onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
+				onDemandFlavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 				util.MustCreate(ctx, k8sClient, onDemandFlavor)
-				spotFlavor = testing.MakeResourceFlavor(flavorSpot).Obj()
+				spotFlavor = utiltestingapi.MakeResourceFlavor(flavorSpot).Obj()
 				util.MustCreate(ctx, k8sClient, spotFlavor)
-				modelAFlavor = testing.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
+				modelAFlavor = utiltestingapi.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
 				util.MustCreate(ctx, k8sClient, modelAFlavor)
-				modelBFlavor = testing.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
+				modelBFlavor = utiltestingapi.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
 				util.MustCreate(ctx, k8sClient, modelBFlavor)
 			})
 
-			wl := testing.MakeWorkload("one", ns.Name).
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				PodSets(
-					*testing.MakePodSet("driver", 2).
+					*utiltestingapi.MakePodSet("driver", 2).
 						Request(corev1.ResourceCPU, "1").
 						Obj(),
-					*testing.MakePodSet("workers", 5).
+					*utiltestingapi.MakePodSet("workers", 5).
 						Request(resourceGPU, "1").
 						Obj(),
 				).
@@ -453,7 +451,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			})
 
 			ginkgo.By("Admitting the workload", func() {
-				admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
 					kueue.PodSetAssignment{
 						Name: "driver",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -476,11 +474,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					},
 				).Obj()
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					var newWL kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, admission)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 			})
 
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
@@ -617,19 +611,19 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		)
 
 		ginkgo.BeforeEach(func() {
-			cq = testing.MakeClusterQueue("bar-cq").
+			cq = utiltestingapi.MakeClusterQueue("bar-cq").
 				ResourceGroup(
-					*testing.MakeFlavorQuotas(flavorCPUArchA).Resource(corev1.ResourceCPU, "5", "5").Obj(),
-					*testing.MakeFlavorQuotas(flavorCPUArchB).Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorCPUArchA).Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorCPUArchB).Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
 				Cohort("bar-cohort").
 				AdmissionChecks("check1", "check2").
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, cq)
-			lq = testing.MakeLocalQueue("bar-lq", ns.Name).ClusterQueue(cq.Name).Obj()
+			lq = utiltestingapi.MakeLocalQueue("bar-lq", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
-			wl = testing.MakeWorkload("bar-wl", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			wl = utiltestingapi.MakeWorkload("bar-wl", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 		})
 
@@ -644,11 +638,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
-			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
+			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
 
-			check2 = testing.MakeAdmissionCheck("check2").ControllerName("ac-controller").Obj()
+			check2 = utiltestingapi.MakeAdmissionCheck("check2").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check2)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
@@ -668,7 +662,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("One of flavors is not found")
-			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
+			cpuArchAFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchA).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchAFlavor)
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
@@ -684,7 +678,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("All flavors are created")
-			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
+			cpuArchBFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchB).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchBFlavor)
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
@@ -701,10 +695,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when admission checks are created", func() {
-			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
+			cpuArchAFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchA).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchAFlavor)
 
-			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
+			cpuArchBFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchB).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchBFlavor)
 
 			ginkgo.By("All checks are not found")
@@ -723,7 +717,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("One of the checks is not found")
-			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Active(metav1.ConditionTrue).Obj()
+			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Active(metav1.ConditionTrue).Obj()
 			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -740,7 +734,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("One check is inactive")
-			check2 = testing.MakeAdmissionCheck("check2").ControllerName("ac-controller").Obj()
+			check2 = utiltestingapi.MakeAdmissionCheck("check2").ControllerName("ac-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check2)
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
@@ -772,17 +766,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should prevent workload admission due to multikueue contraints", func() {
-			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
+			cpuArchAFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchA).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchAFlavor)
 
-			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
+			cpuArchBFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchB).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchBFlavor)
 
-			check1 = testing.MakeAdmissionCheck("check1").ControllerName(kueue.MultiKueueControllerName).Obj()
+			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName(kueue.MultiKueueControllerName).Obj()
 			util.MustCreate(ctx, k8sClient, check1)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
 
-			check2 = testing.MakeAdmissionCheck("check2").ControllerName(kueue.MultiKueueControllerName).Obj()
+			check2 = utiltestingapi.MakeAdmissionCheck("check2").ControllerName(kueue.MultiKueueControllerName).Obj()
 			util.MustCreate(ctx, k8sClient, check2)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
@@ -805,10 +799,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedCq := &kueue.ClusterQueue{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = nil
 				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
 					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
-						*testing.MakeAdmissionCheckStrategyRule("check1", flavorCPUArchA).Obj(),
+						*utiltestingapi.MakeAdmissionCheckStrategyRule("check1", flavorCPUArchA).Obj(),
 					},
 				}
 				g.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
@@ -837,8 +830,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).Should(gomega.Succeed())
-				updatedCq.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check1"}
-				updatedCq.Spec.AdmissionChecksStrategy = nil
+				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+						{Name: "check1"},
+					},
+				}
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -857,6 +853,116 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 	})
 
+	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			modelAFlavor *kueue.ResourceFlavor
+			ac           *kueue.AdmissionCheck
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ReclaimablePods, false)
+
+			ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
+			util.MustCreate(ctx, k8sClient, ac)
+			util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavorModelA).
+						Resource(resourceGPU, "5", "5").Obj(),
+				).
+				Cohort("cohort").
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+
+			modelAFlavor = utiltestingapi.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
+			util.MustCreate(ctx, k8sClient, modelAFlavor)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, modelAFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		})
+
+		ginkgo.It("Should ignore update status when workloads have reclaimable pods", framework.SlowSpec, func() {
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("workers", 5).
+						Request(resourceGPU, "1").
+						Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating the workload", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
+				util.ExpectLQPendingWorkloadsMetric(localQueue, 1, 0)
+			})
+
+			ginkgo.By("Admitting the workload", func() {
+				admission := utiltestingapi.MakeAdmission(clusterQueue.Name).PodSets(
+					kueue.PodSetAssignment{
+						Name: "workers",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							resourceGPU: "model-a",
+						},
+						ResourceUsage: corev1.ResourceList{
+							resourceGPU: resource.MustParse("5"),
+						},
+						Count: ptr.To[int32](5),
+					},
+				).Obj()
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+			})
+
+			ginkgo.By("Validating CQ status has changed", func() {
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					g.Expect(updatedCq.Status.FlavorsReservation).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+						{
+							Name: flavorModelA,
+							Resources: []kueue.ResourceUsage{{
+								Name:  resourceGPU,
+								Total: resource.MustParse("5"),
+							}},
+						},
+					}, util.IgnoreConditionTimestamps))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Marking two workers as reclaimable", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Validating CQ status hasn't changed", func() {
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+				util.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					g.Expect(updatedCq.Status.FlavorsReservation).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+						{
+							Name: flavorModelA,
+							Resources: []kueue.ResourceUsage{{
+								Name:  resourceGPU,
+								Total: resource.MustParse("5"),
+							}},
+						},
+					}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
 			cq    *kueue.ClusterQueue
@@ -865,11 +971,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		)
 
 		ginkgo.BeforeEach(func() {
-			check = testing.MakeAdmissionCheck("check").ControllerName("check-controller").Obj()
+			check = utiltestingapi.MakeAdmissionCheck("check").ControllerName("check-controller").Obj()
 			util.MustCreate(ctx, k8sClient, check)
 
-			cq = testing.MakeClusterQueue("foo-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()
-			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			cq = utiltestingapi.MakeClusterQueue("foo-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, lq)
 			util.MustCreate(ctx, k8sClient, cq)
 		})
@@ -888,15 +994,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)
 
 			ginkgo.By("Admit workload")
-			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			key := client.ObjectKeyFromObject(wl)
+			util.SetQuotaReservation(ctx, k8sClient, key, utiltestingapi.MakeAdmission(cq.Name).Obj())
 			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
 			gomega.Eventually(func(g gomega.Gomega) {
-				key := client.ObjectKeyFromObject(wl)
 				updatedWl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, key, updatedWl)).To(gomega.Succeed())
-				g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
@@ -923,9 +1029,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)
 
 			ginkgo.By("Setting quota reservation")
-			wl := testing.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), utiltestingapi.MakeAdmission(cq.Name).Obj())
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)

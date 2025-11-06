@@ -25,10 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 )
 
@@ -252,13 +252,13 @@ func TestPodSets(t *testing.T) {
 			job: testingtfjob.MakeTFJob("tfjob", "ns").TFReplicaSpecsDefault().Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -272,14 +272,14 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.TFJobReplicaTypeChief,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypePS,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
@@ -290,19 +290,19 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
 						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 						Obj(),
@@ -317,14 +317,14 @@ func TestPodSets(t *testing.T) {
 						ReplicaType:  kftraining.TFJobReplicaTypeChief,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypePS,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
@@ -335,15 +335,15 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: func(job *kftraining.TFJob) []kueue.PodSet {
 				return []kueue.PodSet{
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec).
-						Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						Obj(),
-					*utiltesting.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec).
 						Obj(),
 				}
@@ -354,7 +354,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := fromObject(tc.job).PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -382,14 +383,14 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.TFJobReplicaTypeChief,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypePS,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
@@ -407,23 +408,23 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.TFJobReplicaTypeChief,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypePS,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
-							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypeWorker,
 						ReplicaCount: 1,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 						},
 					},
 				).
@@ -453,27 +454,27 @@ func TestValidate(t *testing.T) {
 						ReplicaType:  kftraining.TFJobReplicaTypeChief,
 						ReplicaCount: 3,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "5",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "5",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypePS,
 						ReplicaCount: 5,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "10",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "10",
 						},
 					},
 					testingtfjob.TFReplicaSpecRequirement{
 						ReplicaType:  kftraining.TFJobReplicaTypeWorker,
 						ReplicaCount: 10,
 						Annotations: map[string]string{
-							kueuealpha.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
-							kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-							kueuealpha.PodSetSliceSizeAnnotation:             "20",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/rack",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetSliceSizeAnnotation:             "20",
 						},
 					},
 				).
@@ -508,7 +509,8 @@ func TestValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.topologyAwareScheduling)
 
-			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := fromObject(tc.job).ValidateOnCreate(ctx)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error mismatch (-want +got):\n%s", diff)
 			}
@@ -516,7 +518,7 @@ func TestValidate(t *testing.T) {
 				t.Errorf("validate create validation error list mismatch (-want +got):\n%s", diff)
 			}
 
-			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(nil)
+			gotValidationErrs, gotErr = fromObject(tc.job).ValidateOnUpdate(ctx, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validate create error mismatch (-want +got):\n%s", diff)
 			}

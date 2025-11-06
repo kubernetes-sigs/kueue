@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -36,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
@@ -50,8 +53,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -414,6 +418,20 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
 	}
 
+	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
+		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
+	} else {
+		err = validateKubeconfig(kubeConfig)
+		if err != nil {
+			log.Error(err, "validating kubeconfig failed")
+			c.stopAndRemoveCluster(req.Name)
+			if updateErr := c.updateStatus(ctx, cluster, false, "InsecureKubeConfig", fmt.Sprintf("insecure kubeconfig: %v", err)); updateErr != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after detecting insecure kubeconfig: %w", updateErr, err)
+			}
+			return reconcile.Result{}, fmt.Errorf("validating kubeconfig failed: %w", err)
+		}
+	}
+
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig, c.origin); err != nil {
 		log.Error(err, "setting kubeconfig", "retryAfter", retryAfter)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
@@ -424,6 +442,86 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 
 	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
+}
+
+// validateKubeconfig checks that the provided kubeconfig content is safe to use
+// in a MultiKueueCluster context.
+func validateKubeconfig(kubeconfig []byte) error {
+	// Parse the raw kubeconfig
+	config, err := clientcmd.Load(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to parse kubeconfig(apiconfig): %v", err)
+	}
+
+	if config.AuthInfos != nil {
+		for _, authInfo := range config.AuthInfos {
+			// Token is allowed due to service account tokens usage
+			if authInfo.TokenFile != "" {
+				return errors.New("tokenFile is not allowed")
+			}
+		}
+	}
+
+	// Validate each cluster config
+	for name, cluster := range config.Clusters {
+		// Require TLS
+		if cluster.InsecureSkipTLSVerify {
+			return fmt.Errorf("insecure TLS verification is not allowed for cluster %s", name)
+		}
+		// Require CA cert data (not file paths)
+		if cluster.CertificateAuthority != "" {
+			return fmt.Errorf("certificate-authority file paths are not allowed, use certificate-authority-data for cluster %s", name)
+		}
+		// Validate server URL
+		if cluster.Server == "" {
+			return fmt.Errorf("server URL is required for cluster %s", name)
+		}
+	}
+
+	// Get the restconfig to validate the final settings
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	// Block dangerous auth mechanisms
+	// BearerToken is allowed due to service account tokens usage
+	if restConfig.BearerTokenFile != "" {
+		return errors.New("bearerTokenFile is not allowed")
+	}
+	// lowercase the host to allow FQDN with uppercase letters
+	if !isValidHostname(strings.ToLower(restConfig.Host)) {
+		return errors.New("untrusted server endpoint")
+	}
+	if restConfig.Username != "" || restConfig.Password != "" {
+		return errors.New("basic auth is not allowed")
+	}
+	if restConfig.ExecProvider != nil {
+		return errors.New("exec plugins are not allowed")
+	}
+	if restConfig.AuthProvider != nil {
+		return errors.New("auth providers are not allowed")
+	}
+
+	return nil
+}
+
+func isValidHostname(server string) bool {
+	u, err := url.Parse(server)
+	if err != nil {
+		return false
+	}
+	host, _, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		host = u.Host // If no port is present
+	}
+	// Check if host is a valid IP
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	// Check if host is a valid DNS hostname
+	errs := validation.IsDNS1123Subdomain(host)
+	return len(errs) == 0
 }
 
 func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, bool, error) {

@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -95,7 +95,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		ss.Spec.Template.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 		ss.Spec.Template.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
 		ss.Spec.Template.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
-		ss.Spec.Template.Annotations[kueuealpha.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
+		ss.Spec.Template.Annotations[kueue.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 	}
 
 	return nil
@@ -144,12 +144,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
-	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newStatefulSet.Object()) {
-		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
-			oldStatefulSet.Object(),
-			newStatefulSet.Object(),
-		)...)
-	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		isSuspended,
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
+	)...)
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
@@ -175,8 +174,22 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 			)...)
 		}
 
-		if oldReplicas == 0 && newReplicas > 0 && newStatefulSet.Status.Replicas > 0 {
-			allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+		if oldReplicas == 0 && newReplicas > 0 {
+			if newStatefulSet.Status.Replicas > 0 {
+				// Block if pods are still terminating
+				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+			} else {
+				// Block if workload is still being deleted
+				workloadName := GetWorkloadName(oldStatefulSet.GetName())
+				wlKey := client.ObjectKey{Namespace: oldStatefulSet.GetNamespace(), Name: workloadName}
+				var wl kueue.Workload
+				err := wh.client.Get(ctx, wlKey, &wl)
+				if client.IgnoreNotFound(err) != nil {
+					return nil, err
+				} else if err == nil {
+					allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
+				}
+			}
 		}
 	}
 

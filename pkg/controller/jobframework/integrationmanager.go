@@ -26,6 +26,7 @@ import (
 	"sync"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -51,7 +52,7 @@ type JobReconcilerInterface interface {
 	SetupWithManager(mgr ctrl.Manager) error
 }
 
-type ReconcilerFactory func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface
+type ReconcilerFactory func(ctx context.Context, client client.Client, indexer client.FieldIndexer, record record.EventRecorder, opts ...Option) (JobReconcilerInterface, error)
 
 // IntegrationCallbacks groups a set of callbacks used to integrate a new framework.
 type IntegrationCallbacks struct {
@@ -81,7 +82,10 @@ type IntegrationCallbacks struct {
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
+	// Deprecated: Use ImplicitlyEnabledFrameworkNames instead.
 	DependencyList []string
+	// The list of integrations implicitly enabled as dependencies of the integration.
+	ImplicitlyEnabledFrameworkNames []string
 }
 
 func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
@@ -100,11 +104,13 @@ func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerRefe
 }
 
 type integrationManager struct {
-	names                []string
-	integrations         map[string]IntegrationCallbacks
-	enabledIntegrations  set.Set[string]
-	externalIntegrations map[string]runtime.Object
-	mu                   sync.RWMutex
+	names                         []string
+	integrations                  map[string]IntegrationCallbacks
+	enabledIntegrations           set.Set[string]
+	externalIntegrations          map[string]runtime.Object
+	implicitlyEnabledIntegrations sets.Set[string]
+	gvkToName                     map[schema.GroupVersionKind]string
+	mu                            sync.RWMutex
 }
 
 var manager integrationManager
@@ -131,6 +137,11 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 
 	m.integrations[name] = cb
 	m.names = append(m.names, name)
+
+	if m.gvkToName == nil {
+		m.gvkToName = make(map[schema.GroupVersionKind]string)
+	}
+	m.gvkToName[cb.getGVK()] = name
 
 	return nil
 }
@@ -213,7 +224,7 @@ func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool 
 	// ReplicaSet is an interim owner from Pod to Deployment. We call it known
 	// so that the users don't need to list	it explicitly in their configs.
 	// Note that Kueue provides RBAC permissions allowing for traversal over it.
-	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == "apps/v1"
+	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == appsv1.SchemeGroupVersion.String()
 }
 
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
@@ -323,6 +334,15 @@ func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, boo
 	return IntegrationCallbacks{}, false
 }
 
+// HasImplicitlyEnabledFramework returns true if the given GVK maps to an implicitly enabled framework.
+func HasImplicitlyEnabledFramework(gvk schema.GroupVersionKind) bool {
+	name, found := manager.gvkToName[gvk]
+	if !found {
+		return false
+	}
+	return manager.implicitlyEnabledIntegrations.Has(name)
+}
+
 func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
 	apiVersion, kind := gvk.ToAPIVersionAndKind()
 	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
@@ -369,4 +389,25 @@ func GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]Mul
 		return nil, err
 	}
 	return ret, nil
+}
+
+func (m *integrationManager) collectImplicitlyEnabledIntegrations(enabledFrameworks sets.Set[string]) sets.Set[string] {
+	result := sets.New[string]()
+	for frameworkName := range enabledFrameworks {
+		callbacks, found := m.get(frameworkName)
+		if !found {
+			continue
+		}
+
+		for _, implicitFramework := range callbacks.ImplicitlyEnabledFrameworkNames {
+			if !enabledFrameworks.Has(implicitFramework) {
+				result.Insert(implicitFramework)
+			}
+		}
+	}
+	return result
+}
+
+func (m *integrationManager) setImplicitlyEnabledIntegrations(implicitlyIntegrations sets.Set[string]) {
+	m.implicitlyEnabledIntegrations = implicitlyIntegrations
 }

@@ -30,7 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -167,9 +167,9 @@ func syncLocalPodWithRemote(
 		}
 
 		// Patch the status of the local pod to match the remote pod
-		return clientutil.PatchStatus(ctx, localClient, localPod, func() (bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, localPod, func() (client.Object, bool, error) {
 			localPod.Status = remotePod.Status
-			return true, nil
+			return localPod, true, nil
 		})
 	}
 

@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -111,7 +111,7 @@ func (j *JobSet) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Name)
 }
 
-func (j *JobSet) PodSets() ([]kueue.PodSet, error) {
+func (j *JobSet) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
@@ -134,7 +134,7 @@ func (j *JobSet) PodSets() ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
-func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
 		return podset.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
@@ -165,7 +165,7 @@ func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *JobSet) Finished() (message string, success, finished bool) {
+func (j *JobSet) Finished(ctx context.Context) (message string, success, finished bool) {
 	if c := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetCompleted)); c != nil && c.Status == metav1.ConditionTrue {
 		return c.Message, true, true
 	}
@@ -175,7 +175,7 @@ func (j *JobSet) Finished() (message string, success, finished bool) {
 	return message, success, false
 }
 
-func (j *JobSet) PodsReady() bool {
+func (j *JobSet) PodsReady(ctx context.Context) bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += replicatedJob.Replicas
@@ -187,7 +187,7 @@ func (j *JobSet) PodsReady() bool {
 	return replicas == readyReplicas
 }
 
-func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
 		return nil, nil
 	}
@@ -197,13 +197,11 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 
 	for i := range j.Spec.ReplicatedJobs {
 		spec := &j.Spec.ReplicatedJobs[i]
-		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
-			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
-				ret = append(ret, kueue.ReclaimablePod{
-					Name:  kueue.NewPodSetReference(spec.Name),
-					Count: status.Succeeded * podsCountPerReplica(spec),
-				})
-			}
+		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
+			ret = append(ret, kueue.ReclaimablePod{
+				Name:  kueue.NewPodSetReference(spec.Name),
+				Count: status.Succeeded * PodsCountPerReplica(spec),
+			})
 		}
 	}
 	return ret, nil
@@ -223,7 +221,7 @@ func (j *JobSet) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
 }
 
-func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
+func PodsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 	spec := &rj.Template.Spec
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
 	jobPodsCount := ptr.Deref(spec.Parallelism, 1)
@@ -235,7 +233,7 @@ func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 
 func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	// The JobSet's operator validates that this will not overflow.
-	return rj.Replicas * podsCountPerReplica(rj)
+	return rj.Replicas * PodsCountPerReplica(rj)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

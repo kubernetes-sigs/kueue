@@ -24,7 +24,7 @@ description: 将 LeaderWorkerSet 作为由 Kueue 管理的工作负载运行
 
 2. 确保你已启用 `leaderworkerset.x-k8s.io/leaderworkerset` 集成，例如：
    ```yaml
-   apiVersion: config.kueue.x-k8s.io/v1beta1
+   apiVersion: config.kueue.x-k8s.io/v1beta2
    kind: Configuration
    integrations:
      frameworks:

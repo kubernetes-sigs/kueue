@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -319,7 +319,7 @@ func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueR
 }
 
 func recordLocalQueueUsageMetrics(queue *kueue.LocalQueue) {
-	for _, flavor := range queue.Status.FlavorUsage {
+	for _, flavor := range queue.Status.FlavorsUsage {
 		for _, r := range flavor.Resources {
 			metrics.ReportLocalQueueResourceUsage(localQueueReferenceFromLocalQueue(queue), string(flavor.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
 		}
@@ -476,8 +476,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
 	queue.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	queue.Status.FlavorsReservation = stats.ReservedResources
-	queue.Status.FlavorUsage = stats.AdmittedResources
-	queue.Status.Flavors = stats.Flavors
+	queue.Status.FlavorsUsage = stats.AdmittedResources
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:               kueue.LocalQueueActive,

@@ -21,11 +21,10 @@ import (
 	"maps"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -41,7 +40,7 @@ type ClusterQueueSnapshot struct {
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        resource.Quantity
+	FairWeight        float64
 	FlavorFungibility kueue.FlavorFungibility
 	AdmissionScope    kueue.AdmissionScope
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
@@ -71,24 +70,6 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 		}
 	}
 	return nil
-}
-
-// SimulateWorkloadRemoval modifies the snapshot by removing the usage
-// corresponding to the list of workloads. It returns a function which
-// can be used to restore the usage.
-func (c *ClusterQueueSnapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
-	usage := make([]workload.Usage, 0, len(workloads))
-	for _, w := range workloads {
-		usage = append(usage, w.Usage())
-	}
-	for _, u := range usage {
-		c.RemoveUsage(u)
-	}
-	return func() {
-		for _, u := range usage {
-			c.AddUsage(u)
-		}
-	}
 }
 
 // SimulateUsageAddition modifies the snapshot by adding usage, and
@@ -186,8 +167,8 @@ func (c *ClusterQueueSnapshot) GetName() kueue.ClusterQueueReference {
 
 // Implements dominantResourceShareNode interface.
 
-func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
-	return &c.FairWeight
+func (c *ClusterQueueSnapshot) fairWeight() float64 {
+	return c.FairWeight
 }
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces
@@ -200,9 +181,8 @@ func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShare() int {
-	share, _ := dominantResourceShare(c, nil)
-	return share
+func (c *ClusterQueueSnapshot) DominantResourceShare() DRS {
+	return dominantResourceShare(c, nil)
 }
 
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests

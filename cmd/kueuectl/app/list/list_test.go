@@ -29,10 +29,10 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestListCmd(t *testing.T) {
@@ -49,13 +49,13 @@ func TestListCmd(t *testing.T) {
 		"should print local queue list with all namespaces": {
 			args: []string{"localqueue", "--all-namespaces"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", "ns1").
+				utiltestingapi.MakeLocalQueue("lq1", "ns1").
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", "ns2").
+				utiltestingapi.MakeLocalQueue("lq2", "ns2").
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -70,13 +70,13 @@ ns2         lq2    cq2            2                   2                    120m
 		"should print local queue list with all namespaces (short command and flag)": {
 			args: []string{"lq", "-A"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", "ns1").
+				utiltestingapi.MakeLocalQueue("lq1", "ns1").
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", "ns2").
+				utiltestingapi.MakeLocalQueue("lq2", "ns2").
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -91,13 +91,13 @@ ns2         lq2    cq2            2                   2                    120m
 		"should print cluster queue list": {
 			args: []string{"clusterqueue"},
 			objs: []runtime.Object{
-				utiltesting.MakeClusterQueue("cq1").
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+				utiltestingapi.MakeClusterQueue("cq1").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "", "").
 					Cohort("cohort1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeClusterQueue("cq2").
-					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+				utiltestingapi.MakeClusterQueue("cq2").
+					Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "", "").
 					Cohort("cohort2").
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
@@ -110,18 +110,18 @@ cq2    cohort2   0                   0                    false    120m
 		"should print workload list with all namespaces": {
 			args: []string{"workload", "--all-namespaces"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", "ns1").
+				utiltestingapi.MakeWorkload("wl1", "ns1").
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", "ns2").
+				utiltestingapi.MakeWorkload("wl2", "ns2").
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
@@ -133,18 +133,18 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 		"should print workload list with all namespaces (short command and flag)": {
 			args: []string{"wl", "-A"},
 			objs: []runtime.Object{
-				utiltesting.MakeWorkload("wl1", "ns1").
+				utiltestingapi.MakeWorkload("wl1", "ns1").
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
 					Queue("lq1").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeWorkload("wl2", "ns2").
+				utiltestingapi.MakeWorkload("wl2", "ns2").
 					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j2", "test-uid").
 					Queue("lq2").
 					Active(true).
-					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Admission(utiltestingapi.MakeAdmission("cq2").Obj()).
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},

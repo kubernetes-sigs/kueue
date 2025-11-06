@@ -32,12 +32,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
@@ -70,14 +70,14 @@ func TestPodSets(t *testing.T) {
 				ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
 				ReplicaCount: 1,
 				Annotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 				},
 			},
 			testingpytorchjob.PyTorchReplicaSpecRequirement{
 				ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
 				ReplicaCount: 4,
 				Annotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			},
 		).
@@ -99,13 +99,13 @@ func TestPodSets(t *testing.T) {
 				Component(testingappwrapper.Component{Template: batchJob}).
 				Obj(),
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("aw-0", 1).
+				*utiltestingapi.MakePodSet("aw-0", 1).
 					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
 					Obj(),
-				*utiltesting.MakePodSet("aw-1", 4).
+				*utiltestingapi.MakePodSet("aw-1", 4).
 					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
 					Obj(),
-				*utiltesting.MakePodSet("aw-2", 2).
+				*utiltestingapi.MakePodSet("aw-2", 2).
 					PodSpec(batchJob.Spec.Template.Spec).
 					Obj(),
 			},
@@ -117,15 +117,15 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("aw-0", 1).
+				*utiltestingapi.MakePodSet("aw-0", 1).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 					RequiredTopologyRequest("cloud.com/rack").
 					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 					Obj(),
-				*utiltesting.MakePodSet("aw-1", 4).
+				*utiltestingapi.MakePodSet("aw-1", 4).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
 					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
 					Obj(),
@@ -139,13 +139,13 @@ func TestPodSets(t *testing.T) {
 				Obj(),
 
 			wantPodSets: []kueue.PodSet{
-				*utiltesting.MakePodSet("aw-0", 1).
+				*utiltestingapi.MakePodSet("aw-0", 1).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 					Obj(),
-				*utiltesting.MakePodSet("aw-1", 4).
+				*utiltestingapi.MakePodSet("aw-1", 4).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
-					Annotations(map[string]string{kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					Obj(),
 			},
 
@@ -156,7 +156,8 @@ func TestPodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			gotPodSets, err := fromObject(tc.job).PodSets()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotPodSets, err := fromObject(tc.job).PodSets(ctx)
 			if err != nil {
 				t.Fatalf("failed to get pod sets: %v", err)
 			}
@@ -208,9 +209,11 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("aw", "ns").
+				*utiltestingapi.MakeWorkload("aw", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("aw-0", 2).Obj(),
+						*utiltestingapi.MakePodSet("aw-0", 2).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -240,10 +243,12 @@ func TestReconciler(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("aw", "ns").
+				*utiltestingapi.MakeWorkload("aw", "ns").
 					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
-						*utiltesting.MakePodSet("aw-0", 2).Obj(),
+						*utiltestingapi.MakePodSet("aw-0", 2).
+							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
+							Obj(),
 					).
 					Obj(),
 			},
@@ -272,9 +277,9 @@ func TestReconciler(t *testing.T) {
 
 			"when workload is admitted, job gets node selectors": {
 				flavors: []kueue.ResourceFlavor{
-					*utiltesting.MakeResourceFlavor("default").Obj(),
-					*utiltesting.MakeResourceFlavor("on-demand").NodeLabel("provisioning", "on-demand").Obj(),
-					*utiltesting.MakeResourceFlavor("spot").NodeLabel("provisioning", "spot").Obj(),
+					*utiltestingapi.MakeResourceFlavor("default").Obj(),
+					*utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel("provisioning", "on-demand").Obj(),
+					*utiltestingapi.MakeResourceFlavor("spot").NodeLabel("provisioning", "spot").Obj(),
 				},
 				job: testingappwrapper.MakeAppWrapper("aw", "ns").
 					Component(utiltestingjob.MakeJob("job", "ns").Parallelism(1).Request(corev1.ResourceCPU, "1").SetTypeMeta().Obj()).
@@ -284,13 +289,13 @@ func TestReconciler(t *testing.T) {
 					Queue("foo").
 					Obj(),
 				workloads: []kueue.Workload{
-					*utiltesting.MakeWorkload("a", "ns").
+					*utiltestingapi.MakeWorkload("a", "ns").
 						PodSets(
-							*utiltesting.MakePodSet("aw-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-1", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-2", 1).Request(corev1.ResourceCPU, "1")Obj(),
+							*utiltestingapi.MakePodSet("aw-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("aw-1", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("aw-2", 1).Request(corev1.ResourceCPU, "1")Obj(),
 						).
-						ReserveQuota(utiltesting.MakeAdmission("cq").
+						ReserveQuota(utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								kueue.PodSetAssignment{
 									Name: "aw-0",
@@ -330,13 +335,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 
 				wantWorkloads: []kueue.Workload{
-					*utiltesting.MakeWorkload("a", "ns").
+					*utiltestingapi.MakeWorkload("a", "ns").
 						PodSets(
-							*utiltesting.MakePodSet("aw-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-1", 1).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("aw-2", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("aw-0", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("aw-1", 1).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("aw-2", 1).Request(corev1.ResourceCPU, "1").Obj(),
 						).
-						ReserveQuota(utiltesting.MakeAdmission("cq").
+						ReserveQuota(utiltestingapi.MakeAdmission("cq").
 							PodSets(
 								kueue.PodSetAssignment{
 									Name: "aw-0",
@@ -386,7 +391,8 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			kcBuilder := utiltesting.NewClientBuilder(awv1beta2.AddToScheme)
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(kcBuilder)); err != nil {
+			indexer := utiltesting.AsIndexer(kcBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Failed to setup indexes: %v", err)
 			}
 			kcBuilder = kcBuilder.
@@ -406,10 +412,13 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
+			if err != nil {
+				t.Errorf("Error creating the reconciler: %v", err)
+			}
 
 			jobKey := client.ObjectKeyFromObject(tc.job)
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: jobKey,
 			})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {

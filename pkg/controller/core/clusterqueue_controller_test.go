@@ -26,12 +26,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestUpdateCqStatusIfChanged(t *testing.T) {
@@ -39,8 +40,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	lqName := "test-lq"
 	defaultWls := &kueue.WorkloadList{
 		Items: []kueue.Workload{
-			*utiltesting.MakeWorkload("alpha", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
-			*utiltesting.MakeWorkload("beta", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			*utiltestingapi.MakeWorkload("alpha", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			*utiltestingapi.MakeWorkload("beta", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
 		},
 	}
 
@@ -163,7 +164,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Message: "Can admit new workloads",
 				}},
 			},
-			newWl:              utiltesting.MakeWorkload("gamma", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
+			newWl:              utiltestingapi.MakeWorkload("gamma", "").Queue(kueue.LocalQueueName(lqName)).Obj(),
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
@@ -189,12 +190,12 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cq := utiltesting.MakeClusterQueue(cqName).
+			cq := utiltestingapi.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).
 				Generation(1).
 				Obj()
 			cq.Status = tc.cqStatus
-			lq := utiltesting.MakeLocalQueue(lqName, "").
+			lq := utiltestingapi.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -235,7 +236,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			configCmpOpts := cmp.Options{
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"),
 				cmpopts.EquateEmpty(),
 			}
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
@@ -277,7 +277,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			Name: "name",
 		},
 		Spec: kueue.ClusterQueueSpec{
-			Cohort: "cohort",
+			CohortName: "cohort",
 			ResourceGroups: []kueue.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
@@ -379,7 +379,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
-				ret.Spec.Cohort = "cohort2"
+				ret.Spec.CohortName = "cohort2"
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{

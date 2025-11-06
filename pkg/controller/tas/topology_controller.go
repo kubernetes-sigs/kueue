@@ -35,9 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -57,7 +56,7 @@ type topologyReconciler struct {
 }
 
 var _ reconcile.Reconciler = (*topologyReconciler)(nil)
-var _ predicate.TypedPredicate[*kueuealpha.Topology] = (*topologyReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.Topology] = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache) *topologyReconciler {
 	return &topologyReconciler{
@@ -74,23 +73,23 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 		Named("tas_topology_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
-			&kueuealpha.Topology{},
-			&handler.TypedEnqueueRequestForObject[*kueuealpha.Topology]{},
+			&kueue.Topology{},
+			&handler.TypedEnqueueRequestForObject[*kueue.Topology]{},
 			r,
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      ptr.To(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueuealpha.GroupVersion.WithKind("Topology").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Topology").GroupKind().String()],
 		}).
 		Watches(&kueue.ResourceFlavor{}, &resourceFlavorHandler{}).
-		Complete(core.WithLeadingManager(mgr, r, &kueuealpha.Topology{}, cfg))
+		Complete(core.WithLeadingManager(mgr, r, &kueue.Topology{}, cfg))
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies/finalizers,verbs=update
 
 func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	topology := &kueuealpha.Topology{}
+	topology := &kueue.Topology{}
 	if err := r.client.Get(ctx, req.NamespacedName, topology); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -127,11 +126,11 @@ func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	return reconcile.Result{}, nil
 }
 
-func (r *topologyReconciler) Generic(event.TypedGenericEvent[*kueuealpha.Topology]) bool {
+func (r *topologyReconciler) Generic(event.TypedGenericEvent[*kueue.Topology]) bool {
 	return false
 }
 
-func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueuealpha.Topology]) bool {
+func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueue.Topology]) bool {
 	log := r.log.WithValues("topology", klog.KObj(e.Object))
 	log.V(2).Info("Topology create event")
 
@@ -140,11 +139,11 @@ func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueuealpha.Topolog
 	return true
 }
 
-func (r *topologyReconciler) Update(event.TypedUpdateEvent[*kueuealpha.Topology]) bool {
+func (r *topologyReconciler) Update(event.TypedUpdateEvent[*kueue.Topology]) bool {
 	return true
 }
 
-func (r *topologyReconciler) Delete(e event.TypedDeleteEvent[*kueuealpha.Topology]) bool {
+func (r *topologyReconciler) Delete(e event.TypedDeleteEvent[*kueue.Topology]) bool {
 	log := r.log.WithValues("topology", klog.KObj(e.Object))
 	log.V(2).Info("Topology delete event")
 

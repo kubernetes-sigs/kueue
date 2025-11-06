@@ -33,26 +33,20 @@ import (
 	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 )
 
-const (
-	queueVisibilityClusterQueuesMaxValue              = 4000
-	queueVisibilityClusterQueuesUpdateIntervalSeconds = 1
-)
-
 var (
 	integrationsPath                     = field.NewPath("integrations")
 	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath    = integrationsPath.Child("externalFrameworks")
-	podOptionsPath                       = integrationsPath.Child("podOptions")
-	podOptionsNamespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
 	managedJobsNamespaceSelectorPath     = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath                 = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -61,22 +55,23 @@ var (
 	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
 	afsPath                              = field.NewPath("admissionFairSharing")
 	internalCertManagementPath           = field.NewPath("internalCertManagement")
-	queueVisibilityPath                  = field.NewPath("queueVisibility")
 	resourceTransformationPath           = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
 	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
+	log                                  = ctrl.Log.WithName("config")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
-	allErrs = append(allErrs, validateQueueVisibility(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
+	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	return allErrs
@@ -116,6 +111,42 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("origin"), *c.MultiKueue.Origin, strings.Join(errs, ",")))
 			}
 		}
+
+		if len(c.MultiKueue.ExternalFrameworks) > 0 {
+			path := multiKueuePath.Child("externalFrameworks")
+			enabledIntegrations := sets.New[string]()
+			if c.Integrations != nil {
+				enabledIntegrations = sets.New(c.Integrations.Frameworks...)
+			}
+
+			builtInAdapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			if err != nil {
+				allErrs = append(allErrs, field.InternalError(path, err))
+			}
+			builtInGVKs := sets.New[string]()
+			for gvk := range builtInAdapters {
+				builtInGVKs.Insert(gvk)
+			}
+
+			seenGVKs := sets.New[string]()
+			for i, f := range c.MultiKueue.ExternalFrameworks {
+				fldPath := path.Index(i).Child("name")
+				parsedGVK, _ := schema.ParseKindArg(f.Name)
+				if parsedGVK == nil {
+					allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "must be in 'kind.version.group' format"))
+					continue
+				}
+				gvk := parsedGVK.String()
+				if seenGVKs.Has(gvk) {
+					allErrs = append(allErrs, field.Duplicate(fldPath, f.Name))
+				} else {
+					seenGVKs.Insert(gvk)
+				}
+				if builtInGVKs.Has(gvk) {
+					allErrs = append(allErrs, field.Invalid(fldPath, f.Name, "conflicts with a built-in MultiKueue adapter"))
+				}
+			}
+		}
 	}
 	return allErrs
 }
@@ -123,6 +154,9 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 	if !WaitForPodsReadyIsEnabled(c) {
+		if c.WaitForPodsReady != nil && (c.WaitForPodsReady.Timeout != nil || c.WaitForPodsReady.BlockAdmission != nil || c.WaitForPodsReady.RequeuingStrategy != nil || c.WaitForPodsReady.RecoveryTimeout != nil) {
+			log.Info("enable is set to false in waitForPodsReady, ignoring the rest of its configuration")
+		}
 		return allErrs
 	}
 	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
@@ -150,25 +184,6 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 		if ptr.Deref(strategy.BackoffMaxSeconds, 0) < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffMaxSeconds"),
 				*strategy.BackoffMaxSeconds, apimachineryvalidation.IsNegativeErrorMsg))
-		}
-	}
-	return allErrs
-}
-
-func validateQueueVisibility(cfg *configapi.Configuration) field.ErrorList {
-	var allErrs field.ErrorList
-	if cfg.QueueVisibility != nil {
-		if cfg.QueueVisibility.ClusterQueues != nil {
-			maxCountPath := queueVisibilityPath.Child("clusterQueues").Child("maxCount")
-			if cfg.QueueVisibility.ClusterQueues.MaxCount < 0 {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, apimachineryvalidation.IsNegativeErrorMsg))
-			}
-			if cfg.QueueVisibility.ClusterQueues.MaxCount > queueVisibilityClusterQueuesMaxValue {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))
-			}
-		}
-		if cfg.QueueVisibility.UpdateIntervalSeconds < queueVisibilityClusterQueuesUpdateIntervalSeconds {
-			allErrs = append(allErrs, field.Invalid(queueVisibilityPath.Child("updateIntervalSeconds"), cfg.QueueVisibility.UpdateIntervalSeconds, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)))
 		}
 	}
 	return allErrs
@@ -238,19 +253,9 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		return allErrs
 	}
 
-	// At least one namespace selector must be non-nil and enabled.
-	// It is ok for both to be non-nil; pods will only be managed if all non-nil selectors match
-	hasNamespaceSelector := false
 	if c.ManagedJobsNamespaceSelector != nil {
 		allErrs = validateNamespaceSelectorForPodIntegration(c, c.ManagedJobsNamespaceSelector, managedJobsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-	if c.Integrations.PodOptions != nil && c.Integrations.PodOptions.NamespaceSelector != nil {
-		allErrs = validateNamespaceSelectorForPodIntegration(c, c.Integrations.PodOptions.NamespaceSelector, podOptionsNamespaceSelectorPath, allErrs)
-		hasNamespaceSelector = true
-	}
-
-	if !hasNamespaceSelector {
+	} else {
 		allErrs = append(allErrs, field.Required(managedJobsNamespaceSelectorPath, "cannot be empty when pod integration is enabled"))
 	}
 
@@ -344,6 +349,80 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			seenKeys.Insert(transform.Input)
 		}
 	}
+	return allErrs
+}
+
+func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
+	if c.Resources == nil || len(c.Resources.DeviceClassMappings) == 0 {
+		return nil
+	}
+
+	mappings := c.Resources.DeviceClassMappings
+	var allErrs field.ErrorList
+
+	if len(mappings) > 16 {
+		allErrs = append(allErrs, field.TooMany(dynamicResourceAllocationPath, len(mappings), 16))
+	}
+
+	seenResourceNames := make(sets.Set[corev1.ResourceName])
+	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+
+	for idx, mapping := range mappings {
+		mappingPath := dynamicResourceAllocationPath.Index(idx)
+
+		if errs := apimachineryutilvalidation.IsQualifiedName(string(mapping.Name)); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, strings.Join(errs, "; ")))
+		}
+
+		if len(string(mapping.Name)) > 253 {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
+		}
+
+		if seenResourceNames.Has(mapping.Name) {
+			allErrs = append(allErrs, field.Duplicate(mappingPath.Child("name"), mapping.Name))
+		} else {
+			seenResourceNames.Insert(mapping.Name)
+		}
+
+		if len(mapping.DeviceClassNames) == 0 {
+			allErrs = append(allErrs, field.Required(mappingPath.Child("deviceClassNames"),
+				"at least one device class name is required"))
+		}
+
+		if len(mapping.DeviceClassNames) > 8 {
+			allErrs = append(allErrs, field.TooMany(mappingPath.Child("deviceClassNames"), len(mapping.DeviceClassNames), 8))
+		}
+
+		seenDeviceClassNames := make(sets.Set[corev1.ResourceName])
+
+		for dcIdx, deviceClass := range mapping.DeviceClassNames {
+			dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
+
+			if errs := apimachineryutilvalidation.IsQualifiedName(string(deviceClass)); len(errs) > 0 {
+				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
+			}
+
+			if len(string(deviceClass)) > 253 {
+				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, "must not exceed 253 characters"))
+			}
+
+			if seenDeviceClassNames.Has(deviceClass) {
+				allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
+			} else {
+				seenDeviceClassNames.Insert(deviceClass)
+			}
+
+			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
+				if existingResource != mapping.Name {
+					allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+						fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+				}
+			} else {
+				deviceClassToResource[deviceClass] = mapping.Name
+			}
+		}
+	}
+
 	return allErrs
 }
 

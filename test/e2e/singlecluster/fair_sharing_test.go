@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -33,51 +33,51 @@ import (
 var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns  *corev1.Namespace
-		rf  *v1beta1.ResourceFlavor
-		cq1 *v1beta1.ClusterQueue
-		cq2 *v1beta1.ClusterQueue
-		cq3 *v1beta1.ClusterQueue
-		lq1 *v1beta1.LocalQueue
-		lq2 *v1beta1.LocalQueue
-		lq3 *v1beta1.LocalQueue
+		rf  *kueue.ResourceFlavor
+		cq1 *kueue.ClusterQueue
+		cq2 *kueue.ClusterQueue
+		cq3 *kueue.ClusterQueue
+		lq1 *kueue.LocalQueue
+		lq2 *kueue.LocalQueue
+		lq3 *kueue.LocalQueue
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
-		rf = utiltesting.MakeResourceFlavor("rf").Obj()
+		rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 
-		cq1 = utiltesting.MakeClusterQueue("cq1").
+		cq1 = utiltestingapi.MakeClusterQueue("cq1").
 			Cohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq1)
-		cq2 = utiltesting.MakeClusterQueue("cq2").
+		cq2 = utiltestingapi.MakeClusterQueue("cq2").
 			Cohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq2)
-		cq3 = utiltesting.MakeClusterQueue("cq3").
+		cq3 = utiltestingapi.MakeClusterQueue("cq3").
 			Cohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas(rf.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, cq3)
 
-		lq1 = utiltesting.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
+		lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq1)
-		lq2 = utiltesting.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
+		lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq2)
-		lq3 = utiltesting.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
+		lq3 = utiltestingapi.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq3)
 	})
 
@@ -95,8 +95,8 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("create jobs")
 			for i := range 4 {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
-					Queue(v1beta1.LocalQueueName(lq1.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+					Queue(kueue.LocalQueueName(lq1.Name)).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					Parallelism(3).
 					Completions(3).
 					RequestAndLimit(corev1.ResourceCPU, "1").
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 				g.Expect(cq1.Status.AdmittedWorkloads).Should(gomega.Equal(int32(4)))
 				g.Expect(cq1.Status.FairSharing).ShouldNot(gomega.BeNil())
-				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(111)))
+				g.Expect(cq1.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(112)))
 
 				g.Expect(cq2.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq2.Status.FairSharing).ShouldNot(gomega.BeNil())

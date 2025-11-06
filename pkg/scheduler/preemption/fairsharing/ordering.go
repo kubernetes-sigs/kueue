@@ -19,10 +19,13 @@ package fairsharing
 import (
 	"iter"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,6 +44,7 @@ import (
 // TargetClusterQueueOrdering.DropQueue must be called between each
 // entry returned.
 type TargetClusterQueueOrdering struct {
+	clock       clock.Clock
 	preemptorCq *schdcache.ClusterQueueSnapshot
 	// ancestor Cohorts of the preemptor ClusterQueue.
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
@@ -54,10 +58,13 @@ type TargetClusterQueueOrdering struct {
 	// preemption target candidates.
 	prunedClusterQueues sets.Set[*schdcache.ClusterQueueSnapshot]
 	prunedCohorts       sets.Set[*schdcache.CohortSnapshot]
+	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
+		clock: clk,
+
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
 
@@ -65,6 +72,7 @@ func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*
 
 		prunedClusterQueues: sets.New[*schdcache.ClusterQueueSnapshot](),
 		prunedCohorts:       sets.New[*schdcache.CohortSnapshot](),
+		log:                 log,
 	}
 
 	for ancestor := range cq.PathParentToRoot() {
@@ -131,8 +139,8 @@ func (t *TargetClusterQueueOrdering) hasWorkload(cq *schdcache.ClusterQueueSnaps
 // are no more candidate ClusterQueues; an iteration may have only
 // pruned nodes from the tree.
 func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot) *TargetClusterQueue {
-	var highestCq *schdcache.ClusterQueueSnapshot = nil
-	highestCqDrs := -1
+	var highestCq *schdcache.ClusterQueueSnapshot
+	highestCqDrs := schdcache.NegativeDRS()
 	for _, cq := range cohort.ChildCQs() {
 		if t.prunedClusterQueues.Has(cq) {
 			continue
@@ -141,16 +149,23 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		drs := cq.DominantResourceShare()
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
-		if (drs == 0 && cq != t.preemptorCq) || !t.hasWorkload(cq) {
+		switch {
+		case (drs.IsZero() && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
-		} else if drs >= highestCqDrs {
+		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
+			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
+			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
+			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, t.clock.Now()) < 0 {
+				highestCq = cq
+			}
+		case schdcache.CompareDRS(drs, highestCqDrs) == 1:
 			highestCqDrs = drs
 			highestCq = cq
 		}
 	}
 
 	var highestCohort *schdcache.CohortSnapshot = nil
-	highestCohortDrs := -1
+	highestCohortDrs := schdcache.NegativeDRS()
 	for _, cohort := range cohort.ChildCohorts() {
 		if t.prunedCohorts.Has(cohort) {
 			continue
@@ -165,9 +180,9 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// subtree, or a possible preemption within Preemptor
 		// CQ itself.  We will only prune such a Cohort if all
 		// of its children have been pruned.
-		if drs == 0 && !t.onPathFromRootToPreemptorCQ(cohort) {
+		if drs.IsZero() && !t.onPathFromRootToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
-		} else if drs >= highestCohortDrs {
+		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
 			highestCohortDrs = drs
 			highestCohort = cohort
 		}
@@ -183,7 +198,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	// we use >= because, as a tiebreak, choosing the Cohort seems
 	// slightly more fair, as we can choose the most unfair node
 	// within that Cohort.
-	if highestCohortDrs >= highestCqDrs {
+	if schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
 		return t.nextTarget(highestCohort)
 	}
 	return &TargetClusterQueue{

@@ -40,9 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -135,18 +134,18 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 	if !isPod {
 		return
 	}
-	if _, found := pod.Labels[kueuealpha.TASLabel]; !found {
+	if !utiltas.IsTAS(pod) {
 		// skip non-TAS pods
 		return
 	}
-	if wlName, found := pod.Annotations[kueuealpha.WorkloadAnnotation]; found {
+	if wlName, found := pod.Annotations[kueue.WorkloadAnnotation]; found {
 		key := types.NamespacedName{
 			Name:      wlName,
 			Namespace: pod.Namespace,
 		}
 		// it is possible that the pod is removed before the gate removal, so
 		// we also need to consider deleted pod as ungated.
-		if !utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) || deleted {
+		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) || deleted {
 			log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
 			h.expectationsStore.ObservedUID(log, key, pod.UID)
 		}
@@ -240,14 +239,14 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	err := parallelize.Until(ctx, len(allToUngate), func(i int) error {
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
-		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, true, func() (bool, error) {
+		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (client.Object, bool, error) {
 			log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
-			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueuealpha.TopologySchedulingGate)
+			ungated = utilpod.Ungate(podWithUngateInfo.pod, kueue.TopologySchedulingGate)
 			if podWithUngateInfo.pod.Spec.NodeSelector == nil {
 				podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
 			}
 			maps.Copy(podWithUngateInfo.pod.Spec.NodeSelector, podWithUngateInfo.nodeLabels)
-			return true, nil
+			return podWithUngateInfo.pod, true, nil
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
@@ -366,7 +365,7 @@ func assignGatedPodsToDomainsGreedy(
 	gatedPods := make([]*corev1.Pod, 0)
 	domainIDToUngatedCnt := make(map[utiltas.TopologyDomainID]int32)
 	for _, pod := range pods {
-		if utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) {
+		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
 			gatedPods = append(gatedPods, pod)
 		} else {
 			levelValues := utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector)

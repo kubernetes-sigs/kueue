@@ -66,14 +66,24 @@ make test-multikueue-e2e
 
 You can specify the Kubernetes version used for running the e2e tests by setting the `E2E_K8S_FULL_VERSION` variable:
 ```shell
-E2E_K8S_FULL_VERSION=1.33.1 make test-e2e
+E2E_K8S_FULL_VERSION=1.34.1 make test-e2e
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
 ## Increase logging verbosity
-You can change log level (for example, set -5 to increase verbosity) using `TEST_LOG_LEVEL` variables.
-By default, `TEST_LOG_LEVEL=-3`.
+`TEST_LOG_LEVEL` controls test logging uniformly for all targets:
+
+- `go test`, `make test` (unit tests)
+- `make test-integration` (integration tests)
+- `make test-*-e2e` (e2e tests)
+
+Use more negative values for more verbose logs and higher (positive) values for quieter logs. For example:
+```shell
+TEST_LOG_LEVEL=-5 make test-integration   # more verbose
+TEST_LOG_LEVEL=-1 make test               # less verbose than default
+```
+Default is `TEST_LOG_LEVEL=-3`.
 
 ## Debug tests in VSCode
 It is possible to debug unit and integration tests in VSCode.
@@ -85,7 +95,7 @@ func TestValidateClusterQueue(t *testing.T) {
 You can click on the `debug test` to debug a specific test.
 
 For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.33 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Run `ENVTEST_K8S_VERSION=1.34 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
 - Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
 ```json
 "go.testEnvVars": {

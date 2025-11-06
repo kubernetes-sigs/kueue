@@ -41,7 +41,7 @@ Write the manifest for the ClusterQueue. It should look similar to the following
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -83,7 +83,7 @@ Write the manifest for the ResourceFlavor. It should look similar to the followi
 
 ```yaml
 # default-flavor.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
@@ -110,7 +110,7 @@ Write the manifest for the LocalQueue. It should look similar to the following:
 
 ```yaml
 # default-user-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   namespace: "default"
@@ -140,7 +140,7 @@ following:
 
 ```yaml
 # flavor-x86.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "x86"
@@ -151,7 +151,7 @@ spec:
 
 ```yaml
 # flavor-arm.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: "arm"
@@ -178,7 +178,7 @@ look similar to the following:
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -226,13 +226,13 @@ ClusterQueues `team-a-cq` and `team-b-cq`.
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -247,13 +247,13 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {}
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
@@ -289,13 +289,13 @@ tenants look like the following:
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -318,13 +318,13 @@ spec:
 
 ```yaml
 # team-b-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "team-b-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -347,13 +347,13 @@ spec:
 
 ```yaml
 # shared-cq.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "shared-cq"
 spec:
   namespaceSelector: {} # match all.
-  cohort: "team-ab"
+  cohortName: "team-ab"
   resourceGroups:
   - coveredResources: ["cpu"]
     flavors:
@@ -394,7 +394,7 @@ Follow the [installation instructions for using a custom configuration](/docs/in
 and extend the configuration with fields similar to the following:
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   excludeResourcePrefixes:
@@ -403,13 +403,7 @@ resources:
 
 ## Transform resources for quota management
 
-{{< feature-state state="beta" for_version="v0.10" >}}
-{{% alert title="Note" color="primary" %}}
-
-`ConfigurableResourceTransformation` is a Beta feature that is enabled by default.
-
-You can disable it by setting the `ConfigurableResourceTransformation` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-{{% /alert %}}
+{{< feature-state state="stable" for_version="v0.14" >}}
 
 An administrator may customize how the resources requested by Pods are
 converted into Workload resource requests. This enables
@@ -428,7 +422,7 @@ Follow the [installation instructions for using a custom configuration](/docs/in
 and extend the Kueue configuration with fields similar to the following:
 
 ```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
   transformations:

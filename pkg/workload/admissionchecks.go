@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
@@ -46,6 +46,7 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		Reason:             "Admitted",
 		Message:            "The workload is admitted",
 		ObservedGeneration: w.Generation,
+		LastTransitionTime: metav1.NewTime(now),
 	}
 	switch {
 	case !hasReservation && !hasAllChecksReady:
@@ -72,10 +73,10 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		// in practice the oldCondition cannot be nil, however we should try to avoid nil ptr deref.
 		if oldCondition != nil {
 			d := int32(now.Sub(oldCondition.LastTransitionTime.Time).Seconds())
-			if w.Status.AccumulatedPastExexcutionTimeSeconds != nil {
-				*w.Status.AccumulatedPastExexcutionTimeSeconds += d
+			if w.Status.AccumulatedPastExecutionTimeSeconds != nil {
+				*w.Status.AccumulatedPastExecutionTimeSeconds += d
 			} else {
-				w.Status.AccumulatedPastExexcutionTimeSeconds = &d
+				w.Status.AccumulatedPastExecutionTimeSeconds = &d
 			}
 		}
 	}
@@ -99,9 +100,9 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) {
+func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
 	if checks == nil {
-		return
+		return false
 	}
 	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
@@ -109,7 +110,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
 		}
 		*checks = append(*checks, newCheck)
-		return
+		return true
 	}
 
 	if existingCondition.State != newCheck.State {
@@ -122,6 +123,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	}
 	existingCondition.Message = newCheck.Message
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
+	return true
 }
 
 // RejectedChecks returns the list of Rejected admission checks

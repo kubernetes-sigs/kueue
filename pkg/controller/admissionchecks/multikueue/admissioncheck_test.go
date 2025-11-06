@@ -25,8 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestReconcile(t *testing.T) {
@@ -45,14 +47,14 @@ func TestReconcile(t *testing.T) {
 		"missing config": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
@@ -68,12 +70,12 @@ func TestReconcile(t *testing.T) {
 		"unmanaged": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName("not-multikueue").
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName("not-multikueue").
 					Obj(),
 			},
@@ -81,17 +83,17 @@ func TestReconcile(t *testing.T) {
 		"missing cluster": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			configs: []kueue.MultiKueueConfig{
-				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+				*utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
@@ -107,22 +109,22 @@ func TestReconcile(t *testing.T) {
 		"inactive cluster": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			configs: []kueue.MultiKueueConfig{
-				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+				*utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
@@ -138,25 +140,25 @@ func TestReconcile(t *testing.T) {
 		"all clusters missing or inactive": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			configs: []kueue.MultiKueueConfig{
-				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
+				*utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
 			},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
-				*utiltesting.MakeMultiKueueCluster("worker2").
+				*utiltestingapi.MakeMultiKueueCluster("worker2").
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
@@ -172,25 +174,25 @@ func TestReconcile(t *testing.T) {
 		"partially active": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			configs: []kueue.MultiKueueConfig{
-				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
+				*utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
 			},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
-				*utiltesting.MakeMultiKueueCluster("worker2").
+				*utiltestingapi.MakeMultiKueueCluster("worker2").
 					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
@@ -206,22 +208,22 @@ func TestReconcile(t *testing.T) {
 		"active": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			configs: []kueue.MultiKueueConfig{
-				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+				*utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
-				*utiltesting.MakeAdmissionCheck("ac1").
+				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
@@ -253,7 +255,7 @@ func TestReconcile(t *testing.T) {
 
 			c := builder.Build()
 
-			helper, _ := newMultiKueueStoreHelper(c)
+			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})

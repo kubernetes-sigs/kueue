@@ -30,8 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
@@ -53,19 +52,24 @@ type PodSetInfo struct {
 
 // FromAssignment returns a PodSetInfo based on the provided assignment and an error if unable
 // to get any of the referenced flavors.
-func FromAssignment(ctx context.Context, client client.Client, assignment *kueue.PodSetAssignment, defaultCount int32) (PodSetInfo, error) {
+func FromAssignment(ctx context.Context, client client.Client, assignment *kueue.PodSetAssignment, podSet *kueue.PodSet) (PodSetInfo, error) {
 	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
 	info := PodSetInfo{
 		Name:         assignment.Name,
 		NodeSelector: make(map[string]string),
-		Count:        ptr.Deref(assignment.Count, defaultCount),
+		Count:        ptr.Deref(assignment.Count, podSet.Count),
 		Labels:       make(map[string]string),
 		Annotations:  make(map[string]string),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
-		info.Labels[kueuealpha.TASLabel] = "true"
+		// For implicit TAS we inject the "unconstrained" topology by default, even if unspecified.
+		if podSet.TopologyRequest == nil || (podSet.TopologyRequest.Preferred == nil &&
+			podSet.TopologyRequest.Required == nil &&
+			podSet.TopologyRequest.Unconstrained == nil) {
+			info.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] = "true"
+		}
 		info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{
-			Name: kueuealpha.TopologySchedulingGate,
+			Name: kueue.TopologySchedulingGate,
 		})
 	}
 	for _, flvRef := range assignment.Flavors {

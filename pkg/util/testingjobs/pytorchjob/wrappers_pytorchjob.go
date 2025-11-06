@@ -75,7 +75,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecs(replicaSpecs ...PyTorchReplicaSp
 	return j
 }
 
-func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
+func (j *PyTorchJobWrapper) PyTorchReplicaSpecsOnlyMasterDefault() *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster] = &kftraining.ReplicaSpec{
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
@@ -96,6 +96,12 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 			},
 		},
 	}
+
+	return j
+}
+
+func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
+	j.PyTorchReplicaSpecsOnlyMasterDefault()
 
 	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker] = &kftraining.ReplicaSpec{
 		Replicas: ptr.To[int32](1),

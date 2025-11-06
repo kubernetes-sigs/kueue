@@ -23,9 +23,9 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestValidateCohort(t *testing.T) {
@@ -40,9 +40,9 @@ func TestValidateCohort(t *testing.T) {
 	}{
 		{
 			name: "flavor quota with lendingLimit and empty parent",
-			cohort: testingutil.MakeCohort("cohort").
+			cohort: utiltestingapi.MakeCohort("cohort").
 				ResourceGroup(
-					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "1").Obj()).
+					*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "1", "", "1").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("lendingLimit"), "1", "must be nil when parent is empty"),

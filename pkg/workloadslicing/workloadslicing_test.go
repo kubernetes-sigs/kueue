@@ -34,18 +34,19 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/kubernetes/scheme"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -92,6 +93,11 @@ func TestEnabled(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			// Always false when feature is disabled (not enabled).
+			if got := Enabled(tt.args.object); got {
+				t.Error("Enabled() = true, want false when feature is not enabled")
+			}
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			if got := Enabled(tt.args.object); got != tt.want {
 				t.Errorf("Enabled() = %v, want %v", got, tt.want)
 			}
@@ -157,8 +163,8 @@ func testWorkloadClientBuilder() *fake.ClientBuilder {
 		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testJobGVK), indexer.WorkloadOwnerIndexFunc(testJobGVK))
 }
 
-func testWorkload(name, jobName string, jobUID types.UID, created time.Time) *utiltesting.WorkloadWrapper {
-	return utiltesting.MakeWorkload(name, "default").
+func testWorkload(name, jobName string, jobUID types.UID, created time.Time) *utiltestingapi.WorkloadWrapper {
+	return utiltestingapi.MakeWorkload(name, "default").
 		OwnerReference(testJobGVK, jobName, string(jobUID)).
 		Creation(created).
 		ResourceVersion("1").
@@ -305,6 +311,7 @@ func TestFinish(t *testing.T) {
 		workload *kueue.Workload
 	}
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	tests := map[string]struct {
 		args args
 		want want
@@ -327,13 +334,13 @@ func TestFinish(t *testing.T) {
 		"AlreadyFinishedWorkload": {
 			args: args{
 				clnt: testWorkloadClientBuilder().
-					WithObjects(testWorkload("test", "test-job", "job-uid", now).Finished().Obj()).Build(),
-				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
+					WithObjects(testWorkload("test", "test-job", "job-uid", now).FinishedAt(now).Obj()).Build(),
+				workloadSlice: testWorkload("test", "test-job", "job-uid", now).FinishedAt(now).Obj(),
 				reason:        "TestReason",
 				message:       "Test Message.",
 			},
 			want: want{
-				workload: testWorkload("test", "test-job", "job-uid", now).Finished().Obj(),
+				workload: testWorkload("test", "test-job", "job-uid", now).FinishedAt(now).Obj(),
 			},
 		},
 		"NotFinished": {
@@ -349,10 +356,11 @@ func TestFinish(t *testing.T) {
 				workload: testWorkload("test", "test-job", "job-uid", now).
 					ResourceVersion("2").
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "TestReason",
-						Message: "Test Message.",
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             "TestReason",
+						Message:            "Test Message.",
+						LastTransitionTime: metav1.NewTime(now),
 					}).Obj(),
 			},
 		},
@@ -360,7 +368,7 @@ func TestFinish(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			if err := Finish(ctx, tt.args.clnt, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
+			if err := Finish(ctx, tt.args.clnt, fakeClock, tt.args.workloadSlice, tt.args.reason, tt.args.message); (err != nil) != tt.want.err {
 				t.Errorf("Finish() error = %v, wantErr %v", err, tt.want.err)
 			}
 			if tt.want.workload != nil {
@@ -390,6 +398,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		error      bool
 	}
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 	testPodSets := func(count int32) []kueue.PodSet {
 		return []kueue.PodSet{
@@ -486,12 +495,12 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"OneWorkloadSlice_IncompatibleWithJob": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet("different-name", 1).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet("different-name", 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -499,20 +508,20 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"OneWorkloadSlice_CurrentWorkload": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 				compatible: true,
 			},
@@ -520,13 +529,13 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"OneWorkloadSlice_ReservedQuota_ScaleUp": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -537,24 +546,26 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"OneWorkloadSlice_ReservedQuota_ScaleUp_MultiplePodSets": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						PodSets(
-							*utiltesting.MakePodSet("scale-up", 3).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("scale-up", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(),
 						).
-						ReserveQuota(utiltesting.MakeAdmission("default", "scaled-up", "scale-down", "stay-the-same").
-							AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
-							Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("scaled-up").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+								utiltestingapi.MakePodSetAssignment("scale-down").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+								utiltestingapi.MakePodSetAssignment("stay-the-same").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+							).
+							Obj(), now).
 						Obj()).Build(),
 				jobPodSets: []kueue.PodSet{
-					*utiltesting.MakePodSet("scale-up", 4).Request(corev1.ResourceCPU, "1").Obj(),      // <-- scaled-up.
-					*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(), // <-- stayed the same.
-					*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),    // <-- scaled-down.
+					*utiltestingapi.MakePodSet("scale-up", 4).Request(corev1.ResourceCPU, "1").Obj(),      // <-- scaled-up.
+					*utiltestingapi.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(), // <-- stayed the same.
+					*utiltestingapi.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),    // <-- scaled-down.
 				},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
@@ -566,116 +577,120 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"OneWorkloadSlice_ReservedQuota_ScaleDown": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(3).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(3).Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 					Obj(),
 			},
 		},
 		"OneWorkloadSlice_ReservedQuota_ScaleDown_MultiplePodSets": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						PodSets(
-							*utiltesting.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
-							*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", "scale-down", "stay-the-same").
-							AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
-							AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
-							Obj()).
+							*utiltestingapi.MakePodSet("scale-down", 3).Request(corev1.ResourceCPU, "1").Obj(),
+							*utiltestingapi.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("scale-down").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+								utiltestingapi.MakePodSetAssignment("stay-the-same").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+							).
+							Obj(), now).
 						Obj()).Build(),
 				jobPodSets: []kueue.PodSet{
-					*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),    // <-- scaled-down.
-					*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(), // <-- stayed the same.
+					*utiltestingapi.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),    // <-- scaled-down.
+					*utiltestingapi.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj(), // <-- stayed the same.
 				},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
 					PodSets(
-						*utiltesting.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),
-						*utiltesting.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("default", "scale-down", "stay-the-same").
-						AssignmentWithIndex(0, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(0, 3).
-						AssignmentWithIndex(1, corev1.ResourceCPU, "default", "1").AssignmentPodCountWithIndex(1, 3).
-						Obj()).
+						*utiltestingapi.MakePodSet("scale-down", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("stay-the-same", 3).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment("scale-down").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+							utiltestingapi.MakePodSetAssignment("stay-the-same").Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+						).
+						Obj(), now).
 					Obj(),
 			},
 		},
 		"OneWorkloadSlice_UnreservedQuota_ScaleUp": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 		},
 		"OneWorkloadSlice_UnreservedQuota_ScaleDown": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 		},
 		"OneWorkloadSlice_UpdateFailure": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).WithInterceptorFuncs(interceptor.Funcs{
 					Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 						return errors.New("test-update-error")
 					}}).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -688,17 +703,17 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"TwoWorkloads_BothUnreserved_NewIsCurrent": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
@@ -706,34 +721,34 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						},
 					}).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
 					Creation(now).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 		},
 		"TwoWorkloads_BothUnreserved_NewIsCurrent_FailureToPatchOldSliceStatus": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(_ context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
@@ -741,7 +756,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						},
 					}).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -753,21 +768,21 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"TwoWorkloads_NewIsIncompatible": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet("different-key", 1).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet("different-key", 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -775,22 +790,22 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"TwoWorkloads_BothWithReservedQuota": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(3).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 						Obj()).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -802,22 +817,22 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"TwoWorkloads_OldWithReservedQuotaAndEvicted_NewWithoutQuotaReservation": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Evicted().
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -829,110 +844,110 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"TwoWorkloadSlices_NewIsUnreservedAndCurrent": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
 					Creation(now).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndOutOfSync_ScaleUp": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
 					Creation(now).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndOutOfSync_ScaleDown": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
 				compatible: true,
-				workload: utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("2").
 					Creation(now).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndOutOfSync_UpdateFailure": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					utiltesting.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-						ReserveQuota(utiltesting.MakeAdmission("default", kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").AssignmentPodCount(1).Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
 						Obj(),
-					utiltesting.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
-						PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						Update: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
@@ -944,7 +959,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						},
 					}).
 					Build(),
-				jobPodSets:   []kueue.PodSet{*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -974,7 +989,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if (gotError != nil) != tt.want.error {
 				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
 				return
@@ -1049,7 +1064,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 						// Gated pod - gate should be removed.
 						testPod("test-two", "200", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}),
 						// Gated with some other gate -
-						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate}),
+						testPod("test-three", "300", testJobObject, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
 						// Other gated pod (not for this job)
 						testPod("other-pod", "400", &batchv1.Job{
 							ObjectMeta: metav1.ObjectMeta{
@@ -1066,7 +1081,7 @@ func Test_StartWorkloadSlicePods(t *testing.T) {
 					// Gated pod - gate removed (resource version increase).
 					testPod("test-two", "201", testJobObject),
 					// Gated with some other gate - other gate remains (resource version increased).
-					testPod("test-three", "301", testJobObject, corev1.PodSchedulingGate{Name: kueuealpha.TopologySchedulingGate}),
+					testPod("test-three", "301", testJobObject, corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}),
 					// Other gated pod (not for this job) - no change.
 					testPod("other-pod", "400", &batchv1.Job{
 						ObjectMeta: metav1.ObjectMeta{
@@ -1138,20 +1153,20 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"EdgeCase_SnapshotIsNil": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltesting.MakeWorkload("test", "default").Obj()),
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").Obj()),
 			},
 		},
 		"WorkloadWithoutReplacementAnnotation": {
 			featureEnabled: true,
 			args: args{
-				wl:   workload.NewInfo(utiltesting.MakeWorkload("test", "default").Obj()),
+				wl:   workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").Obj()),
 				snap: &schdcache.Snapshot{},
 			},
 		},
 		"ReplacedWorkloadIsNotFound_MissingClusterQueue": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Obj()),
 				snap: &schdcache.Snapshot{
@@ -1164,9 +1179,9 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"EdgeCase_ReplacedWorkloadIsNotFound_NotInClusterQueue": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
-					Admission(utiltesting.MakeAdmission("default").Obj()).
+					Admission(utiltestingapi.MakeAdmission("default").Obj()).
 					Obj()),
 				snap: &schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
@@ -1180,9 +1195,9 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"ReplacedWorkloadIsFound": {
 			featureEnabled: true,
 			args: args{
-				wl: workload.NewInfo(utiltesting.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
-					Admission(utiltesting.MakeAdmission("default").Obj()).
+					Admission(utiltestingapi.MakeAdmission("default").Obj()).
 					Obj()),
 				snap: &schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
@@ -1190,16 +1205,16 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"default": {
 								Workloads: map[workload.Reference]*workload.Info{
-									"test-old": workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj()),
+									"test-old": workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 								},
 							},
 						}),
 				},
 			},
 			want: want{
-				wl: workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj()),
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 				targets: []*preemption.Target{
-					{WorkloadInfo: workload.NewInfo(utiltesting.MakeWorkload("test-old", "default").Obj())},
+					{WorkloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj())},
 				},
 			},
 		},

@@ -28,9 +28,9 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
@@ -58,7 +58,7 @@ type LocalQueueOptions struct {
 	LabelSelector      string
 	ClusterQueueFilter string
 
-	Client kueuev1beta1.KueueV1beta1Interface
+	Client kueuev1beta2.KueueV1beta2Interface
 
 	genericiooptions.IOStreams
 }
@@ -123,7 +123,7 @@ func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter) error {
 		return err
 	}
 
-	o.Client = clientset.KueueV1beta1()
+	o.Client = clientset.KueueV1beta2()
 
 	return nil
 }
@@ -205,11 +205,11 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	}
 }
 
-func (o *LocalQueueOptions) filterList(list *v1beta1.LocalQueueList) {
+func (o *LocalQueueOptions) filterList(list *kueue.LocalQueueList) {
 	if len(o.ClusterQueueFilter) > 0 {
-		filteredItems := make([]v1beta1.LocalQueue, 0, len(o.ClusterQueueFilter))
+		filteredItems := make([]kueue.LocalQueue, 0, len(o.ClusterQueueFilter))
 		for _, lq := range list.Items {
-			if lq.Spec.ClusterQueue == v1beta1.ClusterQueueReference(o.ClusterQueueFilter) {
+			if lq.Spec.ClusterQueue == kueue.ClusterQueueReference(o.ClusterQueueFilter) {
 				filteredItems = append(filteredItems, lq)
 			}
 		}

@@ -23,8 +23,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -75,7 +74,7 @@ func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
 	}
 }
 
-func (t *tasCache) AddTopology(topology *kueuealpha.Topology) {
+func (t *tasCache) AddTopology(topology *kueue.Topology) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.TopologyReference(topology.Name)

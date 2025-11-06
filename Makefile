@@ -52,6 +52,7 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(BIN_DIR)
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
+MOCKS_DIR := internal/mocks
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -86,7 +87,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.13.3
+RELEASE_VERSION=v0.14.4
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -126,18 +127,30 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+	$(MAKE) compile-crd-manifests
+
+.PHONY: compile-crd-manifests
+compile-crd-manifests: kustomize
+	@mkdir -p config/components/crd/_output
+	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
 
 .PHONY: update-helm
 update-helm: manifests yq yaml-processor
 	$(BIN_DIR)/yaml-processor -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
 .PHONY: generate
-generate: gomod-download generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
+generate: gomod-download generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs
 
 .PHONY: generate-code
 generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
+
+.PHONY: generate-mocks
+generate-mocks: mockgen ## Generate mockgen mocks
+	# Clean up previously generated mocks to keep generated mocks up-to-date.
+	rm -rf $(MOCKS_DIR)
+	$(MOCKGEN) -destination=$(MOCKS_DIR)/controller/jobframework/interface.go -package mocks sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -229,6 +242,14 @@ ci-lint: golangci-lint
 lint-fix: GOLANGCI_LINT_FIX=--fix
 lint-fix: ci-lint
 
+.PHONY: lint-api
+lint-api: golangci-lint-kal
+	$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yml ${GOLANGCI_LINT_FIX}
+
+.PHONY: lint-api-fix
+lint-api-fix: GOLANGCI_LINT_FIX=--fix
+lint-api-fix: lint-api
+
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
@@ -239,7 +260,7 @@ sync-hugo-version:
 
 PATHS_TO_VERIFY := config/components apis charts/kueue client-go site/ netlify.toml
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
+verify: gomod-verify ci-lint lint-api fmt-verify shell-lint toc-verify manifests generate update-helm helm-verify helm-unit-test prepare-release-branch sync-hugo-version npm-depcheck
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 

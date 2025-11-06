@@ -24,7 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -160,16 +160,17 @@ type drsKey struct {
 }
 
 type entryComparer struct {
-	drsValues        map[drsKey]int
+	drsValues        map[drsKey]schdcache.DRS
 	workloadOrdering workload.Ordering
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
+
 	// 1: DRF
-	if aDrs != bDrs {
-		return aDrs < bDrs
+	if cmp := schdcache.CompareDRS(aDrs, bDrs); cmp != 0 {
+		return cmp == -1
 	}
 
 	// 2: Priority
@@ -193,7 +194,7 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 // all children the parentCohort, to select the child with the lowest
 // DRS after admission of its nominated workload.
 func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEntry map[*schdcache.ClusterQueueSnapshot]*entry) {
-	e.drsValues = make(map[drsKey]int)
+	e.drsValues = make(map[drsKey]schdcache.DRS)
 	for _, cq := range rootCohort.SubtreeClusterQueues() {
 		entry, ok := cqToEntry[cq]
 		if !ok {
@@ -221,7 +222,7 @@ func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 	if logV := log.V(5); logV.Enabled() {
 		serializableDrs := make([]string, 0, len(e.drsValues))
 		for k, v := range e.drsValues {
-			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %d}", k.parentCohort, k.workloadKey, v))
+			serializableDrs = append(serializableDrs, fmt.Sprintf("{parentCohort: %s, workload %s, drs: %.3f}", k.parentCohort, k.workloadKey, v.PreciseWeightedShare()))
 		}
 		logV.Info("DominantResourceShare values used during tournament", "drsValues", serializableDrs)
 	}

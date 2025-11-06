@@ -37,48 +37,48 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestCacheClusterQueueOperations(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	initialClusterQueues := []kueue.ClusterQueue{
-		*utiltesting.MakeClusterQueue("a").
+		*utiltestingapi.MakeClusterQueue("a").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("default").
+				*utiltestingapi.MakeFlavorQuotas("default").
 					Resource(corev1.ResourceCPU, "10", "10").Obj()).
 			Cohort("one").
 			NamespaceSelector(nil).
 			Obj(),
-		*utiltesting.MakeClusterQueue("b").
+		*utiltestingapi.MakeClusterQueue("b").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("default").
+				*utiltestingapi.MakeFlavorQuotas("default").
 					Resource(corev1.ResourceCPU, "15").Obj()).
 			Cohort("one").
 			NamespaceSelector(nil).
 			Obj(),
-		*utiltesting.MakeClusterQueue("c").
+		*utiltestingapi.MakeClusterQueue("c").
 			Cohort("two").
 			NamespaceSelector(nil).
 			Obj(),
-		*utiltesting.MakeClusterQueue("d").
+		*utiltestingapi.MakeClusterQueue("d").
 			NamespaceSelector(nil).
 			Obj(),
-		*utiltesting.MakeClusterQueue("e").
+		*utiltestingapi.MakeClusterQueue("e").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("nonexistent-flavor").
+				*utiltestingapi.MakeFlavorQuotas("nonexistent-flavor").
 					Resource(corev1.ResourceCPU, "15").Obj()).
 			Cohort("two").
 			NamespaceSelector(nil).
 			Obj(),
-		*utiltesting.MakeClusterQueue("f").
+		*utiltestingapi.MakeClusterQueue("f").
 			Cohort("two").
 			NamespaceSelector(nil).
 			FlavorFungibility(kueue.FlavorFungibility{
@@ -88,7 +88,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	}
 	setup := func(log logr.Logger, cache *Cache) error {
 		cache.AddOrUpdateResourceFlavor(log,
-			utiltesting.MakeResourceFlavor("default").
+			utiltestingapi.MakeResourceFlavor("default").
 				NodeLabel("cpuType", "default").
 				Obj())
 		for _, c := range initialClusterQueues {
@@ -119,7 +119,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"b": {
 					Name:                          "b",
@@ -128,7 +128,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"c": {
 					Name:                          "c",
@@ -137,7 +137,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"d": {
 					Name:                          "d",
@@ -146,7 +146,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"e": {
 					Name:                          "e",
@@ -155,7 +155,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"f": {
 					Name:                          "f",
@@ -167,7 +167,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -178,7 +178,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "add ClusterQueue with preemption policies",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cq := utiltesting.MakeClusterQueue("foo").Preemption(kueue.ClusterQueuePreemption{
+				cq := utiltestingapi.MakeClusterQueue("foo").Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				}).Obj()
@@ -198,14 +198,14 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 		},
 		{
 			name: "add ClusterQueue with fair sharing weight",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cq := utiltesting.MakeClusterQueue("foo").FairWeight(resource.MustParse("2")).Obj()
+				cq := utiltestingapi.MakeClusterQueue("foo").FairWeight(resource.MustParse("2")).Obj()
 				if err := cache.AddClusterQueue(ctx, cq); err != nil {
 					return fmt.Errorf("failed to add ClusterQueue: %w", err)
 				}
@@ -219,7 +219,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Status:                        active,
 					FlavorFungibility:             defaultFlavorFungibility,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    resource.MustParse("2"),
+					FairWeight:                    2.0,
 				},
 			},
 		},
@@ -232,7 +232,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					}
 				}
 				cache.AddOrUpdateResourceFlavor(log,
-					utiltesting.MakeResourceFlavor("default").
+					utiltestingapi.MakeResourceFlavor("default").
 						NodeLabel("cpuType", "default").
 						Obj())
 				return nil
@@ -245,7 +245,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:             labels.Nothing(),
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"b": {
 					Name:                          "b",
@@ -254,7 +254,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:             labels.Nothing(),
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"c": {
 					Name:                          "c",
@@ -263,7 +263,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"d": {
 					Name:                          "d",
@@ -272,7 +272,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"e": {
 					Name:                          "e",
@@ -281,7 +281,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"f": {
 					Name:                          "f",
@@ -293,7 +293,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -309,17 +309,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					return err
 				}
 				clusterQueues := []kueue.ClusterQueue{
-					*utiltesting.MakeClusterQueue("a").
+					*utiltestingapi.MakeClusterQueue("a").
 						ResourceGroup(
-							*utiltesting.MakeFlavorQuotas("default").
+							*utiltestingapi.MakeFlavorQuotas("default").
 								Resource(corev1.ResourceCPU, "5", "5").Obj()).
 						Cohort("two").
 						NamespaceSelector(nil).
 						Obj(),
-					*utiltesting.MakeClusterQueue("b").Cohort("one").Obj(), // remove the only resource group and set a namespace selector.
-					*utiltesting.MakeClusterQueue("e").
+					*utiltestingapi.MakeClusterQueue("b").Cohort("one").Obj(), // remove the only resource group and set a namespace selector.
+					*utiltestingapi.MakeClusterQueue("e").
 						ResourceGroup(
-							*utiltesting.MakeFlavorQuotas("default").
+							*utiltestingapi.MakeFlavorQuotas("default").
 								Resource(corev1.ResourceCPU, "5", "5", "4").
 								Obj()).
 						Cohort("two").
@@ -332,7 +332,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					}
 				}
 				cache.AddOrUpdateResourceFlavor(log,
-					utiltesting.MakeResourceFlavor("default").
+					utiltestingapi.MakeResourceFlavor("default").
 						NodeLabel("cpuType", "default").
 						NodeLabel("region", "central").
 						Obj())
@@ -346,7 +346,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"b": {
 					Name:                          "b",
@@ -355,7 +355,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"c": {
 					Name:                          "c",
@@ -364,7 +364,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"d": {
 					Name:                          "d",
@@ -373,7 +373,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"e": {
 					Name:                          "e",
@@ -382,7 +382,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"f": {
 					Name:                          "f",
@@ -394,7 +394,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -406,13 +406,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "shouldn't delete usage resources on update ClusterQueue",
 			operation: func(log logr.Logger, cache *Cache) error {
 				cache.AddOrUpdateResourceFlavor(log,
-					utiltesting.MakeResourceFlavor("default").
+					utiltestingapi.MakeResourceFlavor("default").
 						NodeLabel("cpuType", "default").
 						Obj())
 
-				cq := utiltesting.MakeClusterQueue("a").
+				cq := utiltestingapi.MakeClusterQueue("a").
 					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("default").
+						*utiltestingapi.MakeFlavorQuotas("default").
 							Resource(corev1.ResourceCPU, "10", "10").Obj()).
 					Cohort("one").
 					NamespaceSelector(nil).
@@ -422,18 +422,19 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					return fmt.Errorf("failed adding ClusterQueue: %w", err)
 				}
 
-				wl := utiltesting.MakeWorkload("one", "").
+				wl := utiltestingapi.MakeWorkload("one", "").
 					Request(corev1.ResourceCPU, "5").
-					ReserveQuota(utiltesting.MakeAdmission("a").
-						Assignment(corev1.ResourceCPU, "default", "5000m").
-						Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "5000m").
+							Obj()).Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 					Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
 
-				cq = utiltesting.MakeClusterQueue("a").
-					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").Obj()).
+				cq = utiltestingapi.MakeClusterQueue("a").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Obj()).
 					Cohort("one").
 					NamespaceSelector(nil).
 					Obj()
@@ -460,14 +461,15 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 					Workloads: map[workload.Reference]*workload.Info{
 						"/one": {
-							Obj: utiltesting.MakeWorkload("one", "").
+							Obj: utiltestingapi.MakeWorkload("one", "").
 								Request(corev1.ResourceCPU, "5").
-								ReserveQuota(utiltesting.MakeAdmission("a").
-									Assignment(corev1.ResourceCPU, "default", "5000m").
-									Obj()).
+								ReserveQuota(utiltestingapi.MakeAdmission("a").
+									PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+										Assignment(corev1.ResourceCPU, "default", "5000m").
+										Obj()).Obj()).
 								Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 								Obj(),
 							TotalRequests: []workload.PodSetResources{
@@ -495,17 +497,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(log logr.Logger, cache *Cache) error {
 				_ = setup(log, cache)
 				updateCqs := []kueue.ClusterQueue{
-					*utiltesting.MakeClusterQueue("a").NamespaceSelector(nil).Cohort("three").Obj(),
-					*utiltesting.MakeClusterQueue("b").NamespaceSelector(nil).Obj(),
-					*utiltesting.MakeClusterQueue("c").NamespaceSelector(nil).Cohort("three").Obj(),
+					*utiltestingapi.MakeClusterQueue("a").NamespaceSelector(nil).Cohort("three").Obj(),
+					*utiltestingapi.MakeClusterQueue("b").NamespaceSelector(nil).Obj(),
+					*utiltestingapi.MakeClusterQueue("c").NamespaceSelector(nil).Cohort("three").Obj(),
 				}
 				for _, c := range updateCqs {
 					_ = cache.UpdateClusterQueue(log, &c)
 				}
 				deleteCqs := []kueue.ClusterQueue{
-					*utiltesting.MakeClusterQueue("d").Cohort("two").Obj(),
-					*utiltesting.MakeClusterQueue("e").Cohort("two").Obj(),
-					*utiltesting.MakeClusterQueue("f").Cohort("two").Obj(),
+					*utiltestingapi.MakeClusterQueue("d").Cohort("two").Obj(),
+					*utiltestingapi.MakeClusterQueue("e").Cohort("two").Obj(),
+					*utiltestingapi.MakeClusterQueue("f").Cohort("two").Obj(),
 				}
 				for _, c := range deleteCqs {
 					cache.DeleteClusterQueue(&c)
@@ -519,7 +521,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 					NamespaceSelector:             labels.Nothing(),
 				},
 				"b": {
@@ -528,7 +530,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 					NamespaceSelector:             labels.Nothing(),
 				},
 				"c": {
@@ -537,7 +539,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 					NamespaceSelector:             labels.Nothing(),
 				},
 			},
@@ -572,7 +574,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"c": {
 					Name:                          "c",
@@ -581,7 +583,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"e": {
 					Name:                          "e",
@@ -590,7 +592,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"f": {
 					Name:                          "f",
@@ -602,7 +604,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -617,7 +619,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("nonexistent-flavor").Obj())
+				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("nonexistent-flavor").Obj())
 				return nil
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
@@ -628,7 +630,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"b": {
 					Name:                          "b",
@@ -637,7 +639,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"c": {
 					Name:                          "c",
@@ -646,7 +648,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"d": {
 					Name:                          "d",
@@ -655,7 +657,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"e": {
 					Name:                          "e",
@@ -664,7 +666,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 				"f": {
 					Name:                          "f",
@@ -676,7 +678,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -688,20 +690,20 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "Add ClusterQueue with multiple resource groups",
 			operation: func(log logr.Logger, cache *Cache) error {
 				err := cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("foo").
+					utiltestingapi.MakeClusterQueue("foo").
 						ResourceGroup(
-							*utiltesting.MakeFlavorQuotas("foo").
+							*utiltestingapi.MakeFlavorQuotas("foo").
 								Resource("cpu").
 								Resource("memory").
 								Obj(),
-							*utiltesting.MakeFlavorQuotas("bar").
+							*utiltestingapi.MakeFlavorQuotas("bar").
 								Resource("cpu").
 								Resource("memory").
 								Obj(),
 						).
 						ResourceGroup(
-							*utiltesting.MakeFlavorQuotas("theta").Resource("example.com/gpu").Obj(),
-							*utiltesting.MakeFlavorQuotas("gamma").Resource("example.com/gpu").Obj(),
+							*utiltestingapi.MakeFlavorQuotas("theta").Resource("example.com/gpu").Obj(),
+							*utiltestingapi.MakeFlavorQuotas("gamma").Resource("example.com/gpu").Obj(),
 						).
 						Obj())
 				if err != nil {
@@ -717,7 +719,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
 					Preemption:                    defaultPreemption,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 			},
 		},
@@ -725,7 +727,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "add cluster queue with missing check",
 			operation: func(log logr.Logger, cache *Cache) error {
 				err := cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("foo").
+					utiltestingapi.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
 				if err != nil {
@@ -745,7 +747,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
@@ -754,15 +756,15 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "add check after queue creation",
 			operation: func(log logr.Logger, cache *Cache) error {
 				err := cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("foo").
+					utiltestingapi.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
 				if err != nil {
 					return fmt.Errorf("adding ClusterQueue: %w", err)
 				}
 
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				return nil
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
@@ -777,7 +779,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
@@ -785,17 +787,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "remove check after queue creation",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				err := cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("foo").
+					utiltestingapi.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
 				if err != nil {
 					return fmt.Errorf("adding ClusterQueue: %w", err)
 				}
 
-				cache.DeleteAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check2").Obj())
+				cache.DeleteAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Obj())
 				return nil
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
@@ -810,7 +812,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
@@ -818,17 +820,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "inactivate check after queue creation",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				err := cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("foo").
+					utiltestingapi.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
 						Obj())
 				if err != nil {
 					return fmt.Errorf("adding ClusterQueue: %w", err)
 				}
 
-				cache.AddOrUpdateAdmissionCheck(log, utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionFalse).Obj())
+				cache.AddOrUpdateAdmissionCheck(log, utiltestingapi.MakeAdmissionCheck("check2").Active(metav1.ConditionFalse).Obj())
 				return nil
 			},
 			wantClusterQueues: map[kueue.ClusterQueueReference]*clusterQueue{
@@ -843,7 +845,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{},
@@ -851,22 +853,34 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "add cluster queue after finished workloads",
 			clientObjects: []client.Object{
-				utiltesting.MakeLocalQueue("lq1", "ns").ClusterQueue("cq1").Obj(),
-				utiltesting.MakeWorkload("pending", "ns").Obj(),
-				utiltesting.MakeWorkload("reserving", "ns").ReserveQuota(
-					utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", "ns").ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeWorkload("pending", "ns").Obj(),
+				utiltestingapi.MakeWorkload("reserving", "ns").ReserveQuota(
+					utiltestingapi.MakeAdmission("cq1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "1").
+							Obj()).
+						Obj(),
 				).Obj(),
-				utiltesting.MakeWorkload("admitted", "ns").ReserveQuota(
-					utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj(),
+				utiltestingapi.MakeWorkload("admitted", "ns").ReserveQuota(
+					utiltestingapi.MakeAdmission("cq1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "1").
+							Obj()).
+						Obj(),
 				).Admitted(true).Obj(),
-				utiltesting.MakeWorkload("finished", "ns").ReserveQuota(
-					utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj(),
+				utiltestingapi.MakeWorkload("finished", "ns").ReserveQuota(
+					utiltestingapi.MakeAdmission("cq1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "1").
+							Obj()).
+						Obj(),
 				).Admitted(true).Finished().Obj(),
 			},
 			operation: func(log logr.Logger, cache *Cache) error {
-				cache.AddOrUpdateResourceFlavor(log, utiltesting.MakeResourceFlavor("f1").Obj())
+				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("f1").Obj())
 				err := cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("cq1").
+					utiltestingapi.MakeClusterQueue("cq1").
 						ResourceGroup(kueue.FlavorQuotas{
 							Name: "f1",
 							Resources: []kueue.ResourceQuota{
@@ -893,7 +907,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "f1", Resource: corev1.ResourceCPU}: 1000,
 					},
-					FairWeight: oneQuantity,
+					FairWeight: defaultWeight,
 					resourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "f1", Resource: corev1.ResourceCPU}: 2000,
@@ -934,7 +948,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "add CQ with multiple resource groups and flavors",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cq := utiltesting.MakeClusterQueue("foo").
+				cq := utiltestingapi.MakeClusterQueue("foo").
 					ResourceGroup(
 						kueue.FlavorQuotas{
 							Name: "on-demand",
@@ -990,7 +1004,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 			},
 		},
@@ -998,7 +1012,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name:                "should not populate the fields with lendingLimit when feature disabled",
 			disableLendingLimit: true,
 			operation: func(log logr.Logger, cache *Cache) error {
-				cq := utiltesting.MakeClusterQueue("foo").
+				cq := utiltestingapi.MakeClusterQueue("foo").
 					ResourceGroup(
 						kueue.FlavorQuotas{
 							Name: "on-demand",
@@ -1054,14 +1068,14 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 			},
 		},
 		{
 			name: "create cohort",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cohort := utiltesting.MakeCohort("cohort").Obj()
+				cohort := utiltestingapi.MakeCohort("cohort").Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -1071,7 +1085,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "create and delete cohort",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cohort := utiltesting.MakeCohort("cohort").Obj()
+				cohort := utiltestingapi.MakeCohort("cohort").Obj()
 				_ = cache.AddOrUpdateCohort(cohort)
 				cache.DeleteCohort(kueue.CohortReference(cohort.Name))
 				return nil
@@ -1081,11 +1095,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "cohort remains after deletion when child exists",
 			operation: func(log logr.Logger, cache *Cache) error {
-				cohort := utiltesting.MakeCohort("cohort").Obj()
+				cohort := utiltestingapi.MakeCohort("cohort").Obj()
 				_ = cache.AddOrUpdateCohort(cohort)
 
 				_ = cache.AddClusterQueue(ctx,
-					utiltesting.MakeClusterQueue("cq").Cohort("cohort").Obj())
+					utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").Obj())
 				cache.DeleteCohort(kueue.CohortReference(cohort.Name))
 				return nil
 			},
@@ -1097,7 +1111,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 2,
 					FlavorFungibility:             defaultFlavorFungibility,
-					FairWeight:                    oneQuantity,
+					FairWeight:                    defaultWeight,
 				},
 			},
 			wantCohorts: map[kueue.CohortReference]sets.Set[kueue.ClusterQueueReference]{
@@ -1142,27 +1156,27 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 
 func TestCacheWorkloadOperations(t *testing.T) {
 	clusterQueues := []kueue.ClusterQueue{
-		*utiltesting.MakeClusterQueue("one").
+		*utiltestingapi.MakeClusterQueue("one").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("on-demand").Resource("cpu").Obj(),
-				*utiltesting.MakeFlavorQuotas("spot").Resource("cpu").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("cpu").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot").Resource("cpu").Obj(),
 			).
 			NamespaceSelector(nil).
 			Obj(),
-		*utiltesting.MakeClusterQueue("two").
+		*utiltestingapi.MakeClusterQueue("two").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("on-demand").Resource("cpu").Obj(),
-				*utiltesting.MakeFlavorQuotas("spot").Resource("cpu").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("cpu").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("spot").Resource("cpu").Obj(),
 			).
 			NamespaceSelector(nil).
 			Obj(),
 	}
 	podSets := []kueue.PodSet{
-		*utiltesting.MakePodSet("driver", 1).
+		*utiltestingapi.MakePodSet("driver", 1).
 			Request(corev1.ResourceCPU, "10m").
 			Request(corev1.ResourceMemory, "512Ki").
 			Obj(),
-		*utiltesting.MakePodSet("workers", 3).
+		*utiltestingapi.MakePodSet("workers", 3).
 			Request(corev1.ResourceCPU, "5m").
 			Obj(),
 	}
@@ -1187,14 +1201,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 	}
 	cl := utiltesting.NewFakeClient(
-		utiltesting.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+		utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 			ClusterQueue:      "one",
 			PodSetAssignments: psAssignments,
 		}).Obj(),
-		utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+		utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 			ClusterQueue: "one",
 		}).Obj(),
-		utiltesting.MakeWorkload("c", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+		utiltestingapi.MakeWorkload("c", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 			ClusterQueue: "two",
 		}).Obj())
 
@@ -1215,14 +1229,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "add",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltesting.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
-					utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 						ClusterQueue: "two",
 					}).Obj(),
-					utiltesting.MakeWorkload("pending", "").Obj(),
+					utiltestingapi.MakeWorkload("pending", "").Obj(),
 				}
 				for i := range workloads {
 					cache.AddOrUpdateWorkload(log, workloads[i])
@@ -1245,7 +1259,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add error clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
 				if !cache.AddOrUpdateWorkload(log, w) {
@@ -1270,7 +1284,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add already exists",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				if !cache.AddOrUpdateWorkload(log, w) {
@@ -1294,10 +1308,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update cluster queue for a workload",
 			operation: func(log logr.Logger, cache *Cache) error {
-				old := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				old := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				latest := utiltesting.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("a", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 					ClusterQueue:      "two",
 					PodSetAssignments: psAssignments,
 				}).Obj()
@@ -1323,10 +1337,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update error old clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				old := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				old := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
-				latest := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				return cache.UpdateWorkload(log, old, latest)
@@ -1348,10 +1362,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update error new clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				old := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				old := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				latest := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
 				return cache.UpdateWorkload(log, old, latest)
@@ -1373,10 +1387,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update workload which doesn't exist.",
 			operation: func(log logr.Logger, cache *Cache) error {
-				old := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				old := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				latest := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				latest := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "two",
 				}).Obj()
 				return cache.UpdateWorkload(log, old, latest)
@@ -1397,7 +1411,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				return cache.DeleteWorkload(log, w)
@@ -1418,7 +1432,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete workload with cancelled admission",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("a", "").Obj()
+				w := utiltestingapi.MakeWorkload("a", "").Obj()
 				return cache.DeleteWorkload(log, w)
 			},
 			wantResults: map[kueue.ClusterQueueReference]result{
@@ -1437,7 +1451,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "attempt deleting non-existing workload with cancelled admission",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("d", "").Obj()
+				w := utiltestingapi.MakeWorkload("d", "").Obj()
 				return cache.DeleteWorkload(log, w)
 			},
 			wantError: "cluster queue not found",
@@ -1457,7 +1471,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete error clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
 				return cache.DeleteWorkload(log, w)
@@ -1479,7 +1493,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete workload which doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				return cache.DeleteWorkload(log, w)
@@ -1501,11 +1515,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "assume",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
-					utiltesting.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "two",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
@@ -1541,7 +1555,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "assume error clusterQueue doesn't exist",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
 				if err := cache.AssumeWorkload(log, w); err != nil {
@@ -1568,11 +1582,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "forget",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
-					utiltesting.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "two",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
@@ -1609,7 +1623,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "forget error workload is not assumed",
 			operation: func(log logr.Logger, cache *Cache) error {
-				w := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				w := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				if err := cache.ForgetWorkload(log, w); err != nil {
@@ -1635,11 +1649,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			name: "add assumed workload",
 			operation: func(log logr.Logger, cache *Cache) error {
 				workloads := []*kueue.Workload{
-					utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "one",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
-					utiltesting.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
+					utiltestingapi.MakeWorkload("e", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 						ClusterQueue:      "two",
 						PodSetAssignments: psAssignments,
 					}).Obj(),
@@ -1713,22 +1727,22 @@ func TestCacheWorkloadOperations(t *testing.T) {
 }
 
 func TestClusterQueueUsage(t *testing.T) {
-	cq := utiltesting.MakeClusterQueue("foo").
+	cq := utiltestingapi.MakeClusterQueue("foo").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("default").
+			*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "10", "10").
 				Obj(),
 		).
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("model_a").
+			*utiltestingapi.MakeFlavorQuotas("model_a").
 				Resource("example.com/gpu", "5", "5").
 				Obj(),
-			*utiltesting.MakeFlavorQuotas("model_b").
+			*utiltestingapi.MakeFlavorQuotas("model_b").
 				Resource("example.com/gpu", "5").
 				Obj(),
 		).
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("interconnect_a").
+			*utiltestingapi.MakeFlavorQuotas("interconnect_a").
 				Resource("example.com/vf-0", "5", "5").
 				Resource("example.com/vf-1", "5", "5").
 				Resource("example.com/vf-2", "5", "5").
@@ -1736,18 +1750,28 @@ func TestClusterQueueUsage(t *testing.T) {
 		).
 		Cohort("one").Obj()
 	cqWithOutCohort := cq.DeepCopy()
-	cqWithOutCohort.Spec.Cohort = ""
+	cqWithOutCohort.Spec.CohortName = ""
 	workloads := []kueue.Workload{
-		*utiltesting.MakeWorkload("one", "").
+		*utiltestingapi.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
 			Request("example.com/gpu", "5").
-			ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "8000m").Assignment("example.com/gpu", "model_a", "5").Obj()).
+			ReserveQuota(utiltestingapi.MakeAdmission("foo").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "8000m").
+					Assignment("example.com/gpu", "model_a", "5").
+					Obj()).
+				Obj()).
 			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
-		*utiltesting.MakeWorkload("two", "").
+		*utiltestingapi.MakeWorkload("two", "").
 			Request(corev1.ResourceCPU, "5").
 			Request("example.com/gpu", "6").
-			ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "5000m").Assignment("example.com/gpu", "model_b", "6").Obj()).
+			ReserveQuota(utiltestingapi.MakeAdmission("foo").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "5000m").
+					Assignment("example.com/gpu", "model_b", "6").
+					Obj()).
+				Obj()).
 			Obj(),
 	}
 	cases := map[string]struct {
@@ -1965,14 +1989,14 @@ func TestClusterQueueUsage(t *testing.T) {
 		"clusterQueue with cohort; partial admission": {
 			clusterQueue: cq,
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("partial-one", "").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "4000m").AssignmentPodCount(2).Obj()).
+				*utiltestingapi.MakeWorkload("partial-one", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("foo").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "4000m").Count(2).Obj()).Obj()).
 					Admitted(true).
 					Obj(),
-				*utiltesting.MakeWorkload("partial-two", "").
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "4000m").AssignmentPodCount(2).Obj()).
+				*utiltestingapi.MakeWorkload("partial-two", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("foo").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "4000m").Count(2).Obj()).Obj()).
 					Obj(),
 			},
 			wantReservedResources: []kueue.FlavorUsage{
@@ -2074,26 +2098,26 @@ func TestClusterQueueUsage(t *testing.T) {
 }
 
 func TestLocalQueueUsage(t *testing.T) {
-	cq := *utiltesting.MakeClusterQueue("foo").
+	cq := *utiltestingapi.MakeClusterQueue("foo").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("default").
+			*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "10", "10").Obj(),
 		).
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("model-a").
+			*utiltestingapi.MakeFlavorQuotas("model-a").
 				Resource("example.com/gpu", "5").Obj(),
-			*utiltesting.MakeFlavorQuotas("model-b").
+			*utiltestingapi.MakeFlavorQuotas("model-b").
 				Resource("example.com/gpu", "5").Obj(),
 		).
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("interconnect-a").
+			*utiltestingapi.MakeFlavorQuotas("interconnect-a").
 				Resource("example.com/vf-0", "5", "5").
 				Resource("example.com/vf-1", "5", "5").
 				Resource("example.com/vf-2", "5", "5").
 				Obj(),
 		).
 		Obj()
-	localQueue := *utiltesting.MakeLocalQueue("test", "ns1").
+	localQueue := *utiltestingapi.MakeLocalQueue("test", "ns1").
 		ClusterQueue("foo").Obj()
 	cases := map[string]struct {
 		cq             *kueue.ClusterQueue
@@ -2103,7 +2127,7 @@ func TestLocalQueueUsage(t *testing.T) {
 	}{
 		"clusterQueue is missing": {
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("one", "ns1").
+				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "5").Obj(),
 			},
@@ -2152,24 +2176,26 @@ func TestLocalQueueUsage(t *testing.T) {
 		"all workloads are admitted": {
 			cq: &cq,
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("one", "ns1").
+				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "5").
 					Request("example.com/gpu", "5").
 					ReserveQuota(
-						utiltesting.MakeAdmission("foo").
-							Assignment(corev1.ResourceCPU, "default", "5000m").
-							Assignment("example.com/gpu", "model-a", "5").Obj(),
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5000m").
+								Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(),
 					).
 					Obj(),
-				*utiltesting.MakeWorkload("two", "ns1").
+				*utiltestingapi.MakeWorkload("two", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "3").
 					Request("example.com/gpu", "3").
 					ReserveQuota(
-						utiltesting.MakeAdmission("foo").
-							Assignment(corev1.ResourceCPU, "default", "3000m").
-							Assignment("example.com/gpu", "model-b", "3").Obj(),
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "3000m").
+								Assignment("example.com/gpu", "model-b", "3").Obj()).Obj(),
 					).
 					Obj(),
 			},
@@ -2214,16 +2240,17 @@ func TestLocalQueueUsage(t *testing.T) {
 		"some workloads are inadmissible": {
 			cq: &cq,
 			wls: []kueue.Workload{
-				*utiltesting.MakeWorkload("one", "ns1").
+				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "5").
 					Request("example.com/gpu", "5").
 					ReserveQuota(
-						utiltesting.MakeAdmission("foo").
-							Assignment(corev1.ResourceCPU, "default", "5000m").
-							Assignment("example.com/gpu", "model-a", "5").Obj(),
+						utiltestingapi.MakeAdmission("foo").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", "5000m").
+								Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(),
 					).Obj(),
-				*utiltesting.MakeWorkload("two", "ns1").
+				*utiltestingapi.MakeWorkload("two", "ns1").
 					Queue("test").
 					Request(corev1.ResourceCPU, "100000").
 					Request("example.com/gpu", "3").Obj(),
@@ -2297,16 +2324,16 @@ func TestLocalQueueUsage(t *testing.T) {
 }
 
 func TestGetCacheLQ(t *testing.T) {
-	cq := utiltesting.MakeClusterQueue("cq").
+	cq := utiltestingapi.MakeClusterQueue("cq").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("spot").
+			*utiltestingapi.MakeFlavorQuotas("spot").
 				Resource("cpu", "10", "10").
 				Resource("memory", "64Gi", "64Gi").Obj(),
 		).ResourceGroup(
-		*utiltesting.MakeFlavorQuotas("model-a").
+		*utiltestingapi.MakeFlavorQuotas("model-a").
 			Resource("example.com/gpu", "10", "10").Obj(),
 	).Obj()
-	lq := utiltesting.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq").Obj()
 	cases := map[string]struct {
 		getLq          *kueue.LocalQueue
 		getCQReference kueue.ClusterQueueReference
@@ -2320,7 +2347,7 @@ func TestGetCacheLQ(t *testing.T) {
 				key: "ns/lq-a",
 			}},
 		"LQ doesnt exist": {
-			getLq:          utiltesting.MakeLocalQueue("non-existing-lq", "ns").ClusterQueue("cq").Obj(),
+			getLq:          utiltestingapi.MakeLocalQueue("non-existing-lq", "ns").ClusterQueue("cq").Obj(),
 			getCQReference: "cq",
 			wantErr:        errQNotFound,
 		},
@@ -2355,66 +2382,70 @@ func TestGetCacheLQ(t *testing.T) {
 
 func TestCacheQueueOperations(t *testing.T) {
 	cqs := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("foo").
+		utiltestingapi.MakeClusterQueue("foo").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("spot").
+				*utiltestingapi.MakeFlavorQuotas("spot").
 					Resource("cpu", "10", "10").
 					Resource("memory", "64Gi", "64Gi").Obj(),
 			).ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("model-a").
+			*utiltestingapi.MakeFlavorQuotas("model-a").
 				Resource("example.com/gpu", "10", "10").Obj(),
 		).Obj(),
-		utiltesting.MakeClusterQueue("bar").
+		utiltestingapi.MakeClusterQueue("bar").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("ondemand").
+				*utiltestingapi.MakeFlavorQuotas("ondemand").
 					Resource("cpu", "5", "5").
 					Resource("memory", "32Gi", "32Gi").Obj(),
 			).ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("model-b").
+			*utiltestingapi.MakeFlavorQuotas("model-b").
 				Resource("example.com/gpu", "5", "5").Obj(),
 		).Obj(),
 	}
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
-		utiltesting.MakeLocalQueue("beta", "ns2").ClusterQueue("foo").Obj(),
-		utiltesting.MakeLocalQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
+		utiltestingapi.MakeLocalQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
+		utiltestingapi.MakeLocalQueue("beta", "ns2").ClusterQueue("foo").Obj(),
+		utiltestingapi.MakeLocalQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
 	}
 	workloads := []*kueue.Workload{
-		utiltesting.MakeWorkload("job1", "ns1").
+		utiltestingapi.MakeWorkload("job1", "ns1").
 			Queue("alpha").
 			Request("cpu", "2").
 			Request("memory", "8Gi").
 			ReserveQuota(
-				utiltesting.MakeAdmission("foo").
-					Assignment("cpu", "spot", "2").
-					Assignment("memory", "spot", "8Gi").Obj(),
+				utiltestingapi.MakeAdmission("foo").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "spot", "2").
+						Assignment("memory", "spot", "8Gi").Obj()).Obj(),
 			).
 			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
-		utiltesting.MakeWorkload("job2", "ns2").
+		utiltestingapi.MakeWorkload("job2", "ns2").
 			Queue("beta").
 			Request("example.com/gpu", "2").
 			ReserveQuota(
-				utiltesting.MakeAdmission("foo").
-					Assignment("example.com/gpu", "model-a", "2").Obj(),
+				utiltestingapi.MakeAdmission("foo").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("example.com/gpu", "model-a", "2").Obj()).Obj(),
 			).
 			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
-		utiltesting.MakeWorkload("job3", "ns1").
+		utiltestingapi.MakeWorkload("job3", "ns1").
 			Queue("gamma").
 			Request("cpu", "5").
 			Request("memory", "16Gi").
 			ReserveQuota(
-				utiltesting.MakeAdmission("bar").
-					Assignment("cpu", "ondemand", "5").
-					Assignment("memory", "ondemand", "16Gi").Obj(),
+				utiltestingapi.MakeAdmission("bar").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("cpu", "ondemand", "5").
+						Assignment("memory", "ondemand", "16Gi").Obj()).Obj(),
 			).Obj(),
-		utiltesting.MakeWorkload("job4", "ns2").
+		utiltestingapi.MakeWorkload("job4", "ns2").
 			Queue("beta").
 			Request("example.com/gpu", "5").
 			ReserveQuota(
-				utiltesting.MakeAdmission("foo").
-					Assignment("example.com/gpu", "model-a", "5").Obj(),
+				utiltestingapi.MakeAdmission("foo").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("example.com/gpu", "model-a", "5").Obj()).Obj(),
 			).Obj(),
 	}
 	insertAllClusterQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
@@ -2814,17 +2845,17 @@ func TestCacheQueueOperations(t *testing.T) {
 }
 
 func TestClusterQueuesUsingFlavor(t *testing.T) {
-	x86Rf := utiltesting.MakeResourceFlavor("x86").Obj()
-	aarch64Rf := utiltesting.MakeResourceFlavor("aarch64").Obj()
-	fooCq := utiltesting.MakeClusterQueue("fooCq").
+	x86Rf := utiltestingapi.MakeResourceFlavor("x86").Obj()
+	aarch64Rf := utiltestingapi.MakeResourceFlavor("aarch64").Obj()
+	fooCq := utiltestingapi.MakeClusterQueue("fooCq").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
+			*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
 		Obj()
-	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
-	fizzCq := utiltesting.MakeClusterQueue("fizzCq").
+	barCq := utiltestingapi.MakeClusterQueue("barCq").Obj()
+	fizzCq := utiltestingapi.MakeClusterQueue("fizzCq").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj(),
-			*utiltesting.MakeFlavorQuotas("aarch64").Resource("cpu", "3").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("aarch64").Resource("cpu", "3").Obj(),
 		).
 		Obj()
 
@@ -2884,11 +2915,11 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 
 func TestMatchingClusterQueues(t *testing.T) {
 	clusterQueues := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("matching1").
+		utiltestingapi.MakeClusterQueue("matching1").
 			NamespaceSelector(&metav1.LabelSelector{}).Obj(),
-		utiltesting.MakeClusterQueue("not-matching").
+		utiltestingapi.MakeClusterQueue("not-matching").
 			NamespaceSelector(nil).Obj(),
-		utiltesting.MakeClusterQueue("matching2").
+		utiltestingapi.MakeClusterQueue("matching2").
 			NamespaceSelector(&metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
@@ -2932,7 +2963,7 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue: %v", err)
 	}
 
-	wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+	wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 		ClusterQueue: "one",
 	}).Obj()
 	if err := cache.AssumeWorkload(log, wl); err != nil {
@@ -2976,7 +3007,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "add Workload without PodsReady condition",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
@@ -2987,7 +3018,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "add Workload with PodsReady=False",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3001,7 +3032,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "add Workload with PodsReady=True",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3015,7 +3046,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume Workload without PodsReady condition",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				return cache.AssumeWorkload(log, wl)
@@ -3025,7 +3056,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume Workload with PodsReady=False",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3038,7 +3069,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume Workload with PodsReady=True",
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3051,7 +3082,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "update workload to have PodsReady=True",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
@@ -3071,7 +3102,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "update workload to have PodsReady=False",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3094,7 +3125,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "assume second workload without PodsReady",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl1 := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3104,7 +3135,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(log logr.Logger, cache *Cache) error {
-				wl2 := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "two",
 				}).Obj()
 				return cache.AssumeWorkload(log, wl2)
@@ -3114,14 +3145,14 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "update second workload to have PodsReady=True",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl1 := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl1 := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
 				cache.AddOrUpdateWorkload(log, wl1)
-				wl2 := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
+				wl2 := utiltestingapi.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "two",
 				}).Obj()
 				cache.AddOrUpdateWorkload(log, wl2)
@@ -3141,7 +3172,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "delete workload with PodsReady=False",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3159,7 +3190,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		{
 			name: "forget workload with PodsReady=False",
 			setup: func(log logr.Logger, cache *Cache) error {
-				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
+				wl := utiltestingapi.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Condition(metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -3329,22 +3360,22 @@ func messageOrEmpty(err error) string {
 
 func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 	checks := []*kueue.AdmissionCheck{
-		utiltesting.MakeAdmissionCheck("ac1").Obj(),
-		utiltesting.MakeAdmissionCheck("ac2").Obj(),
-		utiltesting.MakeAdmissionCheck("ac3").Obj(),
+		utiltestingapi.MakeAdmissionCheck("ac1").Obj(),
+		utiltestingapi.MakeAdmissionCheck("ac2").Obj(),
+		utiltestingapi.MakeAdmissionCheck("ac3").Obj(),
 	}
 
-	fooCq := utiltesting.MakeClusterQueue("fooCq").
+	fooCq := utiltestingapi.MakeClusterQueue("fooCq").
 		AdmissionChecks("ac1").
 		Obj()
-	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
-	fizzCq := utiltesting.MakeClusterQueue("fizzCq").
+	barCq := utiltestingapi.MakeClusterQueue("barCq").Obj()
+	fizzCq := utiltestingapi.MakeClusterQueue("fizzCq").
 		AdmissionChecks("ac1", "ac2").
 		Obj()
-	strategyCq := utiltesting.MakeClusterQueue("strategyCq").
+	strategyCq := utiltestingapi.MakeClusterQueue("strategyCq").
 		AdmissionCheckStrategy(
-			*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj(),
-			*utiltesting.MakeAdmissionCheckStrategyRule("ac3").Obj()).
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1").Obj(),
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("ac3").Obj()).
 		Obj()
 
 	cases := map[string]struct {
@@ -3405,11 +3436,11 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 }
 
 func TestClusterQueueReadiness(t *testing.T) {
-	baseFlavor := utiltesting.MakeResourceFlavor("flavor1").Obj()
-	baseCheck := utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
-	baseQueue := utiltesting.MakeClusterQueue("queue1").
+	baseFlavor := utiltestingapi.MakeResourceFlavor("flavor1").Obj()
+	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
+	baseQueue := utiltestingapi.MakeClusterQueue("queue1").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas(baseFlavor.Name).
+			*utiltestingapi.MakeFlavorQuotas(baseFlavor.Name).
 				Resource(corev1.ResourceCPU, "10", "10").Obj()).
 		AdmissionChecks(kueue.AdmissionCheckReference(baseCheck.Name)).
 		Obj()
@@ -3451,7 +3482,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
-			admissionChecks:  []*kueue.AdmissionCheck{utiltesting.MakeAdmissionCheck("check1").Obj()},
+			admissionChecks:  []*kueue.AdmissionCheck{utiltestingapi.MakeAdmissionCheck("check1").Obj()},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "AdmissionCheckInactive",
@@ -3486,7 +3517,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			wantActive:       true,
 		},
 		"stopped": {
-			clusterQueues:    []*kueue.ClusterQueue{utiltesting.MakeClusterQueue("queue1").StopPolicy(kueue.HoldAndDrain).Obj()},
+			clusterQueues:    []*kueue.ClusterQueue{utiltestingapi.MakeClusterQueue("queue1").StopPolicy(kueue.HoldAndDrain).Obj()},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "Stopped",
@@ -3541,16 +3572,16 @@ func TestClusterQueueReadiness(t *testing.T) {
 func TestCohortCycles(t *testing.T) {
 	t.Run("self cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		cohort := utiltesting.MakeCohort("cohort").Parent("cohort").Obj()
+		cohort := utiltestingapi.MakeCohort("cohort").Parent("cohort").Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err == nil {
 			t.Fatal("Expected failure when cycle")
 		}
 	})
 	t.Run("simple cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		cohortA := utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-		cohortB := utiltesting.MakeCohort("cohort-b").Parent("cohort-c").Obj()
-		cohortC := utiltesting.MakeCohort("cohort-c").Parent("cohort-a").Obj()
+		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+		cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj()
+		cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
 		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 			t.Fatal("Expected success as no cycle yet")
 		}
@@ -3564,27 +3595,27 @@ func TestCohortCycles(t *testing.T) {
 	t.Run("clusterqueue add and update return error when cohort has cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
-		cohortA := utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 			t.Fatal("Expected success as no cycle yet")
 		}
-		cohortB := utiltesting.MakeCohort("cohort-b").Parent("cohort-c").Obj()
+		cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj()
 		if err := cache.AddOrUpdateCohort(cohortB); err != nil {
 			t.Fatal("Expected success as no cycle yet")
 		}
-		cohortC := utiltesting.MakeCohort("cohort-c").Parent("cohort-a").Obj()
+		cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
 		if err := cache.AddOrUpdateCohort(cohortC); err == nil {
 			t.Fatal("Expected failure when cycle")
 		}
 
 		// Error when creating CQ with parent Cohort-A
-		cq := utiltesting.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
+		cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
 		if err := cache.AddClusterQueue(ctx, cq); err == nil {
 			t.Fatal("Expected failure when adding cq to cohort with cycle")
 		}
 
 		// Error when updating CQ with parent Cohort-B
-		cq = utiltesting.MakeClusterQueue("cq").Cohort("cohort-b").Obj()
+		cq = utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-b").Obj()
 		if err := cache.UpdateClusterQueue(log, cq); err == nil {
 			t.Fatal("Expected failure when updating cq to cohort with cycle")
 		}
@@ -3593,7 +3624,7 @@ func TestCohortCycles(t *testing.T) {
 		cache.DeleteCohort("cohort-c")
 
 		// Update succeeds
-		cq = utiltesting.MakeClusterQueue("cq").Cohort("cohort-b").Obj()
+		cq = utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-b").Obj()
 		if err := cache.UpdateClusterQueue(log, cq); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3602,30 +3633,30 @@ func TestCohortCycles(t *testing.T) {
 	t.Run("clusterqueue leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
-		cycleCohort := utiltesting.MakeCohort("cycle").Parent("cycle").Obj()
+		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
 		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
 			t.Fatal("Expected failure")
 		}
 
-		cohort := utiltesting.MakeCohort("cohort").
+		cohort := utiltestingapi.MakeCohort("cohort").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
 			).Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
 
 		// Error when creating cq with parent that has cycle
-		cq := utiltesting.MakeClusterQueue("cq").
+		cq := utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Cohort("cycle").Obj()
 		if err := cache.AddClusterQueue(ctx, cq); err == nil {
 			t.Fatal("Expected failure")
 		}
 
 		// Successfully updated to cohort without cycle
-		cq.Spec.Cohort = "cohort"
+		cq.Spec.CohortName = "cohort"
 		if err := cache.UpdateClusterQueue(log, cq); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3649,19 +3680,19 @@ func TestCohortCycles(t *testing.T) {
 	t.Run("clusterqueue joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
-		cycleCohort := utiltesting.MakeCohort("cycle").Parent("cycle").Obj()
+		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
 		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
 			t.Fatal("Expected failure")
 		}
-		cohort := utiltesting.MakeCohort("cohort").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+		cohort := utiltestingapi.MakeCohort("cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
 
 		// Add CQ to cohort
-		cq := utiltesting.MakeClusterQueue("cq").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj()).Cohort("cohort").Obj()
+		cq := utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj()).Cohort("cohort").Obj()
 		if err := cache.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3682,7 +3713,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// Updated to cycle
-		cq.Spec.Cohort = "cycle"
+		cq.Spec.CohortName = "cycle"
 		if err := cache.UpdateClusterQueue(log, cq); err == nil {
 			t.Fatal("Expected failure")
 		}
@@ -3705,8 +3736,8 @@ func TestCohortCycles(t *testing.T) {
 
 	t.Run("cohort switching cohorts updates both cohort trees", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		root1 := utiltesting.MakeCohort("root1").Obj()
-		root2 := utiltesting.MakeCohort("root2").Obj()
+		root1 := utiltestingapi.MakeCohort("root1").Obj()
+		root2 := utiltestingapi.MakeCohort("root2").Obj()
 		if err := cache.AddOrUpdateCohort(root1); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3714,8 +3745,8 @@ func TestCohortCycles(t *testing.T) {
 			t.Fatal("Expected success")
 		}
 
-		cohort := utiltesting.MakeCohort("cohort").Parent("root1").
-			ResourceGroup(*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+		cohort := utiltestingapi.MakeCohort("cohort").Parent("root1").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
@@ -3770,18 +3801,18 @@ func TestCohortCycles(t *testing.T) {
 
 	t.Run("cohort leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		cycleRoot := utiltesting.MakeCohort("cycle-root").Parent("cycle-root").Obj()
+		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
 		if err := cache.AddOrUpdateCohort(cycleRoot); err == nil {
 			t.Fatal("Expected failure")
 		}
-		root := utiltesting.MakeCohort("root").Obj()
+		root := utiltestingapi.MakeCohort("root").Obj()
 		if err := cache.AddOrUpdateCohort(root); err != nil {
 			t.Fatal("Expected success")
 		}
 
-		cohort := utiltesting.MakeCohort("cohort").Parent("cycle-root").
+		cohort := utiltestingapi.MakeCohort("cohort").Parent("cycle-root").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
 			).Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err == nil {
 			t.Fatal("Expected failure")
@@ -3805,18 +3836,18 @@ func TestCohortCycles(t *testing.T) {
 
 	t.Run("cohort joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		cycleRoot := utiltesting.MakeCohort("cycle-root").Parent("cycle-root").Obj()
+		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
 		if err := cache.AddOrUpdateCohort(cycleRoot); err == nil {
 			t.Fatal("Expected failure")
 		}
-		root := utiltesting.MakeCohort("root").Obj()
+		root := utiltestingapi.MakeCohort("root").Obj()
 		if err := cache.AddOrUpdateCohort(root); err != nil {
 			t.Fatal("Expected success")
 		}
 
-		cohort := utiltesting.MakeCohort("cohort").Parent("root").
+		cohort := utiltestingapi.MakeCohort("cohort").Parent("root").
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
 			).Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
@@ -3864,14 +3895,14 @@ func TestSnapshotError(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 
-	topology := *utiltesting.MakeDefaultOneLevelTopology("default")
-	flavor := *utiltesting.MakeResourceFlavor("tas-default").
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("default")
+	flavor := *utiltestingapi.MakeResourceFlavor("tas-default").
 		TopologyName("default").
 		Obj()
-	localQueue := *utiltesting.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
-	clusterQueue := utiltesting.MakeClusterQueue("cq").
+	localQueue := *utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas("tas-default").
+			*utiltestingapi.MakeFlavorQuotas("tas-default").
 				ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
 				Obj(),
 		).ClusterQueue
@@ -3897,12 +3928,12 @@ func TestSnapshotError(t *testing.T) {
 	cache := New(client)
 	cache.AddOrUpdateResourceFlavor(log, &flavor)
 	if flavor.Spec.TopologyName != nil {
-		cache.AddOrUpdateTopology(log, &kueuealpha.Topology{
+		cache.AddOrUpdateTopology(log, &kueue.Topology{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: string(*flavor.Spec.TopologyName),
 			},
-			Spec: kueuealpha.TopologySpec{
-				Levels: []kueuealpha.TopologyLevel{
+			Spec: kueue.TopologySpec{
+				Levels: []kueue.TopologyLevel{
 					{
 						NodeLabel: corev1.LabelHostname,
 					},
@@ -3927,47 +3958,47 @@ func TestClusterQueueAncestors(t *testing.T) {
 		wantErr       error
 	}{
 		"without cohort": {
-			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 		},
 		"cohort not found": {
-			cq: utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Cohort("root").Obj(),
 		},
 		"one level": {
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("root").Obj(),
 			},
-			cq:            utiltesting.MakeClusterQueue("cq").Cohort("root").Obj(),
+			cq:            utiltestingapi.MakeClusterQueue("cq").Cohort("root").Obj(),
 			wantAncestors: []kueue.CohortReference{},
 		},
 		"two level": {
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("root").Obj(),
-				utiltesting.MakeCohort("left").Parent("root").Obj(),
-				utiltesting.MakeCohort("right").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("left").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("right").Parent("root").Obj(),
 			},
-			cq:            utiltesting.MakeClusterQueue("cq").Cohort("left").Obj(),
+			cq:            utiltestingapi.MakeClusterQueue("cq").Cohort("left").Obj(),
 			wantAncestors: []kueue.CohortReference{"left"},
 		},
 		"three levels": {
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("root").Obj(),
-				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
-				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
-				utiltesting.MakeCohort("second-left").Parent("first-left").Obj(),
-				utiltesting.MakeCohort("second-right").Parent("first-left").Obj(),
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("first-left").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("first-right").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("second-left").Parent("first-left").Obj(),
+				utiltestingapi.MakeCohort("second-right").Parent("first-left").Obj(),
 			},
-			cq:            utiltesting.MakeClusterQueue("cq").Cohort("second-left").Obj(),
+			cq:            utiltestingapi.MakeClusterQueue("cq").Cohort("second-left").Obj(),
 			wantAncestors: []kueue.CohortReference{"second-left", "first-left"},
 		},
 		"with cycle": {
 			cohorts: []*kueue.Cohort{
-				utiltesting.MakeCohort("root").Parent("second-right").Obj(),
-				utiltesting.MakeCohort("first-left").Parent("root").Obj(),
-				utiltesting.MakeCohort("first-right").Parent("root").Obj(),
-				utiltesting.MakeCohort("second-left").Parent("first-left").Obj(),
-				utiltesting.MakeCohort("second-right").Parent("first-left").Obj(),
+				utiltestingapi.MakeCohort("root").Parent("second-right").Obj(),
+				utiltestingapi.MakeCohort("first-left").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("first-right").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("second-left").Parent("first-left").Obj(),
+				utiltestingapi.MakeCohort("second-right").Parent("first-left").Obj(),
 			},
-			cq:      utiltesting.MakeClusterQueue("cq").Cohort("second-left").Obj(),
+			cq:      utiltestingapi.MakeClusterQueue("cq").Cohort("second-left").Obj(),
 			wantErr: ErrCohortHasCycle,
 		},
 	}

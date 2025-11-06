@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
@@ -120,8 +120,9 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// this should only:
 	// 1. finish the workloads eviction
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-		_ = workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Evicted by the test runner", time.Now())
-		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true, r.clock)
+		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func() (*kueue.Workload, bool, error) {
+			return &wl, workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Evicted by the test runner", time.Now()), nil
+		})
 		if err == nil {
 			log.V(5).Info("Finish eviction")
 		}

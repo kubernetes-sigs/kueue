@@ -4,14 +4,7 @@ kind: Ingress
 metadata:
   name: kueueviz-backend-ingress
   namespace: system
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  tls:
-    - hosts:
-        - backend.kueueviz.local
-      secretName: kueueviz-tls-secret
   rules:
     - host: backend.kueueviz.local
       http:

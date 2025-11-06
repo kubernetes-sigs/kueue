@@ -26,13 +26,12 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -57,11 +56,10 @@ type clusterQueue struct {
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        resource.Quantity
+	FairWeight        float64
 	FlavorFungibility kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
-	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
 	AdmissionChecks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	Status          metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
@@ -115,7 +113,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 	WithinClusterQueue:  kueue.PreemptionPolicyNever,
 }
 
-var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
+var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.TryNextFlavor}
 
 func (c *clusterQueue) updateClusterQueue(log logr.Logger, in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
@@ -373,7 +371,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
 				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multiKueueAdmissionChecks.Insert(acName)
-				if flavors.Len() != 0 {
+				if !flavors.Equal(AllFlavors(c.ResourceGroups)) {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
 				}
 			}
@@ -621,8 +619,8 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 
 // Implements dominantResourceShareNode interface.
 
-func (c *clusterQueue) fairWeight() *resource.Quantity {
-	return &c.FairWeight
+func (c *clusterQueue) fairWeight() float64 {
+	return c.FairWeight
 }
 
 func (c *clusterQueue) isTASOnly() bool {
@@ -639,17 +637,7 @@ func (c *clusterQueue) isTASOnly() bool {
 func (c *clusterQueue) flavorsWithProvReqAdmissionCheck() sets.Set[kueue.ResourceFlavorReference] {
 	flvs := sets.New[kueue.ResourceFlavorReference]()
 	for _, ac := range c.provisioningAdmissionChecks {
-		flvs.Insert(c.flavorsForAdmissionCheck(ac).UnsortedList()...)
-	}
-	return flvs
-}
-
-func (c *clusterQueue) flavorsForAdmissionCheck(ac kueue.AdmissionCheckReference) sets.Set[kueue.ResourceFlavorReference] {
-	flvs := sets.New(c.AdmissionChecks[ac].UnsortedList()...)
-	if len(c.AdmissionChecks[ac]) == 0 {
-		for _, rg := range c.ResourceGroups {
-			flvs.Insert(rg.Flavors...)
-		}
+		flvs.Insert(c.AdmissionChecks[ac].UnsortedList()...)
 	}
 	return flvs
 }

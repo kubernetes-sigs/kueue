@@ -41,12 +41,6 @@ const (
 	// Enables flavor fungibility.
 	FlavorFungibility featuregate.Feature = "FlavorFungibility"
 
-	// owner: @trasc
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1136-provisioning-request-support
-	//
-	// Enables Provisioning Admission Check Controller.
-	ProvisioningACC featuregate.Feature = "ProvisioningACC"
-
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-2-pending-workloads-visibility
 	//
@@ -89,18 +83,6 @@ const (
 	// Enable applying configurable resource transformations when computing
 	// the resource requests of a Workload
 	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
-
-	// owner: @mbobrovskyi
-	//
-	// Enable the Flavors status field in the LocalQueue, allowing users to view
-	// all currently available ResourceFlavors for the LocalQueue.
-	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
-
-	// owner: @dgrove-oss
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
-	//
-	// Enable namespace-based control of manageJobsWithoutQueueNames for all Job integrations
-	ManagedJobsNamespaceSelector featuregate.Feature = "ManagedJobsNamespaceSelector"
 
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
@@ -181,6 +163,44 @@ const (
 	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy
 	// This feature gate is going to be replaced by an API before graduation or deprecation.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
+
+	// owner: @alaypatel07
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable quota accounting for Dynamic Resource Allocation (DRA) devies in workloads
+	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
+
+	// owner: @khrm
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
+	//
+	// Enable MultiKueue support for external custom Jobs via configurable adapters.
+	MultiKueueAdaptersForCustomJobs featuregate.Feature = "MultiKueueAdaptersForCustomJobs"
+
+	// owner: @mszadkow
+	//
+	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
+	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
+
+	// owner: @mbobrovskyi
+	//
+	// SanitizePodSets enables automatic sanitization of PodSets when creating the Workload object.
+	// The main use case it deduplication of environment variables
+	// in PodSet templates within Workload objects. When enabled, duplicate env var entries
+	// are resolved by keeping only the last occurrence, allowing workload creation to succeed
+	// even when duplicates are present in the spec.
+	SanitizePodSets featuregate.Feature = "SanitizePodSets"
+
+	// owner: @mszadkow
+	//
+	// Allow insecure kubeconfigs in MultiKueue setup.
+	// Requires careful consideration as it may lead to security issues.
+	// Deprecated: planned to be removed in 0.17
+	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
+
+	// owner: @pbundyra
+	//
+	// Enables reclaimable pods counting towards quota.
+	ReclaimablePods featuregate.Feature = "ReclaimablePods"
 )
 
 func init() {
@@ -202,10 +222,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
 	},
-	ProvisioningACC: {
-		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.15
-	},
 	VisibilityOnDemand: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
@@ -223,20 +239,16 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueBatchJobWithManagedBy: {
 		{Version: version.MustParse("0.8"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConfigurableResourceTransformations: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ExposeFlavorsInLocalQueue: {
-		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ManagedJobsNamespaceSelector: {
-		{Version: version.MustParse("0.10"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.15
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.16
 	},
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
@@ -251,13 +263,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.11"), Default: false, PreRelease: featuregate.Deprecated},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
 	},
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ObjectRetentionPolicies: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
@@ -265,21 +278,43 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	DynamicResourceAllocation: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueAdaptersForCustomJobs: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadRequestUseMergePatch: {
+		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	SanitizePodSets: {
+		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueAllowInsecureKubeconfigs: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ReclaimablePods: {
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

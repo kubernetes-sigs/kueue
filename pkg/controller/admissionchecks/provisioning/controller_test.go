@@ -39,10 +39,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -100,16 +101,16 @@ func TestReconcile(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 
-	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
+	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
 		PodSets(
-			*utiltesting.MakePodSet("ps1", 4).
+			*utiltestingapi.MakePodSet("ps1", 4).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
-			*utiltesting.MakePodSet("ps2", 4).
+			*utiltestingapi.MakePodSet("ps2", 4).
 				Request(corev1.ResourceMemory, "1M").
 				Obj(),
 		).
-		ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(
+		ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
 				Name: "ps1",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -148,7 +149,7 @@ func TestReconcile(t *testing.T) {
 		State: kueue.CheckStateReady,
 	}, fakeClock)
 
-	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").NodeLabel("f1l1", "v1").
+	baseFlavor1 := utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("f1l1", "v1").
 		Toleration(corev1.Toleration{
 			Key:      "f1t1k",
 			Value:    "f1t1v",
@@ -156,7 +157,7 @@ func TestReconcile(t *testing.T) {
 			Effect:   corev1.TaintEffectNoSchedule,
 		}).
 		Obj()
-	baseFlavor2 := utiltesting.MakeResourceFlavor("flv2").NodeLabel("f2l1", "v1").Obj()
+	baseFlavor2 := utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("f2l1", "v1").Obj()
 
 	baseRequest := &autoscaling.ProvisioningRequest{
 		ObjectMeta: metav1.ObjectMeta{
@@ -223,7 +224,7 @@ func TestReconcile(t *testing.T) {
 		}).
 		NodeSelector("f2l1", "v1")
 
-	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
+	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	baseConfigWithRetryStrategy := baseConfig.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
 		BackoffLimitCount:  ptr.To[int32](3),
@@ -240,7 +241,7 @@ func TestReconcile(t *testing.T) {
 		},
 	})
 
-	baseCheck := utiltesting.MakeAdmissionCheck("check1").
+	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 		Obj()
@@ -316,16 +317,16 @@ func TestReconcile(t *testing.T) {
 		wantEvents           []utiltesting.EventRecord
 	}{
 		"unrelated workload": {
-			workload: utiltesting.MakeWorkload("wl", "ns").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 		},
 		"unrelated workload with reservation": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Obj(),
 		},
 		"unrelated admitted workload": {
-			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				Obj(),
 		},
@@ -333,7 +334,7 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStatePending,
@@ -374,7 +375,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload with provreq annotation": {
-			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				Annotations(map[string]string{
 					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
 					"invalid-provreq-prefix/Foo1":              "Bar1",
@@ -382,10 +383,10 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").Obj()},
+			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
 					ObjectMeta: metav1.ObjectMeta{
@@ -456,7 +457,7 @@ func TestReconcile(t *testing.T) {
 				*baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "kueue.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1beta2",
 						Kind:    "Workload",
 					}, "wl", "").
 					Obj(),
@@ -540,7 +541,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"request removed on workload finished": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
@@ -564,7 +565,7 @@ func TestReconcile(t *testing.T) {
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRetry,
@@ -587,7 +588,7 @@ func TestReconcile(t *testing.T) {
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateRejected,
@@ -608,7 +609,7 @@ func TestReconcile(t *testing.T) {
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -641,7 +642,7 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.Clone().WithManagedResource("example.org/gpu").Obj()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
@@ -699,12 +700,12 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"when request is needed for one PodSet (resource limit)": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.Clone().WithManagedResource("example.com/gpu").Obj()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				"wl-check1-1": {
@@ -793,7 +794,7 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStatePending,
@@ -806,7 +807,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload sets AdmissionCheck status to Rejected when it is not finished and receives the provisioning request's CapacityRevoked condition": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(true).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -834,7 +835,7 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateRejected,
@@ -847,7 +848,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload sets AdmissionCheck status to Rejected when it is not admitted and receives the provisioning request's CapacityRevoked condition": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(false).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -875,7 +876,7 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateRejected,
@@ -888,7 +889,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workloads doesnt set AdmissionCheck status to Rejected when it is finished and receives the provisioning request's CapacityRevoked condition": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
@@ -921,7 +922,7 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStatePending,
@@ -934,7 +935,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload does nothing when admitted and receives the provisioning request's BookingExpired condition": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(true).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -962,13 +963,13 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					Admitted(true).
 					Obj(),
 			},
 		},
 		"workload retries the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(false).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -996,7 +997,7 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRetry,
@@ -1011,7 +1012,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"workload rejects the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(false).
 				Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -1039,7 +1040,7 @@ func TestReconcile(t *testing.T) {
 					}),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateRejected,
@@ -1058,7 +1059,7 @@ func TestReconcile(t *testing.T) {
 				}
 				return client.Create(ctx, obj, opts...)
 			},
-			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				Annotations(map[string]string{
 					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
 					"invalid-provreq-prefix/Foo1":              "Bar1",
@@ -1066,13 +1067,13 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 				Obj(),
 			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			configs:            []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").Obj()},
+			configs:            []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
 			wantReconcileError: errInvalidPodTemplate,
 			wantWorkloads: map[string]*kueue.Workload{
-				"wl": utiltesting.MakeWorkload("wl", TestNamespace).
+				"wl": utiltestingapi.MakeWorkload("wl", TestNamespace).
 					Annotations(map[string]string{
 						"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
 						"invalid-provreq-prefix/Foo1":              "Bar1",
@@ -1083,7 +1084,7 @@ func TestReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: "Error creating PodTemplate \"ppt-wl-check1-1-main\": invalid PodTemplate error",
 					}).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1132,14 +1133,14 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "kueue.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1beta2",
 						Kind:    "Workload",
 					}, "wl", "").
 					Obj(),
 				baseTemplate2.Name: baseTemplate2.Clone().
 					ControllerReference(schema.GroupVersionKind{
 						Group:   "kueue.x-k8s.io",
-						Version: "v1beta1",
+						Version: "v1beta2",
 						Kind:    "Workload",
 					}, "wl", "").
 					Obj(),
@@ -1169,7 +1170,7 @@ func TestReconcile(t *testing.T) {
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -1218,7 +1219,7 @@ func TestReconcile(t *testing.T) {
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
@@ -1250,31 +1251,31 @@ func TestReconcile(t *testing.T) {
 			// podSets 3 and 4 can be merged as they are identical,
 			// podSet 5 however have different priority class even though everything else match with podSets 3 and 4
 			// PodSetMergePolicy IdenticalPodTemplates prevents the ability to merge it
-			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
 				PodSets(
-					*utiltesting.MakePodSet("ps1", 2).
+					*utiltestingapi.MakePodSet("ps1", 2).
 						Request(corev1.ResourceCPU, "1").
 						Obj(),
-					*utiltesting.MakePodSet("ps2", 2).
+					*utiltestingapi.MakePodSet("ps2", 2).
 						Request(corev1.ResourceCPU, "1").
 						Obj(),
-					*utiltesting.MakePodSet("ps3", 2).
+					*utiltestingapi.MakePodSet("ps3", 2).
 						Request(corev1.ResourceMemory, "1M").
 						PriorityClass("pc-100").
 						Obj(),
-					*utiltesting.MakePodSet("ps4", 2).
+					*utiltestingapi.MakePodSet("ps4", 2).
 						Request(corev1.ResourceMemory, "1M").
 						PriorityClass("pc-100").
 						Obj(),
-					*utiltesting.MakePodSet("ps5", 1).
+					*utiltestingapi.MakePodSet("ps5", 1).
 						Request(corev1.ResourceMemory, "1M").
 						PriorityClass("pc-200").
 						Obj(),
 				).
-				ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1283,7 +1284,7 @@ func TestReconcile(t *testing.T) {
 					State: kueue.CheckStatePending,
 				}).Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalPodTemplates).Obj()},
+			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalPodTemplates).Obj()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
@@ -1384,30 +1385,30 @@ func TestReconcile(t *testing.T) {
 			// podSets 1 and 2 can be merged as they are similar, PriorityClass is not taken into account with this PodSetMergePolicy,
 			// podSets 3 and 4 can be merged as they are similar despite different PriorityClass and TopologyRequest,
 			// podSet 5 however have defined an extraAffinity and although everything else match with podSets can't be merged with others
-			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
 				PodSets(
-					*utiltesting.MakePodSet("ps1", 2).
+					*utiltestingapi.MakePodSet("ps1", 2).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass("pc-100").
 						Obj(),
-					*utiltesting.MakePodSet("ps2", 2).
+					*utiltestingapi.MakePodSet("ps2", 2).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass("pc-200").
 						Obj(),
-					*utiltesting.MakePodSet("ps3", 2).
+					*utiltestingapi.MakePodSet("ps3", 2).
 						Request(corev1.ResourceMemory, "1M").
 						PriorityClass("pc-100").
 						RequiredTopologyRequest("default1").
 						Obj(),
-					*utiltesting.MakePodSet("ps4", 2).
+					*utiltestingapi.MakePodSet("ps4", 2).
 						Request(corev1.ResourceMemory, "1M").
 						PriorityClass("pc-200").
 						RequiredTopologyRequest("default2").
 						Obj(),
-					*utiltesting.MakePodSet("ps5", 1).
+					*utiltestingapi.MakePodSet("ps5", 1).
 						Request(corev1.ResourceMemory, "1M").
 						PriorityClass("pc-300").
 						RequiredDuringSchedulingIgnoredDuringExecution([]corev1.NodeSelectorTerm{
@@ -1423,7 +1424,7 @@ func TestReconcile(t *testing.T) {
 						}).
 						Obj(),
 				).
-				ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1432,7 +1433,7 @@ func TestReconcile(t *testing.T) {
 					State: kueue.CheckStatePending,
 				}).Obj(),
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
+			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
@@ -1545,21 +1546,21 @@ func TestReconcile(t *testing.T) {
 			// podSets 1 and 2 can be merged as they are similar, PriorityClass is not taken into account with this PodSetMergePolicy,
 			// podSets 3 and 4 can be merged as they are similar despite different PriorityClass and TopologyRequest,
 			// podSet 5 however have defined an extraAffinity and although everything else match with podSets can't be merged with others
-			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending}).
 				PodSets(
-					*utiltesting.MakePodSet("ps11", 2).
+					*utiltestingapi.MakePodSet("ps11", 2).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass("pc-100").
 						Obj(),
-					*utiltesting.MakePodSet("ps22", 2).
+					*utiltestingapi.MakePodSet("ps22", 2).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass("pc-200").
 						Obj(),
 				).
-				ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
+				ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(podSetMergePolicyAssignemnt...).Obj()).
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
@@ -1568,7 +1569,7 @@ func TestReconcile(t *testing.T) {
 					State: kueue.CheckStatePending,
 				}).Obj(),
 			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			configs:            []kueue.ProvisioningRequestConfig{*utiltesting.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
+			configs:            []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
 			flavors:            []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantReconcileError: errInconsistentPodSetAssignments,
 		},
@@ -1673,13 +1674,13 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestActiveOrLastPRForChecks(t *testing.T) {
-	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
+	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
 		PodSets(
-			*utiltesting.MakePodSet(kueue.DefaultPodSetName, 4).
+			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).
-		ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(
+		ReserveQuota(utiltestingapi.MakeAdmission("q1").PodSets(
 			kueue.PodSetAssignment{
 				Name: kueue.DefaultPodSetName,
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1701,7 +1702,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 		}).
 		Obj()
 
-	baseConfig := utiltesting.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
+	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	baseRequest := autoscaling.ProvisioningRequest{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1733,7 +1734,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 	pr2Created := baseRequest.DeepCopy()
 	pr2Created.Name = "wl-check-2"
 
-	baseCheck := utiltesting.MakeAdmissionCheck("check").
+	baseCheck := utiltestingapi.MakeAdmissionCheck("check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 		Obj()

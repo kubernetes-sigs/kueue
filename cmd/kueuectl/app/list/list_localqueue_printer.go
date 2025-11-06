@@ -26,7 +26,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 type listLocalQueuePrinter struct {
@@ -39,7 +39,7 @@ var _ printers.ResourcePrinter = (*listLocalQueuePrinter)(nil)
 func (p *listLocalQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 	printer := printers.NewTablePrinter(p.printOptions)
 
-	list, ok := obj.(*v1beta1.LocalQueueList)
+	list, ok := obj.(*kueue.LocalQueueList)
 	if !ok {
 		return errors.New("invalid object type")
 	}
@@ -79,7 +79,7 @@ func newLocalQueueTablePrinter() *listLocalQueuePrinter {
 	}
 }
 
-func (p *listLocalQueuePrinter) printLocalQueueList(list *v1beta1.LocalQueueList) []metav1.TableRow {
+func (p *listLocalQueuePrinter) printLocalQueueList(list *kueue.LocalQueueList) []metav1.TableRow {
 	rows := make([]metav1.TableRow, len(list.Items))
 	for index := range list.Items {
 		rows[index] = p.printLocalQueue(&list.Items[index])
@@ -87,7 +87,7 @@ func (p *listLocalQueuePrinter) printLocalQueueList(list *v1beta1.LocalQueueList
 	return rows
 }
 
-func (p *listLocalQueuePrinter) printLocalQueue(localQueue *v1beta1.LocalQueue) metav1.TableRow {
+func (p *listLocalQueuePrinter) printLocalQueue(localQueue *kueue.LocalQueue) metav1.TableRow {
 	row := metav1.TableRow{
 		Object: runtime.RawExtension{Object: localQueue},
 	}

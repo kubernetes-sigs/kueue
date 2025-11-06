@@ -18,7 +18,7 @@ package queue
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,8 +31,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
@@ -55,6 +55,28 @@ const (
 var (
 	realClock = clock.RealClock{}
 )
+
+// stickyWorkload is the workload at the ClusterQueue head which is
+// currently preempting workloads. It is only enabled for
+// BestEffortFIFO policy, and prevents skipped over ineligible
+// workloads from going back to the head of the queue.  A workload is
+// considered sticky until it is admitted, unschedulable, or deleted.
+// See Kueue#6929 and Kueue#7101 for motivation.
+type stickyWorkload struct {
+	workloadName workload.Reference
+}
+
+func (s *stickyWorkload) matches(workload workload.Reference) bool {
+	return s.workloadName == workload
+}
+
+func (s *stickyWorkload) clear() {
+	s.workloadName = ""
+}
+
+func (s *stickyWorkload) set(workload workload.Reference) {
+	s.workloadName = workload
+}
 
 type ClusterQueue struct {
 	hierarchy.ClusterQueue[*cohort]
@@ -90,6 +112,8 @@ type ClusterQueue struct {
 
 	afsEntryPenalties         *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
 	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
+
+	sw *stickyWorkload
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -111,7 +135,8 @@ func newClusterQueue(ctx context.Context, client client.Client, cq *kueue.Cluste
 }
 
 func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) *ClusterQueue {
-	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties)
+	sw := stickyWorkload{}
+	lessFunc := queueOrderingFunc(ctx, client, wo, fsResWeights, enableAdmissionFs, afsEntryPenalties, &sw)
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(map[workload.Reference]*workload.Info),
@@ -121,6 +146,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		clock:                     clock,
 		afsEntryPenalties:         afsEntryPenalties,
 		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
+		sw:                        &sw,
 	}
 }
 
@@ -223,6 +249,9 @@ func (c *ClusterQueue) delete(w *kueue.Workload) {
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
+	if c.sw.matches(key) {
+		c.sw.clear()
+	}
 }
 
 // DeleteFromLocalQueue removes all workloads belonging to this queue from
@@ -404,8 +433,11 @@ func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 // this ClusterQueue.
 func (c *ClusterQueue) Snapshot() []*workload.Info {
 	elements := c.totalElements()
-	sort.Slice(elements, func(i, j int) bool {
-		return c.lessFunc(elements[i], elements[j])
+	slices.SortFunc(elements, func(a, b *workload.Info) int {
+		if c.lessFunc(a, b) {
+			return -1
+		}
+		return 1
 	})
 	return elements
 }
@@ -449,7 +481,18 @@ func (c *ClusterQueue) Active() bool {
 // compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
-func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
+	// when preemptions are in-progress, we keep attempting to
+	// schedule the same workload for BestEffortFIFO queues. See
+	// documentation of stickyWorkload for more details
+	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
+		log := ctrl.LoggerFrom(ctx)
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
+		}
+		c.sw.set(workload.Key(wInfo.Obj))
+	}
+
 	if c.queueingStrategy == kueue.StrictFIFO {
 		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
@@ -460,7 +503,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueR
 // to sort workloads. The function sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
-func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]) func(a, b *workload.Info) bool {
+func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Ordering, fsResWeights map[corev1.ResourceName]float64, enableAdmissionFs bool, afsEntryPenalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList], sw *stickyWorkload) func(a, b *workload.Info) bool {
 	log := ctrl.LoggerFrom(ctx)
 	return func(a, b *workload.Info) bool {
 		if enableAdmissionFs {
@@ -479,6 +522,20 @@ func queueOrderingFunc(ctx context.Context, c client.Client, wo workload.Orderin
 				}
 			}
 		}
+
+		if sw.matches(workload.Key(a.Obj)) {
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Prioritizing sticky workload", "workload", workload.Key(a.Obj))
+			}
+			return true
+		}
+		if sw.matches(workload.Key(b.Obj)) {
+			if logV := log.V(5); logV.Enabled() {
+				logV.Info("Prioritizing sticky workload", "workload", workload.Key(b.Obj))
+			}
+			return false
+		}
+
 		p1 := utilpriority.Priority(a.Obj)
 		p2 := utilpriority.Priority(b.Obj)
 

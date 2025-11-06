@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -51,7 +51,7 @@ func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1beta1,name=mclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1beta2,name=mclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 
@@ -66,7 +66,7 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1beta1,name=vclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1beta2,name=vclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 
@@ -99,22 +99,68 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 
 	var allErrs field.ErrorList
 	config := validationConfig{
-		hasParent:                        cq.Spec.Cohort != "",
+		hasParent:                        cq.Spec.CohortName != "",
 		enforceNominalGreaterThanLending: true,
 	}
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"), false)...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
 	allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
+	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
 	return ValidateClusterQueue(newObj)
+}
+
+func validateTotalFlavors(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	total := 0
+	for _, rg := range resourceGroups {
+		total += len(rg.Flavors)
+	}
+	if total > 256 {
+		allErrs = append(allErrs, field.Invalid(path, total,
+			fmt.Sprintf("total number of flavors across all resourceGroups must be ≤ 256, got %d", total)))
+	}
+	return allErrs
+}
+
+func validateTotalCoveredResources(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	total := 0
+	for _, rg := range resourceGroups {
+		total += len(rg.CoveredResources)
+	}
+	if total > 256 {
+		allErrs = append(allErrs, field.Invalid(path, total,
+			fmt.Sprintf("total number of covered resources across all resourceGroups must be ≤ 256, got %d", total)))
+	}
+	return allErrs
+}
+
+func validateFlavorResourceCombinations(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	for i, rg := range resourceGroups {
+		total := 0
+		for _, fqs := range rg.Flavors {
+			total += len(fqs.Resources)
+		}
+		if total > 512 {
+			allErrs = append(allErrs, field.Invalid(
+				path.Index(i),
+				total,
+				fmt.Sprintf("number of flavor-resource combinations in a resourceGroup must be ≤ 512, got %d", total),
+			))
+		}
+	}
+	return allErrs
 }
 
 func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
@@ -124,15 +170,6 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
 	}
-	return allErrs
-}
-
-func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if spec.AdmissionChecksStrategy != nil && len(spec.AdmissionChecks) != 0 {
-		allErrs = append(allErrs, field.Invalid(path, spec, "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"))
-	}
-
 	return allErrs
 }
 

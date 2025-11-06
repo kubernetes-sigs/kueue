@@ -133,9 +133,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
-	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newDeployment.Object()) {
-		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldDeployment.Object(), newDeployment.Object())...)
-	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		isSuspended,
+		oldDeployment.Object(),
+		newDeployment.Object(),
+	)...)
 	return warnings, allErrs.ToAggregate()
 }
 

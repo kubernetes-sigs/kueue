@@ -21,19 +21,18 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -88,8 +87,16 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
+func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
+	m.draReconcileChannel = ch
+	if ch != nil {
+		ctrl.Log.WithName("queue-manager").Info("DRA reconcile channel connected")
+	}
+}
+
 type TopologyUpdateWatcher interface {
-	NotifyTopologyUpdate(oldTopology, newTopology *kueuealpha.Topology)
+	NotifyTopologyUpdate(oldTopology, newTopology *kueue.Topology)
 }
 
 type Manager struct {
@@ -100,9 +107,6 @@ type Manager struct {
 	client        client.Client
 	statusChecker StatusChecker
 	localQueues   map[queue.LocalQueueReference]*LocalQueue
-
-	snapshotsMutex sync.RWMutex
-	snapshots      map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload
 
 	workloadOrdering workload.Ordering
 
@@ -117,21 +121,21 @@ type Manager struct {
 
 	afsEntryPenalties      *AfsEntryPenalties
 	workloadUpdateWatchers []WorkloadUpdateWatcher
+
+	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
 }
 
 func NewManager(client client.Client, checker StatusChecker, options ...Option) *Manager {
 	m := &Manager{
-		clock:          realClock,
-		client:         client,
-		statusChecker:  checker,
-		localQueues:    make(map[queue.LocalQueueReference]*LocalQueue),
-		snapshotsMutex: sync.RWMutex{},
-		snapshots:      make(map[kueue.ClusterQueueReference][]kueue.ClusterQueuePendingWorkload, 0),
+		clock:         realClock,
+		client:        client,
+		statusChecker: checker,
+		localQueues:   make(map[queue.LocalQueueReference]*LocalQueue),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
 		workloadInfoOptions: []workload.InfoOption{},
-		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
+		hm:                  hierarchy.NewManager(newCohort),
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 		secondPassQueue:        newSecondPassQueue(),
@@ -148,7 +152,7 @@ func (m *Manager) AddTopologyUpdateWatcher(watcher TopologyUpdateWatcher) {
 	m.topologyUpdateWatchers = append(m.topologyUpdateWatchers, watcher)
 }
 
-func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueuealpha.Topology) {
+func (m *Manager) NotifyTopologyUpdateWatchers(oldTopology, newTopology *kueue.Topology) {
 	for _, watcher := range m.topologyUpdateWatchers {
 		watcher.NotifyTopologyUpdate(oldTopology, newTopology)
 	}
@@ -189,7 +193,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return err
 	}
 	m.hm.AddClusterQueue(cqImpl)
-	m.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
+	m.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 
 	// Iterate through existing queues, as queues corresponding to this cluster
 	// queue might have been added earlier.
@@ -241,7 +245,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
-	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.Cohort)
+	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
@@ -314,6 +318,16 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if !workload.IsActive(&w) || workload.HasQuotaReservation(&w) {
 			continue
 		}
+
+		if features.Enabled(features.DynamicResourceAllocation) && workload.HasDRA(&w) {
+			if m.draReconcileChannel != nil {
+				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
+				log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
+				log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
+			}
+			continue
+		}
+
 		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
@@ -418,19 +432,20 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) error {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	return m.AddOrUpdateWorkloadWithoutLock(w)
+	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload, opts ...workload.InfoOption) error {
 	qKey := queue.KeyFromWorkload(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	allOptions := append(m.workloadInfoOptions, opts...)
+	wInfo := workload.NewInfo(w, allOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
@@ -471,7 +486,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(info, reason)
+	added := cq.RequeueIfNotPresent(ctx, info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	if features.Enabled(features.LocalQueueMetrics) {
 		m.reportLQPendingWorkloads(q)
@@ -612,13 +627,13 @@ func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *coho
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) error {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, queue.KeyFromWorkload(oldW))
 	}
-	return m.AddOrUpdateWorkloadWithoutLock(w)
+	return m.AddOrUpdateWorkloadWithoutLock(w, opts...)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
@@ -738,79 +753,36 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 	return "", false
 }
 
-// UpdateSnapshot computes the new snapshot and replaces if it differs from the
-// previous version. It returns true if the snapshot was actually updated.
-func (m *Manager) UpdateSnapshot(cqName kueue.ClusterQueueReference, maxCount int32) bool {
-	cq := m.getClusterQueue(cqName)
-	if cq == nil {
-		return false
-	}
-	newSnapshot := make([]kueue.ClusterQueuePendingWorkload, 0)
-	for index, info := range cq.Snapshot() {
-		if int32(index) >= maxCount {
-			break
-		}
-		if info == nil {
-			continue
-		}
-		newSnapshot = append(newSnapshot, kueue.ClusterQueuePendingWorkload{
-			Name:      info.Obj.Name,
-			Namespace: info.Obj.Namespace,
-		})
-	}
-	prevSnapshot := m.GetSnapshot(cqName)
-	if !equality.Semantic.DeepEqual(prevSnapshot, newSnapshot) {
-		m.setSnapshot(cqName, newSnapshot)
-		return true
-	}
-	return false
-}
-
-func (m *Manager) setSnapshot(cqName kueue.ClusterQueueReference, workloads []kueue.ClusterQueuePendingWorkload) {
-	m.snapshotsMutex.Lock()
-	defer m.snapshotsMutex.Unlock()
-	m.snapshots[cqName] = workloads
-}
-
-func (m *Manager) GetSnapshot(cqName kueue.ClusterQueueReference) []kueue.ClusterQueuePendingWorkload {
-	m.snapshotsMutex.RLock()
-	defer m.snapshotsMutex.RUnlock()
-	return m.snapshots[cqName]
-}
-
-func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
-	m.snapshotsMutex.Lock()
-	defer m.snapshotsMutex.Unlock()
-	delete(m.snapshots, kueue.ClusterQueueReference(cq.Name))
-}
-
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
 // pass queue.
 func (m *Manager) DeleteSecondPassWithoutLock(w *kueue.Workload) {
 	m.secondPassQueue.deleteByKey(workload.Key(w))
 }
 
-// QueueSecondPassIfNeeded queues for the second pass of scheduling with 1s
+// QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
 // delay.
-func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload) bool {
+func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	if workload.NeedsSecondPass(w) {
+		iteration++
+		delay := m.secondPassQueue.nextDelay(iteration)
 		log := ctrl.LoggerFrom(ctx)
-		log.V(3).Info("Workload pre-queued for second pass", "workload", workload.Key(w))
+		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", workload.Key(w), "delay", delay)
 		m.secondPassQueue.prequeue(w)
-		m.clock.AfterFunc(time.Second, func() {
-			m.queueSecondPass(ctx, w)
+		m.clock.AfterFunc(delay, func() {
+			m.queueSecondPass(ctx, w, iteration)
 		})
 		return true
 	}
 	return false
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload) {
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
 	m.Lock()
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
+	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
 		m.Broadcast()

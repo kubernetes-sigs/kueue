@@ -23,7 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestManager(t *testing.T) {
@@ -498,7 +498,7 @@ type testCohort struct {
 func newCohort(name kueue.CohortReference) *testCohort {
 	return &testCohort{
 		name:   name,
-		Cohort: NewCohort[*testClusterQueue, *testCohort](),
+		Cohort: NewCohort[*testClusterQueue](),
 	}
 }
 

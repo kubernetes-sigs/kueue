@@ -1,4 +1,4 @@
-apiVersion: config.kueue.x-k8s.io/v1beta1
+apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 health:
   healthProbeBindAddress: :8081
@@ -56,6 +56,7 @@ integrations:
   - "kubeflow.org/xgboostjob"
   - "kubeflow.org/jaxjob"
   - "workload.codeflare.dev/appwrapper"
+  - "trainer.kubeflow.org/trainjob"
 #  - "pod"
 #  - "deployment" # requires enabling pod integration
 #  - "statefulset" # requires enabling pod integration

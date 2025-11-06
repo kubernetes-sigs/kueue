@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -44,7 +44,7 @@ import (
 
 var (
 	headGroupSpecsPath   = field.NewPath("spec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "workerGroupSpecs")
 )
 
@@ -96,12 +96,12 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 
 	if isAnElasticJob(rjob) {
 		// Ensure that the PodSchedulingGate is present in the RayCluster's pod Templates for its Head and all its Workers
-		utilpod.GateTemplate(&job.Spec.HeadGroupSpec.Template, kueuebeta.ElasticJobSchedulingGate)
+		utilpod.GateTemplate(&job.Spec.HeadGroupSpec.Template, kueue.ElasticJobSchedulingGate)
 
 		for index := range job.Spec.WorkerGroupSpecs {
 			wgs := &job.Spec.WorkerGroupSpecs[index]
 
-			utilpod.GateTemplate(&wgs.Template, kueuebeta.ElasticJobSchedulingGate)
+			utilpod.GateTemplate(&wgs.Template, kueue.ElasticJobSchedulingGate)
 		}
 	}
 
@@ -117,7 +117,7 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Obje
 	job := obj.(*rayv1.RayCluster)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(job)
+	validationErrs, err := w.validateCreate(ctx, job)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func isAnElasticJob(job *rayv1.RayCluster) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorList, error) {
+func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCluster) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
 
@@ -159,7 +159,7 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) (field.ErrorLi
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(kueueJob)
+		validationErrs, err := w.validateTopologyRequest(ctx, kueueJob)
 		if err != nil {
 			return nil, err
 		}
@@ -175,7 +175,7 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 	specPath := field.NewPath("spec")
 
 	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
-		Name: kueuebeta.ElasticJobSchedulingGate,
+		Name: kueue.ElasticJobSchedulingGate,
 	}
 
 	for index := range job.Spec.WorkerGroupSpecs {
@@ -193,16 +193,17 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 	return allErrors
 }
 
-func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.ErrorList, error) {
+func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob *RayCluster) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := rayJob.PodSets()
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
 
 	if podSetsErr == nil {
 		headGroupPodSet := podset.FindPodSetByName(podSets, headGroupPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSet)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(rayJob))...)
 	}
 
 	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
@@ -213,7 +214,7 @@ func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.E
 			continue
 		}
 
-		podSet := podset.FindPodSetByName(podSets, kueuebeta.NewPodSetReference(wgs.GroupName))
+		podSet := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta, podSet)...)
 	}
 
@@ -224,6 +225,15 @@ func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) (field.E
 	return nil, podSetsErr
 }
 
+func buildPodSetAnnotationsPathByNameMap(rayJob *RayCluster) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
+	for i, wgs := range rayJob.Spec.WorkerGroupSpecs {
+		podSetAnnotationsPathByName[kueue.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
+}
+
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := oldObj.(*rayv1.RayCluster)
@@ -232,7 +242,7 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayCluster)(newJob)) != "" {
 		log.Info("Validating update")
 		allErrors := jobframework.ValidateJobOnUpdate((*RayCluster)(oldJob), (*RayCluster)(newJob), w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(newJob)
+		validationErrs, err := w.validateCreate(ctx, newJob)
 		if err != nil {
 			return nil, err
 		}

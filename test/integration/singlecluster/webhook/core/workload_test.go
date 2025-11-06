@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	gomegatypes "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,12 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -48,18 +50,18 @@ const (
 	podSetsMaxItems = 8
 )
 
-var _ = ginkgo.BeforeEach(func() {
-	ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
-})
-
-var _ = ginkgo.AfterEach(func() {
-	gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-})
-
 var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
+	var _ = ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+	})
+
+	var _ = ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+			managerSetup(ctx, mgr)
 		})
 	})
 	ginkgo.AfterAll(func() {
@@ -74,7 +76,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
-						*testing.MakePodSet("", 1).
+						*utiltestingapi.MakePodSet("", 1).
 							Containers(corev1.Container{}).
 							Obj(),
 					},
@@ -98,24 +100,31 @@ var _ = ginkgo.Describe("Workload defaulting webhook", ginkgo.Ordered, func() {
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
-						*testing.MakePodSet("", 1).
+						*utiltestingapi.MakePodSet("", 1).
 							Containers(corev1.Container{}).
 							Obj(),
-						*testing.MakePodSet("", 1).
+						*utiltestingapi.MakePodSet("", 1).
 							Containers(corev1.Container{}).
 							Obj(),
 					},
 				},
 			}
-			gomega.Expect(k8sClient.Create(ctx, &workload)).Should(testing.BeInvalidError())
+			gomega.Expect(k8sClient.Create(ctx, &workload)).Should(utiltesting.BeInvalidError())
 		})
 	})
 })
 
 var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
+	var _ = ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+	})
+
+	var _ = ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+			managerSetup(ctx, mgr)
 		})
 	})
 	ginkgo.AfterAll(func() {
@@ -128,12 +137,12 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
 			for i := range podSets {
-				podSets[i] = *testing.MakePodSet(kueue.NewPodSetReference(fmt.Sprintf("ps%d", i)), podSetCount).Obj()
+				podSets[i] = *utiltestingapi.MakePodSet(kueue.NewPodSetReference(fmt.Sprintf("ps%d", i)), podSetCount).Obj()
 			}
-			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets...).Obj()
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).PodSets(podSets...).Obj()
 			err := k8sClient.Create(ctx, workload)
 			if isInvalid {
-				gomega.Expect(err).Should(testing.BeInvalidError())
+				gomega.Expect(err).Should(utiltesting.BeInvalidError())
 			} else {
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}
@@ -144,69 +153,63 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			ginkgo.Entry("valid podSet", 3, 3, false),
 		)
 
-		ginkgo.DescribeTable("Should have valid values when creating", func(w func() *kueue.Workload, errorType gomega.OmegaMatcher) {
-			err := k8sClient.Create(ctx, w())
-			if errorType != nil {
-				gomega.Expect(err).Should(errorType)
-			} else {
-				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-			}
+		ginkgo.DescribeTable("Should have valid values when creating", func(w func() *kueue.Workload, matcher gomegatypes.GomegaMatcher) {
+			gomega.Expect(k8sClient.Create(ctx, w())).Should(matcher)
 		},
 			ginkgo.Entry("valid workload",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).PodSets(
-						*testing.MakePodSet("driver", 1).Obj(),
-						*testing.MakePodSet("workers", 100).Obj(),
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).PodSets(
+						*utiltestingapi.MakePodSet("driver", 1).Obj(),
+						*utiltestingapi.MakePodSet("workers", 100).Obj(),
 					).Obj()
 				},
-				nil),
+				gomega.Succeed()),
 			ginkgo.Entry("invalid podSet name",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).PodSets(
-						*testing.MakePodSet("@driver", 1).Obj(),
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).PodSets(
+						*utiltestingapi.MakePodSet("@driver", 1).Obj(),
 					).Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("invalid priorityClassName",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PriorityClass("invalid_class").
 						Priority(0).
 						Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("empty priorityClassName is valid",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
-						Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Priority(0).Obj()
 				},
-				nil),
+				gomega.Succeed()),
 			ginkgo.Entry("priority should not be nil when priorityClassName is set",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PriorityClass("priority").
 						Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("invalid queueName",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Queue("@invalid").
 						Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("should not request num-pods resource",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("bad", 1).
+							*utiltestingapi.MakePodSet("bad", 1).
 								InitContainers(
-									testing.SingleContainerForRequest(map[corev1.ResourceName]string{
+									utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 										corev1.ResourcePods: "1",
 									})...,
 								).
 								Containers(
-									testing.SingleContainerForRequest(map[corev1.ResourceName]string{
+									utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 										corev1.ResourcePods: "1",
 									})...,
 								).
@@ -214,20 +217,20 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						).
 						Obj()
 				},
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("empty podSetUpdates should be valid since it is optional",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						AdmissionChecks(kueue.AdmissionCheckState{}).
 						Obj()
 				},
-				nil),
+				gomega.Succeed()),
 			ginkgo.Entry("matched names in podSetUpdates with names in podSets",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("first", 1).Obj(),
-							*testing.MakePodSet("second", 1).Obj(),
+							*utiltestingapi.MakePodSet("first", 1).Obj(),
+							*utiltestingapi.MakePodSet("second", 1).Obj(),
 						).
 						AdmissionChecks(
 							kueue.AdmissionCheckState{
@@ -267,102 +270,105 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						).
 						Obj()
 				},
-				nil),
+				gomega.Succeed()),
 			ginkgo.Entry("invalid podSet minCount (negative)",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("ps1", 3).SetMinimumCount(-1).Obj(),
+							*utiltestingapi.MakePodSet("ps1", 3).SetMinimumCount(-1).Obj(),
 						).
 						Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("invalid podSet minCount (too big)",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("ps1", 3).SetMinimumCount(4).Obj(),
+							*utiltestingapi.MakePodSet("ps1", 3).SetMinimumCount(4).Obj(),
 						).
 						Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("too many variable count podSets",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("ps1", 3).SetMinimumCount(2).Obj(),
-							*testing.MakePodSet("ps2", 3).SetMinimumCount(1).Obj(),
+							*utiltestingapi.MakePodSet("ps1", 3).SetMinimumCount(2).Obj(),
+							*utiltestingapi.MakePodSet("ps2", 3).SetMinimumCount(1).Obj(),
 						).
 						Obj()
 				},
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("invalid maximumExexcutionTimeSeconds",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(0).
 						Obj()
 				},
-				testing.BeInvalidError()),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("valid maximumExexcutionTimeSeconds",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(1).
 						Obj()
 				},
-				nil),
+				gomega.Succeed()),
 		)
 
-		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType gomega.OmegaMatcher) {
-			workload := w()
-			util.MustCreate(ctx, k8sClient, workload)
+		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, matcher gomegatypes.GomegaMatcher) {
+			wl := w()
+			util.MustCreate(ctx, k8sClient, wl)
 
-			err := util.SetQuotaReservation(ctx, k8sClient, workload, a)
-			if errorType != nil {
-				gomega.Expect(err).Should(errorType)
-			} else {
-				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-			}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+					return wl, workload.SetQuotaReservation(wl, a, clock.RealClock{}), nil
+				})
+				g.Expect(err).Should(matcher)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
 			ginkgo.Entry("invalid clusterQueue name",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
-				testing.MakeAdmission("@invalid").Obj(),
-				testing.BeInvalidError()),
+				utiltestingapi.MakeAdmission("@invalid").Obj(),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("invalid podSet name in status assignment",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
-				testing.MakeAdmission("cluster-queue", "@invalid").Obj(),
-				testing.BeInvalidError()),
+				utiltestingapi.MakeAdmission("cluster-queue", "@invalid").Obj(),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("mismatched names in admission with names in podSets",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("main2", 1).Obj(),
-							*testing.MakePodSet("main1", 1).Obj(),
+							*utiltestingapi.MakePodSet("main2", 1).Obj(),
+							*utiltestingapi.MakePodSet("main1", 1).Obj(),
 						).
 						Obj()
 				},
-				testing.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj(),
-				testing.BeInvalidError()),
+				utiltestingapi.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj(),
+				utiltesting.BeInvalidError()),
 			ginkgo.Entry("assignment usage should be divisible by count",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet(kueue.DefaultPodSetName, 3).
+							*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 								Request(corev1.ResourceCPU, "1").
 								Obj(),
 						).
 						Obj()
 				},
-				testing.MakeAdmission("cluster-queue").
-					Assignment(corev1.ResourceCPU, "flv", "1").
-					AssignmentPodCount(3).
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flv", "1").
+						Count(3).
+						Obj()).
 					Obj(),
-				testing.BeForbiddenError()),
+				utiltesting.BeForbiddenError()),
 		)
 
 		ginkgo.DescribeTable("Should have valid values when setting AdmissionCheckState", func(w func() *kueue.Workload, acs kueue.AdmissionCheckState) {
@@ -372,15 +378,15 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, realClock)
-				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
 			ginkgo.Entry("mismatched names in podSetUpdates with names in podSets",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("first", 1).Obj(),
-							*testing.MakePodSet("second", 1).Obj(),
+							*utiltestingapi.MakePodSet("first", 1).Obj(),
+							*utiltestingapi.MakePodSet("second", 1).Obj(),
 						).
 						Obj()
 				},
@@ -391,7 +397,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("invalid label name of podSetUpdate",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
 				kueue.AdmissionCheckState{
@@ -401,7 +407,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("invalid node selector name of podSetUpdate",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
 				kueue.AdmissionCheckState{
@@ -411,7 +417,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("invalid label value of podSetUpdate",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
 				kueue.AdmissionCheckState{
@@ -423,9 +429,9 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 		ginkgo.It("invalid reclaimablePods", func() {
 			ginkgo.By("Creating a new Workload")
-			wl := testing.MakeWorkload(workloadName, ns.Name).
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(
-					*testing.MakePodSet("ps1", 3).Obj(),
+					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
@@ -434,7 +440,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				{Name: "ps1", Count: 4},
 				{Name: "ps2", Count: 1},
 			})
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 
@@ -446,8 +452,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			priorityClass         *schedulingv1.PriorityClass
 		)
 		ginkgo.BeforeEach(func() {
-			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
-			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
+			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			priorityClass = utiltesting.MakePriorityClass("priority-class").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
 			util.MustCreate(ctx, k8sClient, priorityClass)
 		})
@@ -458,12 +464,12 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.DescribeTable("Validate Workload on update",
-			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueue.Workload), matcher gomega.OmegaMatcher) {
+			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueue.Workload), matcher gomegatypes.GomegaMatcher) {
 				ginkgo.By("Creating a new Workload")
 				workload := w()
 				util.MustCreate(ctx, k8sClient, workload)
 				if setQuotaReservation {
-					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
+					util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -475,17 +481,17 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			},
 			ginkgo.Entry("podSets should not be updated when has quota reservation: count",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				true,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet(kueue.DefaultPodSetName, 2).Obj()}
+					newWL.Spec.PodSets = []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()}
 				},
-				testing.BeForbiddenError(),
+				utiltesting.BeForbiddenError(),
 			),
 			ginkgo.Entry("podSets should not be updated: podSpec",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				true,
 				func(newWL *kueue.Workload) {
@@ -506,11 +512,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						},
 					}}
 				},
-				testing.BeForbiddenError(),
+				utiltesting.BeForbiddenError(),
 			),
 			ginkgo.Entry("queueName can be updated when not admitted",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -520,7 +526,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("queueName can be updated when admitting",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -530,18 +536,18 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("queueName should not be updated once admitted",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
 				},
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.QueueName = "q2"
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("queueName can be updated when admission is reset",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Queue("q1").
-						ReserveQuota(testing.MakeAdmission("cq").Obj()).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("q1").
+						ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -552,12 +558,12 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("admission can be set",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Status = kueue.WorkloadStatus{
-						Admission: testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
+						Admission: utiltestingapi.MakeAdmission("cluster-queue").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj(),
 						Conditions: []metav1.Condition{{
 							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
@@ -571,8 +577,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("admission can be unset",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).ReserveQuota(
-						testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).ReserveQuota(
+						utiltestingapi.MakeAdmission("cluster-queue").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj(),
 					).Obj()
 				},
 				false,
@@ -583,7 +589,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("priorityClassSource should not be updated",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Queue("q").
 						PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
 						Priority(10).
@@ -593,11 +599,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("priorityClassName should not be updated",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Queue("q").
 						PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
 						Priority(10).
@@ -607,14 +613,14 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassName = "test-class-2"
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("should change other fields of admissionchecks when podSetUpdates is immutable",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("first", 1).Obj(),
-							*testing.MakePodSet("second", 1).Obj(),
+							*utiltestingapi.MakePodSet("first", 1).Obj(),
+							*utiltestingapi.MakePodSet("second", 1).Obj(),
 						).AdmissionChecks(
 						kueue.AdmissionCheckState{
 							Name:          "ac1",
@@ -639,7 +645,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("updating priorityClassName before setting reserve quota for workload",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Queue("q").
 						PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
 						Priority(10).Obj()
@@ -652,7 +658,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("updating priorityClassSource before setting reserve quota for workload",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						Queue("q").
 						PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
 						Priority(10).Obj()
@@ -665,7 +671,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("updating podSets before setting reserve quota for workload",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -692,7 +698,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("Should allow the change of priority",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -702,23 +708,23 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("Should forbid the change of spec.podSet",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets[0].Count = 10
 				},
-				testing.BeForbiddenError(),
+				utiltesting.BeForbiddenError(),
 			),
 			ginkgo.Entry("reclaimable pod count can go to 0 if the job is suspended",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						PodSets(
-							*testing.MakePodSet("ps1", 3).Obj(),
-							*testing.MakePodSet("ps2", 3).Obj(),
+							*utiltestingapi.MakePodSet("ps1", 3).Obj(),
+							*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 						).
 						ReserveQuota(
-							testing.MakeAdmission("cluster-queue").
+							utiltestingapi.MakeAdmission("cluster-queue").
 								PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
 								Obj(),
 						).
@@ -745,7 +751,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("can add maximum execution time when not admitted",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				false,
 				func(newWL *kueue.Workload) {
@@ -755,7 +761,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("can update maximum execution time when not admitted",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(1).
 						Obj()
 				},
@@ -767,17 +773,17 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			),
 			ginkgo.Entry("cannot add maximum execution time when admitted",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 				},
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("cannot update maximum execution time when admitted",
 				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(1).
 						Obj()
 				},
@@ -785,60 +791,227 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				func(newWL *kueue.Workload) {
 					*newWL.Spec.MaximumExecutionTimeSeconds = 2
 				},
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can set workload priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't set workload priority class when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can update workload priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can update workload priority class when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can delete workload priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't delete workload priority class when quota reserved when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.WorkloadPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can set pod priority class QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.PodPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't set pod priority class when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.PodPriorityClassSource
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can update pod priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't update pod priority class when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "low"
+					newWL.Spec.Priority = ptr.To[int32](100)
+				},
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("can delete pod priority class when QuotaReserved=false",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can't delete pod priority class when QuotaReserved=true",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PriorityClassSource(constants.PodPriorityClassSource).
+						PriorityClass("high").
+						Priority(1000).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = ""
+					newWL.Spec.PriorityClassName = ""
+					newWL.Spec.Priority = nil
+				},
+				utiltesting.BeInvalidError(),
 			),
 		)
 
 		ginkgo.It("Should forbid the change of spec.queueName of an admitted workload", func() {
 			ginkgo.By("Creating and admitting a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
 			util.MustCreate(ctx, k8sClient, workload)
-			gomega.Eventually(func(g gomega.Gomega) {
-				var newWL kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Spec.QueueName = "queue2"
-				g.Expect(k8sClient.Update(ctx, &newWL)).Should(testing.BeInvalidError())
+				g.Expect(k8sClient.Update(ctx, &newWL)).Should(utiltesting.BeInvalidError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should forbid the change of spec.admission", func() {
+		ginkgo.It("Should forbid the change of status.admission", func() {
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 			util.MustCreate(ctx, k8sClient, workload)
 
-			ginkgo.By("Admitting the Workload")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var newWL kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Obj()
-				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Admitting the Workload", func() {
+				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cluster-queue").Obj())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+			})
 
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(newWL.Status.Admission).NotTo(gomega.BeNil())
 				newWL.Status.Admission.ClusterQueue = "foo-cluster-queue"
-				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(testing.BeForbiddenError())
+				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should have priority once priorityClassName is set", func() {
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).PriorityClass("priority").Obj()
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).PriorityClass("priority").Obj()
 			err := k8sClient.Create(ctx, workload)
-			gomega.Expect(err).Should(testing.BeInvalidError())
+			gomega.Expect(err).Should(utiltesting.BeInvalidError())
 		})
 
 		ginkgo.It("workload's priority should be mutable when referencing WorkloadPriorityClass", func() {
 			ginkgo.By("creating workload")
-			wl := testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				PriorityClass("workload-priority-class").PriorityClassSource(constants.WorkloadPriorityClassSource).Priority(200).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -860,7 +1033,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 		ginkgo.It("workload's priority should be mutable when referencing PriorityClass", func() {
 			ginkgo.By("creating workload")
-			wl := testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				PriorityClass("priority-class").PriorityClassSource(constants.PodPriorityClassSource).Priority(100).Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -882,25 +1055,25 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 		ginkgo.It("admission should not be updated once set", func() {
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 			util.MustCreate(ctx, k8sClient, workload)
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cluster-queue").Obj())).Should(gomega.Succeed())
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cluster-queue").Obj())
 
 			ginkgo.By("Updating the workload setting admission")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj()
-				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(testing.BeForbiddenError())
+				newWL.Status.Admission = utiltestingapi.MakeAdmission("cluster-queue").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment("on-demand", "5", "1").Obj()).Obj()
+				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("reclaimable pod count can change up", func() {
 			ginkgo.By("Creating a new Workload")
-			wl := testing.MakeWorkload(workloadName, ns.Name).
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(
-					*testing.MakePodSet("ps1", 3).Obj(),
-					*testing.MakePodSet("ps2", 3).Obj(),
+					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
+					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
@@ -908,12 +1081,12 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				{Name: "ps1", Count: 1},
 			})).Should(gomega.Succeed())
 
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl,
-				testing.MakeAdmission("cluster-queue").
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(
 						kueue.PodSetAssignment{Name: "ps1"},
 						kueue.PodSetAssignment{Name: "ps2"}).
-					Obj())).Should(gomega.Succeed())
+					Obj())
 
 			ginkgo.By("Updating reclaimable pods")
 			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
@@ -925,10 +1098,10 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 		ginkgo.It("reclaimable pod count cannot change down", func() {
 			ginkgo.By("Creating a new Workload")
-			wl := testing.MakeWorkload(workloadName, ns.Name).
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(
-					*testing.MakePodSet("ps1", 3).Obj(),
-					*testing.MakePodSet("ps2", 3).Obj(),
+					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
+					*utiltestingapi.MakePodSet("ps2", 3).Obj(),
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
@@ -937,26 +1110,26 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 				{Name: "ps2", Count: 1},
 			})).Should(gomega.Succeed())
 
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl,
-				testing.MakeAdmission("cluster-queue").
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(
 						kueue.PodSetAssignment{Name: "ps1"},
 						kueue.PodSetAssignment{Name: "ps2"}).
-					Obj())).Should(gomega.Succeed())
+					Obj())
 
 			ginkgo.By("Updating reclaimable pods")
 			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
 				{Name: "ps1", Count: 1},
 			})
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.It("podSetUpdates should be immutable when state is ready", func() {
 			ginkgo.By("Creating a new Workload")
-			wl := testing.MakeWorkload(workloadName, ns.Name).
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				PodSets(
-					*testing.MakePodSet("first", 1).Obj(),
-					*testing.MakePodSet("second", 1).Obj(),
+					*utiltestingapi.MakePodSet("first", 1).Obj(),
+					*utiltestingapi.MakePodSet("second", 1).Obj(),
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
@@ -984,7 +1157,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "baz"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
 				}, realClock)
-				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -992,8 +1165,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 
 			ginkgo.By("Creating a new Workload")
-			wl := testing.MakeWorkload(workloadName, ns.Name).
-				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 1).
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
@@ -1002,9 +1175,10 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			ginkgo.By("Admitting the Workload")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				admission := testing.MakeAdmission("default").
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(1).
+				admission := utiltestingapi.MakeAdmission("default").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
 					Obj()
 				workload.SetQuotaReservation(wl, admission, realClock)
 				wl.Status.Admission = admission
@@ -1016,15 +1190,15 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				wl.Spec.PodSets[0].Count++ // Increase from 1 -> 2.
-				g.Expect(k8sClient.Update(ctx, wl)).Should(testing.BeForbiddenError())
+				g.Expect(k8sClient.Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should allow workload podSets count decrease when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 
 			ginkgo.By("Creating a new Workload")
-			wl := testing.MakeWorkload(workloadName, ns.Name).
-				PodSets(*testing.MakePodSet(kueue.DefaultPodSetName, 10).
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
@@ -1033,9 +1207,11 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 			ginkgo.By("Admitting the Workload")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				admission := testing.MakeAdmission("default").
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(10).
+				admission := utiltestingapi.MakeAdmission("default").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(10).
+						Obj()).
 					Obj()
 				workload.SetQuotaReservation(wl, admission, realClock)
 				wl.Status.Admission = admission
@@ -1054,9 +1230,16 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 })
 
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", ginkgo.Ordered, func() {
+	var _ = ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+	})
+
+	var _ = ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeAllAtOnce)
+			managerSetup(ctx, mgr)
 		})
 	})
 	ginkgo.AfterAll(func() {
@@ -1068,8 +1251,8 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 			priorityClass         *schedulingv1.PriorityClass
 		)
 		ginkgo.BeforeEach(func() {
-			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
-			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
+			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			priorityClass = utiltesting.MakePriorityClass("priority-class").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
 			util.MustCreate(ctx, k8sClient, priorityClass)
 		})
@@ -1080,125 +1263,9 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 		})
 
 		ginkgo.DescribeTable("Validate Workload status on update",
-			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomega.OmegaMatcher) {
+			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomegatypes.GomegaMatcher) {
 				ginkgo.By("Creating a new Workload")
-				workload := testing.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
-				util.MustCreate(ctx, k8sClient, workload)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					var wl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
-					setupWlStatus(&wl)
-					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(setupMatcher)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					var wl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
-					updateWlStatus(&wl)
-					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(updateMatcher)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			},
-			ginkgo.Entry("Valid: ClusterName is in NominatedClusters",
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
-					wl.Status.ClusterName = nil
-				},
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker2")
-				},
-				gomega.Succeed(),
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("Valid: ClusterName is not in NominatedClusters",
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
-					wl.Status.ClusterName = nil
-				},
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker3")
-				},
-				gomega.Succeed(),
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("Invalid: ClusterName is changed",
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker1")
-				},
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker2")
-				},
-				gomega.Succeed(),
-				testing.BeInvalidError(),
-			),
-			ginkgo.Entry("Valid: ClusterName is set when NominatedClusters is empty",
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = nil
-				},
-				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = ptr.To("worker1")
-					wl.Status.NominatedClusterNames = nil
-				},
-				gomega.Succeed(),
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
-				func(wl *kueue.Workload) {},
-				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = ptr.To("worker1")
-					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
-				},
-				gomega.Succeed(),
-				testing.BeInvalidError(),
-			),
-			ginkgo.Entry("Valid: neither ClusterName nor NominatedClusters is set",
-				func(wl *kueue.Workload) {},
-				func(wl *kueue.Workload) {
-					wl.Status.ClusterName = nil
-					wl.Status.NominatedClusterNames = nil
-				},
-				gomega.Succeed(),
-				gomega.Succeed(),
-			),
-		)
-	})
-})
-
-var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", ginkgo.Ordered, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerSetup(ctx, mgr, config.MultiKueueDispatcherModeIncremental)
-		})
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-	ginkgo.Context("When updating a Workload", func() {
-		var (
-			workloadPriorityClass *kueue.WorkloadPriorityClass
-			priorityClass         *schedulingv1.PriorityClass
-		)
-		ginkgo.BeforeEach(func() {
-			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
-			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
-			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
-			util.MustCreate(ctx, k8sClient, priorityClass)
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
-		})
-
-		ginkgo.DescribeTable("Validate Workload status on update",
-			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomega.OmegaMatcher) {
-				ginkgo.By("Creating a new Workload")
-				workload := testing.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
+				workload := utiltestingapi.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
 				util.MustCreate(ctx, k8sClient, workload)
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1237,19 +1304,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 					wl.Status.ClusterName = ptr.To("worker3")
 				},
 				gomega.Succeed(),
-				testing.BeForbiddenError(),
-			),
-			ginkgo.Entry("Invalid: ClusterName is changed",
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker1")
-				},
-				func(wl *kueue.Workload) {
-					wl.Status.NominatedClusterNames = nil
-					wl.Status.ClusterName = ptr.To("worker2")
-				},
-				testing.BeForbiddenError(),
-				testing.BeForbiddenError(),
+				utiltesting.BeForbiddenError(),
 			),
 			ginkgo.Entry("Invalid: ClusterName is set when NominatedClusters is empty",
 				func(wl *kueue.Workload) {
@@ -1261,7 +1316,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 					wl.Status.NominatedClusterNames = nil
 				},
 				gomega.Succeed(),
-				testing.BeForbiddenError(),
+				utiltesting.BeForbiddenError(),
 			),
 			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
 				func(wl *kueue.Workload) {},
@@ -1270,7 +1325,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
 				},
 				gomega.Succeed(),
-				testing.BeInvalidError(),
+				utiltesting.BeInvalidError(),
 			),
 			ginkgo.Entry("Valid: neither ClusterName nor NominatedClusters is set",
 				func(wl *kueue.Workload) {},
@@ -1282,5 +1337,152 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher In
 				gomega.Succeed(),
 			),
 		)
+	})
+})
+
+var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", ginkgo.Ordered, func() {
+	var _ = ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+	})
+	var _ = ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr)
+		})
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+	ginkgo.Context("When updating a Workload", func() {
+		var (
+			workloadPriorityClass *kueue.WorkloadPriorityClass
+			priorityClass         *schedulingv1.PriorityClass
+		)
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			priorityClass = utiltesting.MakePriorityClass("priority-class").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
+			util.MustCreate(ctx, k8sClient, priorityClass)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
+		})
+
+		ginkgo.DescribeTable("Validate Workload status on update",
+			func(setupWlStatus func(w *kueue.Workload), updateWlStatus func(w *kueue.Workload), setupMatcher, updateMatcher gomegatypes.GomegaMatcher) {
+				ginkgo.By("Creating a new Workload")
+				workload := utiltestingapi.MakeWorkloadWithGeneratedName(workloadName, ns.Name).Obj()
+				util.MustCreate(ctx, k8sClient, workload)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					setupWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(setupMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+					updateWlStatus(&wl)
+					g.Expect(k8sClient.Status().Update(ctx, &wl)).Should(updateMatcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Valid: ClusterName is in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is not in NominatedClusters",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker3")
+				},
+				gomega.Succeed(),
+				utiltesting.BeForbiddenError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is changed",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker1")
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = ptr.To("worker2")
+				},
+				utiltesting.BeForbiddenError(),
+				utiltesting.BeForbiddenError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName is set when NominatedClusters is empty",
+				func(wl *kueue.Workload) {
+					wl.Status.NominatedClusterNames = nil
+					wl.Status.ClusterName = nil
+				},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				utiltesting.BeForbiddenError(),
+			),
+			ginkgo.Entry("Invalid: ClusterName and NominatedClusters are mutually exclusive",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = ptr.To("worker1")
+					wl.Status.NominatedClusterNames = []string{"worker1", "worker2"}
+				},
+				gomega.Succeed(),
+				utiltesting.BeInvalidError(),
+			),
+			ginkgo.Entry("Valid: neither ClusterName nor NominatedClusters is set",
+				func(wl *kueue.Workload) {},
+				func(wl *kueue.Workload) {
+					wl.Status.ClusterName = nil
+					wl.Status.NominatedClusterNames = nil
+				},
+				gomega.Succeed(),
+				gomega.Succeed(),
+			),
+		)
+
+		ginkgo.It("Should allow to set ClusterName without previous nominatedClusterNames when ElasticJobsViaWorkloadSlices feature gate is enabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			ginkgo.By("Creating a new Workload")
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.NewReference(ns.Name, workloadName))).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("mimic scheduler by setting the status.clusterName during quota reservation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status.Admission = utiltestingapi.MakeAdmission("default").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj()
+				wl.Status.ClusterName = ptr.To("worker1")
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 })

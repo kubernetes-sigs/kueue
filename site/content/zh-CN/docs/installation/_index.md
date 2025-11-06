@@ -139,7 +139,7 @@ metadata:
   namespace: kueue-system
 data:
   controller_manager_config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     namespace: kueue-system
     health:
@@ -263,48 +263,54 @@ spec:
 
 ### Alpha 和 Beta 级别特性的特性门控 {#feature-gates-for-alpha-and-beta-features}
 
-| 功能                                          | 默认值  | 阶段  | 起始版本 | 截止版本 |
-| --------------------------------------------- | ------- | ----- | -------- | -------- |
-| `FlavorFungibility`                           | `true`  | Beta  | 0.5      |          |
-| `MultiKueue`                                  | `false` | Alpha | 0.6      | 0.8      |
-| `MultiKueue`                                  | `true`  | Beta  | 0.9      |          |
-| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8      |          |
-| `PartialAdmission`                            | `false` | Alpha | 0.4      | 0.4      |
-| `PartialAdmission`                            | `true`  | Beta  | 0.5      |          |
-| `VisibilityOnDemand`                          | `false` | Alpha | 0.6      | 0.8      |
-| `VisibilityOnDemand`                          | `true`  | Beta  | 0.9      |          |
-| `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6      |          |
-| `LendingLimit`                                | `false` | Alpha | 0.6      | 0.8      |
-| `LendingLimit`                                | `true`  | Beta  | 0.9      |          |
-| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9      |          |
-| `ConfigurableResourceTransformations`         | `false` | Alpha | 0.9      | 0.9      |
-| `ConfigurableResourceTransformations`         | `true`  | Beta  | 0.10     |          |
-| `LocalQueueDefaulting`                        | `false` | Alpha | 0.10     | 0.11     |
-| `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12     |          |
-| `LocalQueueMetrics`                           | `false` | Alpha | 0.10     |          |
-| `HierarchicalCohort`                          | `true`  | Beta  | 0.11     |          |
-| `ObjectRetentionPolicies`                     | `false` | Alpha | 0.12     | 0.12     |
-| `ObjectRetentionPolicies`                     | `true`  | Beta  | 0.13     |          |
-| `TASFailedNodeReplacement`                    | `false` | Alpha | 0.12     |          |
-| `AdmissionFairSharing`                        | `false` | Alpha | 0.12     |          |
-| `TASFailedNodeReplacementFailFast`            | `false` | Alpha | 0.12     |          |
-| `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13     |          |
-| `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13     |          |
-| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13     |          |
-| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13     |          |
+| 功能                                            | 默认值     | 阶段    | 起始版本 | 截止版本 |
+|-----------------------------------------------|---------|-------|------|------|
+| `FlavorFungibility`                           | `true`  | Beta  | 0.5  |      |
+| `MultiKueue`                                  | `false` | Alpha | 0.6  | 0.8  |
+| `MultiKueue`                                  | `true`  | Beta  | 0.9  |      |
+| `MultiKueueBatchJobWithManagedBy`             | `false` | Alpha | 0.8  | 0.15 |
+| `MultiKueueBatchJobWithManagedBy`             | `true`  | Beta  | 0.15 |      |
+| `PartialAdmission`                            | `false` | Alpha | 0.4  | 0.4  |
+| `PartialAdmission`                            | `true`  | Beta  | 0.5  |      |
+| `VisibilityOnDemand`                          | `false` | Alpha | 0.6  | 0.8  |
+| `VisibilityOnDemand`                          | `true`  | Beta  | 0.9  |      |
+| `PrioritySortingWithinCohort`                 | `true`  | Beta  | 0.6  |      |
+| `LendingLimit`                                | `false` | Alpha | 0.6  | 0.8  |
+| `LendingLimit`                                | `true`  | Beta  | 0.9  |      |
+| `TopologyAwareScheduling`                     | `false` | Alpha | 0.9  | 0.13 |
+| `TopologyAwareScheduling`                     | `true`  | Beta  | 0.14 |      |
+| `LocalQueueDefaulting`                        | `false` | Alpha | 0.10 | 0.11 |
+| `LocalQueueDefaulting`                        | `true`  | Beta  | 0.12 |      |
+| `LocalQueueMetrics`                           | `false` | Alpha | 0.10 |      |
+| `HierarchicalCohort`                          | `true`  | Beta  | 0.11 |      |
+| `ObjectRetentionPolicies`                     | `false` | Alpha | 0.12 | 0.12 |
+| `ObjectRetentionPolicies`                     | `true`  | Beta  | 0.13 |      |
+| `TASFailedNodeReplacement`                    | `false` | Alpha | 0.12 | 0.13 |
+| `TASFailedNodeReplacement`                    | `true`  | Beta  | 0.14 |      |
+| `AdmissionFairSharing`                        | `false` | Alpha | 0.12 |      |
+| `TASFailedNodeReplacementFailFast`            | `false` | Alpha | 0.12 | 0.13 |
+| `TASFailedNodeReplacementFailFast`            | `true`  | Beta  | 0.14 |      |
+| `TASReplaceNodeOnPodTermination`              | `false` | Alpha | 0.13 | 0.13 |
+| `TASReplaceNodeOnPodTermination`              | `true`  | Beta  | 0.14 |      |
+| `ElasticJobsViaWorkloadSlices`                | `false` | Alpha | 0.13 |      |
+| `ManagedJobsNamespaceSelectorAlwaysRespected` | `false` | Alpha | 0.13 |      |
+| `FlavorFungibilityImplicitPreferenceDefault`  | `false` | Alpha | 0.13 |      |
+| `WorkloadRequestUseMergePatch`                | `false` | Alpha | 0.14 |      |
+| `SanitizePodSets`                             | `true`  | Beta  | 0.13 |      |
+| `MultiKueueAllowInsecureKubeconfigs`          | `false` | Alpha | 0.13 |      |
 
 ### 已毕业或已弃用特性的特性门控 {#feature-gates-for-graduated-or-deprecated-features}
 
-| 功能                           | 默认值  | 阶段       | 起始版本 | 截止版本 |
-| ------------------------------ | ------- | ---------- | -------- | -------- |
-| `ManagedJobsNamespaceSelector` | `true`  | Beta       | 0.10     | 0.13     |
-| `ManagedJobsNamespaceSelector` | `true`  | GA         | 0.13     |          |
-| `ProvisioningACC`              | `false` | Alpha      | 0.5      | 0.6      |
-| `ProvisioningACC`              | `true`  | Beta       | 0.7      |          |
-| `ProvisioningACC`              | `true`  | GA         | 0.14     |          |
-| `TASProfileMostFreeCapacity`   | `false` | Deprecated | 0.11     | 0.13     |
-| `TASProfileLeastFreeCapacity`  | `false` | Deprecated | 0.11     |          |
-| `TASProfileMixed`              | `false` | Deprecated | 0.11     |          |
+| 功能                                    | 默认值     | 阶段         | 起始版本 | 截止版本 |
+|---------------------------------------|---------|------------|------|------|
+| `ManagedJobsNamespaceSelector`        | `true`  | Beta       | 0.10 | 0.13 |
+| `ManagedJobsNamespaceSelector`        | `true`  | GA         | 0.13 |      |
+| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9  | 0.9  |
+| `ConfigurableResourceTransformations` | `true`  | Beta       | 0.10 | 0.13 |
+| `ConfigurableResourceTransformations` | `true`  | GA         | 0.14 |      |
+| `TASProfileMostFreeCapacity`          | `false` | Deprecated | 0.11 | 0.13 |
+| `TASProfileLeastFreeCapacity`         | `false` | Deprecated | 0.11 |      |
+| `TASProfileMixed`                     | `false` | Deprecated | 0.11 |      |
 
 ## 接下来是什么 {#whats-next}
 

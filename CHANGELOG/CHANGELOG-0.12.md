@@ -1,3 +1,34 @@
+## v0.12.10
+
+Changes since `v0.12.9`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- FS: Validate FairSharing.Weight against small values which lose precision (0 < value <= 10^-9) (#7007, @gabesaba)
+- Fix the bug for the StatefulSet integration which would occasionally cause a StatefulSet
+  to be stuck without workload after renaming the "queue-name" label. (#7038, @IrvingMg)
+- Fix the bug that a workload going repeatedly via the preemption and re-admission cycle would accumulate the
+  "Previously" prefix in the condition message, eg: "Previously: Previously: Previously: Preempted to accommodate a workload ...". (#6875, @amy)
+- Fixed bug where internal cert manager assumed that the helm installation name was kueue. (#6916, @cmtly)
+- Helm: Fixed bug where webhook configurations assumed a helm install name as "kueue". (#6923, @cmtly)
+- Pod-integration now correctly handles pods stuck in the Terminating state within pod groups, preventing them from being counted as active and avoiding blocked quota release. (#6893, @ichekrygin)
+
+## v0.12.9
+
+Changes since `v0.12.8`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- FS: Fix the algorithm bug for identifying preemption candidates, as it could return a different
+  set of preemption target workloads (pseudo random) in consecutive attempts in tie-break scenarios,
+  resulting in excessive preemptions. (#6800, @PBundyra)
+- Fix the validation messages when attempting to remove the queue-name label from a Deployment or StatefulSet. (#6716, @Panlq)
+- Helm: Fixed a bug preventing Kueue from starting after installing via Helm with a release name other than "kueue" (#6802, @mbobrovskyi)
+
 ## v0.12.8
 
 Changes since `v0.12.7`:

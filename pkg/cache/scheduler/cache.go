@@ -17,14 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -33,9 +33,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -121,7 +120,7 @@ func New(client client.Client, options ...Option) *Cache {
 		assumedWorkloads: make(map[workload.Reference]kueue.ClusterQueueReference),
 		resourceFlavors:  make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:  make(map[kueue.AdmissionCheckReference]AdmissionCheck),
-		hm:               hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		hm:               hierarchy.NewManager(newCohort),
 		tasCache:         NewTASCache(client),
 	}
 	for _, option := range options {
@@ -147,7 +146,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		workloadsNotAccountedForTAS: sets.New[workload.Reference](),
 	}
 	c.hm.AddClusterQueue(cqImpl)
-	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
+	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
@@ -266,7 +265,7 @@ func (c *Cache) DeleteResourceFlavor(log logr.Logger, rf *kueue.ResourceFlavor) 
 	return c.updateClusterQueues(log)
 }
 
-func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueuealpha.Topology) sets.Set[kueue.ClusterQueueReference] {
+func (c *Cache) AddOrUpdateTopology(log logr.Logger, topology *kueue.Topology) sets.Set[kueue.ClusterQueueReference] {
 	c.Lock()
 	defer c.Unlock()
 	c.tasCache.AddTopology(topology)
@@ -432,7 +431,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return ErrCqNotFound
 	}
 	oldParent := cqImpl.Parent()
-	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.Cohort)
+	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
@@ -686,7 +685,7 @@ type ClusterQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.FlavorUsage
 	AdmittedWorkloads  int
-	WeightedShare      int64
+	WeightedShare      float64
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
@@ -707,15 +706,14 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cq, nil)
-		stats.WeightedShare = int64(weightedShare)
+		drs := dominantResourceShare(cq, nil)
+		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
-
 	return stats, nil
 }
 
 type CohortUsageStats struct {
-	WeightedShare int64
+	WeightedShare float64
 }
 
 func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) {
@@ -729,8 +727,8 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 
 	stats := &CohortUsageStats{}
 	if c.fairSharingEnabled {
-		weightedShare, _ := dominantResourceShare(cohort, nil)
-		stats.WeightedShare = int64(weightedShare)
+		drs := dominantResourceShare(cohort, nil)
+		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
 
 	return stats, nil
@@ -743,11 +741,11 @@ func (c *Cache) ClusterQueueAncestors(cqObj *kueue.ClusterQueue) ([]kueue.Cohort
 	c.RLock()
 	defer c.RUnlock()
 
-	if cqObj.Spec.Cohort == "" {
+	if cqObj.Spec.CohortName == "" {
 		return nil, nil
 	}
 
-	cohort := c.hm.Cohort(cqObj.Spec.Cohort)
+	cohort := c.hm.Cohort(cqObj.Spec.CohortName)
 	if cohort == nil {
 		return nil, nil
 	}
@@ -790,8 +788,8 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
-			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
-				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			slices.SortFunc(outFlvUsage.Resources, func(a, b kueue.ResourceUsage) int {
+				return cmp.Compare(a.Name, b.Name)
 			})
 			usage = append(usage, outFlvUsage)
 		}
@@ -804,7 +802,6 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
-	Flavors            []kueue.LocalQueueFlavorStatus
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
@@ -820,48 +817,11 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
-	var flavors []kueue.LocalQueueFlavorStatus
-
-	if features.Enabled(features.ExposeFlavorsInLocalQueue) {
-		resourcesInFlavor := make(map[kueue.ResourceFlavorReference][]corev1.ResourceName)
-		for _, rg := range cqImpl.ResourceGroups {
-			for _, rgFlavor := range rg.Flavors {
-				if _, ok := resourcesInFlavor[rgFlavor]; !ok {
-					resourcesInFlavor[rgFlavor] = make([]corev1.ResourceName, 0, len(rg.CoveredResources))
-				}
-				resourcesInFlavor[rgFlavor] = append(resourcesInFlavor[rgFlavor], sets.List(rg.CoveredResources)...)
-			}
-		}
-
-		for _, rg := range cqImpl.ResourceGroups {
-			for _, rgFlavor := range rg.Flavors {
-				flavor := kueue.LocalQueueFlavorStatus{Name: rgFlavor}
-				if rif, ok := resourcesInFlavor[rgFlavor]; ok {
-					flavor.Resources = append(flavor.Resources, rif...)
-				}
-				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
-					flavor.NodeLabels = rf.Spec.NodeLabels
-					flavor.NodeTaints = rf.Spec.NodeTaints
-					if handleTASFlavor(rf) {
-						if cache := c.tasCache.Get(rgFlavor); cache != nil {
-							flavor.Topology = &kueue.TopologyInfo{
-								Name:   cache.flavor.TopologyName,
-								Levels: cache.topology.Levels,
-							}
-						}
-					}
-				}
-				flavors = append(flavors, flavor)
-			}
-		}
-	}
-
 	return &LocalQueueUsageStats{
 		ReservedResources:  filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
-		Flavors:            flavors,
 	}, nil
 }
 
@@ -885,8 +845,8 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
-			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
-				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			slices.SortFunc(outFlvUsage.Resources, func(a, b kueue.LocalQueueResourceUsage) int {
+				return cmp.Compare(a.Name, b.Name)
 			})
 			qFlvUsages = append(qFlvUsages, outFlvUsage)
 		}

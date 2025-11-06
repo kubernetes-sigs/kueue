@@ -30,7 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -63,9 +63,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			log.V(2).Info("Skipping the sync since the local job is still suspended")
 			return nil
 		}
-		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (client.Object, bool, error) {
 			localJob.Status = remoteJob.Status
-			return true, nil
+			return &localJob, true, nil
 		})
 	}
 

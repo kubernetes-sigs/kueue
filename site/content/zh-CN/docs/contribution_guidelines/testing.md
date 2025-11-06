@@ -66,14 +66,24 @@ make test-multikueue-e2e
 
 你可以通过设置 `E2E_K8S_FULL_VERSION` 变量来指定用于运行 e2e 测试的 Kubernetes 版本：
 ```shell
-E2E_K8S_FULL_VERSION=1.33.1 make test-e2e
+E2E_K8S_FULL_VERSION=1.34.1 make test-e2e
 ```
 
 关于运行测试子集，请参阅 [运行测试子集](#running-subset-of-integration-or-e2e-tests)。
 
 ## 增加日志详细程度 {#increase-logging-verbosity}
-你可以使用 `TEST_LOG_LEVEL` 变量更改日志级别（例如，设置 -5 来增加详细程度）。
-默认情况下，`TEST_LOG_LEVEL=-3`。
+`TEST_LOG_LEVEL` 统一控制所有测试目标的日志级别：
+
+- `go test`、`make test`（单元测试）
+- `make test-integration`（集成测试）
+- `make test-*-e2e`（端到端测试）
+
+使用更小的负数获取更详细的日志，使用更大的正数降低日志量。例如：
+```shell
+TEST_LOG_LEVEL=-5 make test-integration   # 更详细
+TEST_LOG_LEVEL=-1 make test               # 比默认更少
+```
+默认值为 `TEST_LOG_LEVEL=-3`。
 
 ## 在 VSCode 中调试测试 {#debug-tests-in-vscode}
 可以在 VSCode 中调试单元测试和集成测试。
@@ -85,7 +95,7 @@ func TestValidateClusterQueue(t *testing.T) {
 你可以点击 `debug test` 来调试特定测试。
 
 对于集成测试，需要额外的步骤。在 settings.json 中，你需要在 `go.testEnvVars` 内添加两个变量：
-- 运行 `ENVTEST_K8S_VERSION=1.33 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` 并将路径分配给 `KUBEBUILDER_ASSETS` 变量
+- 运行 `ENVTEST_K8S_VERSION=1.34 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` 并将路径分配给 `KUBEBUILDER_ASSETS` 变量
 - 将 `KUEUE_BIN` 设置为你的 Kueue 仓库克隆目录内的 `bin` 目录
 ```json
 "go.testEnvVars": {

@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/importer/util"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -38,8 +39,8 @@ func TestCheckNamespace(t *testing.T) {
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
 		Label(testingQueueLabel, "q1")
 
-	baseLocalQueue := utiltesting.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
-	baseClusterQueue := utiltesting.MakeClusterQueue("cq1")
+	baseLocalQueue := utiltestingapi.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
+	baseClusterQueue := utiltestingapi.MakeClusterQueue("cq1")
 
 	cases := map[string]struct {
 		pods          []corev1.Pod
@@ -136,10 +137,10 @@ func TestCheckNamespace(t *testing.T) {
 				*baseLocalQueue.Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cq1").ResourceGroup(*utiltesting.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
+				*utiltestingapi.MakeClusterQueue("cq1").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
 			},
 			flavors: []kueue.ResourceFlavor{
-				*utiltesting.MakeResourceFlavor("rf1").Obj(),
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 		},
 	}

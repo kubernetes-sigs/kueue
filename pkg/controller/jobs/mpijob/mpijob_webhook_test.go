@@ -27,13 +27,13 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
 
@@ -82,8 +82,8 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			topologyAwareScheduling: true,
 		},
@@ -101,10 +101,10 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -134,18 +134,168 @@ func TestValidateCreate(t *testing.T) {
 						ReplicaCount: 3,
 					},
 				).
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetSliceSizeAnnotation, "20").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
-				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetSliceSizeAnnotation, "20").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetSliceSizeAnnotation, "20").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetSliceSizeAnnotation, "20").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 1"),
 				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 3"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "valid PodSet grouping request",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - groups of size other than 2",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname1").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname2").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname1", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname2", "can only define groups of exactly 2 pod sets, got: 1 pod set(s)"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - no leader in group",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 2,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 2 replica(s) and 3 replica(s) in the group"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - required topology does not match",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/rack").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - preferred topology does not match",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
+			}.ToAggregate(),
+			topologyAwareScheduling: true,
+		},
+		{
+			name: "invalid PodSet grouping request - different topology annotations within group",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Worker].template.metadata.annotations' in group 'groupname'"),
+				field.Invalid(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"), field.OmitValueType{}, "must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.mpiReplicaSpecs[Launcher].template.metadata.annotations' in group 'groupname'"),
 			}.ToAggregate(),
 			topologyAwareScheduling: true,
 		},
@@ -196,16 +346,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -223,16 +373,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -280,12 +430,12 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("non-existent-admission-check").
 					Obj(),
 			},
@@ -303,16 +453,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -335,16 +485,16 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					AdmissionChecks("admission-check").
 					Obj(),
 			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
 				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -362,12 +512,12 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
 					ClusterQueue("cluster-queue").
 					Obj(),
 			},
 			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
 					Obj(),
 			},
 			multiKueueEnabled: true,
@@ -409,7 +559,7 @@ func TestDefault(t *testing.T) {
 			queueManager := qcache.NewManager(cl, cqCache)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltesting.MakeLocalQueue("default", "default").
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}

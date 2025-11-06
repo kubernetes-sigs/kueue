@@ -27,8 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestPodSetTopologyRequestBuilder(t *testing.T) {
@@ -43,7 +42,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"required annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
@@ -53,7 +52,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"required annotation with pod index label": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			},
 			podIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
@@ -74,8 +73,8 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"required annotation with sub group": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetGroupName:                  "block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetGroupName:                  "block",
 				},
 			},
 			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
@@ -90,8 +89,8 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"required annotation with sub group and pod set group name annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetGroupName:                  "block",
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetGroupName:                  "block",
 				},
 			},
 			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
@@ -106,7 +105,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"preferred annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
@@ -116,7 +115,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"unconstrained annotation (true)": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetUnconstrainedTopologyAnnotation: "true",
+					kueue.PodSetUnconstrainedTopologyAnnotation: "true",
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
@@ -126,7 +125,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"unconstrained annotation (false)": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetUnconstrainedTopologyAnnotation: "false",
+					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
@@ -136,8 +135,8 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"slice-only topology": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetSliceSizeAnnotation:             "1",
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceSizeAnnotation:             "1",
 				},
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
@@ -148,23 +147,23 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"slice-only topology – only slice required annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			},
 		},
 		"slice-only topology – only slice size annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetSliceSizeAnnotation: "1",
+					kueue.PodSetSliceSizeAnnotation: "1",
 				},
 			},
 		},
 		"slice-only topology with sub group and pod set group name annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetSliceSizeAnnotation:             "1",
-					kueuealpha.PodSetGroupName:                       "block",
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceSizeAnnotation:             "1",
+					kueue.PodSetGroupName:                       "block",
 				},
 			},
 			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
@@ -179,7 +178,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"invalid unconstrained topology annotation value": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetUnconstrainedTopologyAnnotation: "invalid",
+					kueue.PodSetUnconstrainedTopologyAnnotation: "invalid",
 				},
 			},
 			wantErr: strconv.ErrSyntax,
@@ -187,8 +186,8 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 		"invalid podset slice size annotation value": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
-					kueuealpha.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
-					kueuealpha.PodSetSliceSizeAnnotation:             "invalid",
+					kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
+					kueue.PodSetSliceSizeAnnotation:             "invalid",
 				},
 			},
 			wantErr: strconv.ErrSyntax,

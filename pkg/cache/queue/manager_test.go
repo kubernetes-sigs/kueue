@@ -32,9 +32,10 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -49,15 +50,15 @@ var cmpDump = cmp.Options{
 // present when the queue is added.
 func TestAddLocalQueueOrphans(t *testing.T) {
 	kClient := utiltesting.NewFakeClient(
-		utiltesting.MakeWorkload("a", "earth").Queue("foo").Obj(),
-		utiltesting.MakeWorkload("b", "earth").Queue("bar").Obj(),
-		utiltesting.MakeWorkload("c", "earth").Queue("foo").Obj(),
-		utiltesting.MakeWorkload("d", "earth").Queue("foo").
-			ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).Obj(),
-		utiltesting.MakeWorkload("a", "moon").Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("b", "earth").Queue("bar").Obj(),
+		utiltestingapi.MakeWorkload("c", "earth").Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("d", "earth").Queue("foo").
+			ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj(),
+		utiltestingapi.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	)
 	manager := NewManager(kClient, nil)
-	q := utiltesting.MakeLocalQueue("foo", "earth").Obj()
+	q := utiltestingapi.MakeLocalQueue("foo", "earth").Obj()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	if err := manager.AddLocalQueue(ctx, q); err != nil {
 		t.Fatalf("Failed adding queue: %v", err)
@@ -75,20 +76,20 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
-		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
 	}
 	kClient := utiltesting.NewFakeClient(
-		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
-		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
-		utiltesting.MakeWorkload("c", "").Queue("foo").
-			ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).Obj(),
-		utiltesting.MakeWorkload("d", "").Queue("baz").Obj(),
+		utiltestingapi.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltestingapi.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
+		utiltestingapi.MakeWorkload("c", "").Queue("foo").
+			ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).Obj(),
+		utiltestingapi.MakeWorkload("d", "").Queue("baz").Obj(),
 		queues[0],
 		queues[1],
 	)
 	manager := NewManager(kClient, nil)
-	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
 	}
@@ -127,17 +128,17 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 func TestUpdateClusterQueue(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
-		utiltesting.MakeClusterQueue("cq2").Cohort("beta").Obj(),
+		utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+		utiltestingapi.MakeClusterQueue("cq2").Cohort("beta").Obj(),
 	}
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
-		utiltesting.MakeLocalQueue("bar", defaultNamespace).ClusterQueue("cq2").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", defaultNamespace).ClusterQueue("cq2").Obj(),
 	}
 	now := time.Now()
 	workloads := []*kueue.Workload{
-		utiltesting.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now.Add(time.Second)).Obj(),
-		utiltesting.MakeWorkload("b", defaultNamespace).Queue("bar").Creation(now).Obj(),
+		utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltestingapi.MakeWorkload("b", defaultNamespace).Queue("bar").Creation(now).Obj(),
 	}
 	// Setup.
 	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
@@ -177,7 +178,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 	}
 
 	// Put cq2 in the same cohort as cq1.
-	clusterQueues[1].Spec.Cohort = clusterQueues[0].Spec.Cohort
+	clusterQueues[1].Spec.CohortName = clusterQueues[0].Spec.CohortName
 	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], true); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
@@ -214,13 +215,13 @@ func TestUpdateClusterQueue(t *testing.T) {
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cohorts := []*kueue.Cohort{
-		utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-		utiltesting.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
-		utiltesting.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
+		utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+		utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+		utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
 	}
-	cq := utiltesting.MakeClusterQueue("cq1").Cohort("cohort-a").Obj()
-	lq := utiltesting.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
-	wl := utiltesting.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq1").Cohort("cohort-a").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
+	wl := utiltestingapi.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
 	// Setup.
 	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
 	manager := NewManager(cl, nil)
@@ -251,8 +252,8 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 // a cluster queue becomes active.
 func TestClusterQueueToActive(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	stoppedCq := utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "ByTest", "by test").Obj()
-	runningCq := utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "ByTest", "by test").Obj()
+	stoppedCq := utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "ByTest", "by test").Obj()
+	runningCq := utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "ByTest", "by test").Obj()
 	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
 	manager := NewManager(cl, nil)
 
@@ -308,17 +309,17 @@ func TestClusterQueueToActive(t *testing.T) {
 func TestUpdateLocalQueue(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("cq1").Obj(),
-		utiltesting.MakeClusterQueue("cq2").Obj(),
+		utiltestingapi.MakeClusterQueue("cq1").Obj(),
+		utiltestingapi.MakeClusterQueue("cq2").Obj(),
 	}
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq1").Obj(),
-		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq2").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq1").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("cq2").Obj(),
 	}
 	now := time.Now()
 	workloads := []*kueue.Workload{
-		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
-		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
+		utiltestingapi.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltestingapi.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
 	}
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, cq := range clusterQueues {
@@ -361,9 +362,9 @@ func TestUpdateLocalQueue(t *testing.T) {
 // workloads are not listed in the ClusterQueue.
 func TestDeleteLocalQueue(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq := utiltesting.MakeClusterQueue("cq").Obj()
-	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
-	wl := utiltesting.MakeWorkload("a", "").Queue("foo").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	q := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj()
 
 	cl := utiltesting.NewFakeClient(wl)
 	manager := NewManager(cl, nil)
@@ -392,13 +393,13 @@ func TestDeleteLocalQueue(t *testing.T) {
 func TestAddWorkload(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
-	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
 	}
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
-		utiltesting.MakeLocalQueue("bar", "mars").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "mars").Obj(),
 	}
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, q); err != nil {
@@ -557,10 +558,10 @@ func TestStatus(t *testing.T) {
 }
 
 func TestRequeueWorkloadStrictFIFO(t *testing.T) {
-	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
-		utiltesting.MakeLocalQueue("bar", "").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "").Obj(),
 	}
 	cases := []struct {
 		workload     *kueue.Workload
@@ -663,14 +664,14 @@ func TestUpdateWorkload(t *testing.T) {
 	}{
 		"in queue": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq").Obj(),
+				utiltestingapi.MakeClusterQueue("cq").Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+				utiltestingapi.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 			},
 			update: func(w *kueue.Workload) {
 				w.CreationTimestamp = metav1.NewTime(now.Add(time.Minute))
@@ -685,14 +686,14 @@ func TestUpdateWorkload(t *testing.T) {
 		},
 		"between queues": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq").Obj(),
+				utiltestingapi.MakeClusterQueue("cq").Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
-				utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj(),
 			},
 			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "bar"
@@ -708,15 +709,15 @@ func TestUpdateWorkload(t *testing.T) {
 		},
 		"between cluster queues": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq1").Obj(),
-				utiltesting.MakeClusterQueue("cq2").Obj(),
+				utiltestingapi.MakeClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq1").Obj(),
-				utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq2").Obj(),
+				utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("cq2").Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj(),
 			},
 			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "bar"
@@ -733,13 +734,13 @@ func TestUpdateWorkload(t *testing.T) {
 		},
 		"to non existent queue": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq").Obj(),
+				utiltestingapi.MakeClusterQueue("cq").Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj(),
 			},
 			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "bar"
@@ -754,13 +755,13 @@ func TestUpdateWorkload(t *testing.T) {
 		},
 		"from non existing queue": {
 			clusterQueues: []*kueue.ClusterQueue{
-				utiltesting.MakeClusterQueue("cq").Obj(),
+				utiltestingapi.MakeClusterQueue("cq").Obj(),
 			},
 			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Queue("bar").Obj(),
+				utiltestingapi.MakeWorkload("a", "").Queue("bar").Obj(),
 			},
 			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "foo"
@@ -838,14 +839,14 @@ func TestHeads(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	clusterQueues := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("active-fooCq").Obj(),
-		utiltesting.MakeClusterQueue("active-barCq").Obj(),
-		utiltesting.MakeClusterQueue("pending-bazCq").Obj(),
+		utiltestingapi.MakeClusterQueue("active-fooCq").Obj(),
+		utiltestingapi.MakeClusterQueue("active-barCq").Obj(),
+		utiltestingapi.MakeClusterQueue("pending-bazCq").Obj(),
 	}
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("active-fooCq").Obj(),
-		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
-		utiltesting.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("active-fooCq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
+		utiltestingapi.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
 	tests := []struct {
 		name          string
@@ -860,26 +861,26 @@ func TestHeads(t *testing.T) {
 		{
 			name: "active clusterQueues",
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
-				utiltesting.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
+				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
 			wantWorkloads: sets.New("a", "b"),
 		},
 		{
 			name: "active clusterQueues with multiple workloads",
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
-				utiltesting.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
-				utiltesting.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
+				utiltestingapi.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
 			wantWorkloads: sets.New("a1", "b"),
 		},
 		{
 			name: "inactive clusterQueues",
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
-				utiltesting.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
-				utiltesting.MakeWorkload("c", "").Creation(now.Add(time.Hour)).Queue("baz").Obj(),
+				utiltestingapi.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
+				utiltestingapi.MakeWorkload("c", "").Creation(now.Add(time.Hour)).Queue("baz").Obj(),
 			},
 			wantWorkloads: sets.New("a", "b"),
 		},
@@ -928,8 +929,8 @@ var ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
 func TestHeadsAsync(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	clusterQueues := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("fooCq").Obj(),
-		utiltesting.MakeClusterQueue("barCq").Obj(),
+		utiltestingapi.MakeClusterQueue("fooCq").Obj(),
+		utiltestingapi.MakeClusterQueue("barCq").Obj(),
 	}
 	wl := kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1188,14 +1189,14 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	clusterQueues := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("cq").Obj(),
+		utiltestingapi.MakeClusterQueue("cq").Obj(),
 	}
 	queues := []*kueue.LocalQueue{
-		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 	}
 	workloads := []*kueue.Workload{
-		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
-		utiltesting.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltestingapi.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
+		utiltestingapi.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 	}
 
 	manager := NewManager(utiltesting.NewFakeClient(), nil)
@@ -1269,18 +1270,22 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 func TestQueueSecondPassIfNeeded(t *testing.T) {
 	now := time.Now()
 
-	baseWorkloadBuilder := utiltesting.MakeWorkload("foo", "default").
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("foo", "default").
 		Queue("tas-main").
-		PodSets(*utiltesting.MakePodSet("one", 1).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
 			Obj())
 	baseWorkloadNeedingSecondPass := baseWorkloadBuilder.Clone().
 		ReserveQuota(
-			utiltesting.MakeAdmission("tas-main", "one").
-				Assignment(corev1.ResourceCPU, "tas-default", "1000m").
-				DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
-				AssignmentPodCount(1).Obj(),
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj(),
+				).
+				Obj(),
 		).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "prov-check",
@@ -1332,7 +1337,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			manager := NewManager(utiltesting.NewFakeClient(), nil, opts...)
 
 			for _, wl := range tc.workloads {
-				manager.QueueSecondPassIfNeeded(ctx, wl)
+				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 			for _, wl := range tc.deleted.UnsortedList() {
 				manager.secondPassQueue.deleteByKey(wl)

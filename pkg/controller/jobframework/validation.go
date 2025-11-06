@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -54,6 +56,7 @@ var (
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind).String(),
 		kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind).String(),
+		kftrainer.SchemeGroupVersion.WithKind(kftrainer.TrainJobKind).String(),
 		kfmpi.SchemeGroupVersion.WithKind(kfmpi.Kind).String(),
 		rayv1.SchemeGroupVersion.WithKind("RayJob").String(),
 		corev1.SchemeGroupVersion.WithKind("Pod").String(),
@@ -76,6 +79,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
 	return allErrs
 }
 
@@ -116,7 +120,6 @@ func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorL
 func ValidateQueueName(obj client.Object) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(obj, constants.QueueLabel)...)
-	allErrs = append(allErrs, ValidateAnnotationAsCRDName(obj, constants.QueueAnnotation)...)
 	return allErrs
 }
 
@@ -135,29 +138,37 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist fun
 }
 
 func validateUpdateForPrebuiltWorkload(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if !newJob.IsSuspended() {
-		oldWlName, _ := PrebuiltWorkloadFor(oldJob)
-		newWlName, _ := PrebuiltWorkloadFor(newJob)
-
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
-	} else {
-		allErrs = append(allErrs, validateCreateForPrebuiltWorkload(newJob)...)
+	if newJob.IsSuspended() || workloadslicing.Enabled(oldJob.Object()) {
+		return validateCreateForPrebuiltWorkload(newJob)
 	}
-	return allErrs
+
+	oldWlName, _ := PrebuiltWorkloadFor(oldJob)
+	newWlName, _ := PrebuiltWorkloadFor(newJob)
+	return apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))
 }
 
 func validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if !newJob.IsSuspended() || IsWorkloadPriorityClassNameEmpty(newJob.Object()) {
-		allErrs = append(allErrs, ValidateUpdateForWorkloadPriorityClassName(oldJob.Object(), newJob.Object())...)
-	}
-	return allErrs
+	return ValidateUpdateForWorkloadPriorityClassName(newJob.IsSuspended(), oldJob.Object(), newJob.Object())
 }
 
-func ValidateUpdateForWorkloadPriorityClassName(oldObj, newObj client.Object) field.ErrorList {
-	allErrs := apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
-	return allErrs
+// validatedUpdateForEnabledWorkloadSlice validates that the workload-slicing toggle remains immutable on update.
+//
+// It compares the boolean returned by workloadslicing.Enabled for the old and new Job objects.
+// If the value changed, it returns a field.ErrorList with a single field.Invalid pointing at
+// labels[workloadslicing.EnabledAnnotationKey] and using apivalidation.FieldImmutableErrorMsg.
+// If the value did not change, // it returns nil.
+func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.ErrorList {
+	if oldEnabled, newEnabled := workloadslicing.Enabled(oldJob.Object()), workloadslicing.Enabled(newJob.Object()); oldEnabled != newEnabled {
+		return field.ErrorList{field.Invalid(labelsPath.Key(workloadslicing.EnabledAnnotationKey), newEnabled, apivalidation.FieldImmutableErrorMsg)}
+	}
+	return nil
+}
+
+func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
+	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) || IsWorkloadPriorityClassNameEmpty(newObj) {
+		return apivalidation.ValidateImmutableField(WorkloadPriorityClassName(newObj), WorkloadPriorityClassName(oldObj), workloadPriorityClassNamePath)
+	}
+	return nil
 }
 
 func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {

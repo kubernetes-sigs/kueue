@@ -23,17 +23,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestClusterQueueUpdateWithFlavors(t *testing.T) {
-	rf := utiltesting.MakeResourceFlavor("x86").Obj()
-	cq := utiltesting.MakeClusterQueue("cq").
-		ResourceGroup(*utiltesting.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
+	rf := utiltestingapi.MakeResourceFlavor("x86").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource("cpu", "5").Obj()).
 		Obj()
 
 	testcases := []struct {
@@ -92,37 +93,37 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 func TestClusterQueueUpdate(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
-		utiltesting.MakeResourceFlavor("on-demand").Obj(),
-		utiltesting.MakeResourceFlavor("spot").Obj(),
+		utiltestingapi.MakeResourceFlavor("on-demand").Obj(),
+		utiltestingapi.MakeResourceFlavor("spot").Obj(),
 	}
 	clusterQueue :=
-		*utiltesting.MakeClusterQueue("eng-alpha").
+		*utiltestingapi.MakeClusterQueue("eng-alpha").
 			QueueingStrategy(kueue.StrictFIFO).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.MayStopSearch,
 			}).
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("on-demand").
+				*utiltestingapi.MakeFlavorQuotas("on-demand").
 					Resource(corev1.ResourceCPU, "50", "50").Obj(),
-				*utiltesting.MakeFlavorQuotas("spot").
+				*utiltestingapi.MakeFlavorQuotas("spot").
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	newClusterQueue :=
-		*utiltesting.MakeClusterQueue("eng-alpha").
+		*utiltestingapi.MakeClusterQueue("eng-alpha").
 			QueueingStrategy(kueue.StrictFIFO).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.MayStopSearch,
 			}).
 			ResourceGroup(
-				*utiltesting.MakeFlavorQuotas("on-demand").
+				*utiltestingapi.MakeFlavorQuotas("on-demand").
 					Resource(corev1.ResourceCPU, "100", "50").Obj(),
-				*utiltesting.MakeFlavorQuotas("spot").
+				*utiltestingapi.MakeFlavorQuotas("spot").
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	cases := []struct {
@@ -178,15 +179,15 @@ func TestClusterQueueUpdate(t *testing.T) {
 }
 
 func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
-	cqWithAC := utiltesting.MakeClusterQueue("cq").
+	cqWithAC := utiltestingapi.MakeClusterQueue("cq").
 		AdmissionChecks("check1", "check2", "check3").
 		Obj()
 
-	cqWithACStrategy := utiltesting.MakeClusterQueue("cq2").
+	cqWithACStrategy := utiltestingapi.MakeClusterQueue("cq2").
 		AdmissionCheckStrategy(
-			*utiltesting.MakeAdmissionCheckStrategyRule("check1").Obj(),
-			*utiltesting.MakeAdmissionCheckStrategyRule("check2").Obj(),
-			*utiltesting.MakeAdmissionCheckStrategyRule("check3").Obj()).
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("check1").Obj(),
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("check2").Obj(),
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
 	testcases := []struct {
@@ -496,9 +497,9 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 	}{
 		{
 			name: "TAS CQ goes active state",
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
@@ -507,15 +508,15 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		},
 		{
 			name: "TAS do not support Cohorts",
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			updatedCq: utiltesting.MakeClusterQueue("cq").
+			updatedCq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Cohort("some-cohort").Obj(),
@@ -524,15 +525,15 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		},
 		{
 			name: "TAS do not support Preemption",
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			updatedCq: utiltesting.MakeClusterQueue("cq").
+			updatedCq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).
@@ -540,7 +541,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				Obj(),
 			wantReason:  kueue.ClusterQueueActiveReasonReady,
@@ -548,15 +549,15 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		},
 		{
 			name: "TAS do not support MultiKueue AdmissionCheck",
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
-			updatedCq: utiltesting.MakeClusterQueue("cq").
+			updatedCq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).AdmissionChecks("mk-check").Obj(),
@@ -566,9 +567,9 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 		{
 			name:         "Referenced TAS flavor without topology",
 			skipTopology: true,
-			cq: utiltesting.MakeClusterQueue("cq").
+			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
-					*utiltesting.MakeFlavorQuotas("tas-flavor").
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						Obj(),
 				).Obj(),
@@ -589,19 +590,19 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 
 			cqCache := New(client)
 
-			topology := utiltesting.MakeTopology("example-topology").Levels("tas-level-0").Obj()
+			topology := utiltestingapi.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 
-			rf := utiltesting.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
+			rf := utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
 			cqCache.AddOrUpdateResourceFlavor(log, rf)
 
 			if !tc.skipTopology {
 				cqCache.AddOrUpdateTopology(log, topology)
 			}
 
-			mkAC := utiltesting.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
+			mkAC := utiltestingapi.MakeAdmissionCheck("mk-check").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
 			cqCache.AddOrUpdateAdmissionCheck(log, mkAC)
 
-			acWithPR := utiltesting.MakeAdmissionCheck("pr-check").ControllerName(kueue.ProvisioningRequestControllerName).Active(metav1.ConditionTrue).Obj()
+			acWithPR := utiltestingapi.MakeAdmissionCheck("pr-check").ControllerName(kueue.ProvisioningRequestControllerName).Active(metav1.ConditionTrue).Obj()
 			cqCache.AddOrUpdateAdmissionCheck(log, acWithPR)
 
 			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {

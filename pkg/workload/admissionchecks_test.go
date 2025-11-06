@@ -27,10 +27,10 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
@@ -344,7 +344,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
-			builder := utiltesting.MakeWorkload("foo", "bar").
+			builder := utiltestingapi.MakeWorkload("foo", "bar").
 				Admission(tc.admission).
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
@@ -365,12 +365,12 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			}
 
 			if tc.wantAdmittedTime > 0 {
-				if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
-					t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
+				if wl.Status.AccumulatedPastExecutionTimeSeconds == nil {
+					t.Fatalf("Expecting AccumulatedPastExecutionTimeSeconds not to be nil")
 				}
 
-				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
-					t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
+				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExecutionTimeSeconds); diff != "" {
+					t.Errorf("Unexpected AccumulatedPastExecutionTimeSeconds (- want/+ got):\n%s", diff)
 				}
 			}
 		})

@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -61,7 +61,7 @@ type Reconciler struct {
 	managedJobsNamespaceSelector labels.Selector
 }
 
-func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
@@ -71,7 +71,7 @@ func NewReconciler(client client.Client, eventRecorder record.EventRecorder, opt
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-	}
+	}, nil
 }
 
 var _ jobframework.JobReconcilerInterface = (*Reconciler)(nil)
@@ -106,13 +106,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	toCreate, toFinalize := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toUpdate, toFinalize := r.filterWorkloads(lws, wlList.Items)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
 			return r.createPrebuiltWorkload(ctx, lws, toCreate[i])
+		})
+	})
+
+	eg.Go(func() error {
+		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, toUpdate[i], nil)
 		})
 	})
 
@@ -130,15 +136,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, nil
 }
 
-// filterWorkloads compares the desired state in a LeaderWorkerSet with existing workloads,
-// identifying workloads to create and those to finalize.
+// filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,
+// determining which workloads need to be created, updated, or finalized.
 //
-// It takes a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
-// 1. A slice of workload names that need to be created
-// 2. A slice of Workload pointers that need to be finalized
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload) {
+// It accepts a LeaderWorkerSet and a slice of existing Workload objects as input and returns:
+// 1. A slice of workload names to be created
+// 2. A slice of workloads that may require updates
+// 3. A slice of Workload pointers to be finalized
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]string, []*kueue.Workload, []*kueue.Workload) {
 	var (
 		toCreate   []string
+		toUpdate   []*kueue.Workload
 		toFinalize = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
@@ -147,14 +155,15 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	for i := range replicas {
 		workloadName := GetWorkloadName(lws.UID, lws.Name, fmt.Sprint(i))
-		if _, ok := toFinalize[workloadName]; ok {
+		if wl, ok := toFinalize[workloadName]; ok {
+			toUpdate = append(toUpdate, wl)
 			delete(toFinalize, workloadName)
 		} else {
 			toCreate = append(toCreate, workloadName)
 		}
 	}
 
-	return toCreate, slices.Collect(maps.Values(toFinalize))
+	return toCreate, toUpdate, slices.Collect(maps.Values(toFinalize))
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string) error {
@@ -163,14 +172,10 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, lws *leaderwork
 		return err
 	}
 
-	priorityClassName, source, p, err := jobframework.ExtractPriority(ctx, r.client, lws, createdWorkload.Spec.PodSets, nil)
+	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
 	if err != nil {
 		return err
 	}
-
-	createdWorkload.Spec.PriorityClassName = priorityClassName
-	createdWorkload.Spec.Priority = &p
-	createdWorkload.Spec.PriorityClassSource = source
 
 	err = r.client.Create(ctx, createdWorkload)
 	if err != nil {
@@ -195,17 +200,23 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	return createdWorkload, nil
 }
 
+func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemplateSpec) kueue.PodSet {
+	podSet := kueue.PodSet{
+		Name:  name,
+		Count: count,
+		Template: corev1.PodTemplateSpec{
+			Spec: *template.Spec.DeepCopy(),
+		},
+	}
+	jobframework.SanitizePodSet(&podSet)
+	return podSet
+}
+
 func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0, 2)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		podSet := kueue.PodSet{
-			Name:  leaderPodSetName,
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: *lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.DeepCopy(),
-			},
-		}
+		podSet := newPodSet(leaderPodSetName, 1, lws.Spec.LeaderWorkerTemplate.LeaderTemplate)
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta).Build()
@@ -227,14 +238,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		defaultPodSetCount--
 	}
 
-	podSet := kueue.PodSet{
-		Name:  defaultPodSetName,
-		Count: defaultPodSetCount,
-		Template: corev1.PodTemplateSpec{
-			Spec: *lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.DeepCopy(),
-		},
-	}
-
+	podSet := newPodSet(defaultPodSetName, defaultPodSetCount, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta).PodIndexLabel(

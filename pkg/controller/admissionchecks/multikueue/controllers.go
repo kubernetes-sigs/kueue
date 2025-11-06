@@ -21,9 +21,10 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 const (
@@ -103,7 +104,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		o(options)
 	}
 
-	helper, err := newMultiKueueStoreHelper(mgr.GetClient())
+	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return err
 	}

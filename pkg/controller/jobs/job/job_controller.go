@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -167,14 +167,14 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 
 	if !j.IsSuspended() {
-		if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
+		if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
 				j.Annotations = map[string]string{}
 			}
 			// We are using annotation to be sure that all updates finished successfully.
 			j.Annotations[StoppingAnnotation] = "true"
-			return true, nil
+			return object, true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
@@ -183,18 +183,18 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
-		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
+		if err := clientutil.PatchStatus(ctx, c, object, func() (client.Object, bool, error) {
 			j.Status.StartTime = nil
-			return true, nil
+			return object, true, nil
 		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
 	}
 
-	if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
+	if err := clientutil.Patch(ctx, c, object, func() (client.Object, bool, error) {
 		j.RestorePodSetsInfo(podSetsInfo)
 		delete(j.Annotations, StoppingAnnotation)
-		return true, nil
+		return object, true, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}
@@ -210,7 +210,7 @@ func (j *Job) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
 }
 
-func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+func (j *Job) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
 		return nil, nil
@@ -243,7 +243,7 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	return pt
 }
 
-func (j *Job) PodSets() ([]kueue.PodSet, error) {
+func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
 		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
@@ -264,7 +264,7 @@ func (j *Job) PodSets() ([]kueue.PodSet, error) {
 	}, nil
 }
 
-func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
+func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != 1 {
 		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))
@@ -305,7 +305,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *Job) Finished() (message string, success, finished bool) {
+func (j *Job) Finished(ctx context.Context) (message string, success, finished bool) {
 	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			return c.Message, c.Type != batchv1.JobFailed, true
@@ -315,7 +315,7 @@ func (j *Job) Finished() (message string, success, finished bool) {
 	return "", true, false
 }
 
-func (j *Job) PodsReady() bool {
+func (j *Job) PodsReady(ctx context.Context) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
