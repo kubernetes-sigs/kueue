@@ -8,16 +8,14 @@ description: >
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Kubeflow Trainer](https://www.kubeflow.org/docs/components/trainer/) TrainJobs.
 
-This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
-
-## Overview
-
 Kubeflow Trainer v2 introduces the `TrainJob` API that works seamlessly with Kueue for batch scheduling and resource management. TrainJobs can be configured to use either:
 
 - **ClusterTrainingRuntime**: Cluster-scoped training runtimes that can be used across all namespaces
 - **TrainingRuntime**: Namespace-scoped training runtimes that are only available within a specific namespace
 
 Kueue manages TrainJobs by scheduling their underlying jobs according to available quota and priority.
+
+This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
 ## Before you begin
 
