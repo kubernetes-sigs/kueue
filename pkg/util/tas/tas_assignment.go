@@ -20,6 +20,7 @@ import (
 	"iter"
 	"slices"
 
+	"k8s.io/utils/ptr"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
@@ -37,14 +38,8 @@ func valueAtIndex(values kueue.TopologyAssignmentSliceLevelValues, idx int) stri
 	if values.Roots == nil {
 		return *values.UniversalValue
 	}
-	var prefix string
-	if values.Prefix != nil {
-		prefix = *values.Prefix
-	}
-	var suffix string
-	if values.Suffix != nil {
-		suffix = *values.Suffix
-	}
+	prefix := ptr.Deref(values.Prefix, "")
+	suffix := ptr.Deref(values.Suffix, "")
 	return prefix + values.Roots[idx] + suffix
 }
 
