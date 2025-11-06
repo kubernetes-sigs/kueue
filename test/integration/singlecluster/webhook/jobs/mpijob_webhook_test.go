@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("MPIJob Webhook", ginkgo.Ordered, func() {
 			job := testingjob.MakeMPIJob("job", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 })

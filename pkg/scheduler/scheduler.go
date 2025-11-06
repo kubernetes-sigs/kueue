@@ -37,8 +37,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -295,7 +295,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
 			// If preemptions are issued, the next attempt should try all the flavors.
 			e.LastAssignment = nil
-			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets)
+			preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
 			if err != nil {
 				log.Error(err, "Failed to preempt workloads")
 			}

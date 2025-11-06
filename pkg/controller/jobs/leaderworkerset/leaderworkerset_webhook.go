@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -116,7 +116,7 @@ var (
 	workerTemplatePath            = leaderWorkerTemplatePath.Child("workerTemplate")
 	workerTemplateMetaPath        = workerTemplatePath.Child("metadata")
 	workerTemplateAnnotationsPath = workerTemplateMetaPath.Child("annotations")
-	podSetAnnotationsPathByName   = map[kueuebeta.PodSetReference]*field.Path{
+	podSetAnnotationsPathByName   = map[kueue.PodSetReference]*field.Path{
 		"leader": leaderTemplateMetaPath.Child("annotations"),
 		"worker": workerTemplateAnnotationsPath,
 		"main":   workerTemplateAnnotationsPath,
@@ -156,12 +156,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	)...)
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
-	if !isSuspended || jobframework.IsWorkloadPriorityClassNameEmpty(newLeaderWorkerSet.Object()) {
-		allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
-			newLeaderWorkerSet.Object(),
-			oldLeaderWorkerSet.Object(),
-		)...)
-	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		isSuspended,
+		oldLeaderWorkerSet.Object(),
+		newLeaderWorkerSet.Object(),
+	)...)
 
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
@@ -211,7 +210,7 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
 	podSets, podSetsErr := podSets(&lwsv1)
 
-	defaultPodSetName := kueuebeta.DefaultPodSetName
+	defaultPodSetName := kueue.DefaultPodSetName
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		defaultPodSetName = workerPodSetName

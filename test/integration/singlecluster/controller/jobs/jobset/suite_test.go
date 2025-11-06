@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -82,6 +83,8 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = jobset.SetupJobSetWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		failedWebhook, err := webhooks.Setup(mgr)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 	}
 }
 

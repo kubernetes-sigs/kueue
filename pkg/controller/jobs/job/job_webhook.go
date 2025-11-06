@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -227,7 +227,7 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		return validationErrs, nil
 	}
 
-	podSets, err := job.PodSets(ctx)
+	podSets, err := jobframework.JobPodSets(ctx, job)
 	if err != nil {
 		return nil, err
 	}

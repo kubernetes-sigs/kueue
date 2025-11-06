@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -55,7 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -674,18 +674,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						ReplicaCount:  1,
 						RestartPolicy: "Never",
 					},
-					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
-						ReplicaCount:  1,
-						RestartPolicy: "OnFailure",
-					},
 				).
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "1600M").
 				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorExitFast).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorExitFast).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {

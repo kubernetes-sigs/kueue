@@ -30,13 +30,13 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		ginkgo.It("Should not create provisioning requests before quota is reserved", framework.SlowSpec, func() {
 			ginkgo.By("Checking no provision request is created", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
@@ -457,7 +457,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
@@ -677,7 +677,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			ginkgo.By("Checking no provision request is deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -753,7 +753,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			ginkgo.By("Checking provision request is deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -770,7 +770,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			ginkgo.By("Checking the provisioning request remains deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -948,7 +948,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+					g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1045,7 +1045,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+					g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1093,7 +1093,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+					ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
 						Type:    corev1.EventTypeWarning,
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
@@ -1163,7 +1163,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+					g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1883,6 +1883,124 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				gomega.Eventually(func(g gomega.Gomega) {
 					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
 					gomega.Expect(admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)).To(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should be successfully re-admitted on another flavor with a decimal memory request", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas(rf1.Name).
+							Resource(corev1.ResourceCPU, "0.75").
+							Resource(corev1.ResourceMemory, "5G").
+							Obj(),
+						*utiltestingapi.MakeFlavorQuotas(rf2.Name).
+							Resource(corev1.ResourceCPU, "0.5").
+							Resource(corev1.ResourceMemory, "5G").
+							Obj(),
+					).
+					AdmissionCheckStrategy(kueue.AdmissionCheckStrategyRule{
+						Name:      ac1Ref,
+						OnFlavors: []kueue.ResourceFlavorReference{flavor1Ref},
+					}).
+					Obj()
+				util.MustCreate(ctx, k8sClient, cq)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				util.MustCreate(ctx, k8sClient, lq)
+				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			ginkgo.By("submit the Job", func() {
+				job1 := testingjob.MakeJob("job1", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Request(corev1.ResourceCPU, "500m").
+					Request(corev1.ResourceMemory, "220M").
+					Obj()
+				util.MustCreate(ctx, k8sClient, job1)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job1, true)
+				})
+				wl1Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for wl1 to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for wl1 to have QuotaReserved on flavor-1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+					psa := wlObj.Status.Admission.PodSetAssignments
+					g.Expect(psa).Should(gomega.HaveLen(1))
+					g.Expect(psa[0].Flavors).To(gomega.Equal(map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU:    flavor1Ref,
+						corev1.ResourceMemory: flavor1Ref,
+					}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the ProvisioningRequest on flavor-1 to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("set the ProvisioningRequest on flavor-1 as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for wl1 to be Admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("submit a high-priority job2", func() {
+				job2 := testingjob.MakeJob("job2", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					WorkloadPriorityClass(priorityClassName).
+					Request(corev1.ResourceCPU, "750m").
+					Obj()
+				util.MustCreate(ctx, k8sClient, job2)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job2, true)
+				})
+				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for wl1 to be Admitted on flavor-2", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+					psa := wlObj.Status.Admission.PodSetAssignments
+					g.Expect(psa).Should(gomega.HaveLen(1))
+					g.Expect(psa[0].Flavors).To(gomega.Equal(map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU:    flavor2Ref,
+						corev1.ResourceMemory: flavor2Ref,
+					}))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

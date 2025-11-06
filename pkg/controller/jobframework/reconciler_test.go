@@ -37,15 +37,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -162,6 +162,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().PodSets(gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
@@ -243,6 +244,7 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			}
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(testNS)).
 				WithObjects(job, wl).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
 				Build()
@@ -662,9 +664,6 @@ func TestProcessOptions(t *testing.T) {
 				WithManageJobsWithoutQueueName(true),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
-				WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
-					PodSelector: &metav1.LabelSelector{},
-				}),
 				WithLabelKeysToCopy([]string{"toCopyKey"}),
 				WithClock(t, fakeClock),
 			},
@@ -672,13 +671,9 @@ func TestProcessOptions(t *testing.T) {
 				ManageJobsWithoutQueueName: true,
 				WaitForPodsReady:           true,
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
-				IntegrationOptions: map[string]any{
-					corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.PodIntegrationOptions{
-						PodSelector: &metav1.LabelSelector{},
-					},
-				},
-				LabelKeysToCopy: []string{"toCopyKey"},
-				Clock:           fakeClock,
+				IntegrationOptions:         nil,
+				LabelKeysToCopy:            []string{"toCopyKey"},
+				Clock:                      fakeClock,
 			},
 		},
 		"a single option is passed": {

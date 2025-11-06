@@ -40,14 +40,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -57,15 +57,14 @@ import (
 )
 
 const (
-	parallelism           = 4
-	jobName               = "test-job"
-	instanceKey           = "cloud.provider.com/instance"
-	priorityClassName     = "test-priority-class"
-	priorityValue         = 10
-	highPriorityClassName = "high-priority-class"
-	highPriorityValue     = 20
-	parentJobName         = jobName + "-parent"
-	childJobName          = jobName + "-child"
+	parallelism       = 4
+	jobName           = "test-job"
+	instanceKey       = "cloud.provider.com/instance"
+	priorityClassName = "test-priority-class"
+	priorityValue     = 10
+	highPriorityValue = 20
+	parentJobName     = jobName + "-parent"
+	childJobName      = jobName + "-child"
 )
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -77,7 +76,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns")),
 			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 		))
-		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
+		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 	ginkgo.AfterAll(func() {
@@ -100,7 +99,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.It("Should reconcile workload and job for all jobs", framework.SlowSpec, func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
-		priorityClass := testing.MakePriorityClass(priorityClassName).
+		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
 		ginkgo.DeferCleanup(func() {
@@ -132,10 +131,13 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		createdTime := createdWorkload.CreationTimestamp
 
-		ginkgo.By("checking the workload is created with priority, priorityName, and ProvisioningRequest annotations")
-		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
-		gomega.Expect(createdWorkload.Annotations).Should(gomega.Equal(map[string]string{"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0"}))
+		ginkgo.By("checking the workload is created with workload priority", func() {
+			util.ExpectWorkloadsWithPodPriority(ctx, k8sClient, priorityClassName, priorityValue, wlLookupKey)
+		})
+
+		ginkgo.By("checking the workload is created with ProvisioningRequest annotations", func() {
+			gomega.Expect(createdWorkload.Annotations).Should(gomega.Equal(map[string]string{"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0"}))
+		})
 
 		gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
 		gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
@@ -179,7 +181,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
-			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)), lookupKey)
+			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -209,7 +211,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
-			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
+			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector).Should(gomega.HaveLen(1))
@@ -236,7 +238,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(createdJob.Spec.Template.Spec.NodeSelector).Should(gomega.BeEmpty())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
-			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
+			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -292,54 +294,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("Should sync workload priority when job priority label changes", func() {
-		priorityClass := utiltestingapi.MakeWorkloadPriorityClass(priorityClassName).
-			PriorityValue(int32(priorityValue)).Obj()
-		util.MustCreate(ctx, k8sClient, priorityClass)
-		ginkgo.DeferCleanup(func() {
-			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
-		})
-
-		highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass(highPriorityClassName).
-			PriorityValue(int32(highPriorityValue)).Obj()
-		util.MustCreate(ctx, k8sClient, highPriorityClass)
-		ginkgo.DeferCleanup(func() {
-			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
-		})
-
-		ginkgo.By("creating job with priority")
-		job := testingjob.MakeJob(jobName, ns.Name).
-			WorkloadPriorityClass(priorityClassName).
-			Obj()
-		util.MustCreate(ctx, k8sClient, job)
-		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-		createdJob := &batchv1.Job{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("checking the workload is created with priority, priorityName")
-		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
-
-		ginkgo.By("checking the workload priority is updated when the job priority label changes")
-		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-		createdJob.Labels[constants.WorkloadPriorityClassLabel] = highPriorityClassName
-		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			g.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(highPriorityClassName))
-			g.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(highPriorityValue)))
+			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -368,7 +323,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
 			g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
-			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(testing.BeNotFoundError())
+			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(utiltesting.BeNotFoundError())
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
@@ -427,7 +382,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			childWorkload := &kueue.Workload{}
 			childWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(childJob.Name, childJob.UID), Namespace: ns.Name}
 			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(testing.BeNotFoundError())
+				g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(utiltesting.BeNotFoundError())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -580,7 +535,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
 					util.MustHaveOwnerReference(g, createdWl.OwnerReferences, job, k8sClient.Scheme())
 					// The workload is not marked as finished.
-					g.Expect(createdWl.Status.Conditions).ShouldNot(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					g.Expect(createdWl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -699,7 +654,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		ginkgo.By("the workload should stay admitted", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
@@ -1380,6 +1335,224 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
+	ginkgo.When("Use a WorkloadPriorityClass", func() {
+		var (
+			lowWorkloadPriorityClass  *kueue.WorkloadPriorityClass
+			highWorkloadPriorityClass *kueue.WorkloadPriorityClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			lowWorkloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, lowWorkloadPriorityClass)
+
+			highWorkloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj()
+			util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(k8sClient.Delete(ctx, lowWorkloadPriorityClass)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, highWorkloadPriorityClass)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("running workload priority is decreased causing a pending workload to be scheduled and preempt the running one", func() {
+			job1 := testingjob.MakeJob(jobName+"1", ns.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			ginkgo.By("creating the first Job with high priority", func() {
+				util.MustCreate(ctx, k8sClient, job1)
+			})
+
+			createdWorkload1 := &kueue.Workload{}
+			wlLookupKey1 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the first workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, wlLookupKey1)
+			})
+
+			ginkgo.By("checking that the first workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).Should(gomega.Succeed())
+					g.Expect(createdWorkload1.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			job2 := testingjob.MakeJob(jobName+"2", ns.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			ginkgo.By("creating the second Job with high priority", func() {
+				util.MustCreate(ctx, k8sClient, job2)
+			})
+
+			createdWorkload2 := &kueue.Workload{}
+			wlLookupKey2 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the second workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, wlLookupKey2)
+			})
+
+			ginkgo.By("checking that the second workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).Should(gomega.Succeed())
+					g.Expect(createdWorkload2.Spec.PriorityClassName).Should(gomega.Equal(highWorkloadPriorityClass.Name))
+					g.Expect(*createdWorkload2.Spec.Priority).Should(gomega.Equal(highWorkloadPriorityClass.Value))
+					g.Expect(createdWorkload2.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			job3 := testingjob.MakeJob(jobName+"3", ns.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			ginkgo.By("creating the third Job with high priority", func() {
+				util.MustCreate(ctx, k8sClient, job3)
+			})
+
+			createdWorkload3 := &kueue.Workload{}
+			wlLookupKey3 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job3.Name, job3.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the third workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, wlLookupKey3)
+			})
+
+			ginkgo.By("checking that the third workload is not admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("updating the second workload’s WorkloadPriorityClass to low", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := &batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob)).Should(gomega.Succeed())
+					createdJob.Labels[constants.WorkloadPriorityClassLabel] = lowWorkloadPriorityClass.Name
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the second workload’s WorkloadPriorityClass is updated when the job’s priority label changes", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowWorkloadPriorityClass.Name, lowWorkloadPriorityClass.Value, wlLookupKey2)
+			})
+
+			ginkgo.By("checking that the third workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the second workload is evicted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).Should(gomega.Succeed())
+					g.Expect(createdWorkload2.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+					g.Expect(createdWorkload2.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("running workload priority is decreased, but still above the pending workload, and so the workload continues running undistrurbed", func() {
+			job1 := testingjob.MakeJob(jobName+"1", ns.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			ginkgo.By("creating the first Job with high priority", func() {
+				util.MustCreate(ctx, k8sClient, job1)
+			})
+
+			createdWorkload1 := &kueue.Workload{}
+			wlLookupKey1 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the first workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, wlLookupKey1)
+			})
+
+			ginkgo.By("checking that the first workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).Should(gomega.Succeed())
+					g.Expect(createdWorkload1.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			job2 := testingjob.MakeJob(jobName+"2", ns.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			ginkgo.By("creating the second Job with high priority", func() {
+				util.MustCreate(ctx, k8sClient, job2)
+			})
+
+			createdWorkload2 := &kueue.Workload{}
+			wlLookupKey2 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the second workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highWorkloadPriorityClass.Name, highWorkloadPriorityClass.Value, wlLookupKey2)
+			})
+
+			ginkgo.By("checking that the second workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).Should(gomega.Succeed())
+					g.Expect(createdWorkload2.Spec.PriorityClassName).Should(gomega.Equal(highWorkloadPriorityClass.Name))
+					g.Expect(*createdWorkload2.Spec.Priority).Should(gomega.Equal(highWorkloadPriorityClass.Value))
+					g.Expect(createdWorkload2.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			job3 := testingjob.MakeJob(jobName+"3", ns.Name).
+				WorkloadPriorityClass(lowWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			ginkgo.By("creating the third Job with low priority", func() {
+				util.MustCreate(ctx, k8sClient, job3)
+			})
+
+			createdWorkload3 := &kueue.Workload{}
+			wlLookupKey3 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job3.Name, job3.UID), Namespace: ns.Name}
+
+			ginkgo.By("verify the third workload is created with workload priority class", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowWorkloadPriorityClass.Name, lowWorkloadPriorityClass.Value, wlLookupKey3)
+			})
+
+			ginkgo.By("checking that the third workload is not admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("updating the second workload’s WorkloadPriorityClass to low", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := &batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob)).Should(gomega.Succeed())
+					createdJob.Labels[constants.WorkloadPriorityClassLabel] = lowWorkloadPriorityClass.Name
+					g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the second workload’s WorkloadPriorityClass is updated when the job’s priority label changes", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowWorkloadPriorityClass.Name, lowWorkloadPriorityClass.Value, wlLookupKey2)
+			})
+
+			ginkgo.By("checking that the third workload is not admitted and the second workload is not evicted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).Should(gomega.Succeed())
+					g.Expect(createdWorkload2.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					g.Expect(createdWorkload2.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+					g.Expect(createdWorkload2.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
+					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+				}, util.ConsistentDuration, util.ConsistentDuration).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", framework.SlowSpec, func() {
 		ginkgo.By("checking the first prod job starts")
 		prodJob1 := testingjob.MakeJob("prod-job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "2").Obj()
@@ -1720,7 +1893,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor", func() {
-		highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
+		highPriorityClass := utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, highPriorityClass)
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
@@ -2037,7 +2210,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				// Workload should stay pending
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wll), wll)).Should(gomega.Succeed())
 				// Should have Evicted condition
-				g.Expect(wll.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the first job becomes unsuspended after we update the Active field back to true")
@@ -3662,13 +3835,13 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 			),
 		)
 
-		managedNs = testing.MakeNamespaceWrapper("").
+		managedNs = utiltesting.MakeNamespaceWrapper("").
 			GenerateName("managed-ns-").
 			Label("managed-by-kueue", "true").
 			Obj()
 		util.MustCreate(ctx, k8sClient, managedNs)
 
-		unmanagedNs = testing.MakeNamespaceWrapper("").
+		unmanagedNs = utiltesting.MakeNamespaceWrapper("").
 			GenerateName("unmanaged-ns-").
 			Obj()
 		util.MustCreate(ctx, k8sClient, unmanagedNs)

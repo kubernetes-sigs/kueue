@@ -23,9 +23,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			var cq kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
-				cq.Spec.Cohort = "foo-cohort"
+				cq.Spec.CohortName = "foo-cohort"
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -101,7 +101,11 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			ginkgo.By("Change clusterQueue's checks")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).Should(gomega.Succeed())
-				cq.Spec.AdmissionChecks = []kueue.AdmissionCheckReference{"check2"}
+				cq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+						{Name: "check2"},
+					},
+				}
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

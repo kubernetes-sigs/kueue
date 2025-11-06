@@ -34,13 +34,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
@@ -686,8 +686,10 @@ func TestReconciler(t *testing.T) {
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
+				// Add namespace to prevent early return when ManagedJobsNamespaceSelectorAlwaysRespected is enabled
+				namespace := utiltesting.MakeNamespace("ns")
 				objs := append(tc.priorityClasses, &tc.job)
-				kcBuilder := clientBuilder.WithObjects(objs...)
+				kcBuilder := clientBuilder.WithObjects(namespace).WithObjects(objs...)
 
 				for i := range tc.workloads {
 					kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])

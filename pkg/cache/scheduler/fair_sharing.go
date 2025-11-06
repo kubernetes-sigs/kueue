@@ -22,7 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
@@ -67,8 +67,6 @@ func (d DRS) PreciseWeightedShare() float64 {
 		return 0.0
 	}
 	if d.isWeightZero() {
-		// This branch is used only for logging; functional
-		// branches never reach here.
 		return math.Inf(1)
 	}
 	return d.unweightedRatio / d.fairWeight

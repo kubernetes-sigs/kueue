@@ -30,15 +30,15 @@ import (
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -83,6 +83,11 @@ var (
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
+
+	// makes sure there is only one fwk.Init and setupClient at the same time
+	// since these functions are not thread safe due to adding to the common
+	// schema.
+	mu sync.Mutex
 )
 
 func TestMultiKueue(t *testing.T) {
@@ -104,11 +109,14 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			util.RayOperatorCrds,
 			util.AppWrapperCrds,
 			util.KfTrainerCrds,
+			util.AutoscalerCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
+	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
 	if setupFnc != nil {
@@ -131,7 +139,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce))
+	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -325,6 +333,17 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	err = workloadtrainjob.SetupTrainJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	provReconciler, err := provisioning.NewController(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = provReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func managerAndMultiKueueSetup(
@@ -360,6 +379,7 @@ func managerAndMultiKueueSetup(
 var _ = ginkgo.BeforeSuite(func() {
 	var managerFeatureGates []string
 	ginkgo.By("creating the clusters", func() {
+		mu = sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(3)
 		go func() {

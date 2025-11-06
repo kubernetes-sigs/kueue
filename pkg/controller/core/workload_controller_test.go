@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,15 +39,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -415,6 +416,7 @@ func TestReconcile(t *testing.T) {
 		wantWorkload              *kueue.Workload
 		wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
 		wantError                 error
+		wantErrorMsg              string
 		wantEvents                []utiltesting.EventRecord
 		wantResult                reconcile.Result
 		reconcilerOpts            []Option
@@ -427,20 +429,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaim("gpu", "rc1").
 					Obj()).
 				Obj(),
-			resourceClaims: []*resourcev1.ResourceClaim{{
-				ObjectMeta: metav1.ObjectMeta{Name: "rc1", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimSpec{
-					Devices: resourcev1.DeviceClaim{
-						Requests: []resourcev1.DeviceRequest{{
-							Exactly: &resourcev1.ExactDeviceRequest{
-								DeviceClassName: "gpu.example.com",
-								AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-								Count:           1,
-							},
-						}},
-					},
-				},
-			}},
+			resourceClaims: []*resourcev1.ResourceClaim{
+				utiltesting.MakeResourceClaim("rc1", "ns").
+					DeviceRequest("", "gpu.example.com", 1).
+					Obj(),
+			},
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
@@ -477,23 +470,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimTemplateSpec{
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{{
-								Name: "gpu-request",
-								Exactly: &resourcev1.ExactDeviceRequest{
-									DeviceClassName: "gpu.example.com",
-									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-									Count:           1,
-								},
-							}},
-						},
-					},
-				},
-			}},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj(),
+			},
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
@@ -524,23 +505,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimTemplateSpec{
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{{
-								Name: "gpu-request",
-								Exactly: &resourcev1.ExactDeviceRequest{
-									DeviceClassName: "gpu.example.com",
-									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-									Count:           2,
-								},
-							}},
-						},
-					},
-				},
-			}},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 2).
+					Obj(),
+			},
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
@@ -569,23 +538,11 @@ func TestReconcile(t *testing.T) {
 					ResourceClaimTemplate("gpu", "gpu-template").
 					Obj()).
 				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "ns"},
-				Spec: resourcev1.ResourceClaimTemplateSpec{
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{{
-								Name: "gpu-request",
-								Exactly: &resourcev1.ExactDeviceRequest{
-									DeviceClassName: "unmapped.example.com",
-									AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-									Count:           1,
-								},
-							}},
-						},
-					},
-				},
-			}},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "unmapped.example.com", 1).
+					Obj(),
+			},
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("flavor1").
@@ -602,13 +559,13 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadInadmissible,
-						Message: "DeviceClass unmapped.example.com is not mapped in DRA configuration for workload wlUnmappedDRA podset main: DeviceClass is not mapped in DRA configuration",
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadInadmissible,
-						Message: "DeviceClass unmapped.example.com is not mapped in DRA configuration for workload wlUnmappedDRA podset main: DeviceClass is not mapped in DRA configuration",
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
 					}).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
@@ -619,8 +576,8 @@ func TestReconcile(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantError:  dra.ErrDeviceClassNotMapped,
-			wantEvents: nil,
+			wantErrorMsg: "not mapped in DRA configuration",
+			wantEvents:   nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			enableDRAFeature: true,
@@ -645,17 +602,17 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
-					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadInadmissible,
-					Message: `failed to get claim spec for ResourceClaimTemplate missing-template in workload wlMissingTemplate podset main: failed to get claim spec: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
 				}).
 				Obj(),
-			wantError:  dra.ErrClaimSpecNotFound,
-			wantEvents: nil,
+			wantErrorMsg: "failed to get claim spec",
+			wantEvents:   nil,
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2530,13 +2487,20 @@ func TestReconcile(t *testing.T) {
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
 
-				if tc.wantError != nil {
+				switch {
+				case tc.wantError != nil:
 					if gotError == nil {
 						t.Errorf("expected error %v, got nil", tc.wantError)
 					} else if !stderrors.Is(gotError, tc.wantError) {
 						t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
 					}
-				} else if gotError != nil {
+				case tc.wantErrorMsg != "":
+					if gotError == nil {
+						t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
+					} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
+						t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
+					}
+				case gotError != nil:
 					t.Errorf("unexpected error: %v", gotError)
 				}
 

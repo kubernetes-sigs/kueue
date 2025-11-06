@@ -43,12 +43,12 @@ import (
 	kubetesting "k8s.io/client-go/testing"
 	testingclock "k8s.io/utils/clock/testing"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 

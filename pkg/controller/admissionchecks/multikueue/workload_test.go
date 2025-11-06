@@ -40,24 +40,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
-var (
-	errFake = errors.New("fake error")
-)
+var errFake = errors.New("fake error")
 
 func TestWlReconcile(t *testing.T) {
 	now := time.Now()
@@ -301,6 +299,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"wl without reservation, clears the workload objects (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
@@ -503,6 +502,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -567,6 +567,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl with reservation (withoutJobManagedBy, MultiKueueDispatcherModeIncremental)": {
+			features:       map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor:   "wl1",
 			dispatcherName: ptr.To(config.MultiKueueDispatcherModeIncremental),
 			managersWorkloads: []kueue.Workload{
@@ -704,6 +705,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote job is changing status, the local job is not updated (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -837,6 +839,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"remote wl is finished, the local workload and Job are marked completed (withoutJobManagedBy)": {
+			features:     map[featuregate.Feature]bool{features.MultiKueueBatchJobWithManagedBy: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -1745,5 +1748,166 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				t.Errorf("unexpected created remotes (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// mockQueue implements workqueue.TypedRateLimitingInterface for testing
+type mockQueue struct {
+	addedItems []reconcile.Request
+}
+
+func (m *mockQueue) Add(item reconcile.Request) {
+	m.addedItems = append(m.addedItems, item)
+}
+
+func (m *mockQueue) Len() int                          { return 0 }
+func (m *mockQueue) Get() (reconcile.Request, bool)    { return reconcile.Request{}, false }
+func (m *mockQueue) Done(reconcile.Request)            {}
+func (m *mockQueue) Forget(reconcile.Request)          {}
+func (m *mockQueue) NumRequeues(reconcile.Request) int { return 0 }
+func (m *mockQueue) AddRateLimited(reconcile.Request)  {}
+func (m *mockQueue) AddAfter(item reconcile.Request, duration time.Duration) {
+	m.addedItems = append(m.addedItems, item)
+}
+func (m *mockQueue) ShutDown()          {}
+func (m *mockQueue) ShutDownWithDrain() {}
+func (m *mockQueue) ShuttingDown() bool { return false }
+
+func TestConfigHandlerUpdate(t *testing.T) {
+	cases := map[string]struct {
+		admissionChecks   []kueue.AdmissionCheck
+		workloads         []kueue.Workload
+		oldConfig         *kueue.MultiKueueConfig
+		newConfig         *kueue.MultiKueueConfig
+		expectedQueuedWLs []string
+	}{
+		"clusters unchanged - no workloads queued": {
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			oldConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			newConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			expectedQueuedWLs: nil, // No workloads should be queued
+		},
+		"clusters changed - workloads queued": {
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					Obj(),
+			},
+			oldConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
+			newConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			expectedQueuedWLs: []string{"wl1", "wl2"}, // Both workloads should be queued
+		},
+		"multiple configs - only affected workloads queued": {
+			admissionChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+				*utiltestingapi.MakeAdmissionCheck("ac2").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "other-config").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			oldConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj(),
+			newConfig:         utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			expectedQueuedWLs: []string{"wl1"}, // Only wl1 uses config1, wl2 uses other-config
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := getClientBuilder(ctx)
+
+			for i := range tc.admissionChecks {
+				clientBuilder = clientBuilder.WithObjects(&tc.admissionChecks[i])
+			}
+			for i := range tc.workloads {
+				clientBuilder = clientBuilder.WithObjects(&tc.workloads[i])
+			}
+
+			fakeClient := clientBuilder.Build()
+			handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+			mockQ := &mockQueue{}
+
+			updateEvent := event.UpdateEvent{
+				ObjectOld: tc.oldConfig,
+				ObjectNew: tc.newConfig,
+			}
+
+			handler.Update(ctx, updateEvent, mockQ)
+
+			var actualQueuedWLs []string
+			for _, req := range mockQ.addedItems {
+				actualQueuedWLs = append(actualQueuedWLs, req.Name)
+			}
+			sort.Strings(actualQueuedWLs)
+			sort.Strings(tc.expectedQueuedWLs)
+
+			if diff := cmp.Diff(tc.expectedQueuedWLs, actualQueuedWLs); diff != "" {
+				t.Errorf("unexpected queued workloads (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConfigHandlerDelete(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	admissionCheck := utiltestingapi.MakeAdmissionCheck("ac1").
+		ControllerName(kueue.MultiKueueControllerName).
+		Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+		Obj()
+
+	workload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+		Obj()
+
+	clientBuilder := getClientBuilder(ctx)
+	clientBuilder = clientBuilder.WithObjects(admissionCheck, workload)
+	fakeClient := clientBuilder.Build()
+
+	handler := &configHandler{client: fakeClient, eventsBatchPeriod: time.Second}
+	mockQ := &mockQueue{}
+
+	config := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
+	deleteEvent := event.DeleteEvent{
+		Object: config,
+	}
+
+	handler.Delete(ctx, deleteEvent, mockQ)
+
+	if len(mockQ.addedItems) != 1 {
+		t.Errorf("expected 1 workload to be queued, got %d", len(mockQ.addedItems))
+	}
+	if mockQ.addedItems[0].Name != "wl1" {
+		t.Errorf("expected workload wl1 to be queued, got %s", mockQ.addedItems[0].Name)
 	}
 }

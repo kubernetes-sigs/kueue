@@ -20,14 +20,17 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
+	jobsetv1alpha2ac "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
+	"github.com/kubeflow/trainer/v2/pkg/constants"
 )
 
 var (
@@ -87,7 +90,8 @@ type Container struct {
 
 // TODO (andreyvelich): Potentially, we can add ScheduleTimeoutSeconds to the Scheduler for consistency.
 type Scheduler struct {
-	PodLabels map[string]string
+	PodLabels      map[string]string
+	PodAnnotations map[string]string
 }
 
 type InfoOptions struct {
@@ -238,4 +242,51 @@ func RuntimeRefToRuntimeRegistryKey(runtimeRef trainer.RuntimeRef) string {
 		Group: ptr.Deref(runtimeRef.APIGroup, ""),
 		Kind:  ptr.Deref(runtimeRef.Kind, ""),
 	}.String()
+}
+
+// ExtractResourcePerNodeFromRuntime extracts the Trainer resource per node from the Info object.
+func ExtractResourcePerNodeFromRuntime(info *Info) *corev1.ResourceRequirements {
+	if jobSetSpec, ok := TemplateSpecApply[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](info); ok {
+		for _, rJob := range jobSetSpec.ReplicatedJobs {
+			if rJob.Name != nil && *rJob.Name == constants.Node || rJob.Template.Labels[constants.LabelTrainJobAncestor] == constants.AncestorTrainer {
+				for _, container := range rJob.Template.Spec.Template.Spec.Containers {
+					if container.Name != nil && *container.Name == constants.Node && container.Resources != nil {
+						res := &corev1.ResourceRequirements{
+							Limits:   corev1.ResourceList{},
+							Requests: corev1.ResourceList{},
+						}
+						if container.Resources.Limits != nil {
+							res.Limits = *container.Resources.Limits
+						}
+						if container.Resources.Requests != nil {
+							res.Requests = *container.Resources.Requests
+						}
+						return res
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// GetNumGPUPerNode returns the GPU count if found in container resources.
+func GetNumGPUPerNode(res *corev1.ResourceRequirements) int {
+	if res == nil {
+		return 0
+	}
+	gpuQ := numGPU(res.Requests)
+	if limitGpuQ := numGPU(res.Limits); gpuQ == 0 && limitGpuQ > 0 {
+		gpuQ = limitGpuQ
+	}
+	return gpuQ
+}
+
+func numGPU(resourcePerNode corev1.ResourceList) int {
+	for resName, resQ := range resourcePerNode {
+		if strings.Contains(strings.ToLower(resName.String()), "gpu") {
+			return int(resQ.Value())
+		}
+	}
+	return 0
 }

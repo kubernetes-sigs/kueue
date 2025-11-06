@@ -28,9 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestValidateClusterQueue(t *testing.T) {
@@ -70,15 +70,6 @@ func TestValidateClusterQueue(t *testing.T) {
 				AdmissionCheckStrategy(
 					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
 				).Obj(),
-		},
-		{
-			name: "both admissionChecks and admissionCheckStrategy is defined",
-			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
-				AdmissionChecks("ac1").
-				AdmissionCheckStrategy().Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(specPath, "spec", "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"),
-			},
 		},
 		{
 			name:         "in cohort",
@@ -426,7 +417,7 @@ func makeCoveredResources(n int) []kueue.ResourceGroup {
 	return []kueue.ResourceGroup{{
 		CoveredResources: resources,
 		Flavors: []kueue.FlavorQuotas{{
-			Name:      kueue.ResourceFlavorReference("default"),
+			Name:      "default",
 			Resources: quotas,
 		}},
 	}}

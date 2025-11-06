@@ -27,7 +27,7 @@ import (
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -45,7 +45,7 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 	gomega.ExpectWithOffset(1, finished).To(gomega.Equal(n), "Not enough workloads finished")
 }
 
-func FinishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) int {
+func finishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) sets.Set[types.UID] {
 	var realClock = clock.RealClock{}
 	finished := sets.New[types.UID]()
 	var wList kueue.WorkloadList
@@ -64,13 +64,13 @@ func FinishEvictionsOfAnyWorkloadsInCq(ctx context.Context, k8sClient client.Cli
 			finished.Insert(wl.UID)
 		}
 	}
-	return finished.Len()
+	return finished
 }
 
 func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
-	finished := 0
+	finished := sets.New[types.UID]()
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		finished += FinishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq)
-		g.Expect(finished).Should(gomega.Equal(n), "Not enough workloads evicted")
+		finished.Insert(finishEvictionsOfAnyWorkloadsInCq(ctx, k8sClient, cq).UnsortedList()...)
+		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

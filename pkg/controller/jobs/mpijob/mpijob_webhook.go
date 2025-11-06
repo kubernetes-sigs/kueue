@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -155,7 +155,7 @@ func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (fie
 func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := mpiJob.PodSets(ctx)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, mpiJob)
 
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)

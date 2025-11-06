@@ -27,13 +27,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
+		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 
@@ -325,8 +325,8 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(testing.DefaultBlockTopologyLevel, "b1").
-				Label(testing.DefaultRackTopologyLevel, "r1").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -372,21 +372,21 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 					ReplicaType:  kftraining.TFJobReplicaTypeChief,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
 				},
 				testingtfjob.TFReplicaSpecRequirement{
 					ReplicaType:  kftraining.TFJobReplicaTypePS,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
 				},
 				testingtfjob.TFReplicaSpecRequirement{
 					ReplicaType:  kftraining.TFJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 				},
 			).
@@ -410,7 +410,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 						Name:  kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeChief)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultRackTopologyLevel),
+							Required:      ptr.To(utiltesting.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 						Name:  kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypePS)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultRackTopologyLevel),
+							Required:      ptr.To(utiltesting.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -426,7 +426,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 						Name:  kueue.NewPodSetReference(string(kftraining.TFJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),
+							Preferred:     ptr.To(utiltesting.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -446,19 +446,19 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(3))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))

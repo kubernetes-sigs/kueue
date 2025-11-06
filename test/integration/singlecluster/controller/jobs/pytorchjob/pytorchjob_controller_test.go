@@ -29,14 +29,14 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
+		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 
@@ -129,7 +129,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(job.Name, job.UID), Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(testing.BeNotFoundError())
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created when queue name is set")
@@ -610,8 +610,8 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(testing.DefaultBlockTopologyLevel, "b1").
-				Label(testing.DefaultRackTopologyLevel, "r1").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -657,14 +657,14 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 					ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
 				},
 				testingpytorchjob.PyTorchReplicaSpecRequirement{
 					ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
 					ReplicaCount: 1,
 					Annotations: map[string]string{
-						kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+						kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 				},
 			).
@@ -687,7 +687,7 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 						Name:  kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultRackTopologyLevel),
+							Required:      ptr.To(utiltesting.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -695,7 +695,7 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 						Name:  kueue.NewPodSetReference(string(kftraining.PyTorchJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(testing.DefaultBlockTopologyLevel),
+							Preferred:     ptr.To(utiltesting.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
 						},
 					},
@@ -715,13 +715,13 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))

@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -36,7 +36,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
@@ -674,6 +674,25 @@ func TestValidateUpdate(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
 		},
+		"set priority class when replicas ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
+				},
+			}.ToAggregate(),
+		},
 		"change priority class when replicas ready": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -685,6 +704,64 @@ func TestValidateUpdate(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("test-queue").
 				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete priority class when replicas ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
+				},
+			}.ToAggregate(),
+		},
+		"set priority class when replicas not ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"change priority class when replicas not ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "new-test").
+				ReadyReplicas(int32(1)).
+				Obj(),
+			wantErr: field.ErrorList{}.ToAggregate(),
+		},
+		"delete priority class when replicas not ready": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Label(constants.WorkloadPriorityClassLabel, "test").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
 				ReadyReplicas(int32(1)).
 				Obj(),
 			wantErr: field.ErrorList{

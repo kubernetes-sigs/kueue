@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
@@ -163,7 +163,7 @@ func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
 	return res
 }
 
-// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
+// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecksStrategy
 func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference] {
 	var checks map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference]
 	if cq.Spec.AdmissionChecksStrategy != nil {
@@ -176,10 +176,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 			}
 		}
 	} else {
-		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
-		for _, checkName := range cq.Spec.AdmissionChecks {
-			checks[checkName] = allFlavors(cq)
-		}
+		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], 0)
 	}
 	return checks
 }

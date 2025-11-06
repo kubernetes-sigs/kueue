@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -142,7 +142,7 @@ func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (fie
 func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := jobSet.PodSets(ctx)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet)
 
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)

@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueuebeta "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -177,7 +177,7 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 		return allErrs, nil
 	}
 
-	podSets, podSetsErr := (*RayJob)(rayJob).PodSets(ctx)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, (*RayJob)(rayJob))
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
 
@@ -195,7 +195,7 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 			continue
 		}
 
-		workerPodSetName := podset.FindPodSetByName(podSets, kueuebeta.NewPodSetReference(wgs.GroupName))
+		workerPodSetName := podset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
 	}
 
@@ -206,12 +206,12 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 	return nil, podSetsErr
 }
 
-func buildPodSetAnnotationsPathByNameMap(rayJob *rayv1.RayJob) map[kueuebeta.PodSetReference]*field.Path {
-	podSetAnnotationsPathByName := make(map[kueuebeta.PodSetReference]*field.Path)
+func buildPodSetAnnotationsPathByNameMap(rayJob *rayv1.RayJob) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
 	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
 	podSetAnnotationsPathByName[submitterJobPodSetName] = field.NewPath("spec", "submitterPodTemplate", "metadata", "annotations")
 	for i, wgs := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
-		podSetAnnotationsPathByName[kueuebeta.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+		podSetAnnotationsPathByName[kueue.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
 	}
 	return podSetAnnotationsPathByName
 }

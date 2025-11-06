@@ -36,15 +36,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -978,7 +978,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
 				},
 			},
 		},
@@ -1013,7 +1013,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
 				},
 			},
 		},
@@ -2629,7 +2629,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
 				},
 			},
 		},
@@ -2714,8 +2714,50 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "UpdatedWorkload",
-					Message:   "Updated not matching Workload for suspended job: ns/job",
+					Message:   "Updated workload priority class: ns/job",
 				},
+			},
+		},
+		"shouldn't update workload when priority class no changes": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				PriorityClass(basePCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PriorityClass(basePCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(basePCWrapper.Value).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					PriorityClass(basePCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).PriorityClass(basePCWrapper.Name).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(basePCWrapper.Value).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					PriorityClass(basePCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
 			},
 		},
 		"the workload without uid label is created when job's uid is longer than 63 characters": {
@@ -3162,7 +3204,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
 				},
 			},
 		},
@@ -3207,7 +3249,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
 				},
 			},
 		},
@@ -3254,7 +3296,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
 				},
 			},
 		},

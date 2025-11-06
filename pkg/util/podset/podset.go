@@ -16,7 +16,7 @@ limitations under the License.
 
 package podset
 
-import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
 func FindPodSetByName(podSets []kueue.PodSet, name kueue.PodSetReference) *kueue.PodSet {
 	for _, podSet := range podSets {

@@ -26,15 +26,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -63,7 +62,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			job := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeForbiddenError())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 
@@ -101,7 +100,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				jobframework.EnableIntegration(workloadrayjob.FrameworkName)
 
-				failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+				failedWebhook, err := webhooks.Setup(mgr)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil

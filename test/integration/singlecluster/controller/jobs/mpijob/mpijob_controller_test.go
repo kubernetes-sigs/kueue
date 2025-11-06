@@ -33,13 +33,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -60,7 +60,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := testing.MakeNamespace("unmanaged-ns")
+		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 	ginkgo.AfterAll(func() {
@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.It("Should reconcile MPIJobs", func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
-		priorityClass := testing.MakePriorityClass(priorityClassName).
+		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
 
@@ -104,9 +104,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 		gomega.Expect(metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
 
-		ginkgo.By("checking the workload is created with priority and priorityName")
-		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
+		ginkgo.By("checking the workload is created with workload priority class", func() {
+			util.ExpectWorkloadsWithPodPriority(ctx, k8sClient, priorityClassName, priorityValue, wlLookupKey)
+		})
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		var jobQueueName kueue.LocalQueueName = "test-queue"
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		util.MustCreate(ctx, k8sClient, secondWl)
 		gomega.Eventually(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(testing.BeNotFoundError())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondWl), wl)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		// check the original wl is still there
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(createdJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
-			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
+			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec.NodeSelector).Should(gomega.HaveLen(1))
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			g.Expect(createdJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.NodeSelector).Should(gomega.BeEmpty())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
-			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
+			ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 			g.Expect(ok).Should(gomega.BeTrue())
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -257,7 +257,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).ShouldNot(gomega.HaveLen(2))
-			g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -275,7 +275,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
 			g.Expect(job.Spec.RunPolicy.Suspend).Should(gomega.Equal(ptr.To(false)))
-			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(testing.BeNotFoundError())
+			g.Expect(k8sClient.Get(ctx, childWlLookupKey, childWorkload)).Should(utiltesting.BeNotFoundError())
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
@@ -499,7 +499,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(job.Name, job.UID), Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(testing.BeNotFoundError())
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created when queue name is set")
@@ -921,8 +921,8 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
 				Label(nodeGroupLabel, "tas").
-				Label(testing.DefaultBlockTopologyLevel, "b1").
-				Label(testing.DefaultRackTopologyLevel, "r1").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -965,8 +965,8 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
 			Queue(localQueue.Name).
 			GenericLauncherAndWorker().
-			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel).
-			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, testing.DefaultRackTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()
@@ -988,7 +988,7 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(testing.DefaultBlockTopologyLevel),
+							Required:      ptr.To(utiltesting.DefaultBlockTopologyLevel),
 							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
 						},
 					},
@@ -996,7 +996,7 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(testing.DefaultRackTopologyLevel),
+							Preferred:     ptr.To(utiltesting.DefaultRackTopologyLevel),
 							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
 						},
 					},
@@ -1016,13 +1016,13 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{testing.DefaultBlockTopologyLevel, testing.DefaultRackTopologyLevel},
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))

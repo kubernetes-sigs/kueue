@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -197,13 +197,11 @@ func (j *JobSet) ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, e
 
 	for i := range j.Spec.ReplicatedJobs {
 		spec := &j.Spec.ReplicatedJobs[i]
-		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
-			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
-				ret = append(ret, kueue.ReclaimablePod{
-					Name:  kueue.NewPodSetReference(spec.Name),
-					Count: status.Succeeded * PodsCountPerReplica(spec),
-				})
-			}
+		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
+			ret = append(ret, kueue.ReclaimablePod{
+				Name:  kueue.NewPodSetReference(spec.Name),
+				Count: status.Succeeded * PodsCountPerReplica(spec),
+			})
 		}
 	}
 	return ret, nil

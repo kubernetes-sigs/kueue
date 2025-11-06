@@ -3,15 +3,15 @@ module sigs.k8s.io/kueue
 go 1.25.0
 
 require (
-	github.com/cert-manager/cert-manager v1.19.0
+	github.com/cert-manager/cert-manager v1.19.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
 	github.com/json-iterator/go v1.1.12
 	github.com/kubeflow/mpi-operator v0.6.0
-	github.com/kubeflow/trainer/v2 v2.0.1
+	github.com/kubeflow/trainer/v2 v2.1.0-rc.0
 	github.com/kubeflow/training-operator v1.9.3
-	github.com/onsi/ginkgo/v2 v2.26.0
+	github.com/onsi/ginkgo/v2 v2.27.1
 	github.com/onsi/gomega v1.38.2
 	github.com/open-policy-agent/cert-controller v0.14.0
 	github.com/project-codeflare/appwrapper v1.1.2
@@ -155,4 +155,5 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.20.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/scheduler-plugins v0.31.8 // indirect
+	volcano.sh/apis v1.12.2 // indirect
 )

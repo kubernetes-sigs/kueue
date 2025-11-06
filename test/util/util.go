@@ -66,7 +66,8 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -364,6 +365,29 @@ func expectWorkloadsToBeAdmittedCountWithOffset(ctx context.Context, offset int,
 			}
 		}
 		g.Expect(admitted).Should(gomega.Equal(count), "Not enough workloads are admitted")
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectWorkloadsWithWorkloadPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	expectWorkloadsWithPriority(ctx, c, constants.WorkloadPriorityClassSource, name, value, wlKeys...)
+}
+
+func ExpectWorkloadsWithPodPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	expectWorkloadsWithPriority(ctx, c, constants.PodPriorityClassSource, name, value, wlKeys...)
+}
+
+func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityClassSource, name string, value int32, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
+	createdWl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		for _, wlKey := range wlKeys {
+			g.Expect(c.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+			g.Expect(createdWl.Spec.PriorityClassSource).To(gomega.Equal(priorityClassSource))
+			g.Expect(createdWl.Spec.PriorityClassName).To(gomega.Equal(name))
+			g.Expect(createdWl.Spec.Priority).To(gomega.Equal(&value))
+		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -728,12 +752,12 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 	}
 }
 
-func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value int64) {
-	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name)
+func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value float64) {
+	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name, string(cq.Spec.CohortName))
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int64(v)).Should(gomega.Equal(value))
+		g.Expect(v).Should(gomega.Equal(value))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -756,7 +780,7 @@ func ExpectLocalQueueResourceReservationsMetric(queue *kueue.LocalQueue, flavorN
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -765,7 +789,7 @@ func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource strin
 }
 
 func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -774,7 +798,7 @@ func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource str
 }
 
 func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
-	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.Cohort), cq.Name, flavor, resource)
+	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(string(cq.Spec.CohortName), cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -890,12 +914,6 @@ func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wl
 	return createdWorkload
 }
 
-func VerifyWorkloadPriority(createdWorkload *kueue.Workload, priorityClassName string, priorityValue int32) {
-	ginkgo.By("checking the workload is created with priority and priorityName")
-	gomega.ExpectWithOffset(1, createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-	gomega.ExpectWithOffset(1, *createdWorkload.Spec.Priority).Should(gomega.Equal(priorityValue))
-}
-
 func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
 	for _, p := range pods {
 		updatedPod := corev1.Pod{}
@@ -989,7 +1007,7 @@ readCh:
 	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
 }
 
-func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload, preemteeWorkloadUID, preempteeJobUID string) {
+func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload, preemteeWorkloadUID, preempteeJobUID, preemptorPath, preempteePath string) {
 	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptedWl), preemptedWl)).To(gomega.Succeed())
@@ -997,7 +1015,7 @@ func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reas
 			Type:    kueue.WorkloadPreempted,
 			Status:  status,
 			Reason:  reason,
-			Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s", preemteeWorkloadUID, preempteeJobUID, preemption.HumanReadablePreemptionReasons[reason]),
+			Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s, JobUID: %s) due to %s; preemptor path: %s; preemptee path: %s", preemteeWorkloadUID, preempteeJobUID, preemption.HumanReadablePreemptionReasons[reason], preemptorPath, preempteePath),
 		}, conditionCmpOpts)))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
@@ -1038,6 +1056,16 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 		for _, lq := range lqs {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
 			g.Expect(readLq.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.LocalQueueActive))
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectAdmissionChecksToBeActive(ctx context.Context, c client.Client, acs ...*kueue.AdmissionCheck) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		readAc := &kueue.AdmissionCheck{}
+		for _, ac := range acs {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(ac), readAc)).To(gomega.Succeed())
+			g.Expect(readAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

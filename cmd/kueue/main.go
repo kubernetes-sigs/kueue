@@ -28,7 +28,6 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -48,9 +47,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/config"
@@ -93,7 +94,9 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+	utilruntime.Must(configapiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
 	// Add any additional framework integration types.
@@ -387,7 +390,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		}
 	}
 
-	if failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
+	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		return fmt.Errorf("unable to create webhook %s: %w", failedWebhook, err)
 	}
 
@@ -402,9 +405,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *schdcache.C
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
-	}
-	if cfg.Integrations.PodOptions != nil {
-		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions))
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {

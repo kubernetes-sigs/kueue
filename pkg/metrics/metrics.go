@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -477,9 +477,8 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 quota to the lendable resources in the cohort, among all the resources provided by
 the ClusterQueue, and divided by the weight.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
-If the ClusterQueue has a weight of zero and is borrowing, this will return 9223372036854775807,
-the maximum possible share value.`,
-		}, []string{"cluster_queue"},
+If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.`,
+		}, []string{"cluster_queue", "cohort"},
 	)
 
 	CohortWeightedShare = prometheus.NewGaugeVec(
@@ -490,8 +489,7 @@ the maximum possible share value.`,
 quota to the lendable resources in the Cohort, among all the resources provided by
 the Cohort, and divided by the weight.
 If zero, it means that the usage of the Cohort is below the nominal quota.
-If the Cohort has a weight of zero and is borrowing, this will return 9223372036854775807,
-the maximum possible share value.`,
+If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, []string{"cohort"},
 	)
 )
@@ -685,12 +683,12 @@ func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource stri
 	LocalQueueResourceUsage.WithLabelValues(string(lq.Name), lq.Namespace, flavor, resource).Set(usage)
 }
 
-func ReportClusterQueueWeightedShare(cq string, weightedShare int64) {
-	ClusterQueueWeightedShare.WithLabelValues(cq).Set(float64(weightedShare))
+func ReportClusterQueueWeightedShare(cq, cohort string, weightedShare float64) {
+	ClusterQueueWeightedShare.WithLabelValues(cq, cohort).Set(weightedShare)
 }
 
-func ReportCohortWeightedShare(cohort string, weightedShare int64) {
-	CohortWeightedShare.WithLabelValues(cohort).Set(float64(weightedShare))
+func ReportCohortWeightedShare(cohort string, weightedShare float64) {
+	CohortWeightedShare.WithLabelValues(cohort).Set(weightedShare)
 }
 
 func ClearClusterQueueResourceMetrics(cqName string) {

@@ -25,10 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"

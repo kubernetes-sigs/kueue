@@ -18,12 +18,14 @@ package webhooks
 
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // Setup sets up the webhooks for core controllers. It returns the name of the
 // webhook that failed to create and an error, if any.
-func Setup(mgr ctrl.Manager, dispatcherName string) (string, error) {
-	if err := setupWebhookForWorkload(mgr, dispatcherName); err != nil {
+func Setup(mgr ctrl.Manager) (string, error) {
+	if err := setupWebhookForWorkload(mgr); err != nil {
 		return "Workload", err
 	}
 
@@ -37,6 +39,10 @@ func Setup(mgr ctrl.Manager, dispatcherName string) (string, error) {
 
 	if err := setupWebhookForCohort(mgr); err != nil {
 		return "Cohort", err
+	}
+
+	if err := ctrl.NewWebhookManagedBy(mgr).For(&kueue.LocalQueue{}).Complete(); err != nil {
+		return "LocalQueue", err
 	}
 
 	return "", nil

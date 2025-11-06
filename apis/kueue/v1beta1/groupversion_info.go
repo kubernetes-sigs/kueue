@@ -20,8 +20,11 @@ limitations under the License.
 package v1beta1
 
 import (
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
+
+	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 var (
@@ -37,9 +40,20 @@ var (
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
+
+	// required by zz_generated.conversion.go
+	localSchemeBuilder = &SchemeBuilder.SchemeBuilder
 )
 
 // Resource is required by pkg/client/listers/...
 func Resource(resource string) schema.GroupResource {
 	return GroupVersion.WithResource(resource).GroupResource()
+}
+
+var convScheme = apiruntime.NewScheme()
+
+func init() {
+	// register generated conversions into our local scheme
+	_ = AddToScheme(convScheme)
+	_ = v1beta2.AddToScheme(convScheme)
 }

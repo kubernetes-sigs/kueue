@@ -20,7 +20,7 @@ AdmissionCheck 是一个非命名空间的 API 对象，用于定义准入检查
 
 AdmissionCheck 对象示例如下：
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: AdmissionCheck
 metadata:
   name: prov-test
@@ -49,7 +49,7 @@ spec:
 ##### 使用 `.spec.admissionChecks` {#example-admission-checks}
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -62,7 +62,7 @@ spec:
 ##### 使用 `.spec.admissionCheckStrategy` {#example-admission-check-strategy} 
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"

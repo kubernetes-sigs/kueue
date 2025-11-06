@@ -35,13 +35,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util"
@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 					Reason:  "MultiKueue",

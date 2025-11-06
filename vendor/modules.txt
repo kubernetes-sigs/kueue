@@ -26,7 +26,7 @@ github.com/blang/semver/v4
 # github.com/cenkalti/backoff/v5 v5.0.3
 ## explicit; go 1.23
 github.com/cenkalti/backoff/v5
-# github.com/cert-manager/cert-manager v1.19.0
+# github.com/cert-manager/cert-manager v1.19.1
 ## explicit; go 1.25.0
 github.com/cert-manager/cert-manager/pkg/apis/acme
 github.com/cert-manager/cert-manager/pkg/apis/acme/v1
@@ -193,7 +193,7 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.6.0
 ## explicit; go 1.23
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/trainer/v2 v2.0.1
+# github.com/kubeflow/trainer/v2 v2.1.0-rc.0
 ## explicit; go 1.24.0
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apply
@@ -209,7 +209,9 @@ github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset/constants
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/mpi
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/plainml
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/torch
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/volcano
 github.com/kubeflow/trainer/v2/pkg/runtime/indexer
+github.com/kubeflow/trainer/v2/pkg/util/trainingruntime
 github.com/kubeflow/trainer/v2/pkg/util/trainjob
 # github.com/kubeflow/training-operator v1.9.3
 ## explicit; go 1.23
@@ -251,7 +253,7 @@ github.com/munnerz/goautoneg
 # github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f
 ## explicit
 github.com/mxk/go-flowrate/flowrate
-# github.com/onsi/ginkgo/v2 v2.26.0
+# github.com/onsi/ginkgo/v2 v2.27.1
 ## explicit; go 1.23.0
 github.com/onsi/ginkgo/v2
 github.com/onsi/ginkgo/v2/config
@@ -1755,3 +1757,8 @@ sigs.k8s.io/structured-merge-diff/v6/value
 ## explicit; go 1.22
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/kyaml
+# volcano.sh/apis v1.12.2
+## explicit; go 1.23.0
+volcano.sh/apis/pkg/apis/scheduling
+volcano.sh/apis/pkg/apis/scheduling/v1beta1
+volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1

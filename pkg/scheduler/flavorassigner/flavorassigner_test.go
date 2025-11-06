@@ -26,14 +26,15 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -109,6 +110,7 @@ func TestAssignFlavors(t *testing.T) {
 		elasticJobsViaWorkloadSlicesEnabled bool
 		preemptWorkloadSlice                *workload.Info
 		enableImplicitPreferenceDefault     bool
+		featureGates                        map[featuregate.Feature]bool
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -1361,7 +1363,7 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
-		"with reclaimable pods": {
+		"with reclaimable pods; reclaimablePods on": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 					Request(corev1.ResourceCPU, "1").
@@ -1401,6 +1403,48 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 		},
+		"with reclaimable pods; reclaimablePods off": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wlReclaimablePods: []kueue.ReclaimablePod{
+				{
+					Name:  kueue.DefaultPodSetName,
+					Count: 2,
+				},
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourcePods, "5").
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).Obj(),
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+
+						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("5"),
+					},
+					Count: 5,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourcePods}: 5,
+					{Flavor: "default", Resource: corev1.ResourceCPU}:  5_000,
+				}},
+			},
+			wantRepMode: Fit,
+			featureGates: map[featuregate.Feature]bool{
+				features.ReclaimablePods: false,
+			}},
 		"preempt before try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -1443,14 +1487,14 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"preempt before try next flavor; using deprecated WhenCanBorrow=Borrow,WhenCanPreempt=Preempt": {
+		"preempt before try next flavor; using WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
-				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.MayStopSearch}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
 						Resource(corev1.ResourcePods, "10").
@@ -1735,7 +1779,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=Borrow,WhenCanPreempt=Preempt": {
+		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
@@ -1749,8 +1793,8 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				}).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
@@ -1851,7 +1895,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"when borrowing while preemption is needed for flavor one, no borrowingLimit; WhenCanBorrow=Borrow,WhenCanPreempt=Preempt": {
+		"when borrowing while preemption is needed for flavor one, no borrowingLimit; WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
@@ -1865,8 +1909,8 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				}).
 				FlavorFungibility(kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
@@ -1960,7 +2004,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor,WhenCanPreempt=Preempt": {
+		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor,WhenCanPreempt=MayStopSearch": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "12").
@@ -1975,7 +2019,7 @@ func TestAssignFlavors(t *testing.T) {
 				}).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.Preempt,
+					WhenCanPreempt: kueue.MayStopSearch,
 				}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
@@ -2217,14 +2261,14 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"cannot preempt in cohort (oracle returns None) for the first flavor, tries the second flavor (which fits); using deprecated WhenCanBorrow=Borrow,WhenCanPreempt=Preempt": {
+		"cannot preempt in cohort (oracle returns None) for the first flavor, tries the second flavor (which fits); using deprecated WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
-				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.MayStopSearch}).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
@@ -2376,7 +2420,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any; using deprecated WhenCanBorrow=Borrow,WhenCanPreempt=Preempt": {
+		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any; using deprecated WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
 			enableFairSharing: true,
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -2385,7 +2429,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
 				Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: kueue.PreemptionPolicyAny}).
-				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.MayStopSearch}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
 						Resource(corev1.ResourceCPU, "0").
@@ -2476,7 +2520,7 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
-		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Never; using deprecated WhenCanBorrow=Borrow,WhenCanPreempt=Preempt": {
+		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Never; using deprecated WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
 			enableFairSharing: true,
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -2485,7 +2529,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
 				Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: kueue.PreemptionPolicyNever}).
-				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.MayStopSearch, WhenCanPreempt: kueue.MayStopSearch}).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("one").
 						Resource(corev1.ResourceCPU, "0").
@@ -2800,6 +2844,9 @@ func TestAssignFlavors(t *testing.T) {
 			if tc.enableImplicitPreferenceDefault {
 				features.SetFeatureGateDuringTest(t, features.FlavorFungibilityImplicitPreferenceDefault, true)
 			}
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
@@ -2822,7 +2869,7 @@ func TestAssignFlavors(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
 
-			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.Cohort).Obj()); err != nil {
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
 				t.Fatalf("Failed to create a cohort")
 			}
 
@@ -2923,7 +2970,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "uno"},
 		},
-		"Select first flavor when flavor fungibility is disabled; using deprecated WhenCanPreempt=Preempt": {
+		"Select first flavor when flavor fungibility is disabled; using deprecated WhenCanPreempt=MayStopSearch": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request("gpu", "10"),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "uno", Resource: "gpu"}: 1,
@@ -2933,7 +2980,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: 1,
 			},
 			flavorFungibility: &kueue.FlavorFungibility{
-				WhenCanPreempt: kueue.Preempt,
+				WhenCanPreempt: kueue.MayStopSearch,
 			},
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "uno"},

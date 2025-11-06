@@ -31,7 +31,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 func TestValidate(t *testing.T) {
@@ -52,13 +52,8 @@ func TestValidate(t *testing.T) {
 			},
 		},
 	}
-	defaultPodIntegrationOptions := &configapi.PodIntegrationOptions{
-		NamespaceSelector: systemNamespacesSelector,
-		PodSelector:       &metav1.LabelSelector{},
-	}
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{"batch/job"},
-		PodOptions: defaultPodIntegrationOptions,
 	}
 
 	testCases := map[string]struct {
@@ -159,11 +154,10 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil PodIntegrationOptions and nil managedJobsNamespaceSelector": {
+		"nil managedJobsNamespaceSelector with pod framework": {
 			cfg: &configapi.Configuration{
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{"pod"},
-					PodOptions: nil,
 				},
 			},
 			wantErr: field.ErrorList{
@@ -173,27 +167,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"emptyLabelSelector": {
-			cfg: &configapi.Configuration{
-				Namespace: ptr.To("kueue-system"),
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
+
 		"valid managedJobsNamespaceSelector ": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: systemNamespacesSelector,
@@ -202,26 +176,6 @@ func TestValidate(t *testing.T) {
 			wantErr: nil,
 		},
 
-		"prohibited namespace in MatchLabels": {
-			cfg: &configapi.Configuration{
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								corev1.LabelMetadataName: "kube-system",
-							},
-						},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
 		"prohibited namespace in MatchLabels managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
@@ -238,30 +192,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"prohibited namespace in MatchExpressions with operator In": {
-			cfg: &configapi.Configuration{
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpIn,
-									Values:   []string{"kube-system"},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "integrations.podOptions.namespaceSelector",
-				},
-			},
-		},
+
 		"prohibited namespace in MatchExpressions with operator In managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
@@ -282,25 +213,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"prohibited namespace in MatchExpressions with operator NotIn": {
-			cfg: &configapi.Configuration{
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{"pod"},
-					PodOptions: &configapi.PodIntegrationOptions{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								{
-									Key:      corev1.LabelMetadataName,
-									Operator: metav1.LabelSelectorOpNotIn,
-									Values:   []string{"kube-system", "kueue-system"},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: nil,
-		},
+
 		"prohibited namespace in MatchExpressions with operator NotIn managedJobsNamespaceSelector": {
 			cfg: &configapi.Configuration{
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{

@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 const (
@@ -36,6 +36,7 @@ const (
 
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=get;list;watch;update
 
 // ManageCerts creates all certs for webhooks. This function is called from main.go.
 func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan struct{}) error {
@@ -63,6 +64,15 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 		}, {
 			Type: cert.Mutating,
 			Name: mutatingWebhookName,
+		}, {
+			Type: cert.CRDConversion,
+			Name: "localqueues.kueue.x-k8s.io",
+		}, {
+			Type: cert.CRDConversion,
+			Name: "clusterqueues.kueue.x-k8s.io",
+		}, {
+			Type: cert.CRDConversion,
+			Name: "workloads.kueue.x-k8s.io",
 		}},
 		// When kueue is running in the leader election mode,
 		// we expect webhook server will run in primary and secondary instance

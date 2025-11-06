@@ -23,14 +23,12 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	resourcev1 "k8s.io/api/resource/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -89,7 +87,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Webhooks
-		failedWebhook, err := webhooks.Setup(mgr, config.MultiKueueDispatcherModeAllAtOnce)
+		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		mappings := []config.DeviceClassMapping{
@@ -139,24 +137,5 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-}
-
-// Helper function to create a ResourceClaim
-func makeResourceClaim(name, namespace, deviceClassName string, count int64) *resourcev1.ResourceClaim {
-	return &resourcev1.ResourceClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec: resourcev1.ResourceClaimSpec{
-			Devices: resourcev1.DeviceClaim{
-				Requests: []resourcev1.DeviceRequest{{
-					Name: "device-request",
-					Exactly: &resourcev1.ExactDeviceRequest{
-						DeviceClassName: deviceClassName,
-						AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-						Count:           count,
-					},
-				}},
-			},
-		},
 	}
 }

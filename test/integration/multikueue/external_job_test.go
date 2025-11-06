@@ -27,12 +27,11 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -45,7 +44,7 @@ import (
 	dispatcher "sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util"
@@ -89,7 +88,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-				failedWebhook, err := webhooks.Setup(mgr, ptr.Deref(configuration.MultiKueue.DispatcherName, config.MultiKueueDispatcherModeAllAtOnce))
+				failedWebhook, err := webhooks.Setup(mgr)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				// Set up RayJob webhook (but not MultiKueue integration)
@@ -133,11 +132,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 					multikueue.WithAdapters(adapters),
-					multikueue.WithDispatcherName(string(config.MultiKueueDispatcherModeAllAtOnce)),
+					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration, string(config.MultiKueueDispatcherModeAllAtOnce))
+				_, err = dispatcher.SetupControllers(mgr, configuration, config.MultiKueueDispatcherModeAllAtOnce)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})

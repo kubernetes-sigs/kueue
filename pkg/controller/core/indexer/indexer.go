@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -40,6 +40,7 @@ const (
 	WorkloadQuotaReservedKey   = "status.quotaReserved"
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 	OwnerReferenceUID          = "metadata.ownerReferences.uid"
+	WorkloadAdmissionCheckKey  = "status.admissionChecks"
 
 	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
 	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
@@ -166,6 +167,16 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+func IndexWorkloadAdmissionCheck(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok || len(wl.Status.AdmissionChecks) == 0 {
+		return nil
+	}
+	return slices.Map(wl.Status.AdmissionChecks, func(checkState *kueue.AdmissionCheckState) string {
+		return string(checkState.Name)
+	})
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -179,6 +190,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadRuntimeClassKey, IndexWorkloadRuntimeClass); err != nil {
 		return fmt.Errorf("setting index on runtimeClass for Workload: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadAdmissionCheckKey, IndexWorkloadAdmissionCheck); err != nil {
+		return fmt.Errorf("setting index on admissionCheck for Workload: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)

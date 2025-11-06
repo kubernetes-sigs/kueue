@@ -19,7 +19,6 @@ package runtime
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -38,7 +37,7 @@ type Runtime interface {
 
 	NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]any, error)
 	RuntimeInfo(trainJob *trainer.TrainJob, runtimeTemplateSpec any, mlPolicy *trainer.MLPolicy, podGroupPolicy *trainer.PodGroupPolicy) (*Info, error)
-	TerminalCondition(ctx context.Context, trainJob *trainer.TrainJob) (*metav1.Condition, error)
+	TrainJobStatus(ctx context.Context, trainJob *trainer.TrainJob) (*trainer.TrainJobStatus, error)
 	EventHandlerRegistrars() []ReconcilerBuilder
 	ValidateObjects(ctx context.Context, old, new *trainer.TrainJob) (admission.Warnings, field.ErrorList)
 }

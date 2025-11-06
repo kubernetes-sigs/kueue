@@ -41,8 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -59,7 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -77,7 +77,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var defaultEnabledIntegrations sets.Set[string] = sets.New(
+var defaultEnabledIntegrations = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob", "kubeflow.org/jaxjob",
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 				ok, err := utiltesting.HasEventAppeared(managerTestCluster.ctx, managerTestCluster.client, corev1.Event{
 					Reason:  "MultiKueue",
@@ -1598,7 +1598,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
-				createdTrainJob.Status.JobsStatus = []kftrainer.JobStatus{{Name: "foo"}}
+				createdTrainJob.Status.JobsStatus = []kftrainer.JobStatus{
+					testingtrainjob.MakeJobStatusWrapper("foo").Obj(),
+				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTrainJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1662,7 +1664,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("observe: the job is created in the manager cluster", func() {
 			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(true)))
+			gomega.Expect(job.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
 		})
 
 		ginkgo.By("observe: a new workload is created in the manager cluster")
@@ -1692,7 +1694,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			localWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 			acs := admissioncheck.FindAdmissionCheck(localWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 			g.Expect(acs).NotTo(gomega.BeNil())
-			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 			ok, err := utiltesting.HasEventAppeared(manager.ctx, manager.client, corev1.Event{
 				Reason:  "MultiKueue",
@@ -1707,7 +1709,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1722,9 +1724,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Expect(list.Items).To(gomega.BeEmpty())
 		})
 
-		ginkgo.By("observe: job is still suspended in the manager cluster", func() {
-			getJob(manager.ctx, manager.client, job)
-			gomega.Expect(job.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(true)))
+		ginkgo.By("observe: job is no longer suspended in the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				getJob(manager.ctx, manager.client, job)
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		/*
@@ -1790,7 +1794,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		ginkgo.By("observe: the remote job is still active and has old parallelism count", func() {
 			remoteJob := job.DeepCopy()
 			getJob(worker1.ctx, worker1.client, remoteJob)
-			gomega.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
+			gomega.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			gomega.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
 		})
 
@@ -1807,7 +1811,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			workload := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			acs := admissioncheck.FindAdmissionCheck(workload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 			g.Expect(acs).NotTo(gomega.BeNil())
-			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 			ok, err := utiltesting.HasEventAppeared(manager.ctx, manager.client, corev1.Event{
 				Reason:  "MultiKueue",
@@ -1822,8 +1826,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				remoteJob := job.DeepCopy()
 				getJob(worker1.ctx, worker1.client, remoteJob)
-				g.Expect(remoteJob.Spec.Suspend).To(gomega.BeEquivalentTo(ptr.To(false)))
-				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(2))))
+				g.Expect(remoteJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(ptr.To(int32(1))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

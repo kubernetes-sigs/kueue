@@ -24,7 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -111,7 +111,7 @@ func WorkloadNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		list, err := clientSet.KueueV1beta1().Workloads(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
+		list, err := clientSet.KueueV1beta2().Workloads(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
 		}
@@ -148,7 +148,7 @@ func ClusterQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) fu
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		list, err := clientSet.KueueV1beta1().ClusterQueues().List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
+		list, err := clientSet.KueueV1beta2().ClusterQueues().List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
 		}
@@ -191,7 +191,7 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		list, err := clientSet.KueueV1beta1().LocalQueues(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
+		list, err := clientSet.KueueV1beta2().LocalQueues(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
 		}

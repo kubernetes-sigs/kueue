@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -461,6 +461,9 @@ func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 
 func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	totalCounts := podSetsCounts(wl)
+	if !features.Enabled(features.ReclaimablePods) {
+		return totalCounts
+	}
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
 		if rc, found := reclaimCounts[podSetName]; found {
@@ -782,12 +785,13 @@ func HasTopologyAssignmentsPending(w *kueue.Workload) bool {
 	return false
 }
 
-func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
+func SetPreemptedCondition(w *kueue.Workload, now time.Time, reason string, message string) {
 	condition := metav1.Condition{
-		Type:    kueue.WorkloadPreempted,
-		Status:  metav1.ConditionTrue,
-		Reason:  reason,
-		Message: api.TruncateConditionMessage(message),
+		Type:               kueue.WorkloadPreempted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
@@ -803,10 +807,11 @@ func SetDeactivationTarget(w *kueue.Workload, reason string, message string) boo
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-func SetEvictedCondition(w *kueue.Workload, reason string, message string) bool {
+func SetEvictedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(now),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
@@ -859,7 +864,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
 		}
 	}
-	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
+	wlCopy.Status.AccumulatedPastExecutionTimeSeconds = w.Status.AccumulatedPastExecutionTimeSeconds
 	if w.Status.SchedulingStats != nil {
 		if wlCopy.Status.SchedulingStats == nil {
 			wlCopy.Status.SchedulingStats = &kueue.SchedulingStats{}
@@ -1297,7 +1302,7 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 }
 
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
-	SetEvictedCondition(w, reason, message)
+	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)
 	resetChecksOnEviction(w, now)
 	resetUnhealthyNodes(w)

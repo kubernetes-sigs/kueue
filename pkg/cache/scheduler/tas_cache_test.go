@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -659,18 +659,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantAssignment: &kueue.TopologyAssignment{
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
-						{
-							Count: 4,
-							Values: []string{
-								"x3",
-							},
-						},
-						{
-							Count: 2,
-							Values: []string{
-								"x6",
-							},
-						},
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x5"}},
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 2, Values: []string{"x6"}},
 					},
 				},
 			}},
@@ -689,18 +682,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantAssignment: &kueue.TopologyAssignment{
 					Levels: defaultOneLevel,
 					Domains: []kueue.TopologyDomainAssignment{
-						{
-							Count: 4,
-							Values: []string{
-								"x3",
-							},
-						},
-						{
-							Count: 2,
-							Values: []string{
-								"x6",
-							},
-						},
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x5"}},
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 2, Values: []string{"x6"}},
 					},
 				},
 			}},
@@ -4291,7 +4277,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required:                    ptr.To(string(tasBlockLabel)),
+					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To("not-existing-topology-level"),
 					PodSetSliceSize:             ptr.To(int32(1)),
 				},

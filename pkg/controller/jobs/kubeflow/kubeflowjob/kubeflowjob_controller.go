@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -187,7 +187,7 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 		return nil, nil
 	}
 
-	podSets, podSetsErr := j.PodSets(ctx)
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, j)
 
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()

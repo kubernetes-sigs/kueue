@@ -32,14 +32,14 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestScheduleForAFS(t *testing.T) {
@@ -518,9 +518,7 @@ func TestScheduleForAFS(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				if tc.enableFairSharing {
-					features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
-				}
+				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, tc.enableFairSharing)
 
 				for i, q := range queues {
 					if resList, found := tc.initialUsage[q.Name]; found {

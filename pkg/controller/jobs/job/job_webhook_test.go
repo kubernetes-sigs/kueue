@@ -33,14 +33,14 @@ import (
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -518,17 +518,37 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: nil,
 		},
 		{
-			name:   "workloadPriorityClassName is mutable when job is suspended",
-			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
-			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
+			name:               "set priority-class when job not suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("test", "", workloadPriorityClassNamePath),
 		},
 		{
-			name:   "workloadPriorityClassName is immutable when job is running",
-			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Suspend(false).Obj(),
-			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Suspend(false).Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
-			},
+			name:   "update priority-class when job not suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("new-test").Obj(),
+		},
+		{
+			name:               "delete priority-class when job not suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
+		},
+		{
+			name:   "set priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+		},
+		{
+			name:   "update priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("new-test").Obj(),
+		},
+		{
+			name:               "delete priority-class when job suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("", "test", workloadPriorityClassNamePath),
 		},
 		{
 			name: "immutable prebuilt workload ",

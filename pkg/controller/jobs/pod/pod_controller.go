@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -1063,7 +1063,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := p.PodSets(ctx)
+	podSets, err := jobframework.JobPodSets(ctx, p)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
