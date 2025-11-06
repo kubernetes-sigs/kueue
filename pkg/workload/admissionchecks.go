@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"strings"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -36,6 +37,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
 	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
+	quotaCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+	isDeactivated := quotaCondition != nil &&
+		quotaCondition.Status == metav1.ConditionFalse && (quotaCondition.Reason == "Deactivated" || strings.Contains(quotaCondition.Reason, "Deactivated"))
 
 	if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
 		return false
@@ -53,6 +57,10 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "NoReservationUnsatisfiedChecks"
 		newCondition.Message = "The workload has no reservation and not all checks ready"
+	case !hasReservation && isDeactivated:
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "Deactivated"
+		newCondition.Message = "The workload is deactivated"
 	case !hasReservation:
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "NoReservation"

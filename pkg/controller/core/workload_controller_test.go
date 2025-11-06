@@ -1484,12 +1484,65 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadDeactivated,
 						Count:  1,
 					},
 				).
+				PastAdmittedTime(0).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1529,6 +1582,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadDeactivated,
 					Message: "The workload is deactivated",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -1542,6 +1613,48 @@ func TestReconcile(t *testing.T) {
 						Count:  1,
 					},
 				).
+				PastAdmittedTime(0).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason: kueue.WorkloadDeactivated,
+						Count:  1,
+					},
+				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1595,6 +1708,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
@@ -1609,11 +1740,10 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -1626,6 +1756,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -1633,6 +1781,7 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1686,6 +1835,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
@@ -1700,11 +1867,10 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -1717,6 +1883,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -1724,6 +1908,7 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1778,6 +1963,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
@@ -1794,11 +1997,10 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -1811,6 +2013,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -1818,6 +2038,7 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1872,6 +2093,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadDeactivationTarget,
@@ -1888,11 +2127,10 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
-				ReserveQuota(utiltestingapi.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
@@ -1905,6 +2143,24 @@ func TestReconcile(t *testing.T) {
 					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Deactivated",
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -1912,6 +2168,7 @@ func TestReconcile(t *testing.T) {
 						Count:           1,
 					},
 				).
+				PastAdmittedTime(0).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -2412,6 +2669,47 @@ func TestReconcile(t *testing.T) {
 					Message:   "Deleted finished workload due to elapsed retention",
 				},
 			},
+			wantError: nil,
+		},
+		"should unset quota reservation for finished workload": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonSucceeded,
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonSucceeded,
+					Message: "Job finished successfully",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadFinished,
+					Message: "Workload finished",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonSucceeded,
+					Message: "Job finished successfully",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadFinished,
+					Message: "Workload finished",
+				}).
+				Obj(),
 			wantError: nil,
 		},
 	}

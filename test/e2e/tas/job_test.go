@@ -160,7 +160,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
 					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
 					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -235,11 +235,17 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 
-			ginkgo.By(fmt.Sprintf("verify the workload %q gets TopologyAssignment becomes finished", wlLookupKey), func() {
+			ginkgo.By(fmt.Sprintf("verify the workload %q gets admitted with TopologyAssignment", wlLookupKey), func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By(fmt.Sprintf("verify the workload %q becomes finished", wlLookupKey), func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

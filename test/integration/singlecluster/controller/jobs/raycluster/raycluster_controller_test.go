@@ -844,7 +844,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 					g.Expect(workloads.Items[i].Spec.PodSets[1].Count).Should(gomega.Equal(int32(1)))
 				} else {
 					g.Expect(workloads.Items[i].Name).ShouldNot(gomega.Equal(testRayClusterWorkload.Name))
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &workloads.Items[i])
 					testRayClusterWorkload = &workloads.Items[i]
 				}
 			}

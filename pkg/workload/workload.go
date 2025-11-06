@@ -605,6 +605,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	if SyncAdmittedCondition(wl, now) {
 		changed = true
 	}
+
 	return changed
 }
 
@@ -1281,22 +1282,30 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	prepareForEviction(wl, clock.Now(), evictionReason, msg)
 	reportWorkloadEvictedOnce := workloadEvictionStateInc(wl, reason, underlyingCause)
+
+	// Save cluster queue name before PatchAdmissionStatus potentially clears it
+	var clusterQueue kueue.ClusterQueueReference
+	if wlOrig.Status.Admission != nil {
+		clusterQueue = wlOrig.Status.Admission.ClusterQueue
+	}
+
 	if err := PatchAdmissionStatus(ctx, c, wlOrig, clock, func() (*kueue.Workload, bool, error) {
 		return wl, true, nil
 	}); err != nil {
 		return err
 	}
-	if wlOrig.Status.Admission == nil {
-		// This is an extra safeguard for access to `wl.Status.Admission`.
+
+	if clusterQueue == "" {
+		// This is an extra safeguard for access to cluster queue info.
 		// This function is expected to be called only for workload which have
 		// Admission.
 		log := log.FromContext(ctx)
 		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
 		return nil
 	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause)
+	reportEvictedWorkload(recorder, wl, clusterQueue, reason, msg, underlyingCause)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), wl.Spec.PriorityClassName)
+		metrics.ReportEvictedWorkloadsOnce(clusterQueue, reason, string(underlyingCause), wl.Spec.PriorityClassName)
 	}
 	return nil
 }

@@ -1082,18 +1082,24 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
 
+	// For finished workloads, ignore count differences in pod set comparisons.
+	// In partial admission, the job's final parallelism may differ from the
+	// workload's original specification, causing count mismatches that could
+	// incorrectly trigger workload deletion.
+	isFinished := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)
+
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
-		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, workload.IsAdmitted(wl)) {
+		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, workload.IsAdmitted(wl), isFinished) {
 			return true, nil
 		}
 		// If the workload is admitted but the job is suspended, do the check
 		// against the non-running info.
 		// This might allow some violating jobs to pass equivalency checks, but their
 		// workloads would be invalidated in the next sync after unsuspending.
-		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl)), nil
+		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl), isFinished), nil
 	}
 
-	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl)), nil
+	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl), isFinished), nil
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
