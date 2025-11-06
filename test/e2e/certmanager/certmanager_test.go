@@ -68,6 +68,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 		ginkgo.It("should admit a Job", func() {
 			testJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue("main").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Suspend(false).
 				Obj()
 			util.MustCreate(ctx, k8sClient, testJob)
