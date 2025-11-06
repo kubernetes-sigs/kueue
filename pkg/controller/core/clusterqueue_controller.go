@@ -485,7 +485,7 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 	}
 	h.qManager.QueueInadmissibleWorkloads(ctx, cqs)
 
-	if !features.Enabled(features.DefaultLocalQueue) {
+	if !features.Enabled(features.AutoLocalQueue) {
 		return
 	}
 

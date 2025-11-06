@@ -596,7 +596,7 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
+			features.SetFeatureGateDuringTest(t, features.AutoLocalQueue, tc.featureGateEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			client := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.newNs).Build()

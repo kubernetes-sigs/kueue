@@ -201,7 +201,7 @@ const (
 	// kep: <TODO>
 	//
 	// Enables automatic creation of default LocalQueues
-	DefaultLocalQueue featuregate.Feature = "DefaultLocalQueue"
+	AutoLocalQueue featuregate.Feature = "AutoLocalQueue"
 )
 
 func init() {
@@ -314,7 +314,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	DefaultLocalQueue: {
+	AutoLocalQueue: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
