@@ -29,7 +29,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // JobWrapper wraps a Job.
@@ -212,7 +212,7 @@ func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
-	testing.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
+	utiltesting.AppendOwnerReference(&j.Job, ownerGVK, ownerName, ownerName, ptr.To(true), ptr.To(true))
 	return j
 }
 
