@@ -38,6 +38,19 @@ func (dst *ClusterQueue) ConvertFrom(srcRaw conversion.Hub) error {
 
 func Convert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *ClusterQueueSpec, out *v1beta2.ClusterQueueSpec, s conversionapi.Scope) error {
 	out.CohortName = v1beta2.CohortReference(in.Cohort)
+
+	// Convert AdmissionChecks to AdmissionChecksStrategy before autoConvert
+	if len(in.AdmissionChecks) > 0 {
+		out.AdmissionChecksStrategy = &v1beta2.AdmissionChecksStrategy{
+			AdmissionChecks: make([]v1beta2.AdmissionCheckStrategyRule, len(in.AdmissionChecks)),
+		}
+		for i, checkRef := range in.AdmissionChecks {
+			out.AdmissionChecksStrategy.AdmissionChecks[i] = v1beta2.AdmissionCheckStrategyRule{
+				Name: v1beta2.AdmissionCheckReference(checkRef),
+			}
+		}
+	}
+
 	if in.FlavorFungibility != nil && out.FlavorFungibility != nil {
 		if in.FlavorFungibility.WhenCanPreempt == Preempt {
 			out.FlavorFungibility.WhenCanPreempt = v1beta2.MayStopSearch
@@ -46,6 +59,7 @@ func Convert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in *ClusterQue
 			out.FlavorFungibility.WhenCanBorrow = v1beta2.MayStopSearch
 		}
 	}
+
 	return autoConvert_v1beta1_ClusterQueueSpec_To_v1beta2_ClusterQueueSpec(in, out, s)
 }
 
