@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -381,7 +380,7 @@ func (r TASAssignmentsResult) Failure() *FailureInfo {
 }
 
 type tasPodSetAssignmentResult struct {
-	TopologyAssignment *tas.TopologyAssignment
+	TopologyAssignment *utiltas.TopologyAssignment
 	FailureReason      string
 }
 
@@ -463,7 +462,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 				}
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
-				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, tas.InternalFrom(psa.TopologyAssignment), opts.workload, assumedUsage)
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(psa.TopologyAssignment), opts.workload, assumedUsage)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
 					return result
@@ -509,7 +508,7 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 // findReplacementAssignment finds the topology assignment for the replacement node
 // it return new corrected topologyAssignment, a replacement topologyAssignment used to patched the old, faulty one, and
 // reason if finding fails
-func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, existingAssignment *tas.TopologyAssignment, wl *kueue.Workload, assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*tas.TopologyAssignment, *tas.TopologyAssignment, string) {
+func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, existingAssignment *utiltas.TopologyAssignment, wl *kueue.Workload, assumedUsage map[utiltas.TopologyDomainID]resources.Requests) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	tr.Count = deleteDomain(existingAssignment, wl.Status.UnhealthyNodes[0].Name)
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
@@ -531,7 +530,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(tr *TASPodSetRequests, exi
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
 }
 
-func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *tas.TopologyAssignment, tr *TASPodSetRequests) {
+func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
 	for _, domain := range ta.Domains {
 		domainID := utiltas.DomainID(domain.Values)
 		if assumedUsage[domainID] == nil {
@@ -553,7 +552,7 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 	return nil
 }
 
-func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *tas.TopologyAssignment) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
 		return ""
@@ -591,7 +590,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 // IsTopologyAssignmentStale indicates whether the topologyAssignment have Nodes
 // that don't exists in the snapshot. It may be cause e.g. by Node deletion, or change
 // in Node's NodeReady condition
-func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *tas.TopologyAssignment) (bool, string) {
+func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
 	for _, domain := range ta.Domains {
 		if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
@@ -601,9 +600,9 @@ func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *tas.TopologyAssignment
 }
 
 // deleteDomain deletes the domain the has faulty node and returns number of affected pods by the node
-func deleteDomain(currentTopologyAssignment *tas.TopologyAssignment, unhealthyNode string) int32 {
+func deleteDomain(currentTopologyAssignment *utiltas.TopologyAssignment, unhealthyNode string) int32 {
 	var noAffectedPods int32 = 0
-	updatedAssignment := make([]tas.TopologyDomainAssignment, 0, len(currentTopologyAssignment.Domains))
+	updatedAssignment := make([]utiltas.TopologyDomainAssignment, 0, len(currentTopologyAssignment.Domains))
 	for _, domain := range currentTopologyAssignment.Domains {
 		if domain.Values[len(domain.Values)-1] == unhealthyNode {
 			noAffectedPods = domain.Count
@@ -615,7 +614,7 @@ func deleteDomain(currentTopologyAssignment *tas.TopologyAssignment, unhealthyNo
 	return noAffectedPods
 }
 
-func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *tas.TopologyAssignment, missingCount int32) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, missingCount int32) utiltas.TopologyDomainID {
 	// this function assumes that all assignments are at the hostname level
 	sliceTopologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
 	sliceLevelIdx, found := s.resolveLevelIdx(sliceTopologyKey)
@@ -666,7 +665,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	workersTasPodSetRequests TASPodSetRequests,
 	leaderTasPodSetRequests *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
-	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID) (map[kueue.PodSetReference]*tas.TopologyAssignment, string) {
+	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
 	requests := workersTasPodSetRequests.SinglePodRequests.Clone()
 	requests.Add(resources.Requests{corev1.ResourcePods: 1})
 
@@ -789,7 +788,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 	}
 
-	assignments := make(map[kueue.PodSetReference]*tas.TopologyAssignment)
+	assignments := make(map[kueue.PodSetReference]*utiltas.TopologyAssignment)
 
 	if leaderTasPodSetRequests != nil {
 		var leaderFitDomains []*domain
@@ -830,17 +829,17 @@ func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopol
 }
 
 // Merges two topology assignments keeping the lexicographical order of levelValues
-func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *tas.TopologyAssignment) *tas.TopologyAssignment {
+func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssignment) *utiltas.TopologyAssignment {
 	nodeLevel := len(s.levelKeys) - 1
-	sortedDomains := make([]tas.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
+	sortedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(a.Domains)+len(b.Domains))
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
-	slices.SortFunc(sortedDomains, func(a, b tas.TopologyDomainAssignment) int {
+	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
 		aDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)]
 		bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
 		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
 	})
-	mergedDomains := make([]tas.TopologyDomainAssignment, 0, len(sortedDomains))
+	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
 	for _, domain := range sortedDomains {
 		if canMerge(mergedDomains, domain) {
 			mergedDomains[len(mergedDomains)-1].Count += domain.Count
@@ -848,13 +847,13 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *tas.TopologyAssignmen
 			mergedDomains = append(mergedDomains, domain)
 		}
 	}
-	return &tas.TopologyAssignment{
+	return &utiltas.TopologyAssignment{
 		Levels:  a.Levels,
 		Domains: mergedDomains,
 	}
 }
 
-func canMerge(mergedDomains []tas.TopologyDomainAssignment, domain tas.TopologyDomainAssignment) bool {
+func canMerge(mergedDomains []utiltas.TopologyDomainAssignment, domain utiltas.TopologyDomainAssignment) bool {
 	if len(mergedDomains) == 0 {
 		return false
 	}
@@ -1199,9 +1198,9 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 }
 
 // buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
-func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *tas.TopologyAssignment {
-	assignment := &tas.TopologyAssignment{
-		Domains: make([]tas.TopologyDomainAssignment, 0),
+func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *utiltas.TopologyAssignment {
+	assignment := &utiltas.TopologyAssignment{
+		Domains: make([]utiltas.TopologyDomainAssignment, 0),
 	}
 	assignment.Levels = s.levelKeys[levelIdx:]
 	for _, domain := range domains {
@@ -1209,7 +1208,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 			// It may happen when PodSet count is 0.
 			continue
 		}
-		assignment.Domains = append(assignment.Domains, tas.TopologyDomainAssignment{
+		assignment.Domains = append(assignment.Domains, utiltas.TopologyDomainAssignment{
 			Values: domain.levelValues[levelIdx:],
 			Count:  domain.state,
 		})
@@ -1217,7 +1216,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 	return assignment
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *tas.TopologyAssignment {
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *utiltas.TopologyAssignment {
 	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
 	slices.SortFunc(domains, func(a, b *domain) int {
 		return slices.Compare(a.levelValues, b.levelValues)
