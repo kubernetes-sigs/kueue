@@ -77,7 +77,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var defaultEnabledIntegrations sets.Set[string] = sets.New(
+var defaultEnabledIntegrations = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob", "kubeflow.org/jaxjob",

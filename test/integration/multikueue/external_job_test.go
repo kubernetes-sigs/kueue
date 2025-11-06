@@ -132,11 +132,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 					multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 					multikueue.WithAdapters(adapters),
-					multikueue.WithDispatcherName(string(config.MultiKueueDispatcherModeAllAtOnce)),
+					multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
 				)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				_, err = dispatcher.SetupControllers(mgr, configuration, string(config.MultiKueueDispatcherModeAllAtOnce))
+				_, err = dispatcher.SetupControllers(mgr, configuration, config.MultiKueueDispatcherModeAllAtOnce)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			})
 		})

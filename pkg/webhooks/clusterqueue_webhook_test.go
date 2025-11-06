@@ -426,7 +426,7 @@ func makeCoveredResources(n int) []kueue.ResourceGroup {
 	return []kueue.ResourceGroup{{
 		CoveredResources: resources,
 		Flavors: []kueue.FlavorQuotas{{
-			Name:      kueue.ResourceFlavorReference("default"),
+			Name:      "default",
 			Resources: quotas,
 		}},
 	}}

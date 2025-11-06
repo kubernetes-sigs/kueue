@@ -2992,7 +2992,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].Flavors).Should(gomega.Equal(
 						map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							"nvidia.com/gpu": kueue.ResourceFlavorReference("non-tas-gpu-flavor"),
+							"nvidia.com/gpu": "non-tas-gpu-flavor",
 						},
 					))
 					// Without TAS, there should be no TopologyAssignment
