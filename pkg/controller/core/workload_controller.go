@@ -1143,7 +1143,6 @@ func (w *workloadQueueHandler) Update(ctx context.Context, ev event.UpdateEvent,
 		log.V(5).Info("Workload cluster queue update event")
 
 		if !newCq.DeletionTimestamp.IsZero() ||
-			!utilslices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) ||
 			!gocmp.Equal(oldCq.Spec.AdmissionChecksStrategy, newCq.Spec.AdmissionChecksStrategy) ||
 			!ptr.Equal(oldCq.Spec.StopPolicy, newCq.Spec.StopPolicy) {
 			w.queueReconcileForWorkloadsOfClusterQueue(ctx, newCq.Name, wq)
