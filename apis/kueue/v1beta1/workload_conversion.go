@@ -19,9 +19,9 @@ package v1beta1
 import (
 	conversionapi "k8s.io/apimachinery/pkg/conversion"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
-	"sigs.k8s.io/kueue/pkg/util/tas"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 //lint:file-ignore ST1003 "generated Convert_* calls below use underscores"
