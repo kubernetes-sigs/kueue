@@ -294,7 +294,7 @@ type PodSetAssignment struct {
 	//     If so, the array of `roots` will only store the remaining parts of these strings.
 	//   - When all node selector values (at a given topology level, in a given slice)
 	//     are identical, this may be represented by `universalValue`.
-	//   - When all pod counts (in a given slice) are indentical,
+	//   - When all pod counts (in a given slice) are identical,
 	//     this may be represented by `universalPodCount`.
 	//
 	// Example 1:

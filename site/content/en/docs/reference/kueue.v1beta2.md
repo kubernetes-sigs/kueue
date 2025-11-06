@@ -1936,7 +1936,7 @@ share a common prefix and/or suffix, these may be stored in dedicated <code>pref
 If so, the array of <code>roots</code> will only store the remaining parts of these strings.</li>
 <li>When all node selector values (at a given topology level, in a given slice)
 are identical, this may be represented by <code>universalValue</code>.</li>
-<li>When all pod counts (in a given slice) are indentical,
+<li>When all pod counts (in a given slice) are identical,
 this may be represented by <code>universalPodCount</code>.</li>
 </ul>
 </li>

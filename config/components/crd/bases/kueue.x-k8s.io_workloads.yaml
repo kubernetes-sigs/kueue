@@ -18275,7 +18275,7 @@ spec:
                             \ - When all node selector values (at a given topology
                             level, in a given slice)\n    are identical, this may
                             be represented by `universalValue`.\n  - When all pod
-                            counts (in a given slice) are indentical,\n    this may
+                            counts (in a given slice) are identical,\n    this may
                             be represented by `universalPodCount`.\n\nExample 1:\n\nThe
                             following represents an assignment in which:\n* 4 Pods
                             are to be scheduled on nodes matching the node selector:\n
