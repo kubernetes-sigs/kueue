@@ -81,7 +81,7 @@ spec:
               template:
                 spec:
                   containers:
-                    - name: trainer
+                    - name: node
                       image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 ```
 
@@ -100,42 +100,6 @@ spec:
     name: torch-distributed
     kind: ClusterTrainingRuntime
   trainer:
-    image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
-    command:
-      - python
-      - -c
-      - |
-        import torch
-        import torch.distributed as dist
-        from torch.nn.parallel import DistributedDataParallel as DDP
-        
-        # Initialize distributed training
-        dist.init_process_group(backend='nccl')
-        rank = dist.get_rank()
-        device = torch.device(f'cuda:{rank % torch.cuda.device_count()}')
-        
-        # Simple model
-        model = DDP(torch.nn.Linear(10, 10).to(device))
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-        
-        # Training loop
-        for epoch in range(5):
-            data = torch.randn(20, 10).to(device)
-            target = torch.randn(20, 10).to(device)
-            
-            output = model(data)
-            loss = torch.nn.functional.mse_loss(output, target)
-            
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            
-            if rank == 0:
-                print(f'Epoch {epoch}: Loss = {loss.item():.4f}')
-        
-        if rank == 0:
-            print('Training completed!')
-        dist.destroy_process_group()
     numNodes: 2
     resourcesPerNode:
       requests:
@@ -145,14 +109,11 @@ spec:
 ```
 
 **Key Points:**
-- The `kueue.x-k8s.io/queue-name` label assigns this TrainJob to the `user-queue` LocalQueue
+- The `kueue.x-k8s.io/queue-name` label is the only Kueue-specific addition needed
 - The `runtimeRef` points to the `ClusterTrainingRuntime` named `torch-distributed`
+- This example uses the default executable image from the runtime definition
 - Kueue will manage the lifecycle and admission of this TrainJob based on available quota
-- This example uses an inline Python script for a simple distributed training example
-
-{{% alert title="Note" color="info" %}}
-For more advanced examples using TorchTune, DeepSpeed, and production-ready training images, see the [Kubeflow Trainer examples](https://github.com/kubeflow/trainer/tree/master/examples).
-{{% /alert %}}
+- For custom training code, see the [Kubeflow Trainer examples](https://github.com/kubeflow/trainer/tree/master/examples)
 
 ## Using TrainingRuntime (Namespace-scoped)
 
