@@ -18431,8 +18431,6 @@ spec:
                           - message: valuesPerLevel must have the same length as the
                               number of levels in this TopologyAssignment
                             rule: self.slices.all(x, size(x.valuesPerLevel) == size(self.levels))
-                      required:
-                      - name
                       type: object
                     maxItems: 8
                     type: array
