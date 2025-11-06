@@ -1888,16 +1888,16 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 
 		ginkgo.It("Should be successfully re-admitted on another flavor with a decimal memory request", func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
-				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				cq = testing.MakeClusterQueue("cluster-queue").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas(rf1.Name).
+						*testing.MakeFlavorQuotas(rf1.Name).
 							Resource(corev1.ResourceCPU, "0.75").
 							Resource(corev1.ResourceMemory, "5G").
 							Obj(),
-						*utiltestingapi.MakeFlavorQuotas(rf2.Name).
+						*testing.MakeFlavorQuotas(rf2.Name).
 							Resource(corev1.ResourceCPU, "0.5").
 							Resource(corev1.ResourceMemory, "5G").
 							Obj(),
@@ -1910,7 +1910,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Ordered, ginkgo.C
 				util.MustCreate(ctx, k8sClient, cq)
 				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
-				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 				util.MustCreate(ctx, k8sClient, lq)
 				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 			})
