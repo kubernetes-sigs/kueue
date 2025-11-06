@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -923,6 +924,79 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("Delete clusterQueue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+	})
+	ginkgo.When("DefaultLocalQueue feature is enabled", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, true)
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"dep": "eng"},
+				}).
+				AutoLocalQueue(&kueue.AutoLocalQueue{Name: "default-lq"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, false)
+		})
+
+		ginkgo.It("Should create a LocalQueue when a matching namespace is created", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "test-ns-",
+					Labels:       map[string]string{"dep": "eng"},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			lq := &kueue.LocalQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default-lq", Namespace: ns.Name}, lq)).To(gomega.Succeed())
+				g.Expect(lq.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("DefaultLocalQueue feature is disabled", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, false)
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"dep": "eng"},
+				}).
+				AutoLocalQueue(&kueue.AutoLocalQueue{Name: "default-lq"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should not create a LocalQueue when a matching namespace is created", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "test-ns-",
+					Labels:       map[string]string{"dep": "eng"},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			lq := &kueue.LocalQueue{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default-lq", Namespace: ns.Name}, lq)).To(gomega.HaveOccurred())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
