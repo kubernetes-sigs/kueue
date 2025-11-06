@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"path/filepath"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -44,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -290,6 +290,21 @@ func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache 
 		if err != nil {
 			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
+
+		if features.Enabled(features.MultiKueueAdaptersForCustomJobs) && c.Apiconf.MultiKueue != nil && len(c.Apiconf.MultiKueue.ExternalFrameworks) > 0 {
+			externalAdapters, err := externalframeworks.NewAdapters(c.Apiconf.MultiKueue.ExternalFrameworks)
+			if err != nil {
+				return fmt.Errorf("could not create external framework adapters: %w", err)
+			}
+
+			// Add external framework adapters to the adapters map
+			for _, adapter := range externalAdapters {
+				gvk := adapter.GVK().String()
+				c.SetupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
+				adapters[gvk] = adapter
+			}
+		}
+
 		if err := multikueue.SetupControllers(mgr, *c.Apiconf.Namespace,
 			multikueue.WithGCInterval(c.Apiconf.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(c.Apiconf.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
@@ -299,6 +314,7 @@ func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache 
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
+
 		if failedDispatcher, err := dispatcher.SetupControllers(mgr, &c.Apiconf, ptr.Deref(c.Apiconf.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)); err != nil {
 			return fmt.Errorf("could not setup Dispatcher controller %q for MultiKueue: %w", failedDispatcher, err)
 		}
@@ -325,9 +341,6 @@ func (c *Config) SetupControllers(ctx context.Context, mgr ctrl.Manager, cCache 
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(c.Apiconf.ObjectRetentionPolicies),
-	}
-	if c.Apiconf.Integrations.PodOptions != nil {
-		opts = append(opts, jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), c.Apiconf.Integrations.PodOptions))
 	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(c.Apiconf.ManagedJobsNamespaceSelector)
 	if err != nil {
