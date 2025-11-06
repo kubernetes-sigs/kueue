@@ -1506,8 +1506,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x1").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x1").
 						StatusAllocatable(corev1.ResourceList{
 							"nvidia.com/gpu":      resource.MustParse("12"),
@@ -1519,8 +1519,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r1").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
 						Label(corev1.LabelHostname, "x2").
 						StatusAllocatable(corev1.ResourceList{
 							"nvidia.com/gpu":      resource.MustParse("12"),
@@ -1532,8 +1532,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x3").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x3").
 						StatusAllocatable(corev1.ResourceList{
 							"nvidia.com/gpu":      resource.MustParse("14"),
@@ -1545,8 +1545,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj(),
 					*testingnode.MakeNode("x4").
 						Label("node-group", "tas").
-						Label(testing.DefaultBlockTopologyLevel, "b1").
-						Label(testing.DefaultRackTopologyLevel, "r2").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
 						Label(corev1.LabelHostname, "x4").
 						StatusAllocatable(corev1.ResourceList{
 							"nvidia.com/gpu":      resource.MustParse("6"),
@@ -1599,7 +1599,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 						PodSets(*utiltestingapi.MakePodSet("worker", 16).
-							PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 							SliceRequiredTopologyRequest(corev1.LabelHostname).
 							SliceSizeTopologyRequest(4).
 							Obj()).
@@ -1629,13 +1629,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						PodSets(
 							*utiltestingapi.MakePodSet("leader", 1).
 								PodSetGroup("group").
-								PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 								SliceRequiredTopologyRequest(corev1.LabelHostname).
 								Request("nvidia.com/gpu", "1").
 								Obj(),
 							*utiltestingapi.MakePodSet("worker", 30).
 								PodSetGroup("group").
-								PreferredTopologyRequest(testing.DefaultRackTopologyLevel).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
 								SliceRequiredTopologyRequest(corev1.LabelHostname).
 								SliceSizeTopologyRequest(5).
 								Request("nvidia.com/gpu", "1").
