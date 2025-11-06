@@ -22,13 +22,17 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -510,6 +514,126 @@ func TestRecordResourceMetrics(t *testing.T) {
 			endMetrics := allMetricsForQueue(tc.queue.Name)
 			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 {
 				t.Errorf("Unexpected metrics after cleanup:\n%v", endMetrics)
+			}
+		})
+	}
+}
+
+func TestCQNamespaceHandlerUpdate(t *testing.T) {
+	cqName := "test-cq"
+	autoLqName := "auto-lq"
+	nsName := "test-namespace"
+
+	baseCQ := utiltestingapi.MakeClusterQueue(cqName).
+		NamespaceSelector(&metav1.LabelSelector{
+			MatchLabels: map[string]string{"dep": "eng"},
+		}).
+		AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+		Obj()
+
+	testcases := map[string]struct {
+		cq                  *kueue.ClusterQueue
+		oldNs               *corev1.Namespace
+		newNs               *corev1.Namespace
+		featureGateEnabled  bool
+		wantLocalQueue      bool
+		wantInadmissibleWls bool
+	}{
+		"no matching change; noop": {
+			cq: baseCQ.DeepCopy(),
+			oldNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			},
+			newNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			},
+			featureGateEnabled: true,
+		},
+		"gate disabled; noop": {
+			cq: baseCQ.DeepCopy(),
+			oldNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			},
+			newNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+		},
+		"namespace matches; localqueue is created": {
+			cq: baseCQ.DeepCopy(),
+			oldNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			},
+			newNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+			featureGateEnabled:  true,
+			wantLocalQueue:      true,
+			wantInadmissibleWls: false,
+		},
+		"namespace matches but autolq is nil; localqueue is not created": {
+			cq: utiltestingapi.MakeClusterQueue(cqName).
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"dep": "eng"},
+				}).Obj(),
+			oldNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			},
+			newNs: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+			featureGateEnabled:  true,
+			wantInadmissibleWls: false,
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DefaultLocalQueue, tc.featureGateEnabled)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			client := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.newNs).Build()
+			cqCache := schdcache.New(client)
+			cqCache.AddClusterQueue(ctx, tc.cq)
+			qManager := qcache.NewManager(client, cqCache)
+
+			handler := cqNamespaceHandler{
+				client:   client,
+				qManager: qManager,
+				cache:    cqCache,
+			}
+
+			event := event.UpdateEvent{
+				ObjectOld: tc.oldNs,
+				ObjectNew: tc.newNs,
+			}
+
+			handler.Update(ctx, event, nil)
+
+			var lq kueue.LocalQueue
+			err := client.Get(ctx, types.NamespacedName{Name: autoLqName, Namespace: nsName}, &lq)
+			if tc.wantLocalQueue {
+				if err != nil {
+					t.Fatalf("Failed to get LocalQueue: %v", err)
+				}
+				if lq.Spec.ClusterQueue != kueue.ClusterQueueReference(cqName) {
+					t.Errorf("Wrong ClusterQueue reference, want %q, got %q", cqName, lq.Spec.ClusterQueue)
+				}
+			} else if !errors.IsNotFound(err) {
+				t.Fatalf("Unexpected error getting LocalQueue: %v", err)
+			}
+
+			inadmissibleWorkloadsMetric := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{"cluster_queue": cqName, "status": "inadmissible"})
+			hasInadmissibleWorkloads := len(inadmissibleWorkloadsMetric) > 0 && inadmissibleWorkloadsMetric[0].Value > 0
+			if tc.wantInadmissibleWls != hasInadmissibleWorkloads {
+				t.Errorf("Unexpected inadmissible workloads status, want %t, got %t", tc.wantInadmissibleWls, hasInadmissibleWorkloads)
 			}
 		})
 	}

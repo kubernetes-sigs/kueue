@@ -196,6 +196,12 @@ const (
 	// Requires careful consideration as it may lead to security issues.
 	// Deprecated: planned to be removed in 0.17
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
+
+	// owner: @j-skiba
+	// kep: <TODO>
+	//
+	// Enables automatic creation of default LocalQueues
+	DefaultLocalQueue featuregate.Feature = "DefaultLocalQueue"
 )
 
 func init() {
@@ -305,6 +311,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DefaultLocalQueue: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
