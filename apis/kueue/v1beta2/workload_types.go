@@ -276,15 +276,15 @@ type PodSetAssignment struct {
 
 // DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
 // +enum
-// +kubebuilder:validation:enum=Pending;Ready
+// +kubebuilder:validation:Enum=Pending;Ready
 // +kubebuilder:validation:MaxLength=7
 type DelayedTopologyRequestState string
 
 const (
-	// This state indicates the delayed TopologyRequest is waiting for determining.
+	// DelayedTopologyRequestStatePending indicates the delayed TopologyRequest is waiting for determining.
 	DelayedTopologyRequestStatePending DelayedTopologyRequestState = "Pending"
 
-	// This state indicates the delayed TopologyRequest is was requested and completed.
+	// DelayedTopologyRequestStateReady indicates the delayed TopologyRequest is was requested and completed.
 	DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
 )
 
