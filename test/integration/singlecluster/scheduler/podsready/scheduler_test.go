@@ -26,7 +26,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -244,8 +243,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	})
 
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
-		var realClock = clock.RealClock{}
-
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.ShortTimeout
 			requeueingBackoffLimitCount = ptr.To[int32](2)
@@ -332,7 +329,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(workload.IsActive(prodWl)).Should(gomega.BeFalse())
 				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
-				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, prodWl, realClock, func() (*kueue.Workload, bool, error) {
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, prodWl, util.RealClock, func() (*kueue.Workload, bool, error) {
 					return prodWl, workload.SetRequeuedCondition(prodWl, kueue.WorkloadDeactivated, "by test", false), nil
 				})).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

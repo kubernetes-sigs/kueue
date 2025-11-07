@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  kueue.AdmissionCheckReference(admissionCheck.Name),
 						State: kueue.CheckStateReady,
-					}, realClock)
+					}, util.RealClock)
 					g.Expect(k8sClient.Status().
 						Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).
 						Should(gomega.Succeed())
