@@ -1,0 +1,230 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package multikueue
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
+	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/webhooks"
+	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+const (
+	testingWorkerLostTimeout = 3 * time.Second
+)
+
+type cluster struct {
+	cfg    *rest.Config
+	client client.Client
+	ctx    context.Context
+	fwk    *framework.Framework
+}
+
+func (c *cluster) kubeConfigBytes() ([]byte, error) {
+	return utiltesting.RestConfigToKubeConfig(c.cfg)
+}
+
+var (
+	managerK8sVersion       *versionutil.Version
+	managerTestCluster      cluster
+	worker1TestCluster      cluster
+	worker2TestCluster      cluster
+	managersConfigNamespace *corev1.Namespace
+
+	// makes sure there is only one fwk.Init and setupClient at the same time
+	// since these functions are not thread safe due to adding to the common
+	// schema.
+	mu sync.Mutex
+)
+
+func TestMultiKueue(t *testing.T) {
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t,
+		"MultiKueue TAS Suite",
+	)
+}
+
+func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
+	c := cluster{}
+	c.fwk = &framework.Framework{
+		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{
+			util.AutoscalerCrds,
+		},
+		APIServerFeatureGates: apiFeatureGates,
+	}
+	mu.Lock()
+	c.cfg = c.fwk.Init()
+	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	mu.Unlock()
+
+	// skip the manager setup if setup func is not provided
+	if setupFnc != nil {
+		c.fwk.StartManager(c.ctx, c.cfg, setupFnc)
+	}
+	return c
+}
+
+func managerSetup(ctx context.Context, mgr manager.Manager) {
+	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cCache := schdcache.New(mgr.GetClient())
+	queues := qcache.NewManager(mgr.GetClient(), cCache)
+
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+	failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+
+	err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	failedWebhook, err := webhooks.Setup(mgr)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	jobReconciler, err := workloadjob.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = jobReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadjob.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	reconciler, err := provisioning.NewController(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = reconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+	err = sched.Start(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func managerAndMultiKueueSetup(
+	ctx context.Context,
+	mgr manager.Manager,
+	gcInterval time.Duration,
+	enabledIntegrations sets.Set[string],
+	dispatcherName string,
+) {
+	managerSetup(ctx, mgr)
+
+	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	adapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+		multikueue.WithGCInterval(gcInterval),
+		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+		multikueue.WithAdapters(adapters),
+		multikueue.WithDispatcherName(dispatcherName),
+	)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+var _ = ginkgo.BeforeSuite(func() {
+	var managerFeatureGates []string
+	ginkgo.By("creating the clusters", func() {
+		mu = sync.Mutex{}
+		wg := sync.WaitGroup{}
+		wg.Add(3)
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer wg.Done()
+			// pass nil setup since the manager for the manage cluster is different in some specs.
+			c := createCluster(nil, managerFeatureGates...)
+			managerTestCluster = c
+		}()
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer wg.Done()
+			c := createCluster(managerSetup)
+			worker1TestCluster = c
+		}()
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer wg.Done()
+			c := createCluster(managerSetup)
+			worker2TestCluster = c
+		}()
+		wg.Wait()
+	})
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerTestCluster.cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	managerTestCluster.fwk.Teardown()
+	worker1TestCluster.fwk.Teardown()
+	worker2TestCluster.fwk.Teardown()
+})

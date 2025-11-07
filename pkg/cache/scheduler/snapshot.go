@@ -222,6 +222,7 @@ func (c *Cache) snapshotClusterQueue(ctx context.Context, cq *clusterQueue, afsE
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
+		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
