@@ -6872,6 +6872,7 @@ func TestSchedule(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadSliceReplaced,
 						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Obj(),
