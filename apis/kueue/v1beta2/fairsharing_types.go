@@ -55,7 +55,7 @@ type FairSharingStatus struct {
 	// weight of zero and is borrowing, this will return
 	// 9223372036854775807, the maximum possible share value.
 	// +required
-	WeightedShare int64 `json:"weightedShare"` //nolint:kubeapilinter // do not add omitempty
+	WeightedShare int64 `json:"weightedShare"`
 
 	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
 	// +optional
@@ -67,11 +67,11 @@ type AdmissionFairSharingStatus struct {
 	// with decaying function applied.
 	// The value is populated if usage consumption functionality is enabled in Kueue config.
 	// +required
-	ConsumedResources corev1.ResourceList `json:"consumedResources"` //nolint:kubeapilinter // map type is required for standard Kubernetes ResourceList
+	ConsumedResources corev1.ResourceList `json:"consumedResources"`
 
 	// lastUpdate is the time when share and consumed resources were updated.
 	// +required
-	LastUpdate metav1.Time `json:"lastUpdate"` //nolint:kubeapilinter // exclude omitempty
+	LastUpdate metav1.Time `json:"lastUpdate"`
 }
 
 type AdmissionScope struct {

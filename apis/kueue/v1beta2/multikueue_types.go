@@ -59,7 +59,7 @@ type KubeConfig struct {
 	// +kubebuilder:default=Secret
 	// +optional
 	// +kubebuilder:validation:Enum=Secret;Path
-	LocationType LocationType `json:"locationType"` //nolint:kubeapilinter // should not be a pointer
+	LocationType LocationType `json:"locationType"`
 }
 
 type MultiKueueClusterSpec struct {
@@ -98,11 +98,11 @@ type MultiKueueCluster struct {
 
 	// spec is the specification of the MultiKueueCluster.
 	// +optional
-	Spec MultiKueueClusterSpec `json:"spec,omitempty,omitzero"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec MultiKueueClusterSpec `json:"spec,omitempty,omitzero"`
 
 	// status is the status of the MultiKueueCluster.
 	// +optional
-	Status MultiKueueClusterStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
+	Status MultiKueueClusterStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -140,7 +140,7 @@ type MultiKueueConfig struct {
 
 	// spec is the specification of the MultiKueueConfig.
 	// +optional
-	Spec MultiKueueConfigSpec `json:"spec,omitempty"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec MultiKueueConfigSpec `json:"spec,omitempty"`
 }
 
 // +kubebuilder:object:root=true

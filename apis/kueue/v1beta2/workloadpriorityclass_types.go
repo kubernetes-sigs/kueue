@@ -37,14 +37,14 @@ type WorkloadPriorityClass struct {
 	// receive when jobs have the name of this class in their workloadPriorityClass label.
 	// Changing the value of workloadPriorityClass doesn't affect the priority of workloads that were already created.
 	// +required
-	Value int32 `json:"value"` //nolint:kubeapilinter // disabling should be a pointer
+	Value int32 `json:"value"`
 
 	// description is an arbitrary string that usually provides guidelines on
 	// when this workloadPriorityClass should be used.
 	// The description is limited to a maximum of 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=2048
-	Description string `json:"description,omitempty"` //nolint:kubeapilinter // disabling should not be a pointer
+	Description string `json:"description,omitempty"`
 }
 
 // +kubebuilder:object:root=true
