@@ -738,13 +738,13 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddConversionFunc((*WorkloadSpec)(nil), (*v1beta2.WorkloadSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(a.(*WorkloadSpec), b.(*v1beta2.WorkloadSpec), scope)
+	if err := s.AddConversionFunc((*TopologyAssignment)(nil), (*v1beta2.TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(a.(*TopologyAssignment), b.(*v1beta2.TopologyAssignment), scope)
 	}); err != nil {
 		return err
 	}
-	if err := s.AddConversionFunc((*TopologyAssignment)(nil), (*v1beta2.TopologyAssignment)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_TopologyAssignment_To_v1beta2_TopologyAssignment(a.(*TopologyAssignment), b.(*v1beta2.TopologyAssignment), scope)
+	if err := s.AddConversionFunc((*WorkloadSpec)(nil), (*v1beta2.WorkloadSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(a.(*WorkloadSpec), b.(*v1beta2.WorkloadSpec), scope)
 	}); err != nil {
 		return err
 	}
