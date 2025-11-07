@@ -17200,6 +17200,9 @@ spec:
                               Kueue schedules the second pass of scheduling for each workload with at
                               least one PodSet which has delayedTopologyRequest=true and without
                               topologyAssignment.
+                            enum:
+                              - Pending
+                              - Ready
                             maxLength: 7
                             type: string
                           flavors:
