@@ -45,3 +45,27 @@ func Convert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadStatus
 	out.AccumulatedPastExecutionTimeSeconds = in.AccumulatedPastExexcutionTimeSeconds
 	return autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in, out, s)
 }
+
+func Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(in *WorkloadSpec, out *v1beta2.WorkloadSpec, s conversionapi.Scope) error {
+	switch in.PriorityClassSource {
+	case WorkloadPriorityClassSource:
+		out.PriorityClassRef = v1beta2.NewWorkloadPriorityClassRef(in.PriorityClassName)
+	case PodPriorityClassSource:
+		out.PriorityClassRef = v1beta2.NewPodPriorityClassRef(in.PriorityClassName)
+	}
+	return autoConvert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(in, out, s)
+}
+
+func Convert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.WorkloadSpec, out *WorkloadSpec, s conversionapi.Scope) error {
+	if in.PriorityClassRef != nil {
+		switch {
+		case in.PriorityClassRef.Group == v1beta2.WorkloadPriorityClassGroup && in.PriorityClassRef.Kind == v1beta2.WorkloadPriorityClassKind:
+			out.PriorityClassSource = WorkloadPriorityClassSource
+			out.PriorityClassName = in.PriorityClassRef.Name
+		case in.PriorityClassRef.Group == v1beta2.PodPriorityClassGroup && in.PriorityClassRef.Kind == v1beta2.PodPriorityClassKind:
+			out.PriorityClassSource = PodPriorityClassSource
+			out.PriorityClassName = in.PriorityClassRef.Name
+		}
+	}
+	return autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in, out, s)
+}

@@ -238,11 +238,6 @@ func (w *WorkloadWrapper) Creation(t time.Time) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) PriorityClass(priorityClassName string) *WorkloadWrapper {
-	w.Spec.PriorityClassName = priorityClassName
-	return w
-}
-
 func (w *WorkloadWrapper) RuntimeClass(name string) *WorkloadWrapper {
 	for i := range w.Spec.PodSets {
 		w.Spec.PodSets[i].Template.Spec.RuntimeClassName = &name
@@ -250,13 +245,21 @@ func (w *WorkloadWrapper) RuntimeClass(name string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
-	w.Spec.Priority = &priority
+func (w *WorkloadWrapper) PriorityClassRef(ref *kueue.PriorityClassRef) *WorkloadWrapper {
+	w.Spec.PriorityClassRef = ref
 	return w
 }
 
-func (w *WorkloadWrapper) PriorityClassSource(source string) *WorkloadWrapper {
-	w.Spec.PriorityClassSource = source
+func (w *WorkloadWrapper) WorkloadPriorityClassRef(name string) *WorkloadWrapper {
+	return w.PriorityClassRef(kueue.NewWorkloadPriorityClassRef(name))
+}
+
+func (w *WorkloadWrapper) PodPriorityClassRef(name string) *WorkloadWrapper {
+	return w.PriorityClassRef(kueue.NewPodPriorityClassRef(name))
+}
+
+func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
+	w.Spec.Priority = &priority
 	return w
 }
 

@@ -52,7 +52,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -388,17 +387,18 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
-			metrics.AdmittedWorkload(cqName, wl.Spec.PriorityClassName, queuedWaitTime)
-			metrics.ReportAdmissionChecksWaitTime(cqName, wl.Spec.PriorityClassName, quotaReservedWaitTime)
+			priorityClassName := workload.PriorityClassName(&wl)
+			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime)
+			metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime)
 			if features.Enabled(features.LocalQueueMetrics) {
 				metrics.LocalQueueAdmittedWorkload(
 					metrics.LQRefFromWorkload(&wl),
-					wl.Spec.PriorityClassName,
+					priorityClassName,
 					queuedWaitTime,
 				)
 				metrics.ReportLocalQueueAdmissionChecksWaitTime(
 					metrics.LQRefFromWorkload(&wl),
-					wl.Spec.PriorityClassName,
+					priorityClassName,
 					quotaReservedWaitTime,
 				)
 			}
@@ -924,10 +924,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 }
 
 func workloadPriorityClassChanged(old, new *kueue.Workload) bool {
-	return old.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource &&
-		new.Spec.PriorityClassSource == constants.WorkloadPriorityClassSource &&
-		old.Spec.PriorityClassName != "" && new.Spec.PriorityClassName != "" &&
-		old.Spec.PriorityClassName != new.Spec.PriorityClassName
+	return workload.IsWorkloadPriorityClass(old) && workload.IsWorkloadPriorityClass(new) &&
+		workload.PriorityClassName(old) != "" && workload.PriorityClassName(new) != "" &&
+		workload.PriorityClassName(old) != workload.PriorityClassName(new)
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {

@@ -32,12 +32,9 @@ const (
 	UpdatesBatchPeriod = time.Second
 
 	// DefaultPriority is used to set priority of workloads
-	// that do not specify any priority class and there is no priority class
+	// that do not specify any priority class, and there is no priority class
 	// marked as default.
-	DefaultPriority = 0
-
-	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
-	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+	DefaultPriority int32 = 0
 
 	DefaultPendingWorkloadsLimit = 1000
 

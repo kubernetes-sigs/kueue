@@ -24,7 +24,7 @@ import (
 )
 
 // WorkloadSpec defines the desired state of Workload
-// +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.priorityClassRef) || has(self.priority)", message="priority should not be nil when priorityClassRef is set"
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
@@ -43,34 +43,18 @@ type WorkloadSpec struct {
 	// +optional
 	QueueName LocalQueueName `json:"queueName,omitempty"`
 
-	// priorityClassName is the name of the PriorityClass the Workload is associated with.
-	// If specified, indicates the workload's priority.
-	// "system-node-critical" and "system-cluster-critical" are two special
-	// keywords which indicate the highest priorities with the former being
-	// the highest priority. Any other name must be defined by creating a
-	// PriorityClass object with that name. If not specified, the workload
-	// priority will be default or zero if there is no default.
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	// priorityClassRef references a PriorityClass object that defines the workload's priority.
+	//
 	// +optional
-	PriorityClassName string `json:"priorityClassName,omitempty"`
+	PriorityClassRef *PriorityClassRef `json:"priorityClassRef,omitempty"`
 
 	// priority determines the order of access to the resources managed by the
 	// ClusterQueue where the workload is queued.
-	// The priority value is populated from PriorityClassName.
+	// The priority value is populated from the referenced PriorityClass (via priorityClassRef).
 	// The higher the value, the higher the priority.
-	// If priorityClassName is specified, priority must not be null.
+	// If priorityClassRef is specified, priority must not be null.
 	// +optional
 	Priority *int32 `json:"priority,omitempty"`
-
-	// priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
-	// Workload's PriorityClass can accept the name of a pod priorityClass or a workloadPriorityClass.
-	// When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.
-	// +kubebuilder:default=""
-	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
-	// +optional
-	PriorityClassSource string `json:"priorityClassSource,omitempty"`
 
 	// active determines if a workload can be admitted into a queue.
 	// Changing active from true to false will evict any running workloads.
@@ -91,6 +75,81 @@ type WorkloadSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+}
+
+// PriorityClassGroup indicates the API group of the PriorityClass object.
+//
+// +enum
+// +kubebuilder:validation:Enum=kueue.x-k8s.io;scheduling.k8s.io
+type PriorityClassGroup string
+
+const (
+	// PodPriorityClassGroup represents the core Kubernetes scheduling group.
+	PodPriorityClassGroup PriorityClassGroup = "scheduling.k8s.io"
+
+	// WorkloadPriorityClassGroup represents the Kueue-specific priority group.
+	WorkloadPriorityClassGroup PriorityClassGroup = "kueue.x-k8s.io"
+)
+
+// PriorityClassKind is the kind of the PriorityClass object.
+//
+// +enum
+// +kubebuilder:validation:Enum=WorkloadPriorityClass;PriorityClass
+type PriorityClassKind string
+
+const (
+	// PodPriorityClassKind represents the core Kubernetes PriorityClass kind.
+	PodPriorityClassKind PriorityClassKind = "PriorityClass"
+
+	// WorkloadPriorityClassKind represents the Kueue WorkloadPriorityClass kind.
+	WorkloadPriorityClassKind PriorityClassKind = "WorkloadPriorityClass"
+)
+
+// NewPriorityClassRef creates a new PriorityClassRef with the specified group, kind, and name.
+func NewPriorityClassRef(group PriorityClassGroup, kind PriorityClassKind, name string) *PriorityClassRef {
+	return &PriorityClassRef{Group: group, Kind: kind, Name: name}
+}
+
+// NewWorkloadPriorityClassRef creates a PriorityClassRef for a WorkloadPriorityClass.
+func NewWorkloadPriorityClassRef(name string) *PriorityClassRef {
+	return NewPriorityClassRef(WorkloadPriorityClassGroup, WorkloadPriorityClassKind, name)
+}
+
+// NewPodPriorityClassRef creates a PriorityClassRef for a core Kubernetes PriorityClass.
+func NewPodPriorityClassRef(name string) *PriorityClassRef {
+	return NewPriorityClassRef(PodPriorityClassGroup, PodPriorityClassKind, name)
+}
+
+// PriorityClassRef references a PriorityClass in a specific API group.
+//
+// +kubebuilder:validation:XValidation:rule="(self.group == 'scheduling.k8s.io') ? self.kind == 'PriorityClass' : true", message="only the PriorityClass kind is allowed for the scheduling.k8s.io group"
+// +kubebuilder:validation:XValidation:rule="(self.group == 'kueue.x-k8s.io') ? self.kind == 'WorkloadPriorityClass' : true", message="only the WorkloadPriorityClass kind is allowed for the kueue.x-k8s.io group"
+type PriorityClassRef struct {
+	// group is the API group of the PriorityClass object.
+	// Use "kueue.x-k8s.io" for WorkloadPriorityClass.
+	// Use "scheduling.k8s.io" for Pod PriorityClass.
+	//
+	// +required
+	Group PriorityClassGroup `json:"group,omitempty"`
+
+	// kind is the kind of the PriorityClass object.
+	//
+	// +required
+	Kind PriorityClassKind `json:"kind,omitempty"`
+
+	// name is the name of the PriorityClass the Workload is associated with.
+	// If specified, indicates the workload's priority.
+	// "system-node-critical" and "system-cluster-critical" are two special
+	// keywords which indicate the highest priorities with the former being
+	// the highest priority. Any other name must be defined by creating a
+	// PriorityClass object with that name. If not specified, the workload
+	// priority will be default or zero if there is no default.
+	//
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	Name string `json:"name,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
@@ -800,8 +859,10 @@ const (
 
 // Workload is the Schema for the workloads API
 // +kubebuilder:validation:XValidation:rule="has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(self.status.admission) ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments) : true", message="podSetAssignments must have the same number of podSets as the spec"
-// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? ((!has(self.spec.priorityClassSource) && !has(oldSelf.spec.priorityClassSource)) || (has(self.spec.priorityClassSource) && has(oldSelf.spec.priorityClassSource) && self.spec.priorityClassSource == oldSelf.spec.priorityClassSource) || (!has(self.spec.priorityClassSource) && has(oldSelf.spec.priorityClassSource) && oldSelf.spec.priorityClassSource.size() == 0) || (!has(oldSelf.spec.priorityClassSource) && has(self.spec.priorityClassSource) && self.spec.priorityClassSource.size() == 0)) : true", message="priorityClassSource is immutable while workload quota reserved"
-// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && (self.spec.priorityClassSource != 'kueue.x-k8s.io/workloadpriorityclass') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="priorityClassName is immutable while workload quota reserved and priorityClassSource is not equal to kueue.x-k8s.io/workloadpriorityclass"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? (!has(oldSelf.spec.priorityClassRef) && !has(self.spec.priorityClassRef)) || (has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) : true",message="priorityClassRef is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) ? oldSelf.spec.priorityClassRef.group == self.spec.priorityClassRef.group : true",message="priorityClassRef.group is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) ? oldSelf.spec.priorityClassRef.kind == self.spec.priorityClassRef.kind : true",message="priorityClassRef.kind is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef) && self.spec.priorityClassRef.group == 'scheduling.k8s.io' && self.spec.priorityClassRef.kind == 'PriorityClass') ? oldSelf.spec.priorityClassRef.name == self.spec.priorityClassRef.name : true",message="priorityClassRef.name is immutable for scheduling.k8s.io/priorityclass while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="queueName is immutable while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while workload quota reserved"
 type Workload struct {

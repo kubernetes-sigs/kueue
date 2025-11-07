@@ -66,7 +66,6 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -369,22 +368,24 @@ func expectWorkloadsToBeAdmittedCountWithOffset(ctx context.Context, offset int,
 
 func ExpectWorkloadsWithWorkloadPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	expectWorkloadsWithPriority(ctx, c, constants.WorkloadPriorityClassSource, name, value, wlKeys...)
+	expectWorkloadsWithPriority(ctx, c, kueue.WorkloadPriorityClassGroup, kueue.WorkloadPriorityClassKind, name, value, wlKeys...)
 }
 
 func ExpectWorkloadsWithPodPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	expectWorkloadsWithPriority(ctx, c, constants.PodPriorityClassSource, name, value, wlKeys...)
+	expectWorkloadsWithPriority(ctx, c, kueue.PodPriorityClassGroup, kueue.PodPriorityClassKind, name, value, wlKeys...)
 }
 
-func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityClassSource, name string, value int32, wlKeys ...client.ObjectKey) {
+func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityClassGroup kueue.PriorityClassGroup, priorityClassKind kueue.PriorityClassKind, name string, value int32, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	createdWl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		for _, wlKey := range wlKeys {
 			g.Expect(c.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
-			g.Expect(createdWl.Spec.PriorityClassSource).To(gomega.Equal(priorityClassSource))
-			g.Expect(createdWl.Spec.PriorityClassName).To(gomega.Equal(name))
+			g.Expect(createdWl.Spec.PriorityClassRef).ToNot(gomega.BeNil())
+			g.Expect(createdWl.Spec.PriorityClassRef.Group).To(gomega.Equal(priorityClassGroup))
+			g.Expect(createdWl.Spec.PriorityClassRef.Kind).To(gomega.Equal(priorityClassKind))
+			g.Expect(createdWl.Spec.PriorityClassRef.Name).To(gomega.Equal(name))
 			g.Expect(createdWl.Spec.Priority).To(gomega.Equal(&value))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())

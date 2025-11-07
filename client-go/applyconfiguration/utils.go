@@ -251,6 +251,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.PodSetTopologyRequestApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("PodSetUpdate"):
 		return &kueuev1beta2.PodSetUpdateApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PriorityClassRef"):
+		return &kueuev1beta2.PriorityClassRefApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestConfig"):
 		return &kueuev1beta2.ProvisioningRequestConfigApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProvisioningRequestConfigSpec"):
