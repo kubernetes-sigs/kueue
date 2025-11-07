@@ -104,17 +104,20 @@ func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSl
 	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
 		return nil
 	}
+	now := clk.Now()
 	if err := clientutil.PatchStatus(ctx, clnt, workloadSlice, func() (client.Object, bool, error) {
 		return workloadSlice, apimeta.SetStatusCondition(&workloadSlice.Status.Conditions, metav1.Condition{
 			Type:               kueue.WorkloadFinished,
 			Status:             metav1.ConditionTrue,
 			Reason:             reason,
 			Message:            message,
-			LastTransitionTime: metav1.NewTime(clk.Now()),
+			LastTransitionTime: metav1.NewTime(now),
 		}), nil
 	}); err != nil {
 		return fmt.Errorf("failed to patch workload slice status: %w", err)
 	}
+
+	workload.ReportEvictionCompleted(workloadSlice, kueue.WorkloadFinished, now)
 	return nil
 }
 
