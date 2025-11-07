@@ -68,6 +68,10 @@ if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:leaderworker
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
 
+if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+    export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION}"
+fi
+
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
@@ -192,6 +196,10 @@ function prepare_docker_images {
         local current_image="${IMAGE_TAG%:*}:${KUEUE_UPGRADE_FROM_VERSION}"
         docker pull "${current_image}"
     fi
+    # FIXME: pull released version
+    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+        (cd "${SPARKOPERATOR_ROOT}" && chmod +x entrypoint.sh && make docker-build IMAGE="${SPARKOPERATOR_IMAGE}")
+    fi
 }
 
 # $1 cluster
@@ -238,6 +246,9 @@ function kind_load {
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_kuberay "$1" "$2"
+    fi
+    if [[ -n ${SPARKOPERATOR_VERSION:-} ]]; then
+        install_sparkoperator "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
         install_cert_manager "$2"
@@ -419,6 +430,18 @@ function install_kuberay {
 function install_lws {
     cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
     kubectl apply --kubeconfig="$2" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+}
+
+# $1 cluster name
+# $2 kubeconfig option
+function install_sparkoperator {
+    cluster_kind_load_image "${1}" "${SPARKOPERATOR_IMAGE}"
+    # FIXME: replace with released helm chart
+    ${HELM} install spark-operator "${SPARKOPERATOR_ROOT}/charts/spark-operator-chart" \
+    --namespace spark-operator \
+    --create-namespace \
+    --set image.tag="${SPARKOPERATOR_VERSION}" \
+    --set 'spark.jobNamespaces[0]='
 }
 
 # $1 kubeconfig option

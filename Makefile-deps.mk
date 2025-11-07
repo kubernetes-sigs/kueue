@@ -39,6 +39,7 @@ KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ku
 KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
+SPARKOPERATOR_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/spark-operator/v2)
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 CLUSTERPROFILE_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
 DRA_EXAMPLE_DRIVER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/dra-example-driver)
@@ -69,6 +70,7 @@ CLUSTER_AUTOSCALER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" 
 APPWRAPPER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/lws)
 CLUSTERPROFILE_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/cluster-inventory-api)
+SPARKOPERATOR_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/spark-operator/v2)
 
 ##@ Tools
 
@@ -234,8 +236,13 @@ clusterprofile-crd: ## Copy the CRDs from the clusterprofile to the dep-crds dir
 	mkdir -p $(EXTERNAL_CRDS_DIR)/clusterprofile/
 	cp -f $(CLUSTERPROFILE_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/clusterprofile/
 
+.PHONY: spark-operator-crd
+spark-operator-crd: ## Copy the CRDs from the spark-operator to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/spark-operator/
+	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator/
+
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs
