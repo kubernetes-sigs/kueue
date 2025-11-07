@@ -3024,14 +3024,16 @@ Exactly one of podCounts, universalPodCount must be set.</p>
 <code>string</code>
 </td>
 <td>
-   <p>prefix specifies a common prefix for all values in this slice assignment.</p>
+   <p>prefix specifies a common prefix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
 </td>
 </tr>
 <tr><td><code>suffix</code><br/>
 <code>string</code>
 </td>
 <td>
-   <p>suffix specifies a common suffix for all values in this slice assignment.</p>
+   <p>suffix specifies a common suffix for all values in this slice assignment.
+It must be either nil pointer or a non-empty string.</p>
 </td>
 </tr>
 <tr><td><code>roots</code><br/>

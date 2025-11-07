@@ -460,11 +460,15 @@ type TopologyAssignmentSlice struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.universalValue) && (has(self.prefix) || has(self.suffix)))", message="universalValue cannot be set together with prefix or suffix"
 type TopologyAssignmentSliceLevelValues struct {
 	// prefix specifies a common prefix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	Prefix *string `json:"prefix,omitempty"`
 	// suffix specifies a common suffix for all values in this slice assignment.
+	// It must be either nil pointer or a non-empty string.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	Suffix *string `json:"suffix,omitempty"`
 

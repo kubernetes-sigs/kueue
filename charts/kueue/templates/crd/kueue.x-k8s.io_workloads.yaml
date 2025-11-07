@@ -17302,8 +17302,11 @@ spec:
                                       items:
                                         properties:
                                           prefix:
-                                            description: prefix specifies a common prefix for all values in this slice assignment.
+                                            description: |-
+                                              prefix specifies a common prefix for all values in this slice assignment.
+                                              It must be either nil pointer or a non-empty string.
                                             maxLength: 63
+                                            minLength: 1
                                             type: string
                                           roots:
                                             description: |-
@@ -17318,8 +17321,11 @@ spec:
                                             type: array
                                             x-kubernetes-list-type: atomic
                                           suffix:
-                                            description: suffix specifies a common suffix for all values in this slice assignment.
+                                            description: |-
+                                              suffix specifies a common suffix for all values in this slice assignment.
+                                              It must be either nil pointer or a non-empty string.
                                             maxLength: 63
+                                            minLength: 1
                                             type: string
                                           universalValue:
                                             description: |-
