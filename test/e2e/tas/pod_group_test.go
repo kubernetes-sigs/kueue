@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", func() {
 				RequestAndLimit(extraResource, "1").
 				Limit(extraResource, "1").
 				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				Annotation(kueue.PodSetRequiredTopologyAnnotation, testing.DefaultBlockTopologyLevel)
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel)
 			podGroup := basePod.MakeIndexedGroup(numPods)
 
 			for _, pod := range podGroup {

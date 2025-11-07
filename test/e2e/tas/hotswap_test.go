@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -129,8 +129,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "3",
 						},
 					},
@@ -207,8 +207,8 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Ordered,
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
 						PodAnnotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation:     testing.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation:     utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 							kueue.PodSetSliceSizeAnnotation:             "2",
 						},
 					},

@@ -30,7 +30,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -157,8 +157,8 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		ginkgo.By("waiting for the workload to be evicted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
 				g.Expect(wl.Status.SchedulingStats.Evictions).To(
 					gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -309,7 +309,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		ginkgo.By("checking workload availability", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -322,9 +322,9 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
 				g.Expect(*wl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadStarted))
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadEvicted))
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadStarted))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadEvicted))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
 
 				g.Expect(wl.Status.SchedulingStats.Evictions).To(
 					gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		ginkgo.By("checking workload availability", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -473,7 +473,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		ginkgo.By("verifying the pod is recovered before recoveryTimeout", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadRecovered))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadRecovered))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
