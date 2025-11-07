@@ -25,6 +25,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -79,7 +80,7 @@ func NewTrainingRuntime(ctx context.Context, c client.Client, indexer client.Fie
 	return trainingRuntimeFactory, nil
 }
 
-func (r *TrainingRuntime) NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]any, error) {
+func (r *TrainingRuntime) NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	var trainingRuntime trainer.TrainingRuntime
 	err := r.client.Get(ctx, client.ObjectKey{Namespace: trainJob.Namespace, Name: trainJob.Spec.RuntimeRef.Name}, &trainingRuntime)
 	if err != nil {
@@ -159,7 +160,6 @@ func (r *TrainingRuntime) newRuntimeInfo(
 		runtime.WithMLPolicySource(mlPolicy),
 		runtime.WithPodGroupPolicy(podGroupPolicy),
 		runtime.WithTemplateSpecObjApply(jobSetSpecApply),
-		runtime.WithPodSetSyncer(syncPodSets),
 	}
 
 	for i, rJob := range jobSetSpecApply.ReplicatedJobs {
@@ -235,34 +235,6 @@ func (r *TrainingRuntime) mergePodTemplateOverrides(trainJob *trainer.TrainJob, 
 		}
 	}
 	return nil
-}
-
-func syncPodSets(info *runtime.Info) {
-	jsSpec, ok := runtime.TemplateSpecApply[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](info)
-	if !ok {
-		return
-	}
-	for psIdx, ps := range info.TemplateSpec.PodSets {
-		if ps.Count != nil {
-			jsSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
-			jsSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
-		}
-		apply.UpsertVolumes(&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Volumes, ps.Volumes...)
-		for containerIdx, container := range ps.Containers {
-			apply.UpsertEnvVars(
-				&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Env,
-				container.Env...,
-			)
-			apply.UpsertPort(
-				&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Ports,
-				container.Ports...,
-			)
-			apply.UpsertVolumeMounts(
-				&jsSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].VolumeMounts,
-				container.VolumeMounts...,
-			)
-		}
-	}
 }
 
 func (r *TrainingRuntime) TrainJobStatus(ctx context.Context, trainJob *trainer.TrainJob) (*trainer.TrainJobStatus, error) {

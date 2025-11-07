@@ -220,7 +220,7 @@ func (m *MPI) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) er
 			}
 		}
 	}
-	info.SyncPodSetsToTemplateSpec()
+
 	return nil
 }
 
@@ -245,12 +245,12 @@ func (m *MPI) ReconcilerBuilders() []runtime.ReconcilerBuilder {
 	}
 }
 
-func (m *MPI) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
+func (m *MPI) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || info.RuntimePolicy.MLPolicySource == nil || info.RuntimePolicy.MLPolicySource.MPI == nil {
 		return nil, nil
 	}
 
-	var objects []any
+	var objects []apiruntime.ApplyConfiguration
 
 	// SSHAuthSecret is immutable.
 	if err := m.client.Get(ctx, client.ObjectKey{Name: sshAuthSecretName(trainJob.Name), Namespace: trainJob.Namespace}, &corev1.Secret{}); err != nil {
