@@ -27,16 +27,17 @@ import (
 )
 
 type TestCase struct {
-	internal *TopologyAssignment
-	v1beta2  *kueue.TopologyAssignment
+	name             string
+	internal         *TopologyAssignment
+	v1beta2          *kueue.TopologyAssignment
+	podCounts        []int32
+	totalDomainCount int
 }
 
-var testCases map[string]TestCase = map[string]TestCase{
-	"nil": {
-		internal: nil,
-		v1beta2:  nil,
-	},
-	"empty": {
+// bothWaysTestCases expect that internal <-> v1beta2 maps in both ways.
+var bothWaysTestCases = []TestCase{
+	{
+		name: "empty",
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 		},
@@ -44,8 +45,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 			Levels: []string{"a", "b"},
 			Slices: []kueue.TopologyAssignmentSlice{},
 		},
+		podCounts:        []int32{},
+		totalDomainCount: 0,
 	},
-	"one domain": {
+	{
+		name: "one domain",
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -72,8 +76,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1},
+		totalDomainCount: 1,
 	},
-	"multiple domains, same counts, no common prefix": {
+	{
+		name: "multiple domains, same counts, no common prefix",
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -106,8 +113,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 1},
+		totalDomainCount: 2,
 	},
-	"multiple domains, different counts, common prefix and suffix": {
+	{
+		name: "multiple domains, different counts, common prefix and suffix",
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -142,8 +152,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 2},
+		totalDomainCount: 2,
 	},
-	"multiple domains, universal value": {
+	{
+		name: "multiple domains, universal value",
 		internal: &TopologyAssignment{
 			Levels: []string{"a", "b"},
 			Domains: []TopologyDomainAssignment{
@@ -174,8 +187,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 2},
+		totalDomainCount: 2,
 	},
-	"multiple domains, same counts, shrinking prefix": {
+	{
+		name: "multiple domains, same counts, shrinking prefix",
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -212,8 +228,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 1, 1, 1},
+		totalDomainCount: 4,
 	},
-	"multiple domains, same counts, shrinking suffix": {
+	{
+		name: "multiple domains, same counts, shrinking suffix",
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -250,8 +269,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 1, 1, 1},
+		totalDomainCount: 4,
 	},
-	"multiple domains, same counts, max prefix & suffix overlap partially": {
+	{
+		name: "multiple domains, same counts, max prefix & suffix overlap partially",
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -285,8 +307,11 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 1},
+		totalDomainCount: 2,
 	},
-	"multiple domains, same counts, max prefix & suffix overlap fully": {
+	{
+		name: "multiple domains, same counts, max prefix & suffix overlap fully, shrinking strings",
 		internal: &TopologyAssignment{
 			Levels: []string{"a"},
 			Domains: []TopologyDomainAssignment{
@@ -316,12 +341,202 @@ var testCases map[string]TestCase = map[string]TestCase{
 				},
 			},
 		},
+		podCounts:        []int32{1, 1},
+		totalDomainCount: 2,
+	},
+	{
+		name: "multiple domains, same counts, max prefix & suffix overlap fully, growing strings",
+		internal: &TopologyAssignment{
+			Levels: []string{"a"},
+			Domains: []TopologyDomainAssignment{
+				{
+					Values: []string{"aba"},
+					Count:  1,
+				},
+				{
+					Values: []string{"ababa"},
+					Count:  1,
+				},
+			},
+		},
+		v1beta2: &kueue.TopologyAssignment{
+			Levels: []string{"a"},
+			Slices: []kueue.TopologyAssignmentSlice{
+				{
+					DomainCount:       2,
+					UniversalPodCount: ptr.To(int32(1)),
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+						// Prefix shrunk to "" -> it shouldn't be set at all.
+						{
+							Suffix: ptr.To("aba"),
+							Roots:  []string{"", "ab"},
+						},
+					},
+				},
+			},
+		},
+		podCounts:        []int32{1, 1},
+		totalDomainCount: 2,
+	},
+}
+
+// oneWayTestCases expect that v1beta2 -> internal (via InternalFrom).
+// (these v1beta2 values cannot be produced by V1Beta2From as of now - though this may change in the future)
+var oneWayTestCases = []TestCase{
+	{
+		name: "multiple slices, no prefixes/suffixes or universal values",
+		internal: &TopologyAssignment{
+			Levels: []string{"a", "b"},
+			Domains: []TopologyDomainAssignment{
+				{
+					Values: []string{"a", "b"},
+					Count:  1,
+				},
+				{
+					Values: []string{"c", "d"},
+					Count:  2,
+				},
+				{
+					Values: []string{"e", "f"},
+					Count:  3,
+				},
+			},
+		},
+		v1beta2: &kueue.TopologyAssignment{
+			Levels: []string{"a", "b"},
+			Slices: []kueue.TopologyAssignmentSlice{
+				{
+					DomainCount: 1,
+					PodCounts:   []int32{1},
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+						{
+							Roots: []string{"a"},
+						},
+						{
+							Roots: []string{"b"},
+						},
+					},
+				},
+				{
+					DomainCount: 2,
+					PodCounts:   []int32{2, 3},
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+						{
+							Roots: []string{"c", "e"},
+						},
+						{
+							Roots: []string{"d", "f"},
+						},
+					},
+				},
+			},
+		},
+		podCounts:        []int32{1, 2, 3},
+		totalDomainCount: 3,
+	},
+	{
+		name: "multiple slices, prefixes, suffixes & universal values",
+		internal: &TopologyAssignment{
+			Levels: []string{"a", "b"},
+			Domains: []TopologyDomainAssignment{
+				{
+					Values: []string{"a1", "b1-s"},
+					Count:  2,
+				},
+				{
+					Values: []string{"a1", "b2-s"},
+					Count:  3,
+				},
+				{
+					Values: []string{"a2", "x-t"},
+					Count:  5,
+				},
+				{
+					Values: []string{"a3", "y-t"},
+					Count:  5,
+				},
+				{
+					Values: []string{"a4", "z-t"},
+					Count:  5,
+				},
+				{
+					Values: []string{"a10", "b10"},
+					Count:  10,
+				},
+				{
+					Values: []string{"a10", "b10"},
+					Count:  10,
+				},
+			},
+		},
+		v1beta2: &kueue.TopologyAssignment{
+			Levels: []string{"a", "b"},
+			Slices: []kueue.TopologyAssignmentSlice{
+				{
+					DomainCount: 2,
+					PodCounts:   []int32{2, 3},
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+						{
+							UniversalValue: ptr.To("a1"),
+						},
+						{
+							Prefix: ptr.To("b"),
+							Suffix: ptr.To("-s"),
+							Roots:  []string{"1", "2"},
+						},
+					},
+				},
+				{
+					DomainCount:       3,
+					UniversalPodCount: ptr.To(int32(5)),
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+						{
+							Prefix: ptr.To("a"),
+							Roots:  []string{"2", "3", "4"},
+						},
+						{
+							Suffix: ptr.To("-t"),
+							Roots:  []string{"x", "y", "z"},
+						},
+					},
+				},
+				{
+					DomainCount:       2,
+					UniversalPodCount: ptr.To(int32(10)),
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+						{
+							UniversalValue: ptr.To("a10"),
+						},
+						{
+							UniversalValue: ptr.To("b10"),
+						},
+					},
+				},
+			},
+		},
+		podCounts:        []int32{2, 3, 5, 5, 5, 10, 10},
+		totalDomainCount: 7,
+	},
+}
+
+var twoDomains = &kueue.TopologyAssignment{
+	Levels: []string{"a"},
+	Slices: []kueue.TopologyAssignmentSlice{
+		{
+			DomainCount:       2,
+			UniversalPodCount: ptr.To(int32(1)),
+			ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+				{
+					UniversalValue: ptr.To("a1"),
+				},
+			},
+		},
 	},
 }
 
 func TestV1Beta2FromInternal(t *testing.T) {
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range bothWaysTestCases {
+		t.Run(tc.name, func(t *testing.T) {
 			got := V1Beta2From(tc.internal)
 			if diff := cmp.Diff(tc.v1beta2, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected result (-want,+got):\n%s", diff)
@@ -330,9 +545,16 @@ func TestV1Beta2FromInternal(t *testing.T) {
 	}
 }
 
+func TestV1Beta2FromInternal_forNil(t *testing.T) {
+	got := V1Beta2From(nil)
+	if got != nil {
+		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
 func TestInternalFromV1Beta2(t *testing.T) {
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
+		t.Run(tc.name, func(t *testing.T) {
 			got := InternalFrom(tc.v1beta2)
 			if diff := cmp.Diff(tc.internal, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected result (-want,+got):\n%s", diff)
@@ -341,24 +563,171 @@ func TestInternalFromV1Beta2(t *testing.T) {
 	}
 }
 
+func TestInternalFromV1Beta2_forNil(t *testing.T) {
+	got := InternalFrom(nil)
+	if got != nil {
+		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
 func TestInternalSeqFromV1Beta2(t *testing.T) {
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
+		t.Run(tc.name, func(t *testing.T) {
 			seq := InternalSeqFrom(tc.v1beta2)
-			if seq == nil || tc.internal == nil {
-				if tc.internal != nil {
-					t.Errorf("unexpected nil returned from InternalSeqFrom")
-				}
-				if seq != nil {
-					t.Errorf("unexpected non-nil result returned from InternalSeqFrom: %+v", seq)
-				}
-				return
-			}
 			got := slices.Collect(seq)
 			want := tc.internal.Domains
 			if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected result (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestInternalSeqFromV1Beta2_forNil(t *testing.T) {
+	got := InternalSeqFrom(nil)
+	if got != nil {
+		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
+func TestInternalSeqFrmV1Beta2_iteratorStops(t *testing.T) {
+	for range InternalSeqFrom(twoDomains) {
+		// Break the loop prematurely.
+		// If the iterator isn't smart enough to stop, this will panic.
+		break
+	}
+}
+
+func TestPodCounts(t *testing.T) {
+	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
+		t.Run(tc.name, func(t *testing.T) {
+			seq := PodCounts(tc.v1beta2)
+			got := slices.Collect(seq)
+			want := tc.podCounts
+			if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodCounts_forNil(t *testing.T) {
+	got := PodCounts(nil)
+	if got != nil {
+		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
+func TestPodCounts_iteratorStops(t *testing.T) {
+	for range PodCounts(twoDomains) {
+		// Break the loop prematurely.
+		// If the iterator isn't smart enough to stop, this will panic.
+		break
+	}
+}
+
+func TestTotalDomainCount(t *testing.T) {
+	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
+		t.Run(tc.name, func(t *testing.T) {
+			got := TotalDomainCount(tc.v1beta2)
+			if diff := cmp.Diff(tc.totalDomainCount, got); diff != "" {
+				t.Errorf("unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTotalDomainCount_forNil(t *testing.T) {
+	got := TotalDomainCount(nil)
+	if got != 0 {
+		t.Errorf("unexpected result for nil: %d", got)
+	}
+}
+
+func TestValuesAtLevel(t *testing.T) {
+	v1beta2 := &kueue.TopologyAssignment{
+		Levels: []string{"a", "b"},
+		Slices: []kueue.TopologyAssignmentSlice{
+			{
+				DomainCount: 2,
+				PodCounts:   []int32{2, 3},
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						UniversalValue: ptr.To("a1"),
+					},
+					{
+						Prefix: ptr.To("b"),
+						Suffix: ptr.To("-s"),
+						Roots:  []string{"1", "2"},
+					},
+				},
+			},
+			{
+				DomainCount:       3,
+				UniversalPodCount: ptr.To(int32(5)),
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						Prefix: ptr.To("a"),
+						Roots:  []string{"2", "3", "4"},
+					},
+					{
+						Suffix: ptr.To("-t"),
+						Roots:  []string{"x", "y", "z"},
+					},
+				},
+			},
+			{
+				DomainCount:       2,
+				UniversalPodCount: ptr.To(int32(10)),
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						UniversalValue: ptr.To("a10"),
+					},
+					{
+						UniversalValue: ptr.To("b10"),
+					},
+				},
+			},
+		},
+	}
+	testCases := []struct {
+		name     string
+		levelIdx int
+		want     []string
+	}{
+		{
+			name:     "at level 0",
+			levelIdx: 0,
+			want:     []string{"a1", "a1", "a2", "a3", "a4", "a10", "a10"},
+		},
+		{
+			name:     "at level 1",
+			levelIdx: 1,
+			want:     []string{"b1-s", "b2-s", "x-t", "y-t", "z-t", "b10", "b10"},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			seq := ValuesAtLevel(v1beta2, tc.levelIdx)
+			got := slices.Collect(seq)
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValuesAtLevel_forNil(t *testing.T) {
+	got := ValuesAtLevel(nil, 0)
+	if got != nil {
+		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
+func TestValuesAtLevel_iteratorStops(t *testing.T) {
+	for range ValuesAtLevel(twoDomains, 0) {
+		// Break the loop prematurely.
+		// If the iterator isn't smart enough to stop, this will panic.
+		break
 	}
 }

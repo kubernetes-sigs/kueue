@@ -51,6 +51,9 @@ func countAtIndex(slice kueue.TopologyAssignmentSlice, idx int) int32 {
 }
 
 func ValuesAtLevel(ta *kueue.TopologyAssignment, levelIdx int) iter.Seq[string] {
+	if ta == nil {
+		return nil
+	}
 	return func(yield func(string) bool) {
 		for _, slice := range ta.Slices {
 			values := slice.ValuesPerLevel[levelIdx]
@@ -64,6 +67,9 @@ func ValuesAtLevel(ta *kueue.TopologyAssignment, levelIdx int) iter.Seq[string] 
 }
 
 func PodCounts(ta *kueue.TopologyAssignment) iter.Seq[int32] {
+	if ta == nil {
+		return nil
+	}
 	return func(yield func(int32) bool) {
 		for _, slice := range ta.Slices {
 			for i := range int(slice.DomainCount) {
@@ -75,9 +81,12 @@ func PodCounts(ta *kueue.TopologyAssignment) iter.Seq[int32] {
 	}
 }
 
-func TotalDomainCount(a *kueue.TopologyAssignment) int {
+func TotalDomainCount(ta *kueue.TopologyAssignment) int {
+	if ta == nil {
+		return 0
+	}
 	res := 0
-	for _, slice := range a.Slices {
+	for _, slice := range ta.Slices {
 		res += int(slice.DomainCount)
 	}
 	return res
@@ -165,8 +174,8 @@ func fillSingleCompactSliceValues(
 		return
 	}
 
-	// Ensure that common prefix & suffix don't overlap
-	// (Motivating example: ["ababa", "aba"])
+	// Ensure that common prefix & suffix don't overlap.
+	// (Motivating example: {"ababa", "aba"})
 	if len(prefix)+len(suffix) > minLen {
 		prefix = prefix[:minLen-len(suffix)]
 	}
