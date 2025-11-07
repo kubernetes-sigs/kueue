@@ -138,7 +138,7 @@ func (v *Volcano) EnforcePodGroupPolicy(info *runtime.Info, trainJob *trainer.Tr
 	return nil
 }
 
-func (v *Volcano) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
+func (v *Volcano) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Volcano == nil || trainJob == nil {
 		return nil, nil
 	}
@@ -208,7 +208,7 @@ func (v *Volcano) Build(ctx context.Context, info *runtime.Info, trainJob *train
 		WithController(true).
 		WithBlockOwnerDeletion(true))
 
-	return []any{pg}, nil
+	return []apiruntime.ApplyConfiguration{pg}, nil
 }
 
 type PodGroupRuntimeClassHandler struct {

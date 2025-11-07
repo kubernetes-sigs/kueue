@@ -90,7 +90,7 @@ func (c *CoScheduling) EnforcePodGroupPolicy(info *runtime.Info, trainJob *train
 	return nil
 }
 
-func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
+func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Coscheduling == nil || trainJob == nil {
 		return nil, nil
 	}
@@ -135,7 +135,7 @@ func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *
 		WithController(true).
 		WithBlockOwnerDeletion(true))
 
-	return []any{podGroup}, nil
+	return []apiruntime.ApplyConfiguration{podGroup}, nil
 }
 
 type PodGroupRuntimeClassHandler struct {
