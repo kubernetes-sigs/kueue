@@ -32,7 +32,6 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -533,9 +532,8 @@ func TestReconciler(t *testing.T) {
 							Count:           1,
 							TopologyRequest: nil,
 						}).
-					PriorityClass("high-priority").
+					WorkloadPriorityClassRef("high-priority").
 					Priority(5000).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{

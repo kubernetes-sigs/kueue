@@ -23,6 +23,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
+	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+)
+
 // WorkloadSpec defines the desired state of Workload
 // +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
 type WorkloadSpec struct {

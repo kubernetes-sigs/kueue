@@ -2200,6 +2200,82 @@ result in failure during workload admission.</p>
 
 
 
+## `PriorityClassGroup`     {#kueue-x-k8s-io-v1beta2-PriorityClassGroup}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassRef](#kueue-x-k8s-io-v1beta2-PriorityClassRef)
+
+
+<p>PriorityClassGroup indicates the API group of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassKind`     {#kueue-x-k8s-io-v1beta2-PriorityClassKind}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassRef](#kueue-x-k8s-io-v1beta2-PriorityClassRef)
+
+
+<p>PriorityClassKind is the kind of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassRef`     {#kueue-x-k8s-io-v1beta2-PriorityClassRef}
+    
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta2-WorkloadSpec)
+
+
+<p>PriorityClassRef references a PriorityClass in a specific API group.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>group</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PriorityClassGroup"><code>PriorityClassGroup</code></a>
+</td>
+<td>
+   <p>group is the API group of the PriorityClass object.
+Use &quot;kueue.x-k8s.io&quot; for WorkloadPriorityClass.
+Use &quot;scheduling.k8s.io&quot; for Pod PriorityClass.</p>
+</td>
+</tr>
+<tr><td><code>kind</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PriorityClassKind"><code>PriorityClassKind</code></a>
+</td>
+<td>
+   <p>kind is the kind of the PriorityClass object.</p>
+</td>
+</tr>
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the PriorityClass the Workload is associated with.
+If specified, indicates the workload's priority.
+&quot;system-node-critical&quot; and &quot;system-cluster-critical&quot; are two special
+keywords which indicate the highest priorities with the former being
+the highest priority. Any other name must be defined by creating a
+PriorityClass object with that name. If not specified, the workload
+priority will be default or zero if there is no default.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ProvisioningRequestConfigPodSetMergePolicy`     {#kueue-x-k8s-io-v1beta2-ProvisioningRequestConfigPodSetMergePolicy}
     
 (Alias of `string`)
@@ -2998,17 +3074,11 @@ podSets cannot be changed.</p>
 queueName cannot be changed while .status.admission is not null.</p>
 </td>
 </tr>
-<tr><td><code>priorityClassName</code><br/>
-<code>string</code>
+<tr><td><code>priorityClassRef</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PriorityClassRef"><code>PriorityClassRef</code></a>
 </td>
 <td>
-   <p>priorityClassName is the name of the PriorityClass the Workload is associated with.
-If specified, indicates the workload's priority.
-&quot;system-node-critical&quot; and &quot;system-cluster-critical&quot; are two special
-keywords which indicate the highest priorities with the former being
-the highest priority. Any other name must be defined by creating a
-PriorityClass object with that name. If not specified, the workload
-priority will be default or zero if there is no default.</p>
+   <p>priorityClassRef references a PriorityClass object that defines the workload's priority.</p>
 </td>
 </tr>
 <tr><td><code>priority</code><br/>
@@ -3017,18 +3087,9 @@ priority will be default or zero if there is no default.</p>
 <td>
    <p>priority determines the order of access to the resources managed by the
 ClusterQueue where the workload is queued.
-The priority value is populated from PriorityClassName.
+The priority value is populated from the referenced PriorityClass (via priorityClassRef).
 The higher the value, the higher the priority.
-If priorityClassName is specified, priority must not be null.</p>
-</td>
-</tr>
-<tr><td><code>priorityClassSource</code><br/>
-<code>string</code>
-</td>
-<td>
-   <p>priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
-Workload's PriorityClass can accept the name of a pod priorityClass or a workloadPriorityClass.
-When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.</p>
+If priorityClassRef is specified, priority must not be null.</p>
 </td>
 </tr>
 <tr><td><code>active</code> <B>[Required]</B><br/>

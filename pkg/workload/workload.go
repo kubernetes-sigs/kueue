@@ -1296,9 +1296,22 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	}
 	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause)
 	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), wl.Spec.PriorityClassName)
+		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause), PriorityClassName(wl))
 	}
 	return nil
+}
+
+func PriorityClassName(wl *kueue.Workload) string {
+	if wl.Spec.PriorityClassRef != nil {
+		return wl.Spec.PriorityClassRef.Name
+	}
+	return ""
+}
+
+func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
+	return wl.Spec.PriorityClassRef != nil &&
+		wl.Spec.PriorityClassRef.Kind == kueue.WorkloadPriorityClassKind &&
+		wl.Spec.PriorityClassRef.Group == kueue.WorkloadPriorityClassGroup
 }
 
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
@@ -1318,7 +1331,8 @@ func resetUnhealthyNodes(w *kueue.Workload) {
 }
 
 func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference, reason, message string, underlyingCause kueue.EvictionUnderlyingCause) {
-	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), wl.Spec.PriorityClassName)
+	priorityClassName := PriorityClassName(wl)
+	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName)
 	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
 		metrics.PodsReadyToEvictedTimeSeconds.WithLabelValues(string(cqName), reason, string(underlyingCause)).Observe(podsReadyToEvictionTime.Seconds())
 	}
@@ -1327,7 +1341,7 @@ func reportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cq
 			metrics.LQRefFromWorkload(wl),
 			reason,
 			string(underlyingCause),
-			wl.Spec.PriorityClassName,
+			priorityClassName,
 		)
 	}
 	eventReason := ReasonWithCause(kueue.WorkloadEvicted, reason)
