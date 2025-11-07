@@ -298,13 +298,13 @@ func applyBalancedPlacementAlgorithm(s *TASFlavorSnapshot, levelIdx, sliceLevelI
 	}
 	for currentLevelIdx := fitLevelIdx; currentLevelIdx+1 < len(s.domainsPerLevel); currentLevelIdx++ {
 		sliceSizeOnLevel := sliceSize
-		if currentLevelIdx < sliceLevelIdx {
+		if currentLevelIdx >= sliceLevelIdx {
 			sliceSizeOnLevel = 1
 		}
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
 			sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
-			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, unconstrained, false)
+			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, sliceSizeOnLevel, unconstrained, currentLevelIdx < sliceLevelIdx)
 			newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
 		}
 		currFitDomain = newCurrFitDomain
