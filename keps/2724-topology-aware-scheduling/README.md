@@ -1001,9 +1001,11 @@ type TopologyAssignmentSlice struct {
 
 type TopologyAssignmentSliceLevelValues struct {
   // prefix specifies a common prefix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
   // +optional
   Prefix *string `json:"prefix,omitempty"`
   // suffix specifies a common suffix for all values in this slice assignment.
+  // It must be either nil pointer or a non-empty string.
   // +optional
   Suffix *string `json:"suffix,omitempty"`
 
