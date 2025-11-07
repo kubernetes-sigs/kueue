@@ -27,7 +27,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -37,7 +36,6 @@ import (
 
 var (
 	kueuectlPath                 = filepath.Join("..", "..", "..", "bin", "kubectl-kueue")
-	realClock                    = clock.RealClock{}
 	k8sClient                    client.WithWatch
 	cfg                          *rest.Config
 	restClient                   *rest.RESTClient

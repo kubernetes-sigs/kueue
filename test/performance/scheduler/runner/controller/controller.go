@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 type reconciler struct {
@@ -51,10 +52,6 @@ type reconciler struct {
 	recorder      *recorder.Recorder
 	clock         clock.Clock
 }
-
-var (
-	realClock = clock.RealClock{}
-)
 
 func (r *reconciler) getAdmittedTime(uid types.UID) (time.Time, bool) {
 	r.atLock.RLock()
@@ -178,7 +175,7 @@ type options struct {
 type Option func(*options)
 
 var defaultOptions = options{
-	clock: realClock,
+	clock: util.RealClock,
 }
 
 func WithClock(_ testing.TB, c clock.Clock) Option {

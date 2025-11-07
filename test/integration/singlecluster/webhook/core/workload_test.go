@@ -28,7 +28,6 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -130,8 +129,6 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
 	})
-
-	var realClock = clock.RealClock{}
 
 	ginkgo.Context("When creating a Workload", func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
@@ -321,8 +318,8 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
-					return wl, workload.SetQuotaReservation(wl, a, clock.RealClock{}), nil
+				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func() (*kueue.Workload, bool, error) {
+					return wl, workload.SetQuotaReservation(wl, a, util.RealClock), nil
 				})
 				g.Expect(err).Should(matcher)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -377,7 +374,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, realClock)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, util.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
@@ -1143,7 +1140,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
-				}, realClock)
+				}, util.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1156,7 +1153,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "baz"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
-				}, realClock)
+				}, util.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1180,7 +1177,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						Assignment(corev1.ResourceCPU, "default", "1").
 						Obj()).
 					Obj()
-				workload.SetQuotaReservation(wl, admission, realClock)
+				workload.SetQuotaReservation(wl, admission, util.RealClock)
 				wl.Status.Admission = admission
 
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
@@ -1213,7 +1210,7 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						Count(10).
 						Obj()).
 					Obj()
-				workload.SetQuotaReservation(wl, admission, realClock)
+				workload.SetQuotaReservation(wl, admission, util.RealClock)
 				wl.Status.Admission = admission
 
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
