@@ -146,7 +146,7 @@ type ClusterQueueSpec struct {
 
 	// autoLocalQueue specifies the configuration for automatically creating LocalQueues
 	// in namespaces that match the ClusterQueue's namespaceSelector. This feature is
-	// controlled by the `DefaultLocalQueue` feature gate.
+	// controlled by the `AutoLocalQueue` feature gate.
 	// If this field is set, a LocalQueue with the specified name will be created in
 	// each matching namespace. The LocalQueue will reference this ClusterQueue.
 	// +optional
