@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/utils/ptr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
