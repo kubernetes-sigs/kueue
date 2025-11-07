@@ -37,11 +37,13 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -2310,7 +2312,6 @@ func TestReconcile(t *testing.T) {
 		"shouldn't try to delete the workload (no event emitted) because it is already being deleted by kubernetes, object retention configured": {
 			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				Finalizers(kueue.SafeDeleteFinalizerName, kueue.ResourceInUseFinalizerName).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
@@ -2329,10 +2330,20 @@ func TestReconcile(t *testing.T) {
 			},
 			wantWorkload: nil,
 			wantError:    nil,
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{
+					Namespace: "ns",
+					Name:      "wl",
+				},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "Finalized",
+				Message:   "Workload ns/wl has been finalized",
+			}},
 		},
 		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
 			enableObjectRetentionPolicies: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers().
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
@@ -2350,6 +2361,7 @@ func TestReconcile(t *testing.T) {
 				RequeueAfter: util.LongTimeout - util.Timeout,
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Finalizers().
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
@@ -2388,7 +2400,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantError: nil,
 		},
-		"should clean up deleted workload because only safe-delete finalizer is set": {
+		"should finalize deleted workload because only safe-delete finalizer is set": {
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2405,13 +2417,21 @@ func TestReconcile(t *testing.T) {
 			wantWorkload:       nil,
 			wantError:          nil,
 			wantWorkloadCached: false,
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{
+					Namespace: "ns",
+					Name:      "wl",
+				},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "Finalized",
+				Message:   "Workload ns/wl has been finalized",
+			}},
 		},
-		"should clean up deleted workload because has both in-use and safe-delete finalizers but no owners": {
+		"should finalize deleted workload because has in-use finalizer but no owners": {
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName).
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
@@ -2423,13 +2443,21 @@ func TestReconcile(t *testing.T) {
 			wantWorkload:       nil,
 			wantError:          nil,
 			wantWorkloadCached: false,
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{
+					Namespace: "ns",
+					Name:      "wl",
+				},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "Finalized",
+				Message:   "Workload ns/wl has been finalized",
+			}},
 		},
-		"shouldn't clean up deleted workload because has in-use and safe-delete finalizers and still has owners": {
+		"shouldn't finalize deleted workload because has in-use finalizer and owners": {
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
@@ -2441,7 +2469,6 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
 				Condition(metav1.Condition{
@@ -2454,35 +2481,7 @@ func TestReconcile(t *testing.T) {
 			wantError:          nil,
 			wantWorkloadCached: true,
 		},
-		"should throw error because has in-use finalizer but not safe-delete finalizer": {
-			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName).
-				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
-				Condition(metav1.Condition{
-					Type:               kueue.WorkloadFinished,
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
-				}).
-				Delete().
-				Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Queue("lq").
-				Finalizers(kueue.ResourceInUseFinalizerName).
-				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
-				Condition(metav1.Condition{
-					Type:               kueue.WorkloadFinished,
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
-				}).
-				Delete().
-				Obj(),
-			wantErrorMsg:       "Illegal finalizer configuration for workload.",
-			wantWorkloadCached: true,
-		},
-		"shouldn't clean up deleted workload because unknown finalizers are set": {
+		"shouldn't finalize deleted workload because unknown finalizers are set": {
 			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2702,5 +2701,202 @@ func TestReconcile(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFinalize(t *testing.T) {
+	testStartTime := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+	cases := map[string]struct {
+		workload           *kueue.Workload
+		wantError          error
+		wantWorkloadCached bool
+		wantFinalizers     []string
+		dontWantFinalizers []string
+		wantEvents         []utiltesting.EventRecord
+	}{
+		"clean up when both finalizers are set": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+				}).
+				Delete().
+				Obj(),
+			wantError:          nil,
+			wantWorkloadCached: false,
+			wantFinalizers:     nil,
+			dontWantFinalizers: []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{
+					Namespace: "ns",
+					Name:      "wl",
+				},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "Finalized",
+				Message:   "Workload ns/wl has been finalized",
+			}},
+		},
+		"clean up when in-use finalzier is set": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+				}).
+				Delete().
+				Obj(),
+			wantError:          nil,
+			wantWorkloadCached: false,
+			wantFinalizers:     nil,
+			dontWantFinalizers: []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{
+					Namespace: "ns",
+					Name:      "wl",
+				},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "Finalized",
+				Message:   "Workload ns/wl has been finalized",
+			}},
+		},
+		"clean up when safe-delete finalzier is set": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Finalizers(kueue.SafeDeleteFinalizerName).
+				ReserveQuota(utiltestingapi.MakeAdmission("cq").Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+				}).
+				Delete().
+				Obj(),
+			wantError:          nil,
+			wantWorkloadCached: false,
+			wantFinalizers:     nil,
+			dontWantFinalizers: []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{
+					Namespace: "ns",
+					Name:      "wl",
+				},
+				EventType: corev1.EventTypeNormal,
+				Reason:    "Finalized",
+				Message:   "Workload ns/wl has been finalized",
+			}},
+		},
+		"throw error when unable to delete wl from cache": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuota(utiltestingapi.MakeAdmission("unknown-cq").Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * util.LongTimeout)),
+				}).
+				Delete().
+				Obj(),
+			wantError:          scheduler.ErrCqNotFound,
+			wantWorkloadCached: false,
+			wantFinalizers:     []string{kueue.ResourceInUseFinalizerName, kueue.SafeDeleteFinalizerName},
+			dontWantFinalizers: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			testWl := tc.workload.DeepCopy()
+			objs := []client.Object{testWl}
+
+			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManager(cl, cqCache)
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+
+			// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
+			reconciler.clock = fakeClock
+
+			ctxWithLogger, log := utiltesting.ContextWithLog(t)
+			testLog := log.WithName("Test setup")
+			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
+			defer ctxCancel()
+
+			testCq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			if err := cl.Create(ctx, testCq); err != nil {
+				t.Errorf("couldn't create the cluster queue: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, testCq); err != nil {
+				t.Errorf("couldn't add the cluster queue to the queue cache manager: %v", err)
+			}
+			if err := cqCache.AddClusterQueue(ctx, testCq); err != nil {
+				t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+			}
+
+			testLq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			if err := cl.Create(ctx, testLq); err != nil {
+				t.Errorf("couldn't create the local queue: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
+				t.Errorf("couldn't add the local queue to the cache: %v", err)
+			}
+
+			cqCache.AddOrUpdateWorkload(testLog, testWl)
+			qManager.AddOrUpdateWorkload(testWl)
+
+			gotError := reconciler.finalize(ctx, testWl, testLog)
+
+			switch {
+			case tc.wantError != nil:
+				if gotError == nil {
+					t.Errorf("expected error %v, got nil", tc.wantError)
+				} else if !stderrors.Is(gotError, tc.wantError) {
+					t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
+				}
+			case gotError != nil:
+				t.Errorf("unexpected error: %v", gotError)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
+			}
+
+			if tc.wantWorkloadCached {
+				wlKey := workload.Key(testWl)
+				cqRef := kueue.ClusterQueueReference(testCq.Name)
+				cacheCq := cqCache.GetClusterQueue(cqRef)
+				managerCq := qManager.GetClusterQueue(cqRef)
+
+				_, wlInClusterQueue := cacheCq.Workloads[wlKey]
+				if !wlInClusterQueue {
+					t.Errorf("Expected workload %s to be in cluster queue cache %s.", wlKey, cqRef)
+				}
+
+				wlInManagerQueue := managerCq.Info(wlKey)
+				if wlInManagerQueue == nil {
+					t.Errorf("Expected workload %s to be in cluster queue (manager) %s.", wlKey, cqRef)
+				}
+			}
+
+			for _, expectedFinalizer := range tc.wantFinalizers {
+				if !controllerutil.ContainsFinalizer(testWl, expectedFinalizer) {
+					t.Errorf("Expected finalizer missing: %s", expectedFinalizer)
+				}
+			}
+
+			for _, expectedGone := range tc.dontWantFinalizers {
+				if controllerutil.ContainsFinalizer(testWl, expectedGone) {
+					t.Errorf("Expected %s finalizer to be gone", expectedGone)
+				}
+			}
+		})
 	}
 }

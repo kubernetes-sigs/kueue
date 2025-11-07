@@ -19,7 +19,6 @@ package core
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -167,33 +166,25 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if !wl.DeletionTimestamp.IsZero() {
 		log = log.WithValues("deletionTimestamp", wl.DeletionTimestamp)
-		log.Info("Workload marked for deletion.")
+		log.Info("Attemtping to finalize workload.")
 
-		hasInUseFinalizer := controllerutil.ContainsFinalizer(&wl, kueue.ResourceInUseFinalizerName)
-		hasSafeDeleteFinlaizer := controllerutil.ContainsFinalizer(&wl, kueue.SafeDeleteFinalizerName)
 		switch {
-		case hasInUseFinalizer && hasSafeDeleteFinlaizer:
+		case controllerutil.ContainsFinalizer(&wl, kueue.ResourceInUseFinalizerName):
 			{
 				log.Info("Manual deletion by a user detected.")
 				if len(wl.OwnerReferences) == 0 {
-					return ctrl.Result{}, r.cleanUp(ctx, &wl, log)
+					return ctrl.Result{}, r.finalize(ctx, &wl, log)
 				} else {
-					log.Info("Uable to delete. Workload still has owners.", "owners", wl.OwnerReferences)
+					log.Info("Uable to finalize: workload still has owners. Proceeding with reconcile.", "owners", wl.OwnerReferences)
 				}
 			}
-		case !hasInUseFinalizer && hasSafeDeleteFinlaizer:
+		case controllerutil.ContainsFinalizer(&wl, kueue.SafeDeleteFinalizerName):
 			{
-				return ctrl.Result{}, r.cleanUp(ctx, &wl, log)
-			}
-		case hasInUseFinalizer && !hasSafeDeleteFinlaizer:
-			{
-				err := errors.New("Illegal finalizer configuration for workload.")
-				log.Error(err, "Illegal finalizer configuration for workload.")
-				return ctrl.Result{}, err
+				return ctrl.Result{}, r.finalize(ctx, &wl, log)
 			}
 		default:
 			{
-				log.Info("Unknown finalizer(s) preventing workload deletion.")
+				log.Info("Unknown finalizer(s) present. Proceeding with reconcile.")
 			}
 		}
 	}
@@ -502,31 +493,36 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkloadReconciler) cleanUp(ctx context.Context, wl *kueue.Workload, log logr.Logger) error {
-	log.Info("Finalizing workload before deletion.")
+func (r *WorkloadReconciler) finalize(ctx context.Context, wl *kueue.Workload, log logr.Logger) error {
+	log.V(2).Info("Finalizing workload.")
 	defer r.notifyWatchers(wl, nil)
-	var resultError error = nil
 
 	if workload.HasQuotaReservation(wl) {
+		var err error = nil
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
-			if err := r.cache.DeleteWorkload(log, wl); err != nil {
-				resultError = err
-				log.Error(err, "Failed to delete workload from cache")
-			}
+			err = r.cache.DeleteWorkload(log, wl)
 		})
+		if err != nil {
+			log.V(2).Error(err, "Failed to delete workload from cache.")
+			return err
+		}
 	} else {
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			if err := r.cache.DeleteWorkload(log, wl); err != nil {
-				log.Info("Failed to delete workload from cache.", "Error", err, "Note", "this may be intended behavior")
+				log.V(2).Info("Failed to delete workload from cache.", "Error", err, "Note", "this may be intended behavior")
 			}
 		})
 	}
 
 	r.queues.DeleteWorkload(wl)
+
 	controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName)
 	controllerutil.RemoveFinalizer(wl, kueue.SafeDeleteFinalizerName)
-
-	return resultError
+	if err := r.client.Update(ctx, wl); err != nil {
+		return err
+	}
+	r.recorder.Eventf(wl, corev1.EventTypeNormal, "Finalized", "Workload %s has been finalized", workload.Key(wl))
+	return nil
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
@@ -814,13 +810,12 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 }
 
 func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	status := "unknown"
-	if !e.DeleteStateUnknown {
-		status = workload.Status(e.Object)
+	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", workload.Status(e.Object))
+	if e.DeleteStateUnknown {
+		log.V(2).Info("Workload delete event; delete status unknown")
+	} else {
+		log.V(2).Info("Workload delete event")
 	}
-	log := r.log.WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
-	log.V(2).Info("Workload delete event")
-
 	return true
 }
 
