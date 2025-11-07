@@ -958,14 +958,14 @@ In v1beta2, the data format is reshaped, with the main goal of improving handlin
 ```golang
 type TopologyAssignment struct {
   // (same role & comments as in v1beta1)
-  Levels []string `json:"levels"`
+  Levels []string `json:"levels,omitempty"`
 
   // slices represent topology assignments for subsets of pods of a workload.
   // The full assignment is obtained as a union of all slices.
   // +required
   // +listType=atomic
   // +kubebuilder:validation:MaxItems=1000
-  Slices []TopologyAssignmentSlice `json:"slices"`
+  Slices []TopologyAssignmentSlice `json:"slices,omitempty"`
 }
 
 // TopologyAssignmentSlice fully specifies the topology assignment for a subset of pods of a workload.
@@ -973,7 +973,7 @@ type TopologyAssignmentSlice struct {
   // domainCount is the number of domains covered by this slice.
   // +required
   // +kubebuilder:validation:Minimum=1
-  DomainCount int32 `json:"domainCount"`
+  DomainCount int32 `json:"domainCount,omitempty"`
 
   // valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.
   // The entry corresponding to a particular level specifies the placement of pods at that level.
@@ -981,7 +981,7 @@ type TopologyAssignmentSlice struct {
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=16
-  ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel"`
+  ValuesPerLevel []TopologyAssignmentSliceLevelValues `json:"valuesPerLevel,omitempty"`
 
   // podCounts specifies the number of pods allocated per each domain.
   // May be omitted if all values are identical; if so, UniversalCount is used instead.
