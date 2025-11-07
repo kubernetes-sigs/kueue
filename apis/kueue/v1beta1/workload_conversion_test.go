@@ -301,15 +301,17 @@ func TestWorkloadConvertFrom(t *testing.T) {
 }
 
 func TestWorkloadConversion_RoundTrip(t *testing.T) {
+	defaultObjectMeta := metav1.ObjectMeta{
+		Name:      "test-workload",
+		Namespace: "default",
+	}
+
 	testCases := map[string]struct {
 		v1beta1Obj *Workload
 	}{
 		"complete Workload with AccumulatedPastExexcutionTimeSeconds": {
 			v1beta1Obj: &Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-workload",
-					Namespace: "default",
-				},
+				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
 					Conditions: []metav1.Condition{
 						{
@@ -324,10 +326,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 		},
 		"Workload with nil AccumulatedPastExexcutionTimeSeconds": {
 			v1beta1Obj: &Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "simple-workload",
-					Namespace: "test-ns",
-				},
+				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
 					AccumulatedPastExexcutionTimeSeconds: nil,
 				},
@@ -335,10 +334,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 		},
 		"Workload with zero AccumulatedPastExexcutionTimeSeconds": {
 			v1beta1Obj: &Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "zero-workload",
-					Namespace: "test-ns",
-				},
+				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
 					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](0),
 				},
@@ -346,10 +342,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 		},
 		"Workload with PodPriorityClassSource": {
 			v1beta1Obj: &Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-workload",
-					Namespace: "default",
-				},
+				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
 					Priority:            ptr.To[int32](100),
 					PriorityClassSource: PodPriorityClassSource,
@@ -359,10 +352,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 		},
 		"Workload with WorkloadPriorityClassSource": {
 			v1beta1Obj: &Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-workload",
-					Namespace: "default",
-				},
+				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
 					Priority:            ptr.To[int32](100),
 					PriorityClassSource: WorkloadPriorityClassSource,
