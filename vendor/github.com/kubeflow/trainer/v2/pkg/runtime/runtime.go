@@ -33,11 +33,6 @@ import (
 	"github.com/kubeflow/trainer/v2/pkg/constants"
 )
 
-var (
-	defaultPodSetsSyncer = func(*Info) {}
-	syncPodSets          = defaultPodSetsSyncer
-)
-
 type Info struct {
 	// Labels and Annotations to add to the RuntimeJobTemplate.
 	Labels      map[string]string
@@ -172,12 +167,6 @@ func toPodSetContainer(containerApply ...corev1ac.ContainerApplyConfiguration) i
 	}
 }
 
-func WithPodSetSyncer(syncer func(*Info)) InfoOption {
-	return func(o *InfoOptions) {
-		syncPodSets = syncer
-	}
-}
-
 func NewInfo(opts ...InfoOption) *Info {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -200,10 +189,6 @@ func NewInfo(opts ...InfoOption) *Info {
 		info.Annotations = options.annotations
 	}
 	return info
-}
-
-func (i *Info) SyncPodSetsToTemplateSpec() {
-	syncPodSets(i)
 }
 
 func TemplateSpecApply[A any](info *Info) (*A, bool) {
