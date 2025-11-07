@@ -17,6 +17,8 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
@@ -35,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -42,6 +46,7 @@ import (
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -705,6 +710,140 @@ func TestProcessOptions(t *testing.T) {
 			if diff := cmp.Diff(tc.wantOpts, gotOpts,
 				cmpopts.IgnoreUnexported(kubeversion.ServerVersionFetcher{}, testingclock.FakePassiveClock{}, testingclock.FakeClock{})); len(diff) != 0 {
 				t.Errorf("Unexpected error from ProcessOptions (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
+	var (
+		testLocalQueueName = kueue.LocalQueueName("default")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+	)
+	testCases := map[string]struct {
+		workload  *kueue.Workload
+		job       GenericJob
+		wantError error
+	}{
+		"update podready condition failed": {
+			workload: utiltestingapi.MakeWorkload("job-test-job-podready-fail", metav1.NamespaceDefault).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Label(constants.JobUIDLabel, "test-job-podready-fail").
+				ControllerReference(testGVK, "test-job-podready-fail", "test-job-podready-fail").
+				Queue(testLocalQueueName).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Conditions(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "The workload is admitted",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}, metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					Message:            "Not all pods are ready or succeeded",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}).
+				Admission(&kueue.Admission{
+					ClusterQueue: "default-cq",
+				}).
+				Obj(),
+			job: (*job.Job)(testingjob.MakeJob("test-job-podready-fail", metav1.NamespaceDefault).
+				UID("test-job-podready-fail").
+				Label(constants.QueueLabel, string(testLocalQueueName)).
+				Parallelism(1).
+				Suspend(false).
+				Containers(corev1.Container{
+					Name: "c",
+					Resources: corev1.ResourceRequirements{
+						Requests: make(corev1.ResourceList),
+					},
+				}).
+				Ready(1).
+				Obj()),
+			wantError: apierrors.NewInternalError(errors.New("failed calling webhook")),
+		},
+		"update podready condition success": {
+			workload: utiltestingapi.MakeWorkload("job-test-job-podready-success", metav1.NamespaceDefault).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Label(constants.JobUIDLabel, "job-test-job-podready-success").
+				ControllerReference(testGVK, "test-job-podready-success", "test-job-podready-success").
+				Queue(testLocalQueueName).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Conditions(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "The workload is admitted",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}, metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					Message:            "Not all pods are ready or succeeded",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}).
+				Admission(&kueue.Admission{
+					ClusterQueue: "default-cq",
+				}).
+				Obj(),
+			job: (*job.Job)(testingjob.MakeJob("test-job-podready-success", metav1.NamespaceDefault).
+				UID("test-job-podready-success").
+				Label(constants.QueueLabel, string(testLocalQueueName)).
+				Parallelism(1).
+				Suspend(false).
+				Containers(corev1.Container{
+					Name: "c",
+					Resources: corev1.ResourceRequirements{
+						Requests: make(corev1.ResourceList),
+					},
+				}).
+				Ready(1).
+				Obj()),
+			wantError: nil,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managedNamespace := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).
+				Label("managed-by-kueue", "true").
+				Obj()
+			builder := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(tc.workload, tc.job.Object(), managedNamespace).
+				WithStatusSubresource(tc.workload, tc.job.Object()).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.wantError != nil {
+							return tc.wantError
+						}
+						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+					},
+				})
+
+			cl := builder.Build()
+
+			testStartTime := time.Now().Truncate(time.Second)
+
+			fakeClock := testingclock.NewFakeClock(testStartTime)
+			options := []Option{
+				WithClock(nil, fakeClock),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{
+					Enable: true,
+				}),
+			}
+			recorder := &utiltesting.EventRecorder{}
+			r := NewReconciler(cl, recorder, options...)
+			_, err := r.ReconcileGenericJob(ctx, controllerruntime.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      tc.job.Object().GetName(),
+					Namespace: tc.job.Object().GetNamespace(),
+				}}, tc.job)
+			if !errors.Is(err, tc.wantError) {
+				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
 			}
 		})
 	}
