@@ -41,6 +41,7 @@ type FairSharing struct {
 	// disadvantage against other ClusterQueues and Cohorts.
 	// When not 0, Weight must be greater than 10^-9.
 	// +kubebuilder:default=1
+	// +optional
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
@@ -53,6 +54,7 @@ type FairSharingStatus struct {
 	// the Node is below the nominal quota.  If the Node has a
 	// weight of zero and is borrowing, this will return
 	// 9223372036854775807, the maximum possible share value.
+	// +required
 	WeightedShare int64 `json:"weightedShare"`
 
 	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
@@ -78,8 +80,9 @@ type AdmissionScope struct {
 	// - UsageBasedAdmissionFairSharing
 	// - NoAdmissionFairSharing
 	//
+	// +kubebuilder:validation:Enum=UsageBasedAdmissionFairSharing;NoAdmissionFairSharing
 	// +required
-	AdmissionMode AdmissionMode `json:"admissionMode"`
+	AdmissionMode AdmissionMode `json:"admissionMode,omitempty"`
 }
 
 type AdmissionMode string

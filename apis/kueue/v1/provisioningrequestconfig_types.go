@@ -37,10 +37,11 @@ type ProvisioningRequestConfigSpec struct {
 	// provisioningClassName describes the different modes of provisioning the resources.
 	// Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
 	//
-	// +kubebuilder:validation:Required
+	// +required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +kubebuilder:validation:MaxLength=253
-	ProvisioningClassName string `json:"provisioningClassName"`
+	// +kubebuilder:validation:MinLength=1
+	ProvisioningClassName string `json:"provisioningClassName,omitempty"`
 
 	// parameters contains all other parameters classes may require.
 	//
@@ -95,6 +96,8 @@ type ProvisioningRequestPodSetUpdates struct {
 	//
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
+	// +listType=map
+	// +listMapKey=key
 	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelector `json:"nodeSelector,omitempty"`
 }
 
@@ -105,7 +108,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=317
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-	Key string `json:"key"`
+	Key string `json:"key,omitempty"`
 
 	// valueFromProvisioningClassDetail specifies the key of the
 	// ProvisioningRequest.status.provisioningClassDetails from which the value
@@ -114,7 +117,7 @@ type ProvisioningRequestPodSetUpdatesNodeSelector struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
-	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail"`
+	ValueFromProvisioningClassDetail string `json:"valueFromProvisioningClassDetail,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
@@ -163,10 +166,12 @@ type Parameter string
 type ProvisioningRequestConfig struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the ProvisioningRequestConfig.
-	Spec ProvisioningRequestConfigSpec `json:"spec,omitempty"`
+	// +optional
+	Spec ProvisioningRequestConfigSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true

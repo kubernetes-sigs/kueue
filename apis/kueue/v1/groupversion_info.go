@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// package v1 contains API Schema definitions for the kueue v1beta2 API group
+// Package v1 contains API Schema definitions for the kueue v1 API group
 // +kubebuilder:object:generate=true
 // +groupName=kueue.x-k8s.io
 package v1
@@ -26,7 +26,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "kueue.x-k8s.io", Version: "v1beta2"}
+	GroupVersion = schema.GroupVersion{Group: "kueue.x-k8s.io", Version: "v1"}
 
 	// SchemeGroupVersion is alias to GroupVersion for client-go libraries.
 	// It is required by pkg/client/informers/externalversions/...

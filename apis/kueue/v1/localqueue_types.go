@@ -33,6 +33,7 @@ type LocalQueueName string
 type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
+	// +optional
 	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
 
 	// stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
@@ -56,67 +57,33 @@ type LocalQueueSpec struct {
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
-type LocalQueueFlavorStatus struct {
-	// name of the flavor.
-	// +required
-	// +kubebuilder:validation:Required
-	Name ResourceFlavorReference `json:"name"`
-
-	// resources used in the flavor.
-	// +listType=set
-	// +kubebuilder:validation:MaxItems=16
-	// +optional
-	Resources []corev1.ResourceName `json:"resources,omitempty"`
-
-	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
-	// have the same labels.
-	// +mapType=atomic
-	// +kubebuilder:validation:MaxProperties=8
-	// +optional
-	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
-
-	// nodeTaints are taints that the nodes associated with this ResourceFlavor
-	// have.
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=8
-	// +optional
-	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
-
-	// topology is the topology that associated with this ResourceFlavor.
-	//
-	// This is a beta field and requires enabling the TopologyAwareScheduling
-	// feature gate.
-	//
-	// +optional
-	Topology *TopologyInfo `json:"topology,omitempty"`
-}
-
 type TopologyInfo struct {
 	// name is the name of the topology.
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	Name TopologyReference `json:"name"`
 
 	// levels define the levels of topology.
 	//
 	// +required
 	// +listType=atomic
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=8
-	Levels []string `json:"levels"`
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=317
+	Levels []string `json:"levels,omitempty"`
 }
 
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
 	// conditions hold the latest available observations of the LocalQueue
 	// current state.
+	// conditions are limited to 16 items.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// pendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
@@ -139,7 +106,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsReservation []LocalQueueFlavorsUsage `json:"flavorsReservation"`
+	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation,omitempty"`
 
 	// flavorsUsage are the used quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
@@ -147,14 +114,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsUsage []LocalQueueFlavorsUsage `json:"flavorsUsage"`
-
-	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
-	// +listType=map
-	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
-	// +optional
-	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
+	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage,omitempty"`
 
 	// fairSharing contains the information about the current status of fair sharing.
 	// +optional
@@ -167,22 +127,26 @@ const (
 	LocalQueueActive string = "Active"
 )
 
-type LocalQueueFlavorsUsage struct {
+type LocalQueueFlavorUsage struct {
 	// name of the flavor.
+	// +required
 	Name ResourceFlavorReference `json:"name"`
 
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
-	Resources []LocalQueueResourceUsage `json:"resources"`
+	// +required
+	Resources []LocalQueueResourceUsage `json:"resources,omitempty"`
 }
 
 type LocalQueueResourceUsage struct {
 	// name of the resource.
-	Name corev1.ResourceName `json:"name"`
+	// +required
+	Name corev1.ResourceName `json:"name,omitempty"`
 
 	// total is the total quantity of used quota.
+	// +optional
 	Total resource.Quantity `json:"total,omitempty"`
 }
 
@@ -198,11 +162,14 @@ type LocalQueueResourceUsage struct {
 type LocalQueue struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the LocalQueue.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the LocalQueue.
-	Spec LocalQueueSpec `json:"spec,omitempty"`
+	// +optional
+	Spec LocalQueueSpec `json:"spec"`
 	// status is the status of the LocalQueue.
+	// +optional
 	Status LocalQueueStatus `json:"status,omitempty"`
 }
 
@@ -214,3 +181,5 @@ type LocalQueueList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []LocalQueue `json:"items"`
 }
+
+func (*LocalQueue) Hub() {}

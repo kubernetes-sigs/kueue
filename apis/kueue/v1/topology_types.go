@@ -116,11 +116,10 @@ type TopologyLevel struct {
 	// - cloud.provider.com/topology-rack
 	//
 	// +required
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=316
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-	NodeLabel string `json:"nodeLabel"`
+	NodeLabel string `json:"nodeLabel,omitempty"`
 }
 
 // +genclient
@@ -132,13 +131,15 @@ type TopologyLevel struct {
 type Topology struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Topology.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec is the specification of the Topology.
-	Spec TopologySpec `json:"spec,omitempty"`
+	// +optional
+	Spec TopologySpec `json:"spec"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // TopologyList contains a list of Topology
 type TopologyList struct {
