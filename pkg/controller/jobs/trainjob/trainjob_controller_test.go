@@ -360,6 +360,7 @@ func TestReconciler(t *testing.T) {
 			Name:        "node",
 			Replicas:    1,
 			Parallelism: 1,
+			Completions: 1,
 		}).Obj()
 	testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobset.Spec)
 
