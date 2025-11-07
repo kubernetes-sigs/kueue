@@ -37,10 +37,25 @@ func (dst *Configuration) ConvertFrom(srcRaw conversion.Hub) error {
 }
 
 func Convert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuration, out *v1beta2.Configuration, s conversionapi.Scope) error {
-	return autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in, out, s)
+	if err := autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in, out, s); err != nil {
+		return err
+	}
+	if in.FairSharing == nil || !in.FairSharing.Enable {
+		out.FairSharing = nil
+	}
+	return nil
 }
 
 // Convert_v1beta1_Integrations_To_v1beta2_Integrations is a conversion function that ignores deprecated PodOptions field.
 func Convert_v1beta1_Integrations_To_v1beta2_Integrations(in *Integrations, out *v1beta2.Integrations, s conversionapi.Scope) error {
 	return autoConvert_v1beta1_Integrations_To_v1beta2_Integrations(in, out, s)
+}
+
+func Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversionapi.Scope) error {
+	return autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in, out, s)
+}
+
+func Convert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing, out *FairSharing, s conversionapi.Scope) error {
+	out.Enable = true
+	return autoConvert_v1beta2_FairSharing_To_v1beta1_FairSharing(in, out, s)
 }

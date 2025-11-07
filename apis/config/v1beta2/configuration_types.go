@@ -480,10 +480,6 @@ const (
 )
 
 type FairSharing struct {
-	// enable indicates whether to enable Fair Sharing for all cohorts.
-	// Defaults to false.
-	Enable bool `json:"enable"`
-
 	// preemptionStrategies indicates which constraints should a preemption satisfy.
 	// The preemption algorithm will only use the next strategy in the list if the
 	// incoming workload (preemptor) doesn't fit after using the previous strategies.
