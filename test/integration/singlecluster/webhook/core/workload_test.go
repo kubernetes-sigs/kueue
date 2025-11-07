@@ -369,6 +369,60 @@ var _ = ginkgo.Describe("Workload validating webhook", ginkgo.Ordered, func() {
 						Obj()).
 					Obj(),
 				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("Pending delayedTopologyRequest",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+								Request(corev1.ResourceCPU, "1").
+								Obj(),
+						).
+						Obj()
+				},
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flv", "3").
+						Count(3).
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj()).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Ready delayedTopologyRequest",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+								Request(corev1.ResourceCPU, "1").
+								Obj(),
+						).
+						Obj()
+				},
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flv", "3").
+						Count(3).
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+						Obj()).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("invalid delayedTopologyRequest",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+								Request(corev1.ResourceCPU, "1").
+								Obj(),
+						).
+						Obj()
+				},
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flv", "3").
+						Count(3).
+						DelayedTopologyRequest("invalid").
+						Obj()).
+					Obj(),
+				utiltesting.BeInvalidError()),
 		)
 
 		ginkgo.DescribeTable("Should have valid values when setting AdmissionCheckState", func(w func() *kueue.Workload, acs kueue.AdmissionCheckState) {
