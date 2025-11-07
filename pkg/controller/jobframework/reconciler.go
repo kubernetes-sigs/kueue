@@ -452,12 +452,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
-		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		if wl != nil && !workload.IsFinished(wl) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName, r.clock)
+			err := workload.Finish(ctx, r.client, wl, reason, message, constants.JobControllerName, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -584,7 +584,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName, r.clock)
+					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), constants.JobControllerName, r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -1022,13 +1022,8 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 			return false, err
 		}
 		// mark the workload as finished
-		err := workload.UpdateStatus(ctx, r.client, wl,
-			kueue.WorkloadFinished,
-			metav1.ConditionTrue,
-			kueue.WorkloadFinishedReasonOutOfSync,
-			"The prebuilt workload is out of sync with its user job",
-			constants.JobControllerName, r.clock)
-		return false, err
+		msg := "The prebuilt workload is out of sync with its user job"
+		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, constants.JobControllerName, r.clock)
 	}
 	return true, nil
 }

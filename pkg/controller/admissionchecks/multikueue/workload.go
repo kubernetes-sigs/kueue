@@ -46,10 +46,8 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -359,24 +357,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(3).Info("Group with no adapter, skip owner status copy", "workerCluster", remote)
 		}
 
-		// copy the status to the local one
-		finishCond := metav1.Condition{
-			Type:               kueue.WorkloadFinished,
-			Status:             metav1.ConditionTrue,
-			Reason:             remoteFinishedCond.Reason,
-			Message:            remoteFinishedCond.Message,
-			LastTransitionTime: metav1.NewTime(w.clock.Now()),
-		}
-		if features.Enabled(features.WorkloadRequestUseMergePatch) {
-			return reconcile.Result{}, clientutil.PatchStatus(ctx, w.client, group.local, func() (client.Object, bool, error) {
-				apimeta.SetStatusCondition(&group.local.Status.Conditions, finishCond)
-				return group.local, true, nil
-			})
-		}
-
-		wlPatch := workload.BaseSSAWorkload(group.local, false)
-		apimeta.SetStatusCondition(&wlPatch.Status.Conditions, finishCond)
-		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName+"-finish"), client.ForceOwnership)
+		// finish workload and copy the status to the local one
+		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, kueue.MultiKueueControllerName, w.clock, workload.WithForceOwnership())
 	}
 
 	// 2. delete all workloads that are out of sync (other than scaled-down elastic workloads)
