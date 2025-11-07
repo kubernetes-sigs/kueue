@@ -42,6 +42,7 @@ import (
 	jobsetv1alpha2ac "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
+	"github.com/kubeflow/trainer/v2/pkg/apply"
 	"github.com/kubeflow/trainer/v2/pkg/constants"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
@@ -230,17 +231,12 @@ func (j *JobSet) IdentifyPodNetwork(info *runtime.Info, trainJob *trainer.TrainJ
 			}
 		}
 	}
-	info.SyncPodSetsToTemplateSpec()
 	return nil
 }
 
-func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]any, error) {
+func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || trainJob == nil {
 		return nil, fmt.Errorf("runtime info or object is missing")
-	}
-	jobSetSpec, ok := runtime.TemplateSpecApply[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](info)
-	if !ok {
-		return nil, nil
 	}
 
 	// Do not update the JobSet if it already exists and is not suspended
@@ -255,6 +251,33 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 		!ptr.Deref(trainJob.Spec.Suspend, false) &&
 		!ptr.Deref(oldJobSet.Spec.Suspend, false) {
 		return nil, nil
+	}
+
+	jobSetSpec, ok := runtime.TemplateSpecApply[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](info)
+	if !ok {
+		return nil, nil
+	}
+
+	for psIdx, ps := range info.TemplateSpec.PodSets {
+		if ps.Count != nil {
+			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
+			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
+		}
+		apply.UpsertVolumes(&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Volumes, ps.Volumes...)
+		for containerIdx, container := range ps.Containers {
+			apply.UpsertEnvVars(
+				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Env,
+				container.Env...,
+			)
+			apply.UpsertPort(
+				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Ports,
+				container.Ports...,
+			)
+			apply.UpsertVolumeMounts(
+				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].VolumeMounts,
+				container.VolumeMounts...,
+			)
+		}
 	}
 
 	// Init the JobSet apply configuration from the runtime template spec
@@ -280,7 +303,7 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 			WithController(true).
 			WithBlockOwnerDeletion(true))
 
-	return []any{jobSet}, nil
+	return []apiruntime.ApplyConfiguration{jobSet}, nil
 }
 
 func (j *JobSet) Status(ctx context.Context, trainJob *trainer.TrainJob) (*trainer.TrainJobStatus, error) {
