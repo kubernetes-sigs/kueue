@@ -85,6 +85,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Ordered, ginkgo.Contin
 
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("Creating a Job", func() {
@@ -317,6 +318,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	ginkgo.It("should delete Job", func() {
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
 		ginkgo.By("Creating a Job", func() {

@@ -260,6 +260,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, createdJob)
@@ -403,6 +404,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob1)
@@ -422,6 +424,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, lowerJob2)
@@ -441,6 +444,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				Obj()
@@ -461,6 +465,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()
@@ -468,6 +473,7 @@ var _ = ginkgo.Describe("Metrics", func() {
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				PriorityClass(highPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				Obj()

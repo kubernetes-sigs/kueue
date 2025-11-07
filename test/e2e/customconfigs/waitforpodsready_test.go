@@ -134,6 +134,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		ginkgo.By("creating a suspended job so its pods never report Ready", func() {
 			job = testingjob.MakeJob("job-timeout", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Request(corev1.ResourceCPU, "2").
 				Parallelism(1).
 				Obj()
