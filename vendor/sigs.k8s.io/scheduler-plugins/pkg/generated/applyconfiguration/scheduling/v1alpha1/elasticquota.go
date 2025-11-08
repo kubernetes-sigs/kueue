@@ -43,12 +43,13 @@ func ElasticQuota(name, namespace string) *ElasticQuotaApplyConfiguration {
 	b.WithAPIVersion("scheduling.x-k8s.io/v1alpha1")
 	return b
 }
+func (b ElasticQuotaApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithKind(value string) *ElasticQuotaApplyConfiguration {
-	b.Kind = &value
+	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
 
@@ -56,7 +57,7 @@ func (b *ElasticQuotaApplyConfiguration) WithKind(value string) *ElasticQuotaApp
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithAPIVersion(value string) *ElasticQuotaApplyConfiguration {
-	b.APIVersion = &value
+	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
 
@@ -65,7 +66,7 @@ func (b *ElasticQuotaApplyConfiguration) WithAPIVersion(value string) *ElasticQu
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithName(value string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.Name = &value
+	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
 }
 
@@ -74,7 +75,7 @@ func (b *ElasticQuotaApplyConfiguration) WithName(value string) *ElasticQuotaApp
 // If called multiple times, the GenerateName field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithGenerateName(value string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.GenerateName = &value
+	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
 }
 
@@ -83,7 +84,7 @@ func (b *ElasticQuotaApplyConfiguration) WithGenerateName(value string) *Elastic
 // If called multiple times, the Namespace field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithNamespace(value string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.Namespace = &value
+	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
 }
 
@@ -92,7 +93,7 @@ func (b *ElasticQuotaApplyConfiguration) WithNamespace(value string) *ElasticQuo
 // If called multiple times, the UID field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithUID(value types.UID) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.UID = &value
+	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
 }
 
@@ -101,7 +102,7 @@ func (b *ElasticQuotaApplyConfiguration) WithUID(value types.UID) *ElasticQuotaA
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithResourceVersion(value string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.ResourceVersion = &value
+	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
 }
 
@@ -110,7 +111,7 @@ func (b *ElasticQuotaApplyConfiguration) WithResourceVersion(value string) *Elas
 // If called multiple times, the Generation field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithGeneration(value int64) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.Generation = &value
+	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
 }
 
@@ -119,7 +120,7 @@ func (b *ElasticQuotaApplyConfiguration) WithGeneration(value int64) *ElasticQuo
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithCreationTimestamp(value metav1.Time) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.CreationTimestamp = &value
+	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
 }
 
@@ -128,7 +129,7 @@ func (b *ElasticQuotaApplyConfiguration) WithCreationTimestamp(value metav1.Time
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.DeletionTimestamp = &value
+	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
 }
 
@@ -137,7 +138,7 @@ func (b *ElasticQuotaApplyConfiguration) WithDeletionTimestamp(value metav1.Time
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
 func (b *ElasticQuotaApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	b.DeletionGracePeriodSeconds = &value
+	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
 }
 
@@ -147,11 +148,11 @@ func (b *ElasticQuotaApplyConfiguration) WithDeletionGracePeriodSeconds(value in
 // overwriting an existing map entries in Labels field with the same key.
 func (b *ElasticQuotaApplyConfiguration) WithLabels(entries map[string]string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	if b.Labels == nil && len(entries) > 0 {
-		b.Labels = make(map[string]string, len(entries))
+	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
+		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
 	}
 	for k, v := range entries {
-		b.Labels[k] = v
+		b.ObjectMetaApplyConfiguration.Labels[k] = v
 	}
 	return b
 }
@@ -162,11 +163,11 @@ func (b *ElasticQuotaApplyConfiguration) WithLabels(entries map[string]string) *
 // overwriting an existing map entries in Annotations field with the same key.
 func (b *ElasticQuotaApplyConfiguration) WithAnnotations(entries map[string]string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
-	if b.Annotations == nil && len(entries) > 0 {
-		b.Annotations = make(map[string]string, len(entries))
+	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
+		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
 	}
 	for k, v := range entries {
-		b.Annotations[k] = v
+		b.ObjectMetaApplyConfiguration.Annotations[k] = v
 	}
 	return b
 }
@@ -180,7 +181,7 @@ func (b *ElasticQuotaApplyConfiguration) WithOwnerReferences(values ...*v1.Owner
 		if values[i] == nil {
 			panic("nil value passed to WithOwnerReferences")
 		}
-		b.OwnerReferences = append(b.OwnerReferences, *values[i])
+		b.ObjectMetaApplyConfiguration.OwnerReferences = append(b.ObjectMetaApplyConfiguration.OwnerReferences, *values[i])
 	}
 	return b
 }
@@ -191,7 +192,7 @@ func (b *ElasticQuotaApplyConfiguration) WithOwnerReferences(values ...*v1.Owner
 func (b *ElasticQuotaApplyConfiguration) WithFinalizers(values ...string) *ElasticQuotaApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
-		b.Finalizers = append(b.Finalizers, values[i])
+		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
 	}
 	return b
 }
@@ -218,8 +219,24 @@ func (b *ElasticQuotaApplyConfiguration) WithStatus(value *ElasticQuotaStatusApp
 	return b
 }
 
+// GetKind retrieves the value of the Kind field in the declarative configuration.
+func (b *ElasticQuotaApplyConfiguration) GetKind() *string {
+	return b.TypeMetaApplyConfiguration.Kind
+}
+
+// GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
+func (b *ElasticQuotaApplyConfiguration) GetAPIVersion() *string {
+	return b.TypeMetaApplyConfiguration.APIVersion
+}
+
 // GetName retrieves the value of the Name field in the declarative configuration.
 func (b *ElasticQuotaApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
-	return b.Name
+	return b.ObjectMetaApplyConfiguration.Name
+}
+
+// GetNamespace retrieves the value of the Namespace field in the declarative configuration.
+func (b *ElasticQuotaApplyConfiguration) GetNamespace() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.ObjectMetaApplyConfiguration.Namespace
 }

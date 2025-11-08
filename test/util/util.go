@@ -56,7 +56,6 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -67,7 +66,6 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -370,22 +368,24 @@ func expectWorkloadsToBeAdmittedCountWithOffset(ctx context.Context, offset int,
 
 func ExpectWorkloadsWithWorkloadPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	expectWorkloadsWithPriority(ctx, c, constants.WorkloadPriorityClassSource, name, value, wlKeys...)
+	expectWorkloadsWithPriority(ctx, c, kueue.WorkloadPriorityClassGroup, kueue.WorkloadPriorityClassKind, name, value, wlKeys...)
 }
 
 func ExpectWorkloadsWithPodPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	expectWorkloadsWithPriority(ctx, c, constants.PodPriorityClassSource, name, value, wlKeys...)
+	expectWorkloadsWithPriority(ctx, c, kueue.PodPriorityClassGroup, kueue.PodPriorityClassKind, name, value, wlKeys...)
 }
 
-func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityClassSource, name string, value int32, wlKeys ...client.ObjectKey) {
+func expectWorkloadsWithPriority(ctx context.Context, c client.Client, priorityClassGroup kueue.PriorityClassGroup, priorityClassKind kueue.PriorityClassKind, name string, value int32, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	createdWl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		for _, wlKey := range wlKeys {
 			g.Expect(c.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
-			g.Expect(createdWl.Spec.PriorityClassSource).To(gomega.Equal(priorityClassSource))
-			g.Expect(createdWl.Spec.PriorityClassName).To(gomega.Equal(name))
+			g.Expect(createdWl.Spec.PriorityClassRef).ToNot(gomega.BeNil())
+			g.Expect(createdWl.Spec.PriorityClassRef.Group).To(gomega.Equal(priorityClassGroup))
+			g.Expect(createdWl.Spec.PriorityClassRef.Kind).To(gomega.Equal(priorityClassKind))
+			g.Expect(createdWl.Spec.PriorityClassRef.Name).To(gomega.Equal(name))
 			g.Expect(createdWl.Spec.Priority).To(gomega.Equal(&value))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -428,7 +428,7 @@ func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient cli
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-		g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+		g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func() (*kueue.Workload, bool, error) {
 			return &wl, workload.SetRequeuedCondition(&wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()), false), nil
 		})).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
@@ -831,7 +831,7 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 	for _, wl := range wls {
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+			g.ExpectWithOffset(1, workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, RealClock, func() (*kueue.Workload, bool, error) {
 				return &updatedWorkload, workload.SyncAdmittedCondition(&updatedWorkload, time.Now()), nil
 			})).To(gomega.Succeed())
 		}, Timeout, Interval).Should(gomega.Succeed())
@@ -857,7 +857,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			var updatedWorkload kueue.Workload
 			g.Expect(k8sClient.Get(ctx, key, &updatedWorkload)).Should(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
-				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, clock.RealClock{}, func() (*kueue.Workload, bool, error) {
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, RealClock, func() (*kueue.Workload, bool, error) {
 					return &updatedWorkload, workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now()), nil
 				}),
 				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
@@ -892,7 +892,7 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 			workload.SetAdmissionCheckState(&updatedWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
 				Name:  check,
 				State: state,
-			}, clock.RealClock{})
+			}, RealClock)
 		}
 		g.Expect(k8sClient.Status().Update(ctx, &updatedWorkload)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())

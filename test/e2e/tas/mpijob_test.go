@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util"
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						ReplicaCount:  launcherReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", func() {
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					},
 				).

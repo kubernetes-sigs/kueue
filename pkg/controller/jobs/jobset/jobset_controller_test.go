@@ -32,7 +32,6 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -473,9 +472,8 @@ func TestReconciler(t *testing.T) {
 			).WorkloadPriorityClass("test-wpc").Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("jobset", "ns").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
@@ -512,9 +510,8 @@ func TestReconciler(t *testing.T) {
 			).PriorityClass("test-pc").Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("jobset", "ns").
-					PriorityClass("test-pc").
+					PodPriorityClassRef("test-pc").
 					Priority(200).
-					PriorityClassSource(constants.PodPriorityClassSource).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).
@@ -551,9 +548,8 @@ func TestReconciler(t *testing.T) {
 			).PriorityClass("test-pc").WorkloadPriorityClass("test-wpc").Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("jobset", "ns").
-					PriorityClass("test-wpc").
+					WorkloadPriorityClassRef("test-wpc").
 					Priority(100).
-					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					PodSets(
 						*utiltestingapi.MakePodSet("replicated-job-1", 1).
 							PodIndexLabel(ptr.To("batch.kubernetes.io/job-completion-index")).

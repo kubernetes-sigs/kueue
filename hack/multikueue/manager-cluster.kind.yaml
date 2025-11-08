@@ -24,6 +24,7 @@ nodes:
 - role: worker
   labels:
     instance-type: on-demand
+    cloud.provider.com/node-group: tas-node
 
 kubeadmConfigPatches:
   - |

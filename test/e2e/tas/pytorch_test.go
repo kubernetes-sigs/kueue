@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util"
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						ReplicaCount:  masterReplicas,
 						RestartPolicy: kftraining.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultRackTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
 					},
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", func() {
 						ReplicaCount:  workerReplicas,
 						RestartPolicy: kftraining.RestartPolicyOnFailure,
 						Annotations: map[string]string{
-							kueue.PodSetPreferredTopologyAnnotation: testing.DefaultBlockTopologyLevel,
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
 					},
 				).

@@ -80,9 +80,8 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 		maps.Copy(wl.Labels, cache.AddLabels)
 
 		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
-			wl.Spec.PriorityClassName = pc.Name
+			wl.Spec.PriorityClassRef = kueuev1beta2.NewPodPriorityClassRef(pc.Name)
 			wl.Spec.Priority = &pc.Value
-			wl.Spec.PriorityClassSource = constants.PodPriorityClassSource
 		}
 
 		wlv1beta1 := &kueue.Workload{

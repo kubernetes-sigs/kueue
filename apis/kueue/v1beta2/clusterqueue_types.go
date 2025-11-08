@@ -31,7 +31,6 @@ const (
 	ClusterQueueActiveReasonAdmissionCheckInactive                   = "AdmissionCheckInactive"
 	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks        = "MultipleMultiKueueAdmissionChecks"
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
-	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling  = "NotSupportedWithTopologyAwareScheduling"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
@@ -78,7 +77,7 @@ type ClusterQueueSpec struct {
 	// A cohort is a name that links CQs together, but it doesn't reference any
 	// object.
 	// +optional
-	CohortName CohortReference `json:"cohortName,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	CohortName CohortReference `json:"cohortName,omitempty"`
 
 	// queueingStrategy indicates the queueing strategy of the workloads
 	// across the queues in this ClusterQueue.
@@ -94,7 +93,7 @@ type ClusterQueueSpec struct {
 	// +optional
 	// +kubebuilder:default=BestEffortFIFO
 	// +kubebuilder:validation:Enum=StrictFIFO;BestEffortFIFO
-	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
 	// this clusterQueue. Beyond this basic support for policy, a policy agent like
@@ -217,7 +216,7 @@ type FlavorQuotas struct {
 	// ResourceFlavor. If a matching ResourceFlavor does not exist, the
 	// ClusterQueue will have an Active condition set to False.
 	// +required
-	Name ResourceFlavorReference `json:"name"` //nolint:kubeapilinter // should not be a pointer
+	Name ResourceFlavorReference `json:"name"`
 
 	// resources is the list of quotas for this flavor per resource.
 	// There could be up to 64 resources.
@@ -311,17 +310,17 @@ type ClusterQueueStatus struct {
 	// pendingWorkloads is the number of workloads currently waiting to be
 	// admitted to this clusterQueue.
 	// +optional
-	PendingWorkloads int32 `json:"pendingWorkloads"` //nolint:kubeapilinter // should not be a pointer
+	PendingWorkloads int32 `json:"pendingWorkloads"`
 
 	// reservingWorkloads is the number of workloads currently reserving quota in this
 	// clusterQueue.
 	// +optional
-	ReservingWorkloads int32 `json:"reservingWorkloads"` //nolint:kubeapilinter // should not be a pointer
+	ReservingWorkloads int32 `json:"reservingWorkloads"`
 
 	// admittedWorkloads is the number of workloads currently admitted to this
 	// clusterQueue and haven't finished yet.
 	// +optional
-	AdmittedWorkloads int32 `json:"admittedWorkloads"` //nolint:kubeapilinter // should not be a pointer
+	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 
 	// fairSharing contains the current state for this ClusterQueue
 	// when participating in Fair Sharing.
@@ -333,7 +332,7 @@ type ClusterQueueStatus struct {
 type FlavorUsage struct {
 	// name of the flavor.
 	// +required
-	Name ResourceFlavorReference `json:"name,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	Name ResourceFlavorReference `json:"name,omitempty"`
 
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
@@ -351,12 +350,12 @@ type ResourceUsage struct {
 	// total is the total quantity of used quota, including the amount borrowed
 	// from the cohort.
 	// +optional
-	Total resource.Quantity `json:"total,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	Total resource.Quantity `json:"total,omitempty"`
 
 	// borrowed is quantity of quota that is borrowed from the cohort. In other
 	// words, it's the used quota that is over the nominalQuota.
 	// +optional
-	Borrowed resource.Quantity `json:"borrowed,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	Borrowed resource.Quantity `json:"borrowed,omitempty"`
 }
 
 const (
@@ -394,7 +393,7 @@ type FlavorFungibility struct {
 	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor}
 	// +kubebuilder:default="MayStopSearch"
 	// +optional
-	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
@@ -406,7 +405,7 @@ type FlavorFungibility struct {
 	// +kubebuilder:validation:Enum={MayStopSearch,TryNextFlavor}
 	// +kubebuilder:default="TryNextFlavor"
 	// +optional
-	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 }
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
@@ -450,7 +449,7 @@ type ClusterQueuePreemption struct {
 	// +optional
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
-	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
 	// borrowWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
@@ -473,7 +472,7 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	// +optional
-	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 
 type BorrowWithinCohortPolicy string
@@ -498,7 +497,7 @@ type BorrowWithinCohort struct {
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority
 	// +optional
-	Policy BorrowWithinCohortPolicy `json:"policy,omitempty"` //nolint:kubeapilinter // should not be a pointer
+	Policy BorrowWithinCohortPolicy `json:"policy,omitempty"`
 	// maxPriorityThreshold allows to restrict the set of workloads which
 	// might be preempted by a borrowing workload, to only workloads with
 	// priority less than or equal to the specified threshold priority.
@@ -528,10 +527,10 @@ type ClusterQueue struct {
 
 	// spec is the specification of the ClusterQueue.
 	// +optional
-	Spec ClusterQueueSpec `json:"spec,omitempty"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec ClusterQueueSpec `json:"spec,omitempty"`
 	// status is the status of the ClusterQueue.
 	// +optional
-	Status ClusterQueueStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
+	Status ClusterQueueStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

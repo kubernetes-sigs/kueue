@@ -52,7 +52,7 @@ type AdmissionCheckSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:MinLength=1
-	ControllerName string `json:"controllerName"` //nolint:kubeapilinter // ignore omitempty
+	ControllerName string `json:"controllerName"`
 
 	// parameters identifies a configuration with additional parameters for the
 	// check.
@@ -116,11 +116,11 @@ type AdmissionCheck struct {
 
 	// spec is the specification of the AdmissionCheck.
 	// +optional
-	Spec AdmissionCheckSpec `json:"spec"` //nolint:kubeapilinter // spec should not be a pointer
+	Spec AdmissionCheckSpec `json:"spec"`
 
 	// status is the status of the AdmissionCheck.
 	// +optional
-	Status AdmissionCheckStatus `json:"status,omitempty"` //nolint:kubeapilinter // status should not be a pointer
+	Status AdmissionCheckStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
