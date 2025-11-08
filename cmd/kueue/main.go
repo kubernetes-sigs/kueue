@@ -77,6 +77,7 @@ func run(ctx context.Context, configFile, featureGates string) error {
 	go func() {
 		if err := mgrSetup.Config.SetupControllers(ctx, mgrSetup.Mgr, mgrSetup.CCache, mgrSetup.Queues, mgrSetup.CertsReady, mgrSetup.ServerVersionFetcher); err != nil {
 			setupLog.Error(err, "Unable to setup controllers")
+			os.Exit(1)
 		}
 	}()
 
@@ -88,6 +89,7 @@ func run(ctx context.Context, configFile, featureGates string) error {
 			internalCertEnabled := mgrSetup.Config.Apiconf.InternalCertManagement != nil && *mgrSetup.Config.Apiconf.InternalCertManagement.Enable
 			if err := visibility.CreateAndStartVisibilityServer(ctx, mgrSetup.Queues, internalCertEnabled, mgrSetup.Mgr.GetConfig()); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
+				os.Exit(1)
 			}
 		}()
 	}

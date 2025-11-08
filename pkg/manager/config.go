@@ -25,10 +25,11 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	configv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 
@@ -57,9 +58,10 @@ func NewConfig() *Config {
 	utilruntime.Must(clientgoscheme.AddToScheme(config.scheme))
 	utilruntime.Must(schedulingv1.AddToScheme(config.scheme))
 
-	utilruntime.Must(kueue.AddToScheme(config.scheme))
 	utilruntime.Must(kueuev1beta1.AddToScheme(config.scheme))
+	utilruntime.Must(kueuev1beta2.AddToScheme(config.scheme))
 	utilruntime.Must(kueuealpha.AddToScheme(config.scheme))
+	utilruntime.Must(configv1beta1.AddToScheme(config.scheme))
 	utilruntime.Must(configapi.AddToScheme(config.scheme))
 	utilruntime.Must(autoscaling.AddToScheme(config.scheme))
 	// Add any additional framework integration types.
