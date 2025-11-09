@@ -388,6 +388,26 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-sparkoperator-k8s-io-v1beta2-sparkapplication
+    failurePolicy: Fail
+    name: msparkapplication.kb.io
+    rules:
+      - apiGroups:
+          - sparkoperator.k8s.io
+        apiVersions:
+          - v1beta2
+        operations:
+          - CREATE
+        resources:
+          - sparkapplications
+    sideEffects: None
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-statefulset
     name: mstatefulset.kb.io
     {{- if has "statefulset" $integrationsConfig.frameworks }}
@@ -888,6 +908,26 @@ webhooks:
           - UPDATE
         resources:
           - resourceflavors
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-sparkoperator-k8s-io-v1beta2-sparkapplication
+    failurePolicy: Fail
+    name: vsparkapplication.kb.io
+    rules:
+      - apiGroups:
+          - sparkoperator.k8s.io
+        apiVersions:
+          - v1beta2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - sparkapplications
     sideEffects: None
   - admissionReviewVersions:
       - v1

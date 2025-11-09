@@ -28,6 +28,7 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 )

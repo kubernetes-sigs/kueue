@@ -56,6 +56,7 @@ integrations:
   - "kubeflow.org/jaxjob"
   - "workload.codeflare.dev/appwrapper"
   - "trainer.kubeflow.org/trainjob"
+  - "sparkoperator.k8s.io/sparkapplication"
   - "pod"
   - "deployment"
   - "statefulset"
