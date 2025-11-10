@@ -1,4 +1,4 @@
-package utils
+package types
 
 // Please see the Ray Serve docs
 // https://docs.ray.io/en/latest/serve/api/doc/ray.serve.schema.ServeDeploySchema.html for the
