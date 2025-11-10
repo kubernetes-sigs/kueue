@@ -160,8 +160,8 @@ const (
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
-	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy
-	// This feature gate is going to be replaced by an API before graduation or deprecation.
+	// In flavor fungibility, the preference whether to preempt or borrow is inferred from flavor fungibility policy.
+	// Deprecated: planned to be removed in v0.16.
 	FlavorFungibilityImplicitPreferenceDefault featuregate.Feature = "FlavorFungibilityImplicitPreferenceDefault"
 
 	// owner: @alaypatel07
@@ -297,6 +297,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FlavorFungibilityImplicitPreferenceDefault: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.16
 	},
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},

@@ -42,6 +42,8 @@ func TestValidateClusterQueue(t *testing.T) {
 		clusterQueue        *kueue.ClusterQueue
 		wantErr             field.ErrorList
 		disableLendingLimit bool
+		wantDetail          string
+		wantBadValue        string
 	}{
 		{
 			name: "built-in resources with qualified names",
@@ -317,6 +319,66 @@ func TestValidateClusterQueue(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "flavorFungibility preference set but whenCanPreempt != TryNextFlavor",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.MayStopSearch,
+					Preference:     ptr.To(kueue.BorrowingOverPreemption),
+				}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("flavorFungibility", "preference"), "", ""),
+			},
+			wantDetail:   `preference "BorrowingOverPreemption" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
+			wantBadValue: string(kueue.BorrowingOverPreemption),
+		},
+		{
+			name: "flavorFungibility preference set but whenCanBorrow != TryNextFlavor",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
+					Preference:     ptr.To(kueue.BorrowingOverPreemption),
+				}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("flavorFungibility", "preference"), "", ""),
+			},
+			wantDetail:   `preference "BorrowingOverPreemption" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
+			wantBadValue: string(kueue.BorrowingOverPreemption),
+		},
+		{
+			name: "flavorFungibility preference BorrowingOverPreemption with both TryNextFlavor is valid",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.BorrowingOverPreemption),
+				}).Obj(),
+		},
+		{
+			name: "flavorFungibility preference PreemptionOverBorrowing with both TryNextFlavor is valid",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+				}).Obj(),
+		},
+		{
+			name: "flavorFungibility preference PreemptionOverBorrowing but whenCanBorrow != TryNextFlavor",
+			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.TryNextFlavor,
+					Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+				}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("flavorFungibility", "preference"), "", ""),
+			},
+			wantDetail:   `preference "PreemptionOverBorrowing" requires both whenCanBorrow and whenCanPreempt to be TryNextFlavor`,
+			wantBadValue: string(kueue.PreemptionOverBorrowing),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -327,6 +389,20 @@ func TestValidateClusterQueue(t *testing.T) {
 			gotErr := ValidateClusterQueue(tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantDetail != "" || tc.wantBadValue != "" {
+				if len(gotErr) == 0 {
+					t.Fatalf("expected an error but got none")
+				}
+				if tc.wantDetail != "" && gotErr[0].Detail != tc.wantDetail {
+					t.Fatalf("unexpected error detail, want %q got %q", tc.wantDetail, gotErr[0].Detail)
+				}
+				if tc.wantBadValue != "" {
+					gotBad := fmt.Sprint(gotErr[0].BadValue)
+					if gotBad != tc.wantBadValue {
+						t.Fatalf("unexpected bad value, want %q got %q", tc.wantBadValue, gotBad)
+					}
+				}
 			}
 		})
 	}
