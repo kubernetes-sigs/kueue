@@ -1313,53 +1313,17 @@ func Evict(ctx context.Context, c client.Client, recorder record.EventRecorder, 
 	return nil
 }
 
-type FinishOption func(*FinishOptions)
-
-type FinishOptions struct {
-	UsePatch       bool
-	ForceOwnership bool
-}
-
-func DefaultFinishOptions() *FinishOptions {
-	return &FinishOptions{
-		UsePatch:       false,
-		ForceOwnership: false,
-	}
-}
-
-func WithUsePatch() FinishOption {
-	return func(o *FinishOptions) {
-		o.UsePatch = true
-	}
-}
-
-func WithForceOwnership() FinishOption {
-	return func(o *FinishOptions) {
-		o.ForceOwnership = true
-	}
-}
-
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg, managerPrefix string, clock clock.Clock, options ...FinishOption) error {
-	optsFinish := DefaultFinishOptions()
-	for _, opt := range options {
-		opt(optsFinish)
-	}
-
-	if features.Enabled(features.WorkloadRequestUseMergePatch) || optsFinish.UsePatch {
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg, managerPrefix string, clock clock.Clock) error {
+	if features.Enabled(features.WorkloadRequestUseMergePatch) {
 		return clientutil.PatchStatus(ctx, c, wl, func() (client.Object, bool, error) {
 			update := SetFinishedCondition(wl, clock.Now(), reason, msg)
 			return wl, update, nil
 		})
 	} else {
-		newWl := BaseSSAWorkload(wl, false)
+		newWl := BaseSSAWorkload(wl, true)
 		SetFinishedCondition(newWl, clock.Now(), reason, msg)
-
 		fieldOwner := client.FieldOwner(managerPrefix + "-" + kueue.WorkloadFinished)
-		applyOpts := []client.SubResourcePatchOption{fieldOwner}
-		if optsFinish.ForceOwnership {
-			applyOpts = append(applyOpts, client.ForceOwnership)
-		}
-		return c.Status().Patch(ctx, newWl, client.Apply, applyOpts...)
+		return c.Status().Patch(ctx, newWl, client.Apply, fieldOwner, client.ForceOwnership)
 	}
 }
 
