@@ -37,7 +37,7 @@ require (
 	k8s.io/kubectl v0.34.1
 	k8s.io/metrics v0.34.1
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
-	sigs.k8s.io/controller-runtime v0.22.3
+	sigs.k8s.io/controller-runtime v0.22.4
 	sigs.k8s.io/jobset v0.10.1
 	sigs.k8s.io/lws v0.7.0
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0
