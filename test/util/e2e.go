@@ -263,8 +263,80 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 			appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
 		))
+		g.Expect(deployment.Status.ReadyReplicas).To(gomega.Equal(*deployment.Spec.Replicas))
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("Deployment is available in the cluster", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
+	ginkgo.GinkgoLogr.Info("Deployment available", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
+}
+
+func getPodRestartCounts(pods *corev1.PodList) map[string]int32 {
+	restartCounts := make(map[string]int32, len(pods.Items))
+	for _, pod := range pods.Items {
+		var totalRestarts int32
+		for _, cs := range pod.Status.ContainerStatuses {
+			totalRestarts += cs.RestartCount
+		}
+		restartCounts[pod.Name] = totalRestarts
+	}
+	return restartCounts
+}
+
+func verifyPodsReady(pods *corev1.PodList) error {
+	for _, pod := range pods.Items {
+		var ready bool
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+				ready = true
+				break
+			}
+		}
+		if !ready {
+			return fmt.Errorf("pod %s is not ready", pod.Name)
+		}
+	}
+	return nil
+}
+
+func verifyNoRestartsDuringPeriod(initialRestarts map[string]int32, currentPods *corev1.PodList) error {
+	for _, pod := range currentPods.Items {
+		initialCount, exists := initialRestarts[pod.Name]
+		if !exists {
+			return fmt.Errorf("pod %s was recreated during stability period", pod.Name)
+		}
+
+		var currentRestarts int32
+		for _, cs := range pod.Status.ContainerStatuses {
+			currentRestarts += cs.RestartCount
+		}
+
+		if currentRestarts != initialCount {
+			return fmt.Errorf("pod %s restarted during stability period (was %d, now %d)",
+				pod.Name, initialCount, currentRestarts)
+		}
+	}
+	return nil
+}
+
+// waitForDeploymentStability waits for a deployment's pods to have no restarts
+// during the specified stability period, ensuring true stability after disruptions.
+func waitForDeploymentStability(ctx context.Context, k8sClient client.Client, key types.NamespacedName, stabilityPeriod time.Duration) {
+	waitForStabilityStart := time.Now()
+	ginkgo.By(fmt.Sprintf("Waiting for deployment %q stability for %v", key, stabilityPeriod))
+	gomega.Eventually(func(g gomega.Gomega) {
+		deployment := &appsv1.Deployment{}
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		labels := deployment.Spec.Selector.MatchLabels
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(labels))).To(gomega.Succeed())
+		g.Expect(pods.Items).To(gomega.HaveLen(int(*deployment.Spec.Replicas)))
+
+		initialRestarts := getPodRestartCounts(pods)
+		time.Sleep(stabilityPeriod)
+
+		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(labels))).To(gomega.Succeed())
+		g.Expect(verifyNoRestartsDuringPeriod(initialRestarts, pods)).To(gomega.Succeed())
+		g.Expect(verifyPodsReady(pods)).To(gomega.Succeed())
+	}, StartUpTimeout, Interval).Should(gomega.Succeed())
+	ginkgo.GinkgoLogr.Info("Deployment stable", "deployment", key, "waitingTime", time.Since(waitForStabilityStart))
 }
 
 func verifyNoControllerRestarts(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
@@ -406,6 +478,12 @@ func WaitForKueueAvailabilityNoRestartCountCheck(ctx context.Context, k8sClient 
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, kcmKey)
+}
+
+func WaitForKueueDeploymentStability(ctx context.Context, k8sClient client.Client, stabilityPeriod time.Duration) {
+	kueueNS := GetKueueNamespace()
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	waitForDeploymentStability(ctx, k8sClient, kcmKey, stabilityPeriod)
 }
 
 func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {

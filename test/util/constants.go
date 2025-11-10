@@ -46,6 +46,8 @@ const (
 	ConsistentDuration = time.Second
 	ShortInterval      = 10 * time.Millisecond
 	Interval           = time.Millisecond * 250
+	// DefaultStabilityPeriod is the time to wait for pods to be stable (no restarts).
+	DefaultStabilityPeriod = 60 * time.Second
 )
 
 var (
