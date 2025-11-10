@@ -6,23 +6,31 @@ import (
 	"encoding/base32"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 const (
@@ -266,7 +274,7 @@ func GetNamespace(metaData metav1.ObjectMeta) string {
 // @param ownerName: The name of the CR that owns the head service.
 func GenerateHeadServiceName(crdType CRDType, clusterSpec rayv1.RayClusterSpec, ownerName string) (string, error) {
 	switch crdType {
-	case RayServiceCRD:
+	case RayServiceCRD, RayJobCRD:
 		return fmt.Sprintf("%s-%s-%s", ownerName, rayv1.HeadNode, "svc"), nil
 	case RayClusterCRD:
 		headSvcName := fmt.Sprintf("%s-%s-%s", ownerName, rayv1.HeadNode, "svc")
@@ -324,6 +332,12 @@ func GenerateRayClusterName(serviceName string) string {
 // GenerateRayJobId generates a ray job id for submission
 func GenerateRayJobId(rayjob string) string {
 	return fmt.Sprintf("%s-%s", rayjob, rand.String(5))
+}
+
+// GenerateRayWorkerReplicaGroupName generates a name for the replica group
+// currently used for RayMultiHostIndexing
+func GenerateRayWorkerReplicaGroupName(workerGroupName string) string {
+	return fmt.Sprintf("%s-%s", workerGroupName, rand.String(5))
 }
 
 // GenerateIdentifier generates identifier of same group pods
@@ -436,7 +450,7 @@ func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 			desiredResourcesList = append(desiredResourcesList, podResource)
 		}
 	}
-	return sumResourceList(desiredResourcesList)
+	return SumResourceList(desiredResourcesList)
 }
 
 func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
@@ -450,7 +464,7 @@ func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 			minResourcesList = append(minResourcesList, podResource)
 		}
 	}
-	return sumResourceList(minResourcesList)
+	return SumResourceList(minResourcesList)
 }
 
 // calculateReplicaResource adjusts the resource quantities in a given ResourceList
@@ -499,7 +513,7 @@ func ConvertResourceListToMapString(resourceList corev1.ResourceList) map[string
 	return result
 }
 
-func sumResourceList(list []corev1.ResourceList) corev1.ResourceList {
+func SumResourceList(list []corev1.ResourceList) corev1.ResourceList {
 	totalResource := corev1.ResourceList{}
 	for _, l := range list {
 		for name, quantity := range l {
@@ -595,10 +609,10 @@ func GenerateJsonHash(obj interface{}) (string, error) {
 // FindContainerPort searches for a specific port $portName in the container.
 // If the port is found in the container, the corresponding port is returned.
 // If the port is not found, the $defaultPort is returned instead.
-func FindContainerPort(container *corev1.Container, portName string, defaultPort int) int {
+func FindContainerPort(container *corev1.Container, portName string, defaultPort int32) int32 {
 	for _, port := range container.Ports {
 		if port.Name == portName {
-			return int(port.ContainerPort)
+			return port.ContainerPort
 		}
 	}
 	return defaultPort
@@ -637,8 +651,8 @@ func EnvVarByName(envName string, envVars []corev1.EnvVar) (corev1.EnvVar, bool)
 }
 
 type ClientProvider interface {
-	GetDashboardClient(mgr manager.Manager) func() RayDashboardClientInterface
-	GetHttpProxyClient(mgr manager.Manager) func() RayHttpProxyClientInterface
+	GetDashboardClient(mgr manager.Manager) func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error)
+	GetHttpProxyClient(mgr manager.Manager) func(hostIp, podNamespace, podName string, port int) RayHttpProxyClientInterface
 }
 
 func ManagedByExternalController(controllerName *string) *string {
@@ -669,6 +683,115 @@ func GetRayClusterNameFromService(svc *corev1.Service) string {
 		return ""
 	}
 	return svc.Spec.Selector[RayClusterLabelKey]
+}
+
+// IsGatewayReady checks if a Gateway is considered "ready".
+//
+// A Gateway is "ready" only if both the `Accepted` and `Programmed` conditions
+// are set to 'True'.
+//
+//  1. 'Accepted': Signifies that the Gateway controller understands and accepts
+//     the Gateway resource. If 'False', it often indicates a conflict or an invalid
+//     specification.
+//
+//  2. 'Programmed': Signifies that the underlying network infrastructure for the Gateway
+//     (e.g. load balancer) has been successfully provisioned and configured.
+func IsGatewayReady(gatewayInstance *gwv1.Gateway) bool {
+	if gatewayInstance == nil {
+		return false
+	}
+
+	hasAccepted := meta.IsStatusConditionTrue(gatewayInstance.Status.Conditions, string(gwv1.GatewayConditionAccepted))
+	hasProgrammed := meta.IsStatusConditionTrue(gatewayInstance.Status.Conditions, string(gwv1.GatewayConditionProgrammed))
+
+	return hasAccepted && hasProgrammed
+}
+
+// IsHTTPRouteReady checks if an HTTPRoute is considered ready for a given Gateway.
+//
+// It returns true only if the route's parent status entry matching the Gateway has both
+// the 'Accepted' and 'ResolvedRefs' conditions set to 'True'.
+//
+//  1. 'Accepted': Signifies that the Gateway controller has validated the HTTPRoute's
+//     configuration (e.g. syntax, filters, matching rules). An 'Accepted' status of
+//     'False' means the route's specification is invalid.
+//
+//  2. 'ResolvedRefs': Signifies that all references within the route are valid, exist,
+//     and are resolvable by the Gateway.
+func IsHTTPRouteReady(gatewayInstance *gwv1.Gateway, httpRouteInstance *gwv1.HTTPRoute) bool {
+	if httpRouteInstance == nil {
+		return false
+	}
+	for _, parent := range httpRouteInstance.Status.Parents {
+		if parent.ParentRef.Name != gwv1.ObjectName(gatewayInstance.Name) {
+			continue
+		}
+		if parent.ParentRef.Namespace != nil && *parent.ParentRef.Namespace != gwv1.Namespace(gatewayInstance.Namespace) {
+			continue
+		}
+		hasAccepted := meta.IsStatusConditionTrue(parent.Conditions, string(gwv1.RouteConditionAccepted))
+		hasResolved := meta.IsStatusConditionTrue(parent.Conditions, string(gwv1.RouteConditionResolvedRefs))
+
+		if hasAccepted && hasResolved {
+			return true
+		}
+	}
+	return false
+}
+
+func IsIncrementalUpgradeEnabled(spec *rayv1.RayServiceSpec) bool {
+	if !features.Enabled(features.RayServiceIncrementalUpgrade) {
+		return false
+	}
+	return spec != nil && spec.UpgradeStrategy != nil &&
+		*spec.UpgradeStrategy.Type == rayv1.NewClusterWithIncrementalUpgrade
+}
+
+func GetRayServiceClusterUpgradeOptions(spec *rayv1.RayServiceSpec) *rayv1.ClusterUpgradeOptions {
+	if spec != nil && spec.UpgradeStrategy != nil {
+		return spec.UpgradeStrategy.ClusterUpgradeOptions
+	}
+	return nil
+}
+
+// IsIncrementalUpgradeComplete checks if the conditions for completing an incremental upgrade are met.
+func IsIncrementalUpgradeComplete(rayServiceInstance *rayv1.RayService, pendingCluster *rayv1.RayCluster) bool {
+	return pendingCluster != nil &&
+		ptr.Deref(rayServiceInstance.Status.ActiveServiceStatus.TargetCapacity, -1) == 0 &&
+		ptr.Deref(rayServiceInstance.Status.PendingServiceStatus.TrafficRoutedPercent, -1) == 100
+}
+
+// GetWeightsFromHTTPRoute parses a given HTTPRoute object and extracts the traffic weights
+// for the active and pending clusters (if present) of a RayService.
+func GetWeightsFromHTTPRoute(httpRoute *gwv1.HTTPRoute, rayServiceInstance *rayv1.RayService) (activeWeight int32, pendingWeight int32) {
+	var activeClusterName, pendingClusterName string
+	if rayServiceInstance != nil {
+		activeClusterName = rayServiceInstance.Status.ActiveServiceStatus.RayClusterName
+		pendingClusterName = rayServiceInstance.Status.PendingServiceStatus.RayClusterName
+	}
+
+	// Defaults if weights can't be detected. This is so that we avoid setting TrafficRoutedPercent
+	// before the HTTPRoute actually exists.
+	activeWeight = -1
+	pendingWeight = -1
+
+	if httpRoute == nil || len(httpRoute.Spec.Rules) == 0 || len(httpRoute.Spec.Rules[0].BackendRefs) == 0 {
+		return
+	}
+
+	for _, backendRef := range httpRoute.Spec.Rules[0].BackendRefs {
+		backendName := string(backendRef.Name)
+		weight := ptr.Deref(backendRef.Weight, 0)
+
+		if activeClusterName != "" && strings.Contains(backendName, activeClusterName) {
+			activeWeight = weight
+		}
+		if pendingClusterName != "" && strings.Contains(backendName, pendingClusterName) {
+			pendingWeight = weight
+		}
+	}
+
+	return
 }
 
 // Check where we are running. We are trying to distinguish here whether
@@ -711,4 +834,94 @@ func GetContainerCommand(additionalOptions []string) []string {
 	}
 	bashOptionsStr := strings.Join(bashOptions, "")
 	return []string{"/bin/bash", "-" + bashOptionsStr, "--"}
+}
+
+// GetEnableDeterministicHeadName returns true if deterministic head pod name is enabled.
+func IsDeterministicHeadPodNameEnabled() bool {
+	return strings.ToLower(os.Getenv(ENABLE_DETERMINISTIC_HEAD_POD_NAME)) == "true"
+}
+
+// FetchHeadServiceURL fetches the URL that consists of the FQDN for the RayCluster's head service
+// and the port with the given port name (defaultPortName).
+func FetchHeadServiceURL(ctx context.Context, cli client.Client, rayCluster *rayv1.RayCluster, defaultPortName string) (string, error) {
+	headSvc := &corev1.Service{}
+	headSvcName, err := GenerateHeadServiceName(RayClusterCRD, rayCluster.Spec, rayCluster.Name)
+	if err != nil {
+		return "", err
+	}
+
+	if err = cli.Get(ctx, client.ObjectKey{Name: headSvcName, Namespace: rayCluster.Namespace}, headSvc); err != nil {
+		return "", err
+	}
+
+	servicePorts := headSvc.Spec.Ports
+	port := int32(-1)
+
+	for _, servicePort := range servicePorts {
+		if servicePort.Name == defaultPortName {
+			port = servicePort.Port
+			break
+		}
+	}
+
+	if port == int32(-1) {
+		return "", fmt.Errorf("%s port is not found", defaultPortName)
+	}
+
+	domainName := GetClusterDomainName()
+	headServiceURL := fmt.Sprintf("%s.%s.svc.%s:%v",
+		headSvc.Name,
+		headSvc.Namespace,
+		domainName,
+		port)
+	return headServiceURL, nil
+}
+
+func GetRayDashboardClientFunc(mgr manager.Manager, useKubernetesProxy bool) func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error) {
+	return func(rayCluster *rayv1.RayCluster, url string) (dashboardclient.RayDashboardClientInterface, error) {
+		dashboardClient := &dashboardclient.RayDashboardClient{}
+		if useKubernetesProxy {
+			var err error
+			headSvcName := rayCluster.Status.Head.ServiceName
+			if headSvcName == "" {
+				headSvcName, err = GenerateHeadServiceName(RayClusterCRD, rayCluster.Spec, rayCluster.Name)
+				if err != nil {
+					err = fmt.Errorf("failed to construct Ray dashboard client: %w", err)
+					return nil, err
+				}
+			}
+
+			dashboardClient.InitClient(
+				// Use `mgr.GetHTTPClient()` instead of `http.Client{}` so that the client has proper authentication
+				// configured to communicate with the Kubernetes API server.
+				mgr.GetHTTPClient(),
+				fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:dashboard/proxy", mgr.GetConfig().Host, rayCluster.Namespace, headSvcName),
+			)
+			return dashboardClient, nil
+		}
+
+		dashboardClient.InitClient(&http.Client{
+			Timeout: 2 * time.Second,
+		}, "http://"+url)
+		return dashboardClient, nil
+	}
+}
+
+func GetRayHttpProxyClientFunc(mgr manager.Manager, useKubernetesProxy bool) func(hostIp, podNamespace, podName string, port int) RayHttpProxyClientInterface {
+	return func(hostIp, podNamespace, podName string, port int) RayHttpProxyClientInterface {
+		if useKubernetesProxy {
+			return &RayHttpProxyClient{
+				client:       mgr.GetHTTPClient(),
+				httpProxyURL: fmt.Sprintf("%s/api/v1/namespaces/%s/pods/%s:%d/proxy/", mgr.GetConfig().Host, podNamespace, podName, port),
+			}
+		}
+		return &RayHttpProxyClient{
+			client:       &http.Client{Timeout: 2 * time.Second},
+			httpProxyURL: fmt.Sprintf("http://%s:%d/", hostIp, port),
+		}
+	}
+}
+
+func HasSubmitter(rayJobInstance *rayv1.RayJob) bool {
+	return rayJobInstance.Spec.SubmissionMode == rayv1.K8sJobMode || rayJobInstance.Spec.SubmissionMode == rayv1.SidecarMode
 }
