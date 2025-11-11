@@ -268,49 +268,36 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 	ginkgo.GinkgoLogr.Info("Deployment available", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
 
-func getPodRestartCounts(pods *corev1.PodList) map[string]int32 {
-	restartCounts := make(map[string]int32, len(pods.Items))
-	for _, pod := range pods.Items {
-		var totalRestarts int32
-		for _, cs := range pod.Status.ContainerStatuses {
-			totalRestarts += cs.RestartCount
+// getLatestContainerStartTime returns the most recent start time across all containers in a pod.
+// Returns zero time if no container is running.
+func getLatestContainerStartTime(pod *corev1.Pod) time.Time {
+	var latest time.Time
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Running == nil {
+			continue
 		}
-		restartCounts[pod.Name] = totalRestarts
-	}
-	return restartCounts
-}
-
-func verifyPodsReady(pods *corev1.PodList) error {
-	for _, pod := range pods.Items {
-		var ready bool
-		for _, condition := range pod.Status.Conditions {
-			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-				ready = true
-				break
-			}
+		startTime := cs.State.Running.StartedAt.Time
+		if startTime.IsZero() {
+			continue
 		}
-		if !ready {
-			return fmt.Errorf("pod %s is not ready", pod.Name)
+		if latest.IsZero() || startTime.After(latest) {
+			latest = startTime
 		}
 	}
-	return nil
+	return latest
 }
 
-func verifyNoRestartsDuringPeriod(initialRestarts map[string]int32, currentPods *corev1.PodList) error {
-	for _, pod := range currentPods.Items {
-		initialCount, exists := initialRestarts[pod.Name]
-		if !exists {
-			return fmt.Errorf("pod %s was recreated during stability period", pod.Name)
+func verifyPodsStableFor(pods *corev1.PodList, minimumStability time.Duration) error {
+	for _, pod := range pods.Items {
+		latestStart := getLatestContainerStartTime(&pod)
+		if latestStart.IsZero() {
+			return fmt.Errorf("pod %s has no running containers", pod.Name)
 		}
 
-		var currentRestarts int32
-		for _, cs := range pod.Status.ContainerStatuses {
-			currentRestarts += cs.RestartCount
-		}
-
-		if currentRestarts != initialCount {
-			return fmt.Errorf("pod %s restarted during stability period (was %d, now %d)",
-				pod.Name, initialCount, currentRestarts)
+		runningTime := time.Since(latestStart)
+		if runningTime < minimumStability {
+			return fmt.Errorf("pod %s not stable yet (running for %v, need %v)",
+				pod.Name, runningTime, minimumStability)
 		}
 	}
 	return nil
@@ -324,19 +311,15 @@ func waitForDeploymentStability(ctx context.Context, k8sClient client.Client, ke
 	gomega.Eventually(func(g gomega.Gomega) {
 		deployment := &appsv1.Deployment{}
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+
 		labels := deployment.Spec.Selector.MatchLabels
 		pods := &corev1.PodList{}
 		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(labels))).To(gomega.Succeed())
 		g.Expect(pods.Items).To(gomega.HaveLen(int(*deployment.Spec.Replicas)))
 
-		initialRestarts := getPodRestartCounts(pods)
-		time.Sleep(stabilityPeriod)
-
-		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(labels))).To(gomega.Succeed())
-		g.Expect(verifyNoRestartsDuringPeriod(initialRestarts, pods)).To(gomega.Succeed())
-		g.Expect(verifyPodsReady(pods)).To(gomega.Succeed())
+		g.Expect(verifyPodsStableFor(pods, stabilityPeriod)).To(gomega.Succeed())
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("Deployment stable", "deployment", key, "waitingTime", time.Since(waitForStabilityStart))
+	ginkgo.GinkgoLogr.Info("Deployment stable", "deployment", key, "stabilityPeriod", stabilityPeriod, "waitingTime", time.Since(waitForStabilityStart))
 }
 
 func verifyNoControllerRestarts(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
