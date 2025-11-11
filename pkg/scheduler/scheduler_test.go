@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -9125,15 +9124,11 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
 
 	testCases := map[string]struct {
-		features      map[featuregate.Feature]bool
 		workload      *kueue.Workload
 		wantWorkloads []kueue.Workload
 		wantEvents    []utiltesting.EventRecord
 	}{
-		"use patch in admit when the WorkloadRequestUseMergePatch feature is disabled": {
-			features: map[featuregate.Feature]bool{
-				features.WorkloadRequestUseMergePatch: false,
-			},
+		"use patch in admit": {
 			workload: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
 				ResourceVersion("1").
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -9177,10 +9172,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
-		"use patch in requeueAndUpdate when the WorkloadRequestUseMergePatch feature is disabled": {
-			features: map[featuregate.Feature]bool{
-				features.WorkloadRequestUseMergePatch: false,
-			},
+		"use patch in requeueAndUpdate": {
 			workload: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
 				ResourceVersion("1").
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -9217,82 +9209,84 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 		},
 	}
 	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			for feature, enabled := range tc.features {
-				features.SetFeatureGateDuringTest(t, feature, enabled)
-			}
-			ctx, log := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload).
-				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
-							// Simulate concurrent modification by another controller
-							wlCopy := tc.workload.DeepCopy()
-							if wlCopy.Labels == nil {
-								wlCopy.Labels = make(map[string]string, 1)
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				ctx, log := utiltesting.ContextWithLog(t)
+				var patched bool
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
+								patched = true
+								// Simulate concurrent modification by another controller
+								wlCopy := tc.workload.DeepCopy()
+								if wlCopy.Labels == nil {
+									wlCopy.Labels = make(map[string]string, 1)
+								}
+								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+								if err := c.Update(ctx, wlCopy); err != nil {
+									return err
+								}
 							}
-							wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
-							if err := c.Update(ctx, wlCopy); err != nil {
-								return err
-							}
-						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
-					},
-				})
-			cl := clientBuilder.Build()
-			recorder := &utiltesting.EventRecorder{}
+							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						},
+					})
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
 
-			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManager(cl, cqCache)
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManager(cl, cqCache)
 
-			cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
-			if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
-				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-			}
-			if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
-				t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-			}
-			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
-				t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
-			}
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+				}
 
-			scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)))
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)))
 
-			wg := sync.WaitGroup{}
-			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-				func() { wg.Add(1) },
-				func() { wg.Done() },
-			))
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
 
-			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
 
-			scheduler.schedule(ctx)
-			wg.Wait()
+				scheduler.schedule(ctx)
+				wg.Wait()
 
-			gotWorkloads := &kueue.WorkloadList{}
-			err := cl.List(ctx, gotWorkloads)
-			if err != nil {
-				t.Fatalf("Unexpected list workloads error: %v", err)
-			}
+				gotWorkloads := &kueue.WorkloadList{}
+				err := cl.List(ctx, gotWorkloads)
+				if err != nil {
+					t.Fatalf("Unexpected list workloads error: %v", err)
+				}
 
-			opts := cmp.Options{
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels"),
-			}
+				opts := cmp.Options{
+					cmpopts.EquateEmpty(),
+					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels"),
+				}
 
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, opts); diff != "" {
-				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-			}
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, opts); diff != "" {
+					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+				}
 
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents,
-				cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
-			); diff != "" {
-				t.Errorf("Unexpected events (-want/+got):\n%s", diff)
-			}
-		})
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents,
+					cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
+				); diff != "" {
+					t.Errorf("Unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
