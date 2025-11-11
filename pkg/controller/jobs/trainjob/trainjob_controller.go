@@ -297,11 +297,11 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		return false, errors.New("jobs are still active")
 	}
 
-	if err := clientutil.Patch(ctx, reconciler.client, t.Object(), func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, reconciler.client, t.Object(), func() (bool, error) {
 		if !t.RestorePodSetsInfo(podSetsInfo) {
-			return t.Object(), false, errors.New("error restoring info to the trainjob")
+			return false, errors.New("error restoring info to the trainjob")
 		}
-		return t.Object(), true, nil
+		return true, nil
 	}); err != nil {
 		return false, err
 	}

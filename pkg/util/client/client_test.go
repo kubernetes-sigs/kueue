@@ -22,11 +22,25 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+)
+
+var (
+	errTestNotFound = apierrors.NewNotFound(
+		schema.GroupResource{Group: "batch", Resource: "jobs"},
+		"test",
+	)
+	errTestConflict = apierrors.NewConflict(
+		schema.GroupResource{Group: "batch", Resource: "jobs"},
+		"test",
+		errors.New("object was modified"),
+	)
 )
 
 // newObject creates and returns a new *batchv1.Job initialized with the given
@@ -53,12 +67,12 @@ func newObject(resourceVersion string, opts ...func(*batchv1.Job)) *batchv1.Job 
 
 func TestPatch(t *testing.T) {
 	type args struct {
-		obj     client.Object
-		update  UpdateFunc
+		obj     *batchv1.Job
+		update  func(job *batchv1.Job) UpdateFunc
 		options []PatchOption
 	}
 	type want struct {
-		err bool
+		err error
 		obj client.Object // To assert patched object.
 	}
 	// clientObject is used to initialize test Client in t.Run().
@@ -70,49 +84,49 @@ func TestPatch(t *testing.T) {
 	}{
 		"Strict_OutdatedLocalObject": {
 			args: args{
-				obj: newObject("1"), // outdated local object results in patch error.
-				update: func() (client.Object, bool, error) {
-					obj := newObject("1")
-					obj.Spec.Suspend = ptr.To(true)
-					return obj, true, nil
+				obj: newObject("1"), // outdated local object.
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Spec.Suspend = ptr.To(true)
+						return true, nil
+					}
 				},
 			},
 			want: want{
-				err: true,           // object was modified error.
-				obj: newObject("2"), // unchanged.
+				err: errTestConflict,
+				obj: newObject("2"),
 			},
 		},
 		"Strict_CurrentLocalObject": {
 			args: args{
 				obj: newObject("2"),
-				update: func() (client.Object, bool, error) {
-					obj := newObject("2")
-					obj.Spec.Suspend = ptr.To(true)
-					obj.Status.Active = 1
-					return obj, true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Spec.Suspend = ptr.To(true)
+						job.Status.Active = 1
+						return true, nil
+					}
 				},
 			},
 			want: want{
-				obj: newObject("3", // post-patch incremented resource version.
-					func(job *batchv1.Job) {
-						// Change to Spec is applied; Status change is ignored because Patch updates meta and spec only.
-						job.Spec.Suspend = ptr.To(true)
-					}),
+				obj: newObject("3", func(job *batchv1.Job) {
+					// Change to Spec is applied; Status change is ignored because Patch updates meta and spec only.
+					job.Spec.Suspend = ptr.To(true)
+				}),
 			},
 		},
 		"NotStrict_OutdatedLocalObject": {
 			args: args{
 				obj: newObject("1"), // outdated local object.
-				update: func() (client.Object, bool, error) {
-					obj := newObject("1")
-					obj.Spec.Suspend = ptr.To(true)
-					return obj, true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Spec.Suspend = ptr.To(true)
+						return true, nil
+					}
 				},
 				options: []PatchOption{WithLoose()},
 			},
 			want: want{
-				// Unlike "Strict" version - this update is successful since the resource version is not
-				// included in the patch.
 				obj: newObject("3", func(job *batchv1.Job) {
 					job.Spec.Suspend = ptr.To(true)
 				}),
@@ -121,10 +135,11 @@ func TestPatch(t *testing.T) {
 		"NotStrict_CurrentLocalObject": {
 			args: args{
 				obj: newObject("2"),
-				update: func() (client.Object, bool, error) {
-					obj := newObject("2")
-					obj.Spec.Suspend = ptr.To(true)
-					return obj, true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Spec.Suspend = ptr.To(true)
+						return true, nil
+					}
 				},
 				options: []PatchOption{WithLoose()},
 			},
@@ -135,12 +150,12 @@ func TestPatch(t *testing.T) {
 			},
 		},
 		"NoChanges": {
-			// Modeled after "Strict_OutdatedLocalObject"; however since we are returning
-			// updated: false - it makes no difference if the local object is outdated.
 			args: args{
-				obj: newObject("1"), // outdated local object results in patch error.
-				update: func() (client.Object, bool, error) {
-					return newObject("1"), false, nil
+				obj: newObject("1"), // outdated local object.
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, nil
+					}
 				},
 			},
 			want: want{
@@ -150,12 +165,14 @@ func TestPatch(t *testing.T) {
 		"Error": {
 			args: args{
 				obj: newObject("2"),
-				update: func() (client.Object, bool, error) {
-					return newObject("2"), true, errors.New("test-error")
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, errTestNotFound
+					}
 				},
 			},
 			want: want{
-				err: true,
+				err: errTestNotFound,
 				obj: newObject("2"),
 			},
 		},
@@ -164,8 +181,9 @@ func TestPatch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).Build()
-			if err := Patch(ctx, clnt, tt.args.obj, tt.args.update, tt.args.options...); (err != nil) != tt.want.err {
-				t.Errorf("Patch() error = %v, wantErr %v", err, tt.want.err)
+			err := Patch(ctx, clnt, tt.args.obj, tt.args.update(tt.args.obj), tt.args.options...)
+			if diff := cmp.Diff(tt.want.err, err); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 			if err := clnt.Get(ctx, client.ObjectKeyFromObject(tt.args.obj), tt.args.obj); err != nil {
 				t.Fatalf("Patch() unexpected error getting object: %v", err)
@@ -179,12 +197,12 @@ func TestPatch(t *testing.T) {
 
 func TestPatchStatus(t *testing.T) {
 	type args struct {
-		obj     client.Object
-		update  UpdateFunc
+		obj     *batchv1.Job
+		update  func(job *batchv1.Job) UpdateFunc
 		options []PatchOption
 	}
 	type want struct {
-		err bool
+		err error
 		obj client.Object // To assert patched object.
 	}
 	// clientObject is used to initialize test Client in t.Run().
@@ -197,39 +215,44 @@ func TestPatchStatus(t *testing.T) {
 		"Strict_OutdatedLocalObject": {
 			args: args{
 				obj: newObject("1"), // outdated local object results in patch error.
-				update: func() (client.Object, bool, error) {
-					return newObject("1"), true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Status.Active = 1
+						return true, nil
+					}
 				},
 			},
 			want: want{
-				err: true,           // object was modified error.
-				obj: newObject("2"), // unchanged.
+				err: errTestConflict,
+				obj: newObject("2"),
 			},
 		},
 		"Strict_CurrentLocalObject": {
 			args: args{
 				obj: newObject("2"),
-				update: func() (client.Object, bool, error) {
-					obj := newObject("2")
-					obj.Status.Active = 1
-					obj.Spec.Suspend = ptr.To(true)
-					return obj, true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Status.Active = 1
+						job.Spec.Suspend = ptr.To(true)
+						return true, nil
+					}
 				},
 			},
 			want: want{
 				obj: newObject("3", func(job *batchv1.Job) {
 					// Change to Status is applied; Spec change is ignored because Patch updates status only.
 					job.Status.Active = 1
-				}), // incremented.
+				}),
 			},
 		},
 		"NotStrict_OutdatedLocalObject": {
 			args: args{
 				obj: newObject("1"), // outdated local object.
-				update: func() (client.Object, bool, error) {
-					obj := newObject("1")
-					obj.Status.Active = 1
-					return obj, true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Status.Active = 1
+						return true, nil
+					}
 				},
 				options: []PatchOption{WithLoose()},
 			},
@@ -242,10 +265,11 @@ func TestPatchStatus(t *testing.T) {
 		"NotStrict_CurrentLocalObject": {
 			args: args{
 				obj: newObject("2"),
-				update: func() (client.Object, bool, error) {
-					obj := newObject("2")
-					obj.Status.Active = 1
-					return obj, true, nil
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Status.Active = 1
+						return true, nil
+					}
 				},
 				options: []PatchOption{WithLoose()},
 			},
@@ -256,12 +280,12 @@ func TestPatchStatus(t *testing.T) {
 			},
 		},
 		"NoChanges": {
-			// Modeled after "Strict_OutdatedLocalObject"; however since we are returning
-			// false - it makes no difference if the local object is outdated.
 			args: args{
-				obj: newObject("1"), // outdated local object results in patch error.
-				update: func() (client.Object, bool, error) {
-					return newObject("1"), false, nil
+				obj: newObject("1"), // outdated local object.
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						return false, nil
+					}
 				},
 			},
 			want: want{
@@ -271,14 +295,15 @@ func TestPatchStatus(t *testing.T) {
 		"Error": {
 			args: args{
 				obj: newObject("2"),
-				update: func() (client.Object, bool, error) {
-					obj := newObject("2")
-					obj.Status.Active = 1
-					return obj, true, errors.New("test-error")
+				update: func(job *batchv1.Job) UpdateFunc {
+					return func() (bool, error) {
+						job.Status.Active = 1
+						return true, errTestNotFound
+					}
 				},
 			},
 			want: want{
-				err: true,
+				err: errTestNotFound,
 				obj: newObject("2"),
 			},
 		},
@@ -287,8 +312,9 @@ func TestPatchStatus(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clnt := utiltesting.NewClientBuilder().WithObjects(clientObject).Build()
-			if err := PatchStatus(ctx, clnt, tt.args.obj, tt.args.update, tt.args.options...); (err != nil) != tt.want.err {
-				t.Errorf("Patch() error = %v, wantErr %v", err, tt.want.err)
+			err := PatchStatus(ctx, clnt, tt.args.obj, tt.args.update(tt.args.obj), tt.args.options...)
+			if diff := cmp.Diff(tt.want.err, err); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 			if err := clnt.Get(ctx, client.ObjectKeyFromObject(tt.args.obj), tt.args.obj); err != nil {
 				t.Fatalf("Patch() unexpected error getting object: %v", err)

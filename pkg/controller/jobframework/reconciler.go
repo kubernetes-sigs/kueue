@@ -371,9 +371,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
 			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
-				if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
+				if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 					job.Suspend()
-					return object, true, nil
+					return true, nil
 				}); err != nil {
 					log.Error(err, "suspending child job failed")
 					return ctrl.Result{}, err
@@ -554,14 +554,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (*kueue.Workload, bool, error) {
+				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func() (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
 					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
 						updated = true
 					}
-					return wl, updated, nil
+					return updated, nil
 				})
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
@@ -1126,8 +1126,8 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
-			return object, true, job.RunWithPodSetsInfo(ctx, info)
+		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+			return true, job.RunWithPodSetsInfo(ctx, info)
 		}); err != nil {
 			return err
 		}
@@ -1170,12 +1170,12 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return nil
 	}
 
-	if err := clientutil.Patch(ctx, r.client, object, func() (client.Object, bool, error) {
+	if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 		job.Suspend()
 		if info != nil {
 			job.RestorePodSetsInfo(info)
 		}
-		return object, true, nil
+		return true, nil
 	}); err != nil {
 		return err
 	}
