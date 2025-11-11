@@ -817,6 +817,14 @@ re-queuing an evicted workload.</p>
 Defaults to Retain</p>
 </td>
 </tr>
+<tr><td><code>multiplyBy</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>MultiplyBy defines a resource name, which performs a multiplication
+calculation on the resource name of the input.</p>
+</td>
+</tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
