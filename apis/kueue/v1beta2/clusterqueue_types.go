@@ -515,7 +515,6 @@ type BorrowWithinCohort struct {
 
 // +genclient
 // +genclient:nonNamespaced
-// +kubebuilder:storageversion
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,shortName={cq}
 // +kubebuilder:subresource:status
