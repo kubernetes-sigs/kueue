@@ -268,36 +268,27 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 	ginkgo.GinkgoLogr.Info("Deployment available", "deployment", key, "waitingTime", time.Since(waitForAvailableStart))
 }
 
-// getLatestContainerStartTime returns the most recent start time across all containers in a pod.
-// Returns zero time if no container is running.
-func getLatestContainerStartTime(pod *corev1.Pod) time.Time {
-	var latest time.Time
-	for _, cs := range pod.Status.ContainerStatuses {
-		if cs.State.Running == nil {
-			continue
-		}
-		startTime := cs.State.Running.StartedAt.Time
-		if startTime.IsZero() {
-			continue
-		}
-		if latest.IsZero() || startTime.After(latest) {
-			latest = startTime
-		}
-	}
-	return latest
-}
-
 func verifyPodsStableFor(pods *corev1.PodList, minimumStability time.Duration) error {
 	for _, pod := range pods.Items {
-		latestStart := getLatestContainerStartTime(&pod)
-		if latestStart.IsZero() {
-			return fmt.Errorf("pod %s has no running containers", pod.Name)
+		var containersReadyCondition *corev1.PodCondition
+		for i := range pod.Status.Conditions {
+			if pod.Status.Conditions[i].Type == corev1.ContainersReady {
+				containersReadyCondition = &pod.Status.Conditions[i]
+				break
+			}
 		}
 
-		runningTime := time.Since(latestStart)
-		if runningTime < minimumStability {
-			return fmt.Errorf("pod %s not stable yet (running for %v, need %v)",
-				pod.Name, runningTime, minimumStability)
+		if containersReadyCondition == nil {
+			return fmt.Errorf("pod %s has no ContainersReady condition", pod.Name)
+		}
+		if containersReadyCondition.Status != corev1.ConditionTrue {
+			return fmt.Errorf("pod %s containers not ready", pod.Name)
+		}
+
+		stableDuration := time.Since(containersReadyCondition.LastTransitionTime.Time)
+		if stableDuration < minimumStability {
+			return fmt.Errorf("pod %s not stable yet (ready for %v, need %v)",
+				pod.Name, stableDuration, minimumStability)
 		}
 	}
 	return nil
