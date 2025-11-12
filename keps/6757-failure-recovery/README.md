@@ -184,15 +184,19 @@ The controller has to **ignore** updates to pods that:
 
 
 For relevant (not ignored) terminating pods, the controller schedules another reconciliation
-to happen after the remaining grace period elapses:
+to happen after the remaining grace period elapses.
+In case a pod is matched by multiple selectors defined in the policy (many actions with `TerminatePodConfig`),
+the controller will use the **lowest** `ForcefulTerminationGracePeriod` that was found.
 
 ```go
-func (r *ZombiePodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+  // ...
+  terminationCfg := strictestMatchingTerminationConfig(r.terminationCfgs, pod)
   // ...
 
   now := r.clock.Now()
   gracefulTerminationPeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-  totalGracePeriod := gracefulTerminationPeriod + *terminatePodConfig.ForcefulTerminationGracePeriod
+  totalGracePeriod := gracefulTerminationPeriod + *terminationCfg.ForcefulTerminationGracePeriod
   if now.Before(pod.DeletionTimestamp.Add(totalGracePeriod)) {
     gracePeriodLeft := pod.DeletionTimestamp.Add(totalGracePeriod).Sub(now)
     return ctrl.Result{RequeueAfter: gracePeriodLeft}, nil
