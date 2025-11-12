@@ -112,9 +112,11 @@ type Configuration struct {
 
 type FailureRecoveryPolicy struct {
   // Rules specifies the rules to be enabled for failure recovery.
+  // +kubebuilder:validation:MinItems=1
   Rules []FailureRecoveryRule `json:"rules"`
 }
 
+// +kubebuilder:validation:ExactlyOneOf=["terminatePod"]
 type FailureRecoveryRule struct {
   // Exactly one of the fields below must be specified.
 
@@ -128,12 +130,15 @@ type FailureRecoveryRule struct {
 type TerminatePodConfig struct {
   // PodLabelSelector specifies the scope of resources covered by `TerminatePod` failure recovery -
   // resources not matching the selector are ignored by the controller.
+  // If a pod matches multiple configurations, the strictest one (with the shortest grace period)
+  // will be applied.
   PodLabelSelector *metav1.LabelSelector `json:"podLabelSelector,omitempty"`
 
   // ForcefulTerminationGracePeriod is the duration between when the pod's `deletionGracePeriodSeconds`
   // elapses and when the pod should be forcefully deleted.
   // Represented using metav1.Duration (e.g. "10m", "1h30m").
-  ForcefulTerminationGracePeriod *metav1.Duration `json:"forcefulTerminationGracePeriod"`
+  // +required
+  ForcefulTerminationGracePeriod metav1.Duration `json:"forcefulTerminationGracePeriod"`
 }
 ```
 
@@ -147,7 +152,10 @@ failureRecoveryPolicy:
   rules:
   - terminatePod:
       podLabelSelector:
-        safe-to-fail: true
+        matchExpressions:
+        - key: safe-to-fail
+          operator: In
+          values: [ "true", "True", "yes" ]
       forcefulTerminationGracePeriod: 5m
 ```
 
