@@ -694,8 +694,10 @@ func (m *Manager) Broadcast() {
 }
 
 func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
-	active := m.PendingActiveInLocalQueue(lq)
-	inadmissible := m.PendingInadmissibleInLocalQueue(lq)
+	var active, inadmissible int
+	if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
+		active, inadmissible = cq.PendingInLocalQueue(lq.Key)
+	}
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(lq.ClusterQueue) {
 		inadmissible += active
 		active = 0
@@ -725,12 +727,11 @@ func (m *Manager) GetClusterQueueNames() []kueue.ClusterQueueReference {
 func (m *Manager) GetClusterQueue(cqName kueue.ClusterQueueReference) *ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
-	return m.hm.ClusterQueue(cqName)
+	return m.getClusterQueueLockless(cqName)
 }
 
-func (m *Manager) getClusterQueueLockless(cqName kueue.ClusterQueueReference) (val *ClusterQueue, ok bool) {
-	val = m.hm.ClusterQueue(cqName)
-	return val, val != nil
+func (m *Manager) getClusterQueueLockless(cqName kueue.ClusterQueueReference) *ClusterQueue {
+	return m.hm.ClusterQueue(cqName)
 }
 
 func (m *Manager) PendingWorkloadsInfo(cqName kueue.ClusterQueueReference) []*workload.Info {
