@@ -104,7 +104,7 @@ func Finish(ctx context.Context, clnt client.Client, clk clock.Clock, workloadSl
 	if apimeta.IsStatusConditionTrue(workloadSlice.Status.Conditions, kueue.WorkloadFinished) {
 		return nil
 	}
-	if err := workload.Finish(ctx, clnt, workloadSlice, reason, message, "", clk, workload.WithUsePatch()); err != nil {
+	if err := workload.Finish(ctx, clnt, workloadSlice, reason, message, "", clk); err != nil {
 		return fmt.Errorf("failed to patch workload slice status: %w", err)
 	}
 	return nil
