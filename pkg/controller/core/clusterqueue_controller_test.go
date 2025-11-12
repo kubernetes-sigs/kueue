@@ -638,3 +638,298 @@ func TestCQNamespaceHandlerUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestCQNamespaceHandlerCreate(t *testing.T) {
+	cqName := "test-cq"
+	autoLqName := "auto-lq"
+	nsName := "test-namespace"
+
+	baseCQ := utiltestingapi.MakeClusterQueue(cqName).
+		NamespaceSelector(&metav1.LabelSelector{
+			MatchLabels: map[string]string{"dep": "eng"},
+		}).
+		AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+		Obj()
+
+	testcases := map[string]struct {
+		cq                 *kueue.ClusterQueue
+		ns                 *corev1.Namespace
+		featureGateEnabled bool
+		existingLq         *kueue.LocalQueue
+		wantLocalQueue     bool
+	}{
+		"gate disabled; noop": {
+			cq: baseCQ.DeepCopy(),
+			ns: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+		},
+		"namespace matches; localqueue is created": {
+			cq: baseCQ.DeepCopy(),
+			ns: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+			featureGateEnabled: true,
+			wantLocalQueue:     true,
+		},
+		"namespace doesn't match; localqueue is not created": {
+			cq: baseCQ.DeepCopy(),
+			ns: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "sales"},
+				},
+			},
+			featureGateEnabled: true,
+		},
+		"namespace matches but autolq is nil; localqueue is not created": {
+			cq: utiltestingapi.MakeClusterQueue(cqName).
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"dep": "eng"},
+				}).Obj(),
+			ns: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+			featureGateEnabled: true,
+		},
+		"localqueue already exists; noop": {
+			cq: baseCQ.DeepCopy(),
+			ns: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{"dep": "eng"},
+				},
+			},
+			existingLq: utiltestingapi.MakeLocalQueue(autoLqName, nsName).
+				ClusterQueue(cqName).
+				Obj(),
+			featureGateEnabled: true,
+			wantLocalQueue:     true,
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AutoLocalQueue, tc.featureGateEnabled)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().WithObjects(tc.cq, tc.ns)
+			if tc.existingLq != nil {
+				clientBuilder.WithObjects(tc.existingLq)
+			}
+			client := clientBuilder.Build()
+			cqCache := schdcache.New(client)
+			cqCache.AddClusterQueue(ctx, tc.cq)
+			qManager := qcache.NewManager(client, cqCache)
+
+			handler := cqNamespaceHandler{
+				client:   client,
+				qManager: qManager,
+				cache:    cqCache,
+			}
+
+			event := event.CreateEvent{
+				Object: tc.ns,
+			}
+
+			handler.Create(ctx, event, nil)
+
+			var lq kueue.LocalQueue
+			err := client.Get(ctx, types.NamespacedName{Name: autoLqName, Namespace: nsName}, &lq)
+			if tc.wantLocalQueue {
+				if err != nil {
+					t.Fatalf("Failed to get LocalQueue: %v", err)
+				}
+				if lq.Spec.ClusterQueue != kueue.ClusterQueueReference(cqName) {
+					t.Errorf("Wrong ClusterQueue reference, want %q, got %q", cqName, lq.Spec.ClusterQueue)
+				}
+			} else if !errors.IsNotFound(err) {
+				t.Fatalf("Unexpected error getting LocalQueue: %v", err)
+			}
+		})
+	}
+}
+
+func TestClusterQueueReconcilerCreate(t *testing.T) {
+	cqName := "test-cq"
+	autoLqName := "auto-lq"
+	nsMatchingName := "test-namespace-matching"
+	nsNonMatchingName := "test-namespace-non-matching"
+	nsExistingLqName := "test-namespace-existing-lq"
+
+	baseCQ := utiltestingapi.MakeClusterQueue(cqName).
+		NamespaceSelector(&metav1.LabelSelector{
+			MatchLabels: map[string]string{"dep": "eng"},
+		}).
+		AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+		Obj()
+
+	matchingNs := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nsMatchingName,
+			Labels: map[string]string{"dep": "eng"},
+		},
+	}
+	nonMatchingNs := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nsNonMatchingName,
+			Labels: map[string]string{"dep": "sales"},
+		},
+	}
+	existingLqNs := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nsExistingLqName,
+			Labels: map[string]string{"dep": "eng"},
+		},
+	}
+	existingLq := utiltestingapi.MakeLocalQueue(autoLqName, nsExistingLqName).
+		ClusterQueue("some-other-cq").
+		Obj()
+
+	testcases := map[string]struct {
+		cq                 *kueue.ClusterQueue
+		namespaces         []*corev1.Namespace
+		existingLqs        []*kueue.LocalQueue
+		featureGateEnabled bool
+		managerNsSelector  *metav1.LabelSelector
+		wantLqInNs         map[string]bool // map of namespace name to wantLocalQueue
+	}{
+		"gate disabled; noop": {
+			cq:         baseCQ.DeepCopy(),
+			namespaces: []*corev1.Namespace{matchingNs},
+			wantLqInNs: map[string]bool{
+				nsMatchingName: false,
+			},
+		},
+		"matching namespace; localqueue is created": {
+			cq:                 baseCQ.DeepCopy(),
+			namespaces:         []*corev1.Namespace{matchingNs},
+			featureGateEnabled: true,
+			wantLqInNs: map[string]bool{
+				nsMatchingName: true,
+			},
+		},
+		"non-matching namespace; localqueue is not created": {
+			cq:                 baseCQ.DeepCopy(),
+			namespaces:         []*corev1.Namespace{nonMatchingNs},
+			featureGateEnabled: true,
+			wantLqInNs: map[string]bool{
+				nsNonMatchingName: false,
+			},
+		},
+		"multiple namespaces; localqueue is created only in matching": {
+			cq:                 baseCQ.DeepCopy(),
+			namespaces:         []*corev1.Namespace{matchingNs, nonMatchingNs},
+			featureGateEnabled: true,
+			wantLqInNs: map[string]bool{
+				nsMatchingName:    true,
+				nsNonMatchingName: false,
+			},
+		},
+		"autolq is nil; localqueue is not created": {
+			cq: utiltestingapi.MakeClusterQueue(cqName).
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"dep": "eng"},
+				}).Obj(),
+			namespaces:         []*corev1.Namespace{matchingNs},
+			featureGateEnabled: true,
+			wantLqInNs: map[string]bool{
+				nsMatchingName: false,
+			},
+		},
+		"localqueue already exists; noop": {
+			cq:                 baseCQ.DeepCopy(),
+			namespaces:         []*corev1.Namespace{existingLqNs},
+			existingLqs:        []*kueue.LocalQueue{existingLq},
+			featureGateEnabled: true,
+			wantLqInNs: map[string]bool{
+				nsExistingLqName: true, // it should exist, but not be created by the reconciler
+			},
+		},
+		"with namespace selector on manager; localqueue is created only in matching": {
+			cq: utiltestingapi.MakeClusterQueue(cqName).
+				NamespaceSelector(&metav1.LabelSelector{}).
+				AutoLocalQueue(&kueue.AutoLocalQueue{Name: autoLqName}).
+				Obj(),
+			namespaces:         []*corev1.Namespace{matchingNs, nonMatchingNs},
+			featureGateEnabled: true,
+			managerNsSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"dep": "eng"},
+			},
+			wantLqInNs: map[string]bool{
+				nsMatchingName:    true,
+				nsNonMatchingName: false,
+			},
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AutoLocalQueue, tc.featureGateEnabled)
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder()
+			if tc.cq != nil {
+				clientBuilder.WithObjects(tc.cq)
+			}
+			for _, ns := range tc.namespaces {
+				clientBuilder.WithObjects(ns)
+			}
+			for _, lq := range tc.existingLqs {
+				clientBuilder.WithObjects(lq)
+			}
+			client := clientBuilder.Build()
+			cqCache := schdcache.New(client)
+			qManager := qcache.NewManager(client, cqCache)
+
+			reconciler := &ClusterQueueReconciler{
+				client:   client,
+				log:      log,
+				cache:    cqCache,
+				qManager: qManager,
+			}
+			if tc.managerNsSelector != nil {
+				var err error
+				reconciler.namespaceSelector, err = metav1.LabelSelectorAsSelector(tc.managerNsSelector)
+				if err != nil {
+					t.Fatalf("Couldn't parse managerNsSelector: %v", err)
+				}
+			}
+
+			event := event.TypedCreateEvent[*kueue.ClusterQueue]{
+				Object: tc.cq,
+			}
+
+			reconciler.Create(event)
+
+			for nsName, wantLq := range tc.wantLqInNs {
+				var lq kueue.LocalQueue
+				err := client.Get(ctx, types.NamespacedName{Name: autoLqName, Namespace: nsName}, &lq)
+				if wantLq {
+					if err != nil {
+						t.Fatalf("Failed to get LocalQueue in namespace %s: %v", nsName, err)
+					}
+					// If it's the pre-existing LQ, check it's not modified.
+					if nsName == nsExistingLqName {
+						if lq.Spec.ClusterQueue != "some-other-cq" {
+							t.Errorf("Existing LocalQueue was modified, want clusterQueue %q, got %q", "some-other-cq", lq.Spec.ClusterQueue)
+						}
+					} else {
+						if lq.Spec.ClusterQueue != kueue.ClusterQueueReference(tc.cq.Name) {
+							t.Errorf("Wrong ClusterQueue reference in namespace %s, want %q, got %q", nsName, tc.cq.Name, lq.Spec.ClusterQueue)
+						}
+					}
+				} else if !errors.IsNotFound(err) {
+					t.Fatalf("Unexpected error getting LocalQueue in namespace %s: %v", nsName, err)
+				}
+			}
+		})
+	}
+}

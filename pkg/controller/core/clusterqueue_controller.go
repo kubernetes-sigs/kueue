@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -72,6 +73,7 @@ type ClusterQueueReconciler struct {
 	reportResourceMetrics bool
 	fairSharingEnabled    bool
 	clock                 clock.Clock
+	namespaceSelector     labels.Selector
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
@@ -81,6 +83,7 @@ type ClusterQueueReconcilerOptions struct {
 	Watchers              []ClusterQueueUpdateWatcher
 	ReportResourceMetrics bool
 	FairSharingEnabled    bool
+	NamespaceSelector     labels.Selector
 	clock                 clock.Clock
 }
 
@@ -102,6 +105,12 @@ func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
 func WithFairSharing(enabled bool) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.FairSharingEnabled = enabled
+	}
+}
+
+func WithNamespaceSelector(selector labels.Selector) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.NamespaceSelector = selector
 	}
 }
 
@@ -128,6 +137,7 @@ func NewClusterQueueReconciler(
 		watchers:              options.Watchers,
 		reportResourceMetrics: options.ReportResourceMetrics,
 		fairSharingEnabled:    options.FairSharingEnabled,
+		namespaceSelector:     options.NamespaceSelector,
 		clock:                 options.clock,
 	}
 }
@@ -301,6 +311,37 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 		log.Error(err, "Failed to add clusterQueue to queue manager")
 	}
 
+	if features.Enabled(features.AutoLocalQueue) && e.Object.Spec.AutoLocalQueue != nil {
+		selector, err := metav1.LabelSelectorAsSelector(e.Object.Spec.NamespaceSelector)
+		if err != nil {
+			log.Error(err, "Failed to parse namespaceSelector")
+		} else {
+			var nsList corev1.NamespaceList
+			if err := r.client.List(ctx, &nsList); err != nil {
+				log.Error(err, "Failed to list namespaces")
+			} else {
+				log.V(2).Info("Checking namespaces for LocalQueue creation")
+				for i := range nsList.Items {
+					ns := &nsList.Items[i]
+					if r.namespaceSelector != nil && !r.namespaceSelector.Matches(labels.Set(ns.Labels)) {
+						log.V(2).Info("Namespace does not match controller's namespaceSelector, skipping", "namespace", ns.Name)
+						continue
+					}
+					if selector.Matches(labels.Set(ns.Labels)) {
+						log.V(2).Info("Namespace matches ClusterQueue's namespaceSelector, creating LocalQueue", "namespace", ns.Name)
+						if err := createLocalQueueForNS(ctx, r.client, ns, e.Object); err != nil {
+							if errors.IsAlreadyExists(err) {
+								log.V(2).Info("LocalQueue already exists for namespace", "namespace", ns.Name)
+							} else {
+								log.Error(err, "Failed to create LocalQueue for namespace", "namespace", ns.Name)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if r.reportResourceMetrics {
 		recordResourceMetrics(e.Object)
 	}
@@ -469,7 +510,35 @@ type cqNamespaceHandler struct {
 	cache    *schdcache.Cache
 }
 
-func (h *cqNamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *cqNamespaceHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if !features.Enabled(features.AutoLocalQueue) {
+		return
+	}
+
+	ns := e.Object.(*corev1.Namespace)
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Namespace create event", "namespace", ns.Name)
+	matchingCqs := h.cache.MatchingClusterQueues(ns.Labels)
+	for cqRef := range matchingCqs {
+		var clusterQueue kueue.ClusterQueue
+		if err := h.client.Get(ctx, types.NamespacedName{Name: string(cqRef)}, &clusterQueue); err != nil {
+			log.Error(err, "Failed to get ClusterQueue", "clusterQueue", cqRef)
+			continue
+		}
+
+		if clusterQueue.Spec.AutoLocalQueue == nil {
+			continue
+		}
+
+		log.V(2).Info("Creating LocalQueue for ClusterQueue", "clusterQueue", klog.KObj(&clusterQueue))
+		if err := createLocalQueueForNS(ctx, h.client, ns, &clusterQueue); err != nil {
+			if errors.IsAlreadyExists(err) {
+				log.V(2).Info("LocalQueue already exists", "namespace", ns.Name)
+			} else {
+				log.Error(err, "Failed to create LocalQueue", "namespace", ns.Name)
+			}
+		}
+	}
 }
 
 func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -490,6 +559,7 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 	}
 
 	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Namespace update event", "namespace", newNs.Name)
 	for cqRef := range newMatchingCqs {
 		if oldMatchingCqs.Has(cqRef) {
 			continue
@@ -505,30 +575,13 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 			continue
 		}
 
-		localQueue := &kueue.LocalQueue{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      clusterQueue.Spec.AutoLocalQueue.Name,
-				Namespace: newNs.Name,
-				Labels: map[string]string{
-					constants.AutoGeneratedLabel: "true",
-				},
-				Annotations: map[string]string{
-					constants.ClusterQueueAnnotation: clusterQueue.Name,
-				},
-			},
-			Spec: kueue.LocalQueueSpec{
-				ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
-			},
-		}
-
-		if err := h.client.Create(ctx, localQueue); err != nil {
+		log.V(2).Info("Creating LocalQueue for ClusterQueue", "clusterQueue", klog.KObj(&clusterQueue))
+		if err := createLocalQueueForNS(ctx, h.client, newNs, &clusterQueue); err != nil {
 			if errors.IsAlreadyExists(err) {
-				log.V(2).Info("LocalQueue already exists", "localQueue", klog.KObj(localQueue))
+				log.V(2).Info("LocalQueue already exists", "namespace", newNs.Name)
 			} else {
-				log.Error(err, "Failed to create LocalQueue", "localQueue", klog.KObj(localQueue))
+				log.Error(err, "Failed to create LocalQueue", "namespace", newNs.Name)
 			}
-		} else {
-			log.V(2).Info("Created LocalQueue", "localQueue", klog.KObj(localQueue))
 		}
 	}
 }
@@ -556,6 +609,29 @@ func (h *nonCQObjectHandler) Generic(_ context.Context, e event.TypedGenericEven
 		}}, constants.UpdatesBatchPeriod)
 	}
 }
+
+func createLocalQueueForNS(ctx context.Context, c client.Client, ns *corev1.Namespace, cq *kueue.ClusterQueue) error {
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Attempting to create LocalQueue", "localQueueName", cq.Spec.AutoLocalQueue.Name, "namespace", ns.Name, "clusterQueue", cq.Name)
+	localQueue := &kueue.LocalQueue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cq.Spec.AutoLocalQueue.Name,
+			Namespace: ns.Name,
+			Labels: map[string]string{
+				constants.AutoGeneratedLabel: "true",
+			},
+			Annotations: map[string]string{
+				constants.ClusterQueueAnnotation: cq.Name,
+			},
+		},
+		Spec: kueue.LocalQueueSpec{
+			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
+		},
+	}
+
+	return c.Create(ctx, localQueue)
+}
+
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {

@@ -19,6 +19,7 @@ package core
 import (
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -63,12 +64,17 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		watchers = append(watchers, cohortRec)
 	}
 
+	selector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
+	if err != nil {
+		return "ClusterQueue", err
+	}
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),
 		qManager,
 		cc,
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithFairSharing(fairSharingEnabled),
+		WithNamespaceSelector(selector),
 		WithWatchers(watchers...),
 	)
 	rfRec.AddUpdateWatcher(cqRec)

@@ -313,7 +313,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
-
 	AutoLocalQueue: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},

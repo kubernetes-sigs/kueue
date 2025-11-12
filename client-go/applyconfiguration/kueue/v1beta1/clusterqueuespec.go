@@ -36,6 +36,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	StopPolicy              *kueuev1beta1.StopPolicy                   `json:"stopPolicy,omitempty"`
 	FairSharing             *FairSharingApplyConfiguration             `json:"fairSharing,omitempty"`
 	AdmissionScope          *AdmissionScopeApplyConfiguration          `json:"admissionScope,omitempty"`
+	AutoLocalQueue          *AutoLocalQueueApplyConfiguration          `json:"autoLocalQueue,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs a declarative configuration of the ClusterQueueSpec type for use with
@@ -136,5 +137,13 @@ func (b *ClusterQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingA
 // If called multiple times, the AdmissionScope field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionScope(value *AdmissionScopeApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
 	b.AdmissionScope = value
+	return b
+}
+
+// WithAutoLocalQueue sets the AutoLocalQueue field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AutoLocalQueue field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithAutoLocalQueue(value *AutoLocalQueueApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
+	b.AutoLocalQueue = value
 	return b
 }

@@ -78,21 +78,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		}
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Reconciling clusterQueue usage status", func() {
@@ -926,65 +920,25 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 	})
-	ginkgo.When("DefaultLocalQueue feature is enabled", func() {
-		var (
-			cq *kueue.ClusterQueue
-		)
-
+	ginkgo.When("AutoLocalQueue feature is enabled", func() {
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, true)
-			cq = utiltestingapi.MakeClusterQueue("cq").
-				NamespaceSelector(&metav1.LabelSelector{
-					MatchLabels: map[string]string{"dep": "eng"},
-				}).
-				AutoLocalQueue(&kueue.AutoLocalQueue{Name: "default-lq"}).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, false)
+			fwk.StopManager(ctx)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AutoLocalQueue, true)
+			fwk.StartManager(ctx, cfg, managerSetup)
 		})
 
 		ginkgo.It("Should create a LocalQueue when a matching namespace is created", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "test-ns-",
-					Labels:       map[string]string{"dep": "eng"},
-				},
-			}
-			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
-			lq := &kueue.LocalQueue{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default-lq", Namespace: ns.Name}, lq)).To(gomega.Succeed())
-				g.Expect(lq.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
-
-	ginkgo.When("DefaultLocalQueue feature is disabled", func() {
-		var (
-			cq *kueue.ClusterQueue
-		)
-
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DefaultLocalQueue, false)
-			cq = utiltestingapi.MakeClusterQueue("cq").
+			cq := utiltestingapi.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchLabels: map[string]string{"dep": "eng"},
 				}).
 				AutoLocalQueue(&kueue.AutoLocalQueue{Name: "default-lq"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-		})
+			defer func() {
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+			}()
 
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
-		})
-
-		ginkgo.It("Should not create a LocalQueue when a matching namespace is created", func() {
 			ns := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "test-ns-",
@@ -992,11 +946,61 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			}()
 
-			lq := &kueue.LocalQueue{}
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "default-lq", Namespace: ns.Name}, lq)).To(gomega.HaveOccurred())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Check that the LocalQueue is created")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var createdCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &createdCq)).To(gomega.Succeed())
+				g.Expect(createdCq.Spec.AutoLocalQueue).NotTo(gomega.BeNil())
+
+				var createdLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.AutoLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should create a LocalQueue when a new ClusterQueue is created and matching namespace exists", func() {
+			ginkgo.By("Create a matching namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "test-ns-",
+					Labels: map[string]string{
+						"foo": "bar",
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			}()
+
+			ginkgo.By("Create a ClusterQueue")
+			cq := utiltestingapi.MakeClusterQueue("new-cq").
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"foo": "bar",
+					},
+				}).
+				AutoLocalQueue(&kueue.AutoLocalQueue{
+					Name: "new-default-lq",
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+			}()
+
+			ginkgo.By("Check that the LocalQueue is created")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var createdCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &createdCq)).To(gomega.Succeed())
+				g.Expect(createdCq.Spec.AutoLocalQueue).NotTo(gomega.BeNil())
+
+				var createdLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: createdCq.Spec.AutoLocalQueue.Name, Namespace: ns.Name}, &createdLq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

@@ -118,12 +118,13 @@ func (w *ClusterQueueWebhook) validateClusterQueue(ctx context.Context, cq *kueu
 	allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
 	allErrs = append(allErrs, validateTotalFlavors(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs, validateTotalCoveredResources(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
-			allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
-		if features.Enabled(features.AutoLocalQueue) && cq.Spec.AutoLocalQueue != nil {
-			allErrs = append(allErrs, validateAutoLocalQueueName(cq.Spec.AutoLocalQueue, path.Child("autoLocalQueue"))...)
-			allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
-		}
-		return allErrs}
+	allErrs = append(allErrs, validateFlavorResourceCombinations(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	if features.Enabled(features.AutoLocalQueue) && cq.Spec.AutoLocalQueue != nil {
+		allErrs = append(allErrs, validateAutoLocalQueueName(cq.Spec.AutoLocalQueue, path.Child("autoLocalQueue"))...)
+		allErrs = append(allErrs, w.validateExistingLocalQueues(ctx, cq, path)...)
+	}
+	return allErrs
+}
 
 func (w *ClusterQueueWebhook) validateExistingLocalQueues(ctx context.Context, cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
