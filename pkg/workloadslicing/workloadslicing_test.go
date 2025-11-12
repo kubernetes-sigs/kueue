@@ -347,7 +347,9 @@ func TestFinish(t *testing.T) {
 			args: args{
 				clnt: testWorkloadClientBuilder().
 					WithObjects(testWorkload("test", "test-job", "job-uid", now).Obj()).
-					WithStatusSubresource(testWorkload("test", "test-job", "job-uid", now).Obj()).Build(),
+					WithStatusSubresource(testWorkload("test", "test-job", "job-uid", now).Obj()).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					Build(),
 				workloadSlice: testWorkload("test", "test-job", "job-uid", now).Obj(),
 				reason:        "TestReason",
 				message:       "Test Message.",
@@ -831,6 +833,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(now).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
