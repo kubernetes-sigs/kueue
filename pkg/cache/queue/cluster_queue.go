@@ -336,16 +336,22 @@ func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client cl
 	return moved
 }
 
-// Pending returns the total number of pending workloads.
-func (c *ClusterQueue) Pending() int {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	return c.PendingActive() + c.PendingInadmissible()
+// PendingTotal returns the total number of pending workloads.
+func (c *ClusterQueue) PendingTotal() int {
+	active, inadmissible := c.Pending()
+	return active + inadmissible
 }
 
-// PendingActive returns the number of active pending workloads,
+// Pending returns the number of active and inadmissible pending workloads.
+func (c *ClusterQueue) Pending() (int, int) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.pendingActive(), c.pendingInadmissible()
+}
+
+// pendingActive returns the number of active pending workloads,
 // workloads that are in the admission queue.
-func (c *ClusterQueue) PendingActive() int {
+func (c *ClusterQueue) pendingActive() int {
 	result := c.heap.Len()
 	if c.inflight != nil {
 		result++
@@ -353,10 +359,10 @@ func (c *ClusterQueue) PendingActive() int {
 	return result
 }
 
-// PendingInadmissible returns the number of inadmissible pending workloads,
+// pendingInadmissible returns the number of inadmissible pending workloads,
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
-func (c *ClusterQueue) PendingInadmissible() int {
+func (c *ClusterQueue) pendingInadmissible() int {
 	return len(c.inadmissibleWorkloads)
 }
 
