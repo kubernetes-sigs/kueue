@@ -58,10 +58,12 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 	var createQueue = func(cq *kueue.ClusterQueue) *kueue.ClusterQueue {
 		util.MustCreate(ctx, k8sClient, cq)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 		cqs = append(cqs, cq)
 
 		lq := testing.MakeLocalQueue(cq.Name, ns.Name).ClusterQueue(cq.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lq)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 		lqs = append(lqs, lq)
 		return cq
 	}
@@ -929,35 +931,36 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, f
 
 		ginkgo.It("sticky workload deleted, next workload can admit", func() {
 			ginkgo.By("Creating borrowing workloads in queue2")
-			createWorkload("cq2", "1")
-			createWorkload("cq2", "1")
+			createWorkloadWithPriority("cq2", "1", 0)
+			createWorkloadWithPriority("cq2", "1", 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
-
-			ginkgo.By("Create inadmissible workload in queue1")
-			createWorkloadWithPriority("cq1", "4", 999)
-
-			ginkgo.By("Verify doesn't admit")
-			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 0)
 
 			ginkgo.By("Create admissible workloads in queue1")
 			stickyWorkload := createWorkloadWithPriority("cq1", "3", 99)
 
+			ginkgo.By("Verify the workload is counted as pending active")
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 0)
+
 			ginkgo.By("Another admissible workload in queue1")
 			createWorkloadWithPriority("cq1", "3", 0)
+
+			ginkgo.By("Validate pending workloads")
+			util.ExpectPendingWorkloadsMetric(cq1, 2, 0)
 
 			ginkgo.By("Delete sticky workload")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, stickyWorkload, true)
 
 			ginkgo.By("Validate pending workloads")
-			util.ExpectPendingWorkloadsMetric(cq1, 1, 1)
+			util.ExpectPendingWorkloadsMetric(cq1, 1, 0)
 
 			ginkgo.By("Complete preemption")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
-			util.ExpectClusterQueueWeightedShareMetric(cq1, 0)
-			util.ExpectClusterQueueWeightedShareMetric(cq2, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq2, "", 2)
+			util.ExpectClusterQueueWeightedShareMetric(cq1, 1000)
+			util.ExpectClusterQueueWeightedShareMetric(cq2, 0.0)
 		})
 	})
 
