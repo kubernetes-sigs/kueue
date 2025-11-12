@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftrainerruntime "github.com/kubeflow/trainer/v2/pkg/runtime"
@@ -76,10 +75,9 @@ func init() {
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=clustertrainingruntimes,verbs=get;list;watch
 
 type trainJobReconciler struct {
-	jr               *jobframework.JobReconciler
-	runtimes         map[string]kftrainerruntime.Runtime
-	client           client.Client
-	runtimeInfoMutex sync.Mutex
+	jr       *jobframework.JobReconciler
+	runtimes map[string]kftrainerruntime.Runtime
+	client   client.Client
 }
 
 var reconciler trainJobReconciler
@@ -169,7 +167,7 @@ func getChildJobSet(ctx context.Context, t *TrainJob) (*jobsetapi.JobSet, error)
 	if err != nil {
 		return nil, fmt.Errorf("runtime '%s' not found", trainJob.Spec.RuntimeRef.Name)
 	}
-	info, err := reconciler.runtimeInfo(runtime, trainJob, trSpec)
+	info, err := runtime.RuntimeInfo(trainJob, trSpec.Template, trSpec.MLPolicy, trSpec.PodGroupPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -184,13 +182,6 @@ func getChildJobSet(ctx context.Context, t *TrainJob) (*jobsetapi.JobSet, error)
 
 	// convert to jobset with the defaults set
 	return jobsetApplyToJobset(jobsetApply)
-}
-
-// TODO: Remove mutex once RuntimeInfo gets thread safe - https://github.com/kubeflow/trainer/issues/2873
-func (r *trainJobReconciler) runtimeInfo(runtime kftrainerruntime.Runtime, trainJob *kftrainer.TrainJob, trSpec *kftrainer.TrainingRuntimeSpec) (*kftrainerruntime.Info, error) {
-	r.runtimeInfoMutex.Lock()
-	defer r.runtimeInfoMutex.Unlock()
-	return runtime.RuntimeInfo(trainJob, trSpec.Template, trSpec.MLPolicy, trSpec.PodGroupPolicy)
 }
 
 func jobsetApplyToJobset(jobsetApply *jobsetapplyapi.JobSetApplyConfiguration) (*jobsetapi.JobSet, error) {
