@@ -233,12 +233,17 @@ var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
 	legacyControllerUIDLabel = "controller-uid"
-	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.ControllerUidLabel}
 )
 
 func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 	for _, managedLabel := range ManagedLabels {
 		delete(pt.Labels, managedLabel)
+	}
+	if !features.Enabled(features.PropagateBatchJobLabelsToWorkload) {
+		// Remove job-name label.
+		// As features.PropagateBatchJobLabelsToWorkload is graduated to GA, this branch will be removed in future.
+		delete(pt.Labels, batchv1.JobNameLabel)
 	}
 	return pt
 }
