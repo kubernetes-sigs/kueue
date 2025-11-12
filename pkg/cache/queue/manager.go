@@ -412,7 +412,7 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 		return 0, ErrClusterQueueDoesNotExist
 	}
 
-	return cqImpl.Pending(), nil
+	return cqImpl.PendingTotal(), nil
 }
 
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
@@ -714,8 +714,7 @@ func (m *Manager) reportLQPendingWorkloads(lq *LocalQueue) {
 }
 
 func (m *Manager) reportPendingWorkloads(cqName kueue.ClusterQueueReference, cq *ClusterQueue) {
-	active := cq.PendingActive()
-	inadmissible := cq.PendingInadmissible()
+	active, inadmissible := cq.Pending()
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 		inadmissible += active
 		active = 0
