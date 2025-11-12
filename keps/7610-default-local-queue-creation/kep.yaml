@@ -1,9 +1,9 @@
 title: Create Default LocalQueues Based on NamespaceSelector
-kep-number: <TODO>
+kep-number: 7610
 authors:
   - "@j-skiba"
 status: provisional
-creation-date: 2025-11-06
+creation-date: 2025-11-12
 reviewers:
   - TBD
 approvers:

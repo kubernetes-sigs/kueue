@@ -1,4 +1,4 @@
-# KEP-NNNN: Create Default LocalQueues Based on NamespaceSelector
+# KEP-7610: Create Default LocalQueues Based on NamespaceSelector
 
 <!--
 This is the title of your KEP. Keep it short, simple, and descriptive. A good
@@ -58,12 +58,13 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-This KEP proposes an opt-in feature to automatically create a default
-`LocalQueue` in namespaces that match a `ClusterQueue`'s `namespaceSelector`.
-This avoids the need for administrators to manually create a `LocalQueue` in
-each namespace. The `clusterqueue-controller` will be updated to watch for
-matching namespaces and create the `LocalQueue` automatically. This feature will
-be managed by a feature gate.
+This KEP proposes a change to the ClusterQueue API to introduce an opt-in
+feature that automatically creates a default LocalQueue in namespaces that
+match a ClusterQueue's namespaceSelector. This avoids the need for administrators
+to manually create a LocalQueue in each namespace. To implement this,
+the clusterqueue-controller will be updated to watch for matching namespaces
+and create the LocalQueue automatically. The entire feature will be managed
+by a feature gate.
 
 ## Motivation
 
