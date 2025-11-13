@@ -145,10 +145,10 @@ this feature enabled, the controller will create a `LocalQueue` with the
 specified name in that namespace.
 
 To prevent conflicts where two `ClusterQueue`s might try to create a `LocalQueue`
-with the same name in the same namespace, a validating admission webhook will be
-added. This webhook will reject the creation or update of a `ClusterQueue` if
-its `namespaceSelector` (with `defaultLocalQueue` enabled) overlaps with an
-existing `ClusterQueue` that also has the feature enabled.
+with the same name in the same namespace, new logic to the existing `ClusterQueue`
+admission webhook will be added. This webhook will reject the creation or update
+of a `ClusterQueue` if its `namespaceSelector` (with `defaultLocalQueue` enabled)
+overlaps with an existing `ClusterQueue` that also has the feature enabled.
 
 
 
@@ -264,7 +264,7 @@ reconciliation logic:
 
 ### Admission Webhook
 
-A new validating admission webhook for `ClusterQueue`s will be implemented to
+Add new validation admission logic to the existing `ClusterQueue` webhook to
 prevent selector overlap.
 
 1. The webhook triggers on `CREATE` and `UPDATE` of `ClusterQueue` resources.
