@@ -320,18 +320,16 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 			if err := r.client.List(ctx, &nsList); err != nil {
 				log.Error(err, "Failed to list namespaces")
 			} else {
-				log.V(2).Info("Checking namespaces for LocalQueue creation")
 				for i := range nsList.Items {
 					ns := &nsList.Items[i]
 					if r.namespaceSelector != nil && !r.namespaceSelector.Matches(labels.Set(ns.Labels)) {
-						log.V(2).Info("Namespace does not match controller's namespaceSelector, skipping", "namespace", ns.Name)
 						continue
 					}
 					if selector.Matches(labels.Set(ns.Labels)) {
-						log.V(2).Info("Namespace matches ClusterQueue's namespaceSelector, creating LocalQueue", "namespace", ns.Name)
+						log.V(2).Info("Namespace matches ClusterQueue's namespaceSelector, creating LocalQueue", "namespace", ns.Name, "localQueue", e.Object.Spec.AutoLocalQueue.Name)
 						if err := createLocalQueueForNS(ctx, r.client, ns, e.Object); err != nil {
 							if errors.IsAlreadyExists(err) {
-								log.V(2).Info("LocalQueue already exists for namespace", "namespace", ns.Name)
+								log.V(2).Info("LocalQueue already exists for namespace", "namespace", ns.Name, "localQueue", e.Object.Spec.AutoLocalQueue.Name)
 							} else {
 								log.Error(err, "Failed to create LocalQueue for namespace", "namespace", ns.Name)
 							}
@@ -575,10 +573,10 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 			continue
 		}
 
-		log.V(2).Info("Creating LocalQueue for ClusterQueue", "clusterQueue", klog.KObj(&clusterQueue))
+		log.V(2).Info("Creating LocalQueue for ClusterQueue", "clusterQueue", klog.KObj(&clusterQueue), "localQueue", clusterQueue.Spec.AutoLocalQueue.Name)
 		if err := createLocalQueueForNS(ctx, h.client, newNs, &clusterQueue); err != nil {
 			if errors.IsAlreadyExists(err) {
-				log.V(2).Info("LocalQueue already exists", "namespace", newNs.Name)
+				log.V(2).Info("LocalQueue already exists", "namespace", newNs.Name, "localQueue", clusterQueue.Spec.AutoLocalQueue.Name)
 			} else {
 				log.Error(err, "Failed to create LocalQueue", "namespace", newNs.Name)
 			}
@@ -611,8 +609,6 @@ func (h *nonCQObjectHandler) Generic(_ context.Context, e event.TypedGenericEven
 }
 
 func createLocalQueueForNS(ctx context.Context, c client.Client, ns *corev1.Namespace, cq *kueue.ClusterQueue) error {
-	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Attempting to create LocalQueue", "localQueueName", cq.Spec.AutoLocalQueue.Name, "namespace", ns.Name, "clusterQueue", cq.Name)
 	localQueue := &kueue.LocalQueue{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cq.Spec.AutoLocalQueue.Name,
@@ -631,7 +627,6 @@ func createLocalQueueForNS(ctx context.Context, c client.Client, ns *corev1.Name
 
 	return c.Create(ctx, localQueue)
 }
-
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
