@@ -1560,13 +1560,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
-							Domains: []kueue.TopologyDomainAssignment{
+							Domains: []utiltas.TopologyDomainAssignment{
 								{Count: 8, Values: []string{"x1"}},
 								{Count: 8, Values: []string{"x2"}},
 							},
-						},
+						}),
 					))
 				})
 			})
@@ -1597,22 +1597,22 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
-							Domains: []kueue.TopologyDomainAssignment{
+							Domains: []utiltas.TopologyDomainAssignment{
 								{Count: 1, Values: []string{"x1"}},
 							},
-						},
+						}),
 					))
 					gomega.Expect(wl1.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
-						&kueue.TopologyAssignment{
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
 							Levels: []string{corev1.LabelHostname},
-							Domains: []kueue.TopologyDomainAssignment{
+							Domains: []utiltas.TopologyDomainAssignment{
 								{Count: 10, Values: []string{"x1"}},
 								{Count: 10, Values: []string{"x2"}},
 								{Count: 10, Values: []string{"x3"}},
 							},
-						},
+						}),
 					))
 				})
 			})
