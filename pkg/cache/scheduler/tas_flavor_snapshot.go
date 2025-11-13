@@ -741,33 +741,50 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/slices
-	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained)
-	if len(reason) > 0 {
-		return nil, reason
+	var currFitDomain []*domain
+	var fitLevelIdx int
+	var useBalancedPlacement bool
+	if features.Enabled(features.TASBalancedPlacement) && !required && !unconstrained {
+		var bestThreshold int32
+		currFitDomain, bestThreshold, useBalancedPlacement = findBestDomainsForBalancedPlacement(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize)
+
+		if useBalancedPlacement {
+			currFitDomain, reason = applyBalancedPlacementAlgorithm(s, levelIdx, sliceLevelIdx, count, leaderCount, sliceSize, bestThreshold, unconstrained, currFitDomain)
+			if len(reason) > 0 {
+				return nil, reason
+			}
+		}
 	}
 
-	// phase 2b: traverse the tree down level-by-level optimizing the number of
-	// topology domains at each level
-	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
-	for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
-		if levelIdx < sliceLevelIdx {
-			// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
-			// all domains without checking what we've assigned to parent domains.
-			sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
-			currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
-		} else {
-			// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
-			// to domains based on what we've assigned to parent domains, that's why we're iterating through
-			// each parent domain and assigning `domain.state` amount of pods its child domains.
-			newCurrFitDomain := make([]*domain, 0)
-			for _, domain := range currFitDomain {
-				sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+	if !useBalancedPlacement {
+		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(levelIdx, required, count, leaderCount, sliceSize, unconstrained)
+		if len(reason) > 0 {
+			return nil, reason
+		}
+		// phase 2b: traverse the tree down level-by-level optimizing the number of
+		// topology domains at each level
+		// if unconstrained is set, we'll only do it once
+		currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, count, leaderCount, sliceSize, unconstrained, true)
 
-				addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
-				newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+		for levelIdx := fitLevelIdx; levelIdx+1 < len(s.domainsPerLevel); levelIdx++ {
+			if levelIdx < sliceLevelIdx {
+				// If we are "above" the requested slice topology level, we're greedily assigning pods/slices to
+				// all domains without checking what we've assigned to parent domains.
+				sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), unconstrained)
+				currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, count, leaderCount, sliceSize, unconstrained, true)
+			} else {
+				// If we are "at" or "below" the requested slice topology level, we have to carefully assign pods
+				// to domains based on what we've assigned to parent domains, that's why we're iterating through
+				// each parent domain and assigning `domain.state` amount of pods its child domains.
+				newCurrFitDomain := make([]*domain, 0)
+				for _, domain := range currFitDomain {
+					sortedLowerDomains := s.sortedDomains(domain.children, unconstrained)
+
+					addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domain.state, domain.leaderState, 1, unconstrained, false)
+					newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
+				}
+				currFitDomain = newCurrFitDomain
 			}
-			currFitDomain = newCurrFitDomain
 		}
 	}
 
@@ -1413,6 +1430,33 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		return fmt.Sprintf("topology %q doesn't allow to fit any of %d slice(s)", s.topologyName, totalRequestsSlicesCount)
 	}
 	return fmt.Sprintf("topology %q allows to fit only %d out of %d slice(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount)
+}
+
+func clearState(d *domain) {
+	d.state = int32(0)
+	d.sliceState = int32(0)
+	d.stateWithLeader = int32(0)
+	d.sliceStateWithLeader = int32(0)
+	d.leaderState = int32(0)
+	for _, child := range d.children {
+		clearState(child)
+	}
+}
+
+func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int) {
+	for _, d := range domains {
+		for _, c := range d.children {
+			if c.sliceStateWithLeader < threshold {
+				clearState(c)
+			}
+		}
+	}
+	for _, d := range domains {
+		d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState = s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level)
+		if d.sliceStateWithLeader < threshold {
+			clearState(d)
+		}
+	}
 }
 
 func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
