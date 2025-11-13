@@ -236,14 +236,12 @@ var (
 	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.ControllerUidLabel}
 )
 
-func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
-	for _, managedLabel := range ManagedLabels {
-		delete(pt.Labels, managedLabel)
-	}
+func cleanManagedLabels(pt *corev1.PodTemplateSpec, labels []string) *corev1.PodTemplateSpec {
 	if !features.Enabled(features.PropagateBatchJobLabelsToWorkload) {
-		// Remove job-name label.
-		// As features.PropagateBatchJobLabelsToWorkload is graduated to GA, this branch will be removed in future.
-		delete(pt.Labels, batchv1.JobNameLabel)
+		labels = append(labels, batchv1.JobNameLabel)
+	}
+	for _, managedLabel := range labels {
+		delete(pt.Labels, managedLabel)
 	}
 	return pt
 }
@@ -251,7 +249,7 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 func (j *Job) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
 		Name:     kueue.DefaultPodSetName,
-		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+		Template: *cleanManagedLabels(j.Spec.Template.DeepCopy(), ManagedLabels),
 		Count:    j.podsCount(),
 		MinCount: j.minPodsCount(),
 	}
