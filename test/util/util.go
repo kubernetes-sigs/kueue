@@ -1195,7 +1195,7 @@ func GetListOptsFromLabel(label string) *client.ListOptions {
 
 func MustCreate(ctx context.Context, c client.Client, obj client.Object) {
 	ginkgo.GinkgoHelper()
-	gomega.ExpectWithOffset(1, c.Create(ctx, obj)).Should(gomega.Succeed())
+	gomega.Expect(c.Create(ctx, obj)).Should(gomega.Succeed())
 }
 
 func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, obj client.Object, scheme *runtime.Scheme) {
