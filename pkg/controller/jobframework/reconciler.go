@@ -1352,7 +1352,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 
-		info.Labels[controllerconsts.PodSetLabel] = string(psAssignment.Name)
+		info.Labels[constants.PodSetLabel] = string(psAssignment.Name)
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {

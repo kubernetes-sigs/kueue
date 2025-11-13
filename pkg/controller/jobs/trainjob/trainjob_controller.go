@@ -41,7 +41,7 @@ import (
 	jobsetapplyapi "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -311,7 +311,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 	for i, o := range t.Spec.PodTemplateOverrides {
 		if o.Metadata != nil {
-			_, exists := o.Metadata.Labels[controllerconsts.PodSetLabel]
+			_, exists := o.Metadata.Labels[constants.PodSetLabel]
 			if exists {
 				t.Spec.PodTemplateOverrides = t.Spec.PodTemplateOverrides[:i]
 				break
