@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -70,6 +71,11 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 func managerAndControllerSetup(controllersCfg *config.Configuration) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = mgr.GetFieldIndexer().IndexField(ctx, &kueue.LocalQueue{}, "metadata.name", func(o client.Object) []string {
+			return []string{o.GetName()}
+		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		failedWebhook, err := webhooks.Setup(mgr)

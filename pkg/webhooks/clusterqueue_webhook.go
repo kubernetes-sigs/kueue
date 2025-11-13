@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -142,21 +141,34 @@ func (w *ClusterQueueWebhook) validateExistingLocalQueues(ctx context.Context, c
 		return nil
 	}
 
+	var lqList kueue.LocalQueueList
+	if err := w.client.List(ctx, &lqList, client.MatchingFields{"metadata.name": cq.Spec.AutoLocalQueue.Name}); err != nil {
+		allErrs = append(allErrs, field.InternalError(path, err))
+		return allErrs
+	}
+
+	if len(lqList.Items) == 0 {
+		return nil
+	}
+
 	var nsList corev1.NamespaceList
 	if err := w.client.List(ctx, &nsList); err != nil {
 		allErrs = append(allErrs, field.InternalError(path, err))
 		return allErrs
 	}
 
-	for _, ns := range nsList.Items {
+	nsMap := make(map[string]*corev1.Namespace, len(nsList.Items))
+	for i := range nsList.Items {
+		nsMap[nsList.Items[i].Name] = &nsList.Items[i]
+	}
+
+	for _, lq := range lqList.Items {
+		ns, found := nsMap[lq.Namespace]
+		if !found {
+			continue
+		}
 		if selector.Matches(labels.Set(ns.Labels)) {
-			var lq kueue.LocalQueue
-			err := w.client.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: cq.Spec.AutoLocalQueue.Name}, &lq)
-			if err == nil {
-				allErrs = append(allErrs, field.Invalid(path.Child("autoLocalQueue").Child("name"), cq.Spec.AutoLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
-			} else if !apierrors.IsNotFound(err) {
-				allErrs = append(allErrs, field.InternalError(path, err))
-			}
+			allErrs = append(allErrs, field.Invalid(path.Child("autoLocalQueue").Child("name"), cq.Spec.AutoLocalQueue.Name, fmt.Sprintf("a LocalQueue with this name already exists in namespace %q", ns.Name)))
 		}
 	}
 	return allErrs
